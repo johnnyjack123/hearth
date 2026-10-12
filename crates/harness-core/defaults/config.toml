@@ -1,0 +1,25 @@
+# llm-harness: globale Einstellungen
+#
+# Projekte stehen in projects/<name>.toml, Harness-Definitionen in
+# harnesses/<name>.toml. Dieser Ordner enthält sicherheitsrelevante
+# Einstellungen (Netzwerk, Ressourcen) und darf deshalb nie in einem
+# Projektordner liegen.
+
+# Podman-Machine, in der die Container laufen
+machine = "harness"
+
+[defaults]
+# Harness für `harness run` ohne Angabe
+harness = "pi"
+
+# Netzwerk-Voreinstellung für neue Projekte:
+#   off          kein Netz
+#   development  Paketquellen, Git-Hoster und LLM-APIs
+#   open         gesamtes öffentliches Internet (nie Host, LAN oder Tailnet)
+#   custom       nur die allow-Liste des Projekts
+network = "development"
+
+[defaults.resources]
+# Grenzen pro Instanz. Die VM selbst hat höchstens 4 GB.
+memory = "3g"
+# cpus = 2

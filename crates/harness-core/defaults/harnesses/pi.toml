@@ -1,0 +1,18 @@
+# Harness-Definition für pi
+name = "pi"
+description = "Minimaler Coding-Agent mit vielen LLM-Anbietern"
+
+# Läuft in einem eigenen Container mit Netz über das Gateway. Ziel ist das
+# gemeinsame Tools-Volume /opt/harness-tools, das Instanzen nur lesen.
+install = "npm install -g @earendil-works/pi-coding-agent"
+
+# Start im Arbeitsverzeichnis /workspace
+command = ["pi"]
+
+# Logins und Einstellungen, pro Nutzer über alle Projekte geteilt
+persist = ["~/.pi"]
+
+# Nur für die Anbindung an den Web-Chat (Phase 4)
+[adapter]
+kind = "pi-rpc"
+command = ["pi", "--mode", "rpc"]

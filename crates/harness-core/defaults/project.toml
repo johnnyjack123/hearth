@@ -1,0 +1,29 @@
+# Projekt „{name}“ für llm-harness
+#
+# Die Einstellungen stehen bewusst hier und nicht im Projektordner: Den kann
+# der Agent über seine Commits verändern, sonst könnte er seine eigenen
+# Regeln lockern.
+
+# Git-Repository auf dem Host
+path = ""
+
+# Harness für `harness run` ohne Angabe (fehlt: Standard aus config.toml)
+# default_harness = "pi"
+
+[files]
+# isolated: Der Agent arbeitet auf einem eigenen Klon in der VM. Commits
+# kommen per `harness sync` als Branch agent/<projekt> zurück.
+mode = "isolated"
+
+[network]
+# off | development | open | custom (siehe config.toml)
+preset = "development"
+# Zusätzlich erlaubte bzw. gesperrte Domains, z. B. "api.example.com" oder
+# "*.example.com". deny gewinnt gegen allow.
+allow = []
+deny = []
+
+[resources]
+# Fehlt ein Wert, gilt der Standard aus config.toml.
+# memory = "2g"
+# cpus = 2

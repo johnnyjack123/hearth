@@ -98,6 +98,23 @@ pub enum Error {
     #[error("Die Machine hat keinen Austauschordner unter {0}")]
     ExchangeMissing(String),
 
+    /// A configuration file cannot be parsed or fails validation.
+    #[error("Konfiguration {} ist ungültig: {message}", path.display())]
+    ConfigInvalid {
+        /// The offending file.
+        path: PathBuf,
+        /// Parser or validation message.
+        message: String,
+    },
+
+    /// No project file with this name exists.
+    #[error("Projekt {0} ist nicht angelegt")]
+    ProjectUnknown(String),
+
+    /// No harness definition with this name exists (neither file nor built-in).
+    #[error("Harness {0} ist nicht definiert (harnesses/{0}.toml fehlt)")]
+    HarnessUnknown(String),
+
     /// Filesystem error with context.
     #[error("{context}: {source}")]
     Io {
