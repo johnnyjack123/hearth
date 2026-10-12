@@ -1,0 +1,8 @@
+# Throwaway egress proxy for the Phase-0 network spike (tinyproxy, domain allowlist).
+# The real gateway is planned as a small Rust proxy (ARCHITECTURE.md 3.5).
+FROM docker.io/library/alpine:3.22
+RUN apk add --no-cache tinyproxy
+COPY tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
+COPY allowlist /etc/tinyproxy/allowlist
+EXPOSE 8888
+CMD ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]
