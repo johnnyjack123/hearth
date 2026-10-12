@@ -1,0 +1,23 @@
+# System-wide git settings for harness instances (/etc/gitconfig).
+# Users and agents can override them in ~/.gitconfig (home volume).
+
+[core]
+	# Phase 0 (docs/spikes/phase-0.md 4.3): without these, Linux git rehashes
+	# every file whenever Windows git touched the same index. Not needed in
+	# isolated mode, required for a later direct (bind-mount) mode.
+	checkStat = minimal
+	trustctime = false
+
+[safe]
+	# The workspace volume normally belongs to the agent user anyway; this keeps
+	# git working if a volume ends up with a different owner.
+	directory = /workspace
+	directory = /workspace/*
+
+[init]
+	defaultBranch = main
+
+[user]
+	# Makes agent commits recognisable when they arrive in the host repo.
+	name = harness agent
+	email = agent@harness.invalid

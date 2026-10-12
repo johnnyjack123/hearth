@@ -1,0 +1,4 @@
+[build]
+# The dev machine usually has only 2-3 GB of RAM free; with the default job
+# count rustc crashed (0xc0000409) during the phase-0 Tauri build.
+jobs = 2

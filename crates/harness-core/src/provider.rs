@@ -1,0 +1,581 @@
+//! The sandbox provider abstraction.
+//!
+//! A provider owns "where containers run": today only [`crate::podman::PodmanProvider`]
+//! (Podman machine on Hyper-V), later possibly Docker on Linux or others
+//! (ARCHITECTURE.md §3). Everything above this trait (instances, sync, CLI)
+//! must stay provider-agnostic.
+//!
+//! Security invariants that every provider enforces itself, so callers cannot
+//! forget them:
+//! - containers are always created hardened (no capabilities, read-only root,
+//!   no new privileges, fixed unprivileged user, pid limit);
+//! - containers only join internal networks;
+//! - the only host data a container can see is the exchange folder;
+//! - every created resource carries [`crate::MANAGED_LABEL`].
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crate::{Error, Result};
+
+/// Key/value labels attached to images, containers, volumes and networks.
+pub type Labels = BTreeMap<String, String>;
+
+/// A place to run sandboxed containers.
+pub trait Provider {
+    /// Short identifier for logs and `doctor`, e.g. `podman`.
+    fn name(&self) -> &'static str;
+
+    /// Checks that the VM (or engine) is reachable and returns facts about it.
+    fn ping(&self) -> Result<HostInfo>;
+
+    /// Labels of a local image, or `None` if the image does not exist.
+    fn image_labels(&self, image: &str) -> Result<Option<Labels>>;
+
+    /// Builds an image from a context directory on the host. Output is shown
+    /// to the user as it happens.
+    fn build_image(&self, build: &ImageBuild) -> Result<()>;
+
+    /// Creates the volume unless it exists.
+    fn ensure_volume(&self, volume: &VolumeSpec) -> Result<()>;
+
+    /// Removes a volume if it exists. Fails while a container still uses it.
+    fn remove_volume(&self, name: &str) -> Result<()>;
+
+    /// Creates the network unless it exists. An existing network whose
+    /// internal flag differs from the spec is an error, never silently reused.
+    fn ensure_network(&self, network: &NetworkSpec) -> Result<()>;
+
+    /// Removes a network if it exists. Fails while a container still uses it.
+    fn remove_network(&self, name: &str) -> Result<()>;
+
+    /// Looks up a container by exact name.
+    fn container(&self, name: &str) -> Result<Option<ContainerInfo>>;
+
+    /// Creates (but does not start) a hardened container.
+    fn create_container(&self, spec: &ContainerSpec) -> Result<()>;
+
+    /// Starts a created or stopped container. Starting a running one is a no-op.
+    fn start_container(&self, name: &str) -> Result<()>;
+
+    /// Stops a container if it exists and is running.
+    fn stop_container(&self, name: &str) -> Result<()>;
+
+    /// Removes a container if it exists, stopping it first.
+    fn remove_container(&self, name: &str) -> Result<()>;
+
+    /// Runs a command in a running container attached to this process's
+    /// stdio (with a TTY if requested) and returns its exit code.
+    fn exec(&self, exec: &ExecSpec) -> Result<i32>;
+
+    /// Runs a command in a running container and captures its output.
+    fn exec_output(&self, exec: &ExecSpec) -> Result<ExecOutput>;
+
+    /// The folder shared between host and VM, used for git bundles.
+    fn exchange(&self) -> Result<&ExchangeDir>;
+}
+
+/// Facts about the VM, reported by [`Provider::ping`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostInfo {
+    /// CPU architecture, e.g. `arm64`.
+    pub arch: String,
+    /// Distribution name, e.g. `fedora`.
+    pub distribution: String,
+    /// Distribution version, e.g. `44`.
+    pub distribution_version: String,
+    /// Kernel release.
+    pub kernel: String,
+    /// Version of the container engine inside the VM.
+    pub engine_version: String,
+    /// Whether containers run rootless.
+    pub rootless: bool,
+    /// Total memory of the VM in bytes.
+    pub mem_total: u64,
+    /// Free memory of the VM in bytes.
+    pub mem_free: u64,
+}
+
+/// Parameters for [`Provider::build_image`].
+#[derive(Debug, Clone, Default)]
+pub struct ImageBuild {
+    /// Fully qualified tag, e.g. `localhost/harness/base:latest`.
+    pub tag: String,
+    /// Build context on the host; must contain a `Containerfile`.
+    pub context: PathBuf,
+    /// Labels added to the image.
+    pub labels: Labels,
+    /// `--build-arg` values.
+    pub build_args: BTreeMap<String, String>,
+    /// Always pull newer base images instead of using cached ones.
+    pub pull: bool,
+    /// Ignore the layer cache.
+    pub no_cache: bool,
+}
+
+/// Parameters for [`Provider::ensure_volume`].
+#[derive(Debug, Clone, Default)]
+pub struct VolumeSpec {
+    /// Volume name.
+    pub name: String,
+    /// Extra labels; the managed label is added automatically.
+    pub labels: Labels,
+}
+
+/// Parameters for [`Provider::ensure_network`].
+#[derive(Debug, Clone, Default)]
+pub struct NetworkSpec {
+    /// Network name.
+    pub name: String,
+    /// Internal networks have no route to the outside and no external DNS.
+    pub internal: bool,
+    /// Extra labels; the managed label is added automatically.
+    pub labels: Labels,
+}
+
+/// Parameters for [`Provider::create_container`].
+///
+/// Hardening is not configurable here on purpose, see the module docs.
+#[derive(Debug, Clone, Default)]
+pub struct ContainerSpec {
+    /// Container name, also used as hostname.
+    pub name: String,
+    /// Image reference.
+    pub image: String,
+    /// The single network the container joins; must be internal.
+    pub network: String,
+    /// Volumes and exchange-folder mounts.
+    pub mounts: Vec<Mount>,
+    /// Environment variables.
+    pub env: BTreeMap<String, String>,
+    /// Extra labels; the managed label is added automatically.
+    pub labels: Labels,
+    /// Working directory, absolute path inside the container.
+    pub workdir: Option<String>,
+    /// CPU, memory and process limits.
+    pub resources: Resources,
+    /// Command override; empty keeps the image's `CMD`.
+    pub command: Vec<String>,
+}
+
+/// Resource limits of a container.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resources {
+    /// CPU limit, e.g. `2.0`. `None` means no limit.
+    pub cpus: Option<f64>,
+    /// Memory limit in podman notation, e.g. `2g`. `None` means no limit.
+    pub memory: Option<String>,
+    /// Maximum number of processes; guards the VM against fork bombs.
+    pub pids_limit: u32,
+}
+
+impl Default for Resources {
+    fn default() -> Self {
+        Resources {
+            cpus: None,
+            memory: None,
+            pids_limit: 1024,
+        }
+    }
+}
+
+/// A mount into a container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mount {
+    /// What is mounted.
+    pub source: MountSource,
+    /// Absolute path inside the container.
+    pub target: String,
+    /// Mount read-only.
+    pub read_only: bool,
+}
+
+/// Source of a [`Mount`]. Arbitrary host or VM paths are deliberately not
+/// representable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MountSource {
+    /// A named volume inside the VM.
+    Volume(String),
+    /// A subdirectory of the exchange folder (relative, `/`-separated; empty
+    /// for the whole folder).
+    Exchange(String),
+}
+
+/// A container as reported by [`Provider::container`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerInfo {
+    /// Container name.
+    pub name: String,
+    /// Lifecycle state.
+    pub status: ContainerStatus,
+    /// Image the container was created from.
+    pub image: String,
+    /// Container labels.
+    pub labels: Labels,
+}
+
+/// Lifecycle state of a container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContainerStatus {
+    /// Created, never started.
+    Created,
+    /// Running.
+    Running,
+    /// Paused.
+    Paused,
+    /// Stopped or exited.
+    Exited,
+    /// Any state this crate does not model (e.g. `removing`).
+    Other(String),
+}
+
+impl ContainerStatus {
+    /// Maps an engine state string to a status.
+    pub fn parse(state: &str) -> Self {
+        match state.to_ascii_lowercase().as_str() {
+            "created" | "configured" | "initialized" => ContainerStatus::Created,
+            "running" => ContainerStatus::Running,
+            "paused" => ContainerStatus::Paused,
+            "exited" | "stopped" => ContainerStatus::Exited,
+            other => ContainerStatus::Other(other.to_owned()),
+        }
+    }
+}
+
+/// Parameters for [`Provider::exec`] and [`Provider::exec_output`].
+#[derive(Debug, Clone, Default)]
+pub struct ExecSpec {
+    /// Container to run in.
+    pub container: String,
+    /// Program and arguments; passed as argv, never through a shell.
+    pub command: Vec<String>,
+    /// Working directory, absolute path inside the container.
+    pub workdir: Option<String>,
+    /// Environment variables for this command only.
+    pub env: BTreeMap<String, String>,
+    /// Keep stdin open (`-i`).
+    pub interactive: bool,
+    /// Allocate a TTY (`-t`). Only valid with [`Provider::exec`].
+    pub tty: bool,
+}
+
+/// Captured result of [`Provider::exec_output`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecOutput {
+    /// Exit code of the command (125-127 are engine errors).
+    pub code: i32,
+    /// Standard output, lossily decoded as UTF-8.
+    pub stdout: String,
+    /// Standard error, lossily decoded as UTF-8.
+    pub stderr: String,
+}
+
+/// The folder shared between host and VM.
+///
+/// It is the only host directory the VM can see. Files are placed atomically
+/// (copy to a temporary name, then rename), so a container never reads a
+/// half-written bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExchangeDir {
+    host: PathBuf,
+    guest: String,
+}
+
+impl ExchangeDir {
+    /// Creates a handle for a folder that is visible at `host` on the host and
+    /// at `guest` inside the VM.
+    pub fn new(host: PathBuf, guest: String) -> Self {
+        ExchangeDir { host, guest }
+    }
+
+    /// Location on the host.
+    pub fn host_dir(&self) -> &Path {
+        &self.host
+    }
+
+    /// Location inside the VM.
+    pub fn guest_dir(&self) -> &str {
+        &self.guest
+    }
+
+    /// Host path of a file below the exchange folder.
+    pub fn host_path(&self, relative: &str) -> Result<PathBuf> {
+        validate_relative_path("Pfad im Austauschordner", relative)?;
+        Ok(relative
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .fold(self.host.clone(), |path, part| path.join(part)))
+    }
+
+    /// VM path of a file below the exchange folder.
+    pub fn guest_path(&self, relative: &str) -> Result<String> {
+        validate_relative_path("Pfad im Austauschordner", relative)?;
+        Ok(join_guest(&self.guest, relative))
+    }
+
+    /// Creates a directory below the exchange folder (e.g. one per project, so
+    /// a container can be given only its own subdirectory) and returns its
+    /// host path.
+    pub fn create_dir(&self, relative: &str) -> Result<PathBuf> {
+        let dir = self.host_path(relative)?;
+        fs::create_dir_all(&dir).map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
+        Ok(dir)
+    }
+
+    /// Copies a host file into the exchange folder and returns its new host path.
+    pub fn put_file(&self, source: &Path, relative: &str) -> Result<PathBuf> {
+        if relative.trim_matches('/').is_empty() {
+            return Err(Error::invalid(
+                "Pfad im Austauschordner",
+                relative,
+                "darf nicht leer sein",
+            ));
+        }
+        let target = self.host_path(relative)?;
+        let parent = target.parent().unwrap_or(&self.host);
+        fs::create_dir_all(parent)
+            .map_err(|e| Error::io(format!("{} anlegen", parent.display()), e))?;
+        let mut partial = target.clone().into_os_string();
+        partial.push(".partial");
+        let partial = PathBuf::from(partial);
+        fs::copy(source, &partial).map_err(|e| {
+            Error::io(
+                format!("{} in den Austauschordner kopieren", source.display()),
+                e,
+            )
+        })?;
+        fs::rename(&partial, &target)
+            .map_err(|e| Error::io(format!("{} ersetzen", target.display()), e))?;
+        Ok(target)
+    }
+}
+
+pub(crate) fn join_guest(base: &str, relative: &str) -> String {
+    let relative = relative.trim_matches('/');
+    if relative.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{}/{}", base.trim_end_matches('/'), relative)
+    }
+}
+
+/// Checks a container, volume or network name.
+///
+/// Podman allows `[a-zA-Z0-9][a-zA-Z0-9_.-]*`; the first character rule also
+/// keeps a name from being parsed as a command-line flag. The length cap keeps
+/// names usable as hostnames.
+pub fn validate_resource_name(what: &'static str, name: &str) -> Result<()> {
+    if name.is_empty() || name.len() > 63 {
+        return Err(Error::invalid(
+            what,
+            name,
+            "muss 1 bis 63 Zeichen lang sein",
+        ));
+    }
+    let mut chars = name.chars();
+    let first = chars.next().unwrap_or_default();
+    if !first.is_ascii_alphanumeric() {
+        return Err(Error::invalid(
+            what,
+            name,
+            "muss mit einem Buchstaben oder einer Ziffer beginnen",
+        ));
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) {
+        return Err(Error::invalid(
+            what,
+            name,
+            "darf nur Buchstaben, Ziffern, '_', '.' und '-' enthalten",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_image_ref(image: &str) -> Result<()> {
+    const WHAT: &str = "Image";
+    if image.is_empty() || image.starts_with('-') {
+        return Err(Error::invalid(WHAT, image, "ist leer oder beginnt mit '-'"));
+    }
+    if !image
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | ':' | '@'))
+    {
+        return Err(Error::invalid(WHAT, image, "enthält unzulässige Zeichen"));
+    }
+    Ok(())
+}
+
+/// Absolute path inside a container. Commas are rejected because they would
+/// inject options into `--mount` arguments.
+pub(crate) fn validate_container_path(what: &'static str, path: &str) -> Result<()> {
+    if !path.starts_with('/') {
+        return Err(Error::invalid(what, path, "muss absolut sein"));
+    }
+    if path.chars().any(|c| c == ',' || c.is_control()) {
+        return Err(Error::invalid(
+            what,
+            path,
+            "darf keine Kommas oder Steuerzeichen enthalten",
+        ));
+    }
+    if path.split('/').any(|part| part == "..") {
+        return Err(Error::invalid(what, path, "darf kein '..' enthalten"));
+    }
+    Ok(())
+}
+
+/// Relative, `/`-separated path whose parts are plain names. Rules out `..`,
+/// absolute paths, drive letters and backslashes, so it cannot escape the
+/// directory it is joined to.
+pub(crate) fn validate_relative_path(what: &'static str, path: &str) -> Result<()> {
+    if path.starts_with('/') {
+        return Err(Error::invalid(what, path, "muss relativ sein"));
+    }
+    for part in path.split('/').filter(|part| !part.is_empty()) {
+        let valid = !part.starts_with('.')
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+        if !valid {
+            return Err(Error::invalid(
+                what,
+                path,
+                "Teile dürfen nur Buchstaben, Ziffern, '_', '.' und '-' enthalten und nicht mit '.' beginnen",
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_env_key(key: &str) -> Result<()> {
+    let mut chars = key.chars();
+    let valid = chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::invalid(
+            "Umgebungsvariable",
+            key,
+            "erlaubt sind Buchstaben, Ziffern und '_', nicht am Anfang eine Ziffer",
+        ))
+    }
+}
+
+pub(crate) fn validate_label(key: &str, value: &str) -> Result<()> {
+    let key_valid = !key.is_empty()
+        && !key.starts_with('-')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
+    if !key_valid {
+        return Err(Error::invalid("Label", key, "ungültiger Schlüssel"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(Error::invalid("Label", value, "Wert enthält Steuerzeichen"));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_memory(memory: &str) -> Result<()> {
+    let digits = memory.trim_end_matches(['b', 'k', 'm', 'g']);
+    let suffix_len = memory.len() - digits.len();
+    if digits.is_empty() || suffix_len > 1 || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return Err(Error::invalid(
+            "Speicherlimit",
+            memory,
+            "erwartet z. B. 512m oder 2g",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_names() {
+        assert!(validate_resource_name("x", "harness-foo_1.2").is_ok());
+        for bad in ["", "-rm", ".hidden", "a b", "a/b", "ä", &"a".repeat(64)] {
+            assert!(
+                validate_resource_name("x", bad).is_err(),
+                "{bad:?} accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn image_refs() {
+        assert!(validate_image_ref("localhost/harness/base:latest").is_ok());
+        assert!(validate_image_ref("docker.io/library/alpine@sha256:abc").is_ok());
+        assert!(validate_image_ref("--privileged").is_err());
+        assert!(validate_image_ref("alpine latest").is_err());
+    }
+
+    #[test]
+    fn container_paths() {
+        assert!(validate_container_path("x", "/workspace").is_ok());
+        assert!(validate_container_path("x", "workspace").is_err());
+        assert!(validate_container_path("x", "/a,readonly=false").is_err());
+        assert!(validate_container_path("x", "/a/../etc").is_err());
+    }
+
+    #[test]
+    fn relative_paths_cannot_escape() {
+        assert!(validate_relative_path("x", "").is_ok());
+        assert!(validate_relative_path("x", "proj/in.bundle").is_ok());
+        for bad in ["../x", "/abs", "a/../b", "C:\\x", "a\\b", ".git/config"] {
+            assert!(
+                validate_relative_path("x", bad).is_err(),
+                "{bad:?} accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn env_keys_and_memory() {
+        assert!(validate_env_key("HTTP_PROXY").is_ok());
+        assert!(validate_env_key("_x1").is_ok());
+        assert!(validate_env_key("1X").is_err());
+        assert!(validate_env_key("A=B").is_err());
+        assert!(validate_memory("2g").is_ok());
+        assert!(validate_memory("512m").is_ok());
+        assert!(validate_memory("1024").is_ok());
+        assert!(validate_memory("g").is_err());
+        assert!(validate_memory("2gb").is_err());
+        assert!(validate_memory("2 g").is_err());
+    }
+
+    #[test]
+    fn status_parsing() {
+        assert_eq!(ContainerStatus::parse("Running"), ContainerStatus::Running);
+        assert_eq!(ContainerStatus::parse("exited"), ContainerStatus::Exited);
+        assert_eq!(
+            ContainerStatus::parse("removing"),
+            ContainerStatus::Other("removing".into())
+        );
+    }
+
+    #[test]
+    fn exchange_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let exchange = ExchangeDir::new(dir.path().to_path_buf(), "/mnt/exchange".into());
+        assert_eq!(exchange.guest_path("").unwrap(), "/mnt/exchange");
+        assert_eq!(
+            exchange.guest_path("p/in.bundle").unwrap(),
+            "/mnt/exchange/p/in.bundle"
+        );
+        assert!(exchange.host_path("../x").is_err());
+
+        let source = dir.path().join("source.txt");
+        fs::write(&source, "hello").unwrap();
+        let placed = exchange.put_file(&source, "proj/a.txt").unwrap();
+        assert_eq!(placed, dir.path().join("proj").join("a.txt"));
+        assert_eq!(fs::read_to_string(&placed).unwrap(), "hello");
+        assert!(exchange.put_file(&source, "").is_err());
+    }
+}
