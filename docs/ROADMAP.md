@@ -8,7 +8,7 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–3 erledigt |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–4 erledigt |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
 | 3 | Desktop-App (Tauri) + Rust-Gateway + UI für Netz- und Git-Regeln | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
@@ -45,10 +45,15 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - `HTTP(S)_PROXY` zeigt auf das Gateway
 
    Gebaut wird per `podman build` remote, der Kontext wird vom Host hochgeladen.
-4. **Konfiguration** unter `%USERPROFILE%\.harness\` als TOML (`config.toml`, `projects/<name>.toml`, `harnesses/<name>.toml`). Das Format folgt ARCHITECTURE.md §3.8, aber mit `mode = "isolated"`. Gelesen wird mit `serde`, geschrieben mit `toml_edit`, damit Kommentare erhalten bleiben. **Sicherheitsrelevantes nie im Projektordner.**
-5. **Git-Sync im Isoliert-Modus** über den Austauschordner (Host `%LOCALAPPDATA%\llm-harness\exchange` = VM `/mnt/exchange`, 9p). Einzelne Dateien gehen dort problemlos, nur `chmod` nicht, also Bundles verwenden und keine Arbeitsbäume:
-   - **Host → VM:** `git bundle create <exchange>/<projekt>-in.bundle --all`, im Container dann `git clone` bzw. `git fetch` aus `/mnt/exchange/<projekt>-in.bundle` nach `/workspace`, das auf einem Volume liegt.
-   - **VM → Host:** im Container `git bundle create /mnt/exchange/<projekt>-out.bundle agent/<projekt>`, auf dem Host `git fetch <bundle> agent/<projekt>:agent/<projekt>`.
+4. ✅ **Konfiguration** unter `%USERPROFILE%\.harness\` (oder `HARNESS_HOME`) als TOML (`config.toml`, `projects/<name>.toml`, `harnesses/<name>.toml`), Modul `harness-core/src/config/`, Vorlagen in `harness-core/defaults/`. Das Format folgt ARCHITECTURE.md §3.8, aber mit `mode = "isolated"`. Gelesen wird mit `serde`, geschrieben mit `toml_edit`, damit Kommentare erhalten bleiben. **Sicherheitsrelevantes nie im Projektordner:** Projekte, die den Konfigurationsordner enthalten oder in ihm liegen, werden abgelehnt, beim Anlegen und bei jedem Laden.
+   - Unbekannte Schlüssel sind ein Fehler, damit Tippfehler wie `[netwrok]` nicht still auf weniger strenge Standards zurückfallen.
+   - Jeder Schreibvorgang wird vorher geparst und validiert und dann atomar geschrieben.
+   - Projektname: aus dem Ordnernamen abgeleitet (`[a-z0-9-]`, ≤ 40 Zeichen, Umlaute transliteriert, bei Kollision `-2` usw.). Daraus folgen Container `harness-<name>`, Netz `harness-net-<name>`, Volumes `harness-ws-<name>`/`harness-home-<name>`, Branch `agent/<name>` (`project.rs`).
+   - CLI: `harness project [show|add|list]`. `doctor` prüft die Konfiguration mit. Die Machine kommt aus `config.toml`, `--machine` überschreibt sie.
+   - Domain-Muster (`api.example.com`, `*.example.com`, keine IP-Literale) werden schon beim Laden geprüft. `DomainPattern::matches` ist für das Gateway vorbereitet.
+5. **Git-Sync im Isoliert-Modus** über den Austauschordner (Host `%LOCALAPPDATA%\llm-harness\exchange` = VM `/mnt/exchange`, 9p). Einzelne Dateien gehen dort problemlos, nur `chmod` nicht, also Bundles verwenden und keine Arbeitsbäume. Jedes Projekt bekommt einen eigenen Unterordner (`ProjectName::exchange_dir`), und der Container sieht nur diesen (`MountSource::Exchange`):
+   - **Host → VM:** `git bundle create <exchange>/<projekt>/in.bundle --all`, im Container dann `git clone` bzw. `git fetch` aus `/mnt/exchange/in.bundle` nach `/workspace`, das auf einem Volume liegt.
+   - **VM → Host:** im Container `git bundle create /mnt/exchange/out.bundle agent/<projekt>`, auf dem Host `git fetch <bundle> agent/<projekt>:agent/<projekt>`.
    - **Merge:** Fast-Forward, falls möglich, sonst `git merge --no-edit` nur bei sauberem Arbeitsbaum und ohne Konflikt. Bei Konflikt abbrechen und melden. Uncommittete Änderungen des Nutzers nie anfassen.
 6. **Netzwerk:**
    - pro Projekt ein `--internal`-Netz

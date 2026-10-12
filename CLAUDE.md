@@ -14,9 +14,9 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 - **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`. Reste stehen in ROADMAP.md.
 - **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Einzige Freigabe ist `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`. Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
 - Erste Harness für Phase 2: **pi** (`@earendil-works/pi-coding-agent`), LLM-Anbieter des Nutzers für pi: **DeepSeek** (`api.deepseek.com`).
-- **Phase 2, Pakete 1–3 erledigt:** Cargo-Workspace (`crates/harness-core`, `crates/harness-cli` → Binary `harness`), Provider-Schnittstelle mit `PodmanProvider`, Base-Image `images/base` (gebaut als `localhost/harness/base:latest`). CLI kann bisher nur `doctor` und `image build`.
+- **Phase 2, Pakete 1–4 erledigt:** Cargo-Workspace (`crates/harness-core`, `crates/harness-cli` → Binary `harness`), Provider-Schnittstelle mit `PodmanProvider`, Base-Image `images/base` (gebaut als `localhost/harness/base:latest`), Konfiguration in `~/.harness` (`harness-core/src/config/`). CLI kann bisher `doctor`, `image build` und `project [show|add|list]`. Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: Phase 2 ab Paket 4 (Konfiguration, Git-Sync, Gateway, pi, CLI-Befehle; danach `harness-vmd`).
+- Nächstes: Phase 2 ab Paket 5 (Git-Sync, Gateway, pi, CLI-Befehle; danach `harness-vmd`).
 
 ## Arbeitsweise
 
@@ -43,8 +43,10 @@ pnpm --filter @harness/web e2e        # Browser-E2E gegen isolierten Stack (sieh
 cargo build                           # Rust-Workspace; 2 Jobs per .cargo/config.toml (RAM)
 cargo test                            # Unit-Tests
 cargo fmt; cargo clippy --all-targets
-target/debug/harness doctor           # Machine, SSH, Austauschordner, Base-Image
+target/debug/harness doctor           # Konfiguration, Machine, SSH, Austauschordner, Base-Image
 target/debug/harness image build      # Base-Image in der VM bauen (--pull, --no-cache)
+target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (show, list)
+HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
 cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
 cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
 ```
@@ -91,6 +93,7 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - **Debians `/etc/profile` überschreibt `PATH` in Login-Shells** (`bash -l`) für Nicht-root-Nutzer. `images/base/profile.sh` (→ `/etc/profile.d/harness.sh`) fügt `/opt/harness-tools/bin` und `~/.local/bin` wieder ein.
 - Root-Dateisystem der Instanzen ist read-only: `npm i -g` geht nach `~/.local` (`NPM_CONFIG_PREFIX`), pnpm lädt corepack beim ersten Aufruf nach `~/.cache` (Home-Volume). `COREPACK_ENABLE_AUTO_PIN=0` verhindert, dass corepack `packageManager` in die `package.json` des Nutzers schreibt.
 - Node 24 bringt corepack noch mit, ab Node 25 fehlt es. Beim Wechsel auf Node 26 corepack per npm installieren.
+- **Konfiguration (`~/.harness`):** lesen mit `toml` 1.x (serde), schreiben nur über `toml_edit::DocumentMut` + `ConfigDir::update_project`, damit Kommentare bleiben. Alle Tabellen haben `deny_unknown_fields`. Neue Schlüssel also im Modell (`config/model.rs`) **und** in der Vorlage (`harness-core/defaults/`) ergänzen. Ein Test prüft, dass Vorlage und Code-Standards übereinstimmen. Tests und Probeläufe mit `HARNESS_HOME`, nicht im echten Profil des Nutzers.
 
 ### Testen ohne den Browser des Nutzers
 

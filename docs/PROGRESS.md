@@ -1,28 +1,49 @@
 # Progress
 
-_Last updated: 2026-10-12 · Phase 2 Pakete 1–3 fertig (Cargo-Workspace, PodmanProvider, Base-Image), weiter mit Paket 4 (Konfiguration)_
+_Last updated: 2026-10-12 · Phase 2 Pakete 1–4 fertig (Workspace, PodmanProvider, Base-Image, Konfiguration), weiter mit Paket 5 (Git-Sync)_
 
 ## Where we are
 
-Server (`apps/server`) und Web-App (`apps/web`) aus Phase 1 laufen unverändert. Neu ist der Rust-Workspace mit `crates/harness-core` (Provider-Schnittstelle, `PodmanProvider`, eingebettetes Base-Image) und `crates/harness-cli` (Binary `harness`). `harness doctor` prüft Machine-JSON, Austauschordner, SSH/VM und Base-Image. `harness image build` baut `localhost/harness/base:latest` in der VM (Erstbau 58 s, mit Cache 7 s). Instanzen, Sync, Gateway und pi gibt es noch nicht. Die CLI kann also noch keinen Agent starten.
+Server (`apps/server`) und Web-App (`apps/web`) aus Phase 1 laufen unverändert. Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` enthält Phase 1 und Phase 2 bis Paket 4, gearbeitet wird auf `feat/phase-2-sandbox`. Der Rust-Workspace hat `crates/harness-core` (Provider-Schnittstelle, `PodmanProvider`, eingebettetes Base-Image, Konfiguration, Projektnamen) und `crates/harness-cli` (Binary `harness`).
+
+Die CLI kann:
+- `harness doctor`: prüft Konfiguration, Machine-JSON, Austauschordner, SSH/VM und Base-Image.
+- `harness image build`: baut `localhost/harness/base:latest` in der VM.
+- `harness project [show|add|list]`: legt das aktuelle Git-Repo als Projekt in `~/.harness/projects/<name>.toml` an und zeigt die wirksamen Einstellungen.
+
+Instanzen, Sync, Gateway und pi gibt es noch nicht. Die CLI kann also noch keinen Agent starten.
 
 ## Next step
 
-Paket 4 der ROADMAP (Konfiguration), danach 5 (Git-Sync):
+Paket 5 der ROADMAP (Git-Sync im Isoliert-Modus):
 
-1. `crates/harness-core/src/config.rs`: `%USERPROFILE%\.harness\config.toml`, `projects/<name>.toml`, `harnesses/<name>.toml` mit `serde` + `toml` lesen und mit `toml_edit` schreiben (Kommentare bleiben erhalten). Format wie ARCHITECTURE.md §3.8, aber `mode = "isolated"`. Projektname aus dem Ordnernamen ableiten und mit `provider::validate_resource_name` prüfen bzw. bereinigen. Neue Crates `toml`/`toml_edit` sind ein kleiner Download.
-2. Instanz-Logik (Namen `harness-<projekt>`, Netz `harness-net-<projekt>`, Volumes für Workspace/Home/Tools) auf `Provider` aufsetzen. Der Austauschordner bekommt pro Projekt einen Unterordner (`MountSource::Exchange("<projekt>")`), damit Projekte die Bundles der anderen nicht sehen.
-3. Git-Sync (Paket 5) mit Bundles über `ExchangeDir::put_file`, Tests gegen temporäre Repos.
+1. `crates/harness-core/src/sync.rs`, Host-Seite mit `git.exe`:
+   - `export`: `git bundle create <exchange>/<projekt>/in.bundle --all`, Ordner über `ExchangeDir::create_dir(name.exchange_dir())`.
+   - `import`: `git fetch <exchange>/<projekt>/out.bundle agent/<projekt>:agent/<projekt>`.
+   - `merge`: Fast-Forward oder `merge --no-edit`, nur bei sauberem Arbeitsbaum, bei Konflikt `merge --abort` und melden.
+   - Unit-Tests gegen temporäre Repos (git ist auf dem Host vorhanden).
+2. Container-Seite als Befehlsfolgen für `Provider::exec_output`:
+   - `git clone /mnt/exchange/in.bundle /workspace` bzw. `git fetch`.
+   - `git bundle create /mnt/exchange/out.bundle agent/<projekt>`.
+   - **Zu prüfen:** ob `git bundle create` direkt auf 9p schreiben kann (Lockfile + rename). Falls nicht, nach `/tmp` schreiben und kopieren.
+3. Danach Paket 6 (Gateway, Allowlist mit `api.deepseek.com`) und 7/8 (pi, `harness run`).
 
-Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle vier Zeilen ✓, solange die VM läuft).
+Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeilen ✓, solange die VM läuft).
 
 ## In flight / half-finished
 
 - `PodmanProvider::exec` mit `tty: true` ist gebaut, aber **nicht interaktiv getestet**. Aus der Agent-Shell geht das nicht, das kommt mit `harness shell` (Paket 8) und muss der Nutzer in Windows Terminal ausprobieren. Ctrl+C und Fenstergröße sind ungeprüft.
-- Doku-Änderungen und der gesamte Rust-Code sind **uncommittet** (Branch `feat/phase-1-chat`), ebenso die Doku-Änderungen der Sitzung davor.
+- Das echte `~/.harness` des Nutzers ist noch nicht angelegt. Probeläufe liefen mit `HARNESS_HOME` im Scratchpad.
 
 ## Decisions made this session
 
+- **Konfiguration lehnt unbekannte Schlüssel ab** (`deny_unknown_fields`): Ein Tippfehler in einer Sicherheitseinstellung soll laut scheitern und nicht still auf „development“ zurückfallen.
+- **Projekte dürfen den Konfigurationsordner weder enthalten noch in ihm liegen.** Geprüft wird beim Anlegen, beim Ändern und bei jedem Laden. Sonst könnte ein Agent per Commit und `harness merge` die eigenen Regeln umschreiben.
+- **Projektnamen nur `[a-z0-9-]`, ≤ 40 Zeichen:** Windows-Dateinamen unterscheiden keine Groß-/Kleinschreibung, und `harness-home-<name>` muss ein gültiger Hostname bleiben.
+- **Das Netzwerk-Preset wird beim Anlegen explizit in die Projektdatei geschrieben** (aus `defaults.network`). Der Nutzer sieht so, was gilt. Ändert er später den globalen Standard, ändern sich bestehende Projekte nicht still mit.
+- **`deny` gewinnt gegen `allow`.** Das steht schon in der Vorlage und gilt für das Gateway in Paket 6.
+- **Tools-Volume für Instanzen nur lesbar** (in der pi-Vorlage dokumentiert, umgesetzt in Paket 7): Sonst könnte ein Agent die Harness für alle anderen Projekte manipulieren.
+- **Die Machine kommt aus `config.toml`**, `--machine` überschreibt sie.
 - **podman-CLI statt bollard/REST:** Das ist der verifizierte Weg aus dem Spike (`pm.sh`). Es braucht keine Named Pipe und keinen eigenen SSH-Client. Preis: ~350–500 ms pro Aufruf.
 - **Sicherheitsinvarianten im Provider erzwungen** (nicht konfigurierbar): Härtung nach ARCHITECTURE §3.3, nur interne Netze (per `network inspect` geprüft), Mounts nur als Volume oder Austausch-Unterordner, alle Namen und Pfade validiert, Managed-Label auf allem. Rootful-Machines werden abgelehnt.
 - **`--userns=keep-id:uid=1000,gid=1000` + `--user 1000:1000`** statt `--user agent`: Das funktioniert unabhängig von der UID des VM-Nutzers und auch für Projekt-Images ohne Nutzer `agent`.
@@ -36,7 +57,6 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle vier 
 
 ## Open questions for the user
 
-- Committen? Vorschlag: zwei Commits auf `feat/phase-1-chat` oder einem neuen Branch `feat/phase-2-sandbox`: `docs: …` für die Doku der Vorsitzung, `feat(core): add podman provider and base image` für den Rust-Code. Und `feat/phase-1-chat` nach `main` mergen?
 - Für pi mit DeepSeek: API-Key per pi-Login im Home-Volume (`~/.pi`) oder später über das LLM-Gateway des Servers (Phase 4)? Für Phase 2 reicht der pi-Login.
 
 ## Known issues / debt
@@ -51,7 +71,19 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle vier 
 
 ## Verification state
 
-- `cargo build` (22 s), `cargo fmt --check`, `cargo clippy --all-targets`: ohne Warnungen. `cargo test`: 24/24 Unit-Tests grün.
+- `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`: ohne Warnungen. `cargo test`: 49/49 Unit-Tests grün, davon 25 neu für Konfiguration, Projektnamen und Pfade. Abgedeckt:
+  - Vorlagen = Code-Standards
+  - Kommentare bleiben beim Bearbeiten erhalten
+  - ungültige Änderungen werden nicht geschrieben
+  - Tippfehler, Überschneidung mit dem Konfigurationsordner, doppelte Projekte, kaputte Dateien
+  - Windows-Pfade ohne Groß-/Kleinschreibung
+- Echter Lauf (Paket 4, `HARNESS_HOME` im Scratchpad, in diesem Repo aus `apps/web` heraus):
+  - `project` meldet „noch kein Projekt“.
+  - `project add` legt `config.toml`, `harnesses/pi.toml` und `projects/llm-harness.toml` an. Der Pfad steht als Literal-String drin, Kommentare sind erhalten.
+  - Ein zweites `add` wird abgelehnt.
+  - `list` und `doctor` (5/5 ✓) laufen durch.
+  - `[netwrok]` wird mit Zeile, Spalte und den erlaubten Schlüsseln gemeldet.
+  - Außerhalb eines Repos kommt eine klare Fehlermeldung.
 - `tests/podman_vm.rs` (alpine, echte VM): grün. Geprüft:
   - Härtung: UID/GID 1000, `CapEff` 0, `NoNewPrivs` 1, Root read-only, `pids.max` 1024, PID 1 `podman-init`, `/tmp` beschreibbar und ausführbar
   - kein IP-Zugriff, kein externes DNS
@@ -75,6 +107,12 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle vier 
 ---
 
 ## Log
+
+### 2026-10-12 (Phase 2, Paket 4)
+- `feat/phase-1-chat` per Fast-Forward nach `main`, neuer Branch `feat/phase-2-sandbox` mit 3 Commits (Spike-Skript, Rust-Code der Pakete 1–3, Doku).
+- `harness-core`: `config/` (Modell, `ConfigDir`, Auflösung der Standards, `toml_edit`-Updates), `project.rs` (Namen, Ableitung, Repo-Erkennung), Pfadvergleich in `paths.rs`, Vorlagen in `defaults/`.
+- `harness-cli`: aufgeteilt in `main.rs`, `doctor.rs`, `project.rs`. Neu: `project [show|add|list]`, `doctor` prüft die Konfiguration.
+- Remote `origin` auf GitHub eingerichtet, `feat/phase-1-chat` gelöscht, `feat/phase-2-sandbox` nach `main` gemergt (Fast-Forward), beides gepusht.
 
 ### 2026-10-12 (Phase 2, Pakete 1–3)
 - Cargo-Workspace (`Cargo.toml`, `.cargo/config.toml` mit 2 Jobs), clippy und rustfmt zur Toolchain hinzugefügt.
