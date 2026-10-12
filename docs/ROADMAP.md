@@ -8,7 +8,7 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–4 erledigt |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–5 erledigt |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
 | 3 | Desktop-App (Tauri) + Rust-Gateway + UI für Netz- und Git-Regeln | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
@@ -51,10 +51,12 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - Projektname: aus dem Ordnernamen abgeleitet (`[a-z0-9-]`, ≤ 40 Zeichen, Umlaute transliteriert, bei Kollision `-2` usw.). Daraus folgen Container `harness-<name>`, Netz `harness-net-<name>`, Volumes `harness-ws-<name>`/`harness-home-<name>`, Branch `agent/<name>` (`project.rs`).
    - CLI: `harness project [show|add|list]`. `doctor` prüft die Konfiguration mit. Die Machine kommt aus `config.toml`, `--machine` überschreibt sie.
    - Domain-Muster (`api.example.com`, `*.example.com`, keine IP-Literale) werden schon beim Laden geprüft. `DomainPattern::matches` ist für das Gateway vorbereitet.
-5. **Git-Sync im Isoliert-Modus** über den Austauschordner (Host `%LOCALAPPDATA%\llm-harness\exchange` = VM `/mnt/exchange`, 9p). Einzelne Dateien gehen dort problemlos, nur `chmod` nicht, also Bundles verwenden und keine Arbeitsbäume. Jedes Projekt bekommt einen eigenen Unterordner (`ProjectName::exchange_dir`), und der Container sieht nur diesen (`MountSource::Exchange`):
-   - **Host → VM:** `git bundle create <exchange>/<projekt>/in.bundle --all`, im Container dann `git clone` bzw. `git fetch` aus `/mnt/exchange/in.bundle` nach `/workspace`, das auf einem Volume liegt.
-   - **VM → Host:** im Container `git bundle create /mnt/exchange/out.bundle agent/<projekt>`, auf dem Host `git fetch <bundle> agent/<projekt>:agent/<projekt>`.
-   - **Merge:** Fast-Forward, falls möglich, sonst `git merge --no-edit` nur bei sauberem Arbeitsbaum und ohne Konflikt. Bei Konflikt abbrechen und melden. Uncommittete Änderungen des Nutzers nie anfassen.
+5. ✅ **Git-Sync im Isoliert-Modus** (`harness-core/src/sync/`) über den Austauschordner (Host `%LOCALAPPDATA%\llm-harness\exchange` = VM `/mnt/exchange`, 9p). Einzelne Dateien und Gits Lockfile mit rename gehen dort, nur `chmod` und rekursives Löschen nicht. Deshalb Bundles statt Arbeitsbäumen. Jedes Projekt bekommt einen eigenen Unterordner (`ProjectName::exchange_dir`), den der Container als `/mnt/exchange` sieht. Verifiziert mit 13 Unit-Tests gegen temporäre Repos und `tests/sync_vm.rs` mit den echten Skripten in der VM (Klonen ~0,6 s, Rückweg ~0,7 s):
+   - **Host → VM** (`push_to_workspace`): `git bundle create <exchange>/<projekt>/in.bundle HEAD --branches --tags`. Bewusst nicht `--all`, damit Stash und Remote-Tracking-Refs auf dem Host bleiben. Im Container beim ersten Mal `git clone --origin host`, danach `git fetch host`. Der Agent-Branch setzt den Agent-Branch des Hosts fort, falls es ihn gibt, sonst beginnt er am HEAD des Hosts.
+   - **VM → Host** (`pull_from_workspace`): Der Container bündelt nur `agent/<projekt> --not --remotes=host`, also nur, was dem Host fehlt. Fehlen dem Host die Voraussetzungen (Kopf selbst gelesen, `BundleHeader`), folgt automatisch ein vollständiges Bundle. Der Host holt die Objekte und setzt den Branch per Compare-and-swap (`update-ref`), nur als Fast-Forward (sonst `--force`) und nie, solange der Branch ausgecheckt ist.
+   - **Merge** (`HostRepo::merge`): Fast-Forward, falls möglich, sonst `git merge --no-edit`. Abgelehnt werden detached HEAD, laufende Merges oder Rebases und uncommittete Änderungen an getrackten Dateien. Konflikte erkennt vorher `git merge-tree --write-tree` trocken. Bei Konflikt bleibt alles unangetastet, und die Dateien werden gemeldet.
+   - **Härtung auf dem Host:** Jeder Git-Aufruf läuft mit `core.hooksPath` auf einen leeren Ordner, `core.fsmonitor=false`, `submodule.recurse=false` und `fetch.fsckObjects`/`transfer.fsckObjects`. Ein Test beweist, dass weder `.git/hooks` noch ein Hook-Ordner im Arbeitsbaum (husky) ausgeführt werden. Container-Ausgaben werden vor der Anzeige von Steuerzeichen befreit.
+   - **Offen für Paket 8:** CLI-Befehle `sync` und `merge`. `in.bundle` ist jedes Mal vollständig, bei großen Repos ggf. inkrementell machen.
 6. **Netzwerk:**
    - pro Projekt ein `--internal`-Netz
    - ein Gateway-Container in internem **und** normalem Netz, vorerst tinyproxy aus `spikes/phase-0/proxy/`

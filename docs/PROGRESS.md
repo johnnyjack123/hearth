@@ -1,59 +1,58 @@
 # Progress
 
-_Last updated: 2026-10-12 · Phase 2 Pakete 1–4 fertig (Workspace, PodmanProvider, Base-Image, Konfiguration), weiter mit Paket 5 (Git-Sync)_
+_Last updated: 2026-10-12 · Phase 2 Pakete 1–5 fertig (Workspace, PodmanProvider, Base-Image, Konfiguration, Git-Sync), weiter mit Paket 6 (Gateway)_
 
 ## Where we are
 
-Server (`apps/server`) und Web-App (`apps/web`) aus Phase 1 laufen unverändert. Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` enthält Phase 1 und Phase 2 bis Paket 4, gearbeitet wird auf `feat/phase-2-sandbox`. Der Rust-Workspace hat `crates/harness-core` (Provider-Schnittstelle, `PodmanProvider`, eingebettetes Base-Image, Konfiguration, Projektnamen) und `crates/harness-cli` (Binary `harness`).
+Server (`apps/server`) und Web-App (`apps/web`) aus Phase 1 laufen unverändert. Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` enthält Phase 1 und Phase 2 bis Paket 5, gearbeitet wird auf `feat/phase-2-sandbox`.
 
-Die CLI kann:
-- `harness doctor`: prüft Konfiguration, Machine-JSON, Austauschordner, SSH/VM und Base-Image.
-- `harness image build`: baut `localhost/harness/base:latest` in der VM.
-- `harness project [show|add|list]`: legt das aktuelle Git-Repo als Projekt in `~/.harness/projects/<name>.toml` an und zeigt die wirksamen Einstellungen.
+`crates/harness-core` enthält:
+- Provider-Schnittstelle und `PodmanProvider`
+- das eingebettete Base-Image
+- Konfiguration und Projektnamen
+- **neu** `sync/`: Git-Sync über Bundles im Austauschordner, Host-Seite gehärtet, Merge mit Trockenlauf
 
-Instanzen, Sync, Gateway und pi gibt es noch nicht. Die CLI kann also noch keinen Agent starten.
+Die CLI (`crates/harness-cli`) kann `doctor`, `image build` und `project [show|add|list]`. Instanzen, Gateway, pi und die Befehle `run`/`sync`/`merge` fehlen noch. Die CLI kann also noch keinen Agent starten. Sync und Merge sind als Bibliotheksfunktionen fertig und in der VM getestet.
 
 ## Next step
 
-Paket 5 der ROADMAP (Git-Sync im Isoliert-Modus):
+Paket 6 der ROADMAP (Netzwerk-Gateway):
 
-1. `crates/harness-core/src/sync.rs`, Host-Seite mit `git.exe`:
-   - `export`: `git bundle create <exchange>/<projekt>/in.bundle --all`, Ordner über `ExchangeDir::create_dir(name.exchange_dir())`.
-   - `import`: `git fetch <exchange>/<projekt>/out.bundle agent/<projekt>:agent/<projekt>`.
-   - `merge`: Fast-Forward oder `merge --no-edit`, nur bei sauberem Arbeitsbaum, bei Konflikt `merge --abort` und melden.
-   - Unit-Tests gegen temporäre Repos (git ist auf dem Host vorhanden).
-2. Container-Seite als Befehlsfolgen für `Provider::exec_output`:
-   - `git clone /mnt/exchange/in.bundle /workspace` bzw. `git fetch`.
-   - `git bundle create /mnt/exchange/out.bundle agent/<projekt>`.
-   - **Zu prüfen:** ob `git bundle create` direkt auf 9p schreiben kann (Lockfile + rename). Falls nicht, nach `/tmp` schreiben und kopieren.
-3. Danach Paket 6 (Gateway, Allowlist mit `api.deepseek.com`) und 7/8 (pi, `harness run`).
+1. **Neue Provider-Methode `create_gateway`.** `create_container` lässt bewusst nur interne Netze zu. Das Gateway hängt im internen Projektnetz (Alias `gateway`, Port 8888, so im Base-Image gesetzt) und in einem normalen Netz (z. B. `harness-egress`). Gehärtet wie Instanzen.
+2. **Gateway-Image** aus `spikes/phase-0/proxy/` (tinyproxy) als `images/gateway/`, eingebettet wie `images/base` (`image.rs`).
+3. **Allowlist** aus `Project` (`network`, `allow`, `deny`) erzeugen:
+   - Voreinstellung „development“: npm, PyPI, GitHub inklusive `codeload`/`objects.githubusercontent.com` und `api.deepseek.com`.
+   - Prüfen, von wo corepack pnpm lädt.
+   - `deny` gewinnt.
+   - Die Konfiguration darf nicht über den Austauschordner laufen, den der Agent beschreiben kann. Besser per `podman cp` vor dem Start oder als eigenes Volume.
+4. **Ein Gateway pro Projekt** (`harness-gw-<name>`) ist mit tinyproxy (~2 MB RAM) am einfachsten, weil jedes Projekt eigene Regeln hat.
+5. **Grenze von tinyproxy:** keine Prüfung der aufgelösten Ziel-IP (Phase 0, 6.4). „open“ deshalb bis zum Rust-Gateway (Phase 3) ablehnen oder deutlich warnen.
+6. **Abnahme:** `curl https://example.com` im Container → 403, `npm view react version` geht, `api.deepseek.com` erreichbar.
+
+Danach Paket 7 (pi im Tools-Volume, `~/.pi` im Volume `harness-cfg-pi`) und 8 (`run`, `shell`, `status`, `stop`, `sync`, `merge`).
 
 Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeilen ✓, solange die VM läuft).
 
 ## In flight / half-finished
 
-- `PodmanProvider::exec` mit `tty: true` ist gebaut, aber **nicht interaktiv getestet**. Aus der Agent-Shell geht das nicht, das kommt mit `harness shell` (Paket 8) und muss der Nutzer in Windows Terminal ausprobieren. Ctrl+C und Fenstergröße sind ungeprüft.
+- `PodmanProvider::exec` mit `tty: true` ist gebaut, aber **nicht interaktiv getestet**. Das kommt mit `harness shell` (Paket 8) und muss der Nutzer in Windows Terminal ausprobieren. Ctrl+C und Fenstergröße sind ungeprüft.
 - Das echte `~/.harness` des Nutzers ist noch nicht angelegt. Probeläufe liefen mit `HARNESS_HOME` im Scratchpad.
 
 ## Decisions made this session
 
-- **Konfiguration lehnt unbekannte Schlüssel ab** (`deny_unknown_fields`): Ein Tippfehler in einer Sicherheitseinstellung soll laut scheitern und nicht still auf „development“ zurückfallen.
-- **Projekte dürfen den Konfigurationsordner weder enthalten noch in ihm liegen.** Geprüft wird beim Anlegen, beim Ändern und bei jedem Laden. Sonst könnte ein Agent per Commit und `harness merge` die eigenen Regeln umschreiben.
-- **Projektnamen nur `[a-z0-9-]`, ≤ 40 Zeichen:** Windows-Dateinamen unterscheiden keine Groß-/Kleinschreibung, und `harness-home-<name>` muss ein gültiger Hostname bleiben.
-- **Das Netzwerk-Preset wird beim Anlegen explizit in die Projektdatei geschrieben** (aus `defaults.network`). Der Nutzer sieht so, was gilt. Ändert er später den globalen Standard, ändern sich bestehende Projekte nicht still mit.
-- **`deny` gewinnt gegen `allow`.** Das steht schon in der Vorlage und gilt für das Gateway in Paket 6.
-- **Tools-Volume für Instanzen nur lesbar** (in der pi-Vorlage dokumentiert, umgesetzt in Paket 7): Sonst könnte ein Agent die Harness für alle anderen Projekte manipulieren.
-- **Die Machine kommt aus `config.toml`**, `--machine` überschreibt sie.
-- **podman-CLI statt bollard/REST:** Das ist der verifizierte Weg aus dem Spike (`pm.sh`). Es braucht keine Named Pipe und keinen eigenen SSH-Client. Preis: ~350–500 ms pro Aufruf.
-- **Sicherheitsinvarianten im Provider erzwungen** (nicht konfigurierbar): Härtung nach ARCHITECTURE §3.3, nur interne Netze (per `network inspect` geprüft), Mounts nur als Volume oder Austausch-Unterordner, alle Namen und Pfade validiert, Managed-Label auf allem. Rootful-Machines werden abgelehnt.
-- **`--userns=keep-id:uid=1000,gid=1000` + `--user 1000:1000`** statt `--user agent`: Das funktioniert unabhängig von der UID des VM-Nutzers und auch für Projekt-Images ohne Nutzer `agent`.
-- **`--init` (catatonit vom VM-Host)** statt tini im Image, damit verwaiste exec-Prozesse auch bei eigenen Projekt-Images aufgeräumt werden.
-- **Image-Kontext ins Binary eingebettet** (`include_str!`) mit Content-Hash-Label, damit die CLI ohne Repo-Checkout baut und `doctor` veraltete Images erkennt.
-- **Node aus `node:24-trixie-slim` kopiert** statt NodeSource oder Tarball: Major gepinnt, multi-arch, ohne fremde apt-Quelle. Node 24, weil es LTS ist und corepack noch mitbringt.
-- **pnpm wird nicht ins Image gebacken:** corepack lädt es beim ersten Aufruf ins Home-Volume, weil die Root-FS read-only ist und Projekte eigene pnpm-Versionen pinnen.
-- **`gh` nicht im Image** (ARCHITECTURE §3.2 nennt es): Es gibt keine Zugangsdaten im Container, und die ROADMAP-Liste enthält es nicht.
-- **Git-Identität im Image:** `harness agent <agent@harness.invalid>`, damit Agent-Commits im Host-Repo erkennbar sind.
-- **LLM-Anbieter für pi: DeepSeek** (`api.deepseek.com`, vom Nutzer gewählt) → Gateway-Allowlist in Paket 6.
+Paket 5 (Sync):
+- **Host-Git läuft immer ohne Hooks**, mit fsmonitor aus, ohne Submodule-Rekursion und mit `fsckObjects`. Alles aus dem Container gilt als nicht vertrauenswürdig. Ein husky-Hook-Ordner im Arbeitsbaum würde sonst nach dem Merge Agent-Code auf dem Host ausführen. Preis: Eigene Hooks des Nutzers (z. B. `post-merge` → `npm install`) laufen bei `harness merge` nicht.
+- **In-Bundle mit `HEAD --branches --tags` statt `--all`:** Stash und Remote-Tracking-Refs bleiben auf dem Host.
+- **Out-Bundle inkrementell** (`--not --remotes=host`), automatischer Rückfall auf ein vollständiges Bundle, wenn der Host die Voraussetzungen nicht hat. Den Bundle-Kopf liest der Host selbst, ohne Git-Meldungen zu parsen.
+- **Agent-Branch auf dem Host:** nur Fast-Forward (`--force` für Umgeschriebenes), Compare-and-swap, nie, solange er ausgecheckt ist.
+- **Merge nur bei sauberem Arbeitsbaum** (getrackte Dateien), Konflikte vorher per `merge-tree` erkannt. Bei Konflikt bleibt das Repo unverändert.
+- **Remote im Klon heißt `host`**, nicht `origin`, damit ein Agent nicht versucht, „nach origin zu pushen“.
+
+Pakete 1–4 (Kurzfassung, Details in ROADMAP):
+- podman-CLI über SSH statt REST. Sicherheitsinvarianten im Provider erzwungen. `keep-id:uid=1000` + `--init`.
+- Base-Image eingebettet mit Content-Hash. Node 24 aus dem offiziellen Image. pnpm über corepack zur Laufzeit. `NODE_USE_ENV_PROXY=1`.
+- Konfiguration mit `deny_unknown_fields`. Projekte dürfen den Konfigurationsordner weder enthalten noch in ihm liegen. Preset beim Anlegen explizit. `deny` gewinnt.
+- Tools-Volume für Instanzen nur lesbar (Paket 7). LLM-Anbieter für pi: DeepSeek.
 
 ## Open questions for the user
 
@@ -61,69 +60,57 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeile
 
 ## Known issues / debt
 
-- **Hoch:** VM-Start nur per Admin-PowerShell (→ Phase 2b). Nach einem gescheiterten Start muss von Hand aufgeräumt werden, siehe `spikes/phase-0.md` §12.2. Die vsock-Registry-Einträge **nicht** löschen.
-- **Mittel:** ~350–500 ms pro podman-Aufruf (neue SSH-Verbindung). `harness run` braucht geschätzt 6–10 Aufrufe, also 3–5 s Start. Falls störend: libpod-REST über einen gehaltenen SSH-Tunnel.
+- **Hoch:** VM-Start nur per Admin-PowerShell (→ Phase 2b). Nach einem gescheiterten Start von Hand aufräumen, siehe `spikes/phase-0.md` §12.2. Die vsock-Registry-Einträge **nicht** löschen.
+- **Mittel:** ~350–500 ms pro podman-Aufruf (neue SSH-Verbindung). Sync hin ~0,6 s, zurück ~0,7 s. `harness run` vermutlich 3–5 s. Falls störend: libpod-REST über einen gehaltenen SSH-Tunnel.
+- **Mittel:** `in.bundle` enthält jedes Mal die ganze Historie. Bei großen Repos inkrementell machen (`--not` mit dem Stand des letzten Exports).
 - **Mittel:** CLI-Texte nur Deutsch, Englisch fehlt (Web-UI ist zweisprachig).
 - **Mittel:** kein Dockerfile/compose für den Server, keine ESLint/Prettier-Konfiguration, kein README (ROADMAP „Phase 1 – Reste“). Web-Haupt-Chunk ~955 kB.
-- **Niedrig:** Host-Key der VM per Trust on first use (`ssh-keyscan` beim ersten Aufruf). Der Port ist nur an `127.0.0.1` gebunden. Bei neuem Host-Key mit gleichem Port `%LOCALAPPDATA%\llm-harness\podman\harness-<port>\` löschen.
+- **Niedrig:** Host-Key der VM per Trust on first use. Bei neuem Host-Key mit gleichem Port `%LOCALAPPDATA%\llm-harness\podman\harness-<port>\` löschen.
 - **Niedrig:** Podman-Hilfsprozesse laufen im Kontext des Admin-Fensters. Schließt der Nutzer es, ist das Verhalten ungeprüft.
-- Rechner-Stabilität: ein Bluescreen `0xA0` beim Start der Windows Sandbox, ein Abbruch der WSL-VM bei Standby. Virtualisierung auf diesem ARM64-Rechner mit Vorsicht behandeln, Nutzer vor riskanten Starts fragen.
+- Rechner-Stabilität: Bluescreen `0xA0` beim Start der Windows Sandbox, Abbruch der WSL-VM bei Standby. Nutzer vor riskanten Virtualisierungs-Starts fragen.
 
 ## Verification state
 
-- `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`: ohne Warnungen. `cargo test`: 49/49 Unit-Tests grün, davon 25 neu für Konfiguration, Projektnamen und Pfade. Abgedeckt:
-  - Vorlagen = Code-Standards
-  - Kommentare bleiben beim Bearbeiten erhalten
-  - ungültige Änderungen werden nicht geschrieben
-  - Tippfehler, Überschneidung mit dem Konfigurationsordner, doppelte Projekte, kaputte Dateien
-  - Windows-Pfade ohne Groß-/Kleinschreibung
-- Echter Lauf (Paket 4, `HARNESS_HOME` im Scratchpad, in diesem Repo aus `apps/web` heraus):
-  - `project` meldet „noch kein Projekt“.
-  - `project add` legt `config.toml`, `harnesses/pi.toml` und `projects/llm-harness.toml` an. Der Pfad steht als Literal-String drin, Kommentare sind erhalten.
-  - Ein zweites `add` wird abgelehnt.
-  - `list` und `doctor` (5/5 ✓) laufen durch.
-  - `[netwrok]` wird mit Zeile, Spalte und den erlaubten Schlüsseln gemeldet.
-  - Außerhalb eines Repos kommt eine klare Fehlermeldung.
-- `tests/podman_vm.rs` (alpine, echte VM): grün. Geprüft:
-  - Härtung: UID/GID 1000, `CapEff` 0, `NoNewPrivs` 1, Root read-only, `pids.max` 1024, PID 1 `podman-init`, `/tmp` beschreibbar und ausführbar
-  - kein IP-Zugriff, kein externes DNS
-  - Ablehnung eines nicht-internen Netzes und von `--privileged` als Name
-  - Volume, Workdir, Env mit Sonderzeichen
-  - Austauschordner in beide Richtungen, read-only-Mount
-  - exec-Exit-Codes, Stop/Start mit erhaltenen Daten
-  - aufgeräumt auch nach einem fehlgeschlagenen Lauf
-- `tests/base_image_vm.rs` (gehärtete Instanz, Login-Shell): grün. Geprüft:
-  - git 2.47.3, Node 24.21.0, npm 11.19.0, corepack 0.36.0, Python 3.13.5, uv 0.12.24, rg 14.1.1, fd 10.2.0, jq 1.7, gcc 14.2, make 4.4.1, curl 8.14.1
-  - frische Volumes gehören `agent`, Skeleton im Home
-  - npm-Prefix `~/.local`, Git-Systemconfig, Commit als „harness agent“
-  - Login-Shell-PATH, Proxy-Variablen
-- Von Hand (Wegwerf-Container im normalen Netz):
-  - pnpm 12.11.2 über corepack, ohne Auto-Pin
-  - Node-`fetch` nutzt den Proxy nur mit `NODE_USE_ENV_PROXY=1` (mit: `ENOTFOUND proxy-check.invalid`, ohne: 200 direkt)
-  - `uv venv` funktioniert
-- `harness doctor`: 4/4 ✓. In der VM sind keine Test-Container, -Volumes oder -Netze übrig.
-- Phase 1 seit der letzten Sitzung nicht erneut geprüft (unverändert): `pnpm -r typecheck` grün, Server-Tests 30/30 (SQLite), E2E 7/7.
+- `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`: ohne Warnungen.
+- `cargo test`: 62/62 Unit-Tests grün, davon 13 neu für Sync. Abgedeckt:
+  - Round-Trip mit Fast-Forward, auseinanderlaufende Branches mit Merge-Commit
+  - Konflikt lässt das Repo unverändert, uncommittete Arbeit bleibt unangetastet, detached HEAD wird abgelehnt
+  - umgeschriebener Branch nur mit `force`, ausgecheckter Branch wird nicht bewegt
+  - fehlende Voraussetzungen → vollständiges Bundle, kaputte Bundles werden abgelehnt
+  - **Hooks laufen nicht**: Kontrolltest beweist, dass Hooks hier grundsätzlich laufen. Geprüft für `.git/hooks` und für einen Hook-Ordner im Arbeitsbaum, jeweils `post-merge` und `reference-transaction`.
+- VM-Tests, nacheinander (`cargo test -p harness-core -- --ignored --test-threads=1`): alle grün.
+  - `podman_vm`: Härtung, Netz, Volumes, Austauschordner, Lebenszyklus.
+  - `base_image_vm`: Werkzeuge, Rechte, gitconfig, Proxy-Variablen.
+  - `sync_vm`, neu, mit den echten Container-Skripten:
+    - Klonen, Agent-Commit, Rückweg (Autor „harness agent“), Fast-Forward
+    - Container sieht nur `in.bundle`
+    - zweite Runde mit Fetch und Merge-Commit
+  - In der VM ist danach nichts übrig.
+- Vorab von Hand geprüft: `git bundle create` direkt auf 9p, `cp`/`mv` und `clone` aus dem Bundle funktionieren.
+- `harness doctor` 5/5 ✓ (mit `HARNESS_HOME`).
+- Phase 1 seit dem 11.10. nicht erneut geprüft (unverändert): `pnpm -r typecheck` grün, Server-Tests 30/30 (SQLite), E2E 7/7.
 
 ---
 
 ## Log
 
+### 2026-10-12 (Phase 2, Paket 5)
+- Paket 4 committet, Remote `origin` (GitHub) eingerichtet, `feat/phase-1-chat` gelöscht, `feat/phase-2-sandbox` nach `main` gemergt (Fast-Forward), beides gepusht.
+- `harness-core/src/sync/`:
+  - `bundle.rs`: Bundle-Kopf lesen.
+  - `host.rs`: `HostRepo` mit Export, Import und Merge, gehärtet.
+  - `mod.rs`: Container-Skripte, `push_to_workspace`, `pull_from_workspace`, `sanitize`.
+- `find_on_path` nach `paths.rs` verschoben. Neue Fehler `Error::Git` und `Error::Sync`.
+- Paket 5 committet, nach `main` gemergt (Fast-Forward), beides gepusht.
+
 ### 2026-10-12 (Phase 2, Paket 4)
-- `feat/phase-1-chat` per Fast-Forward nach `main`, neuer Branch `feat/phase-2-sandbox` mit 3 Commits (Spike-Skript, Rust-Code der Pakete 1–3, Doku).
-- `harness-core`: `config/` (Modell, `ConfigDir`, Auflösung der Standards, `toml_edit`-Updates), `project.rs` (Namen, Ableitung, Repo-Erkennung), Pfadvergleich in `paths.rs`, Vorlagen in `defaults/`.
-- `harness-cli`: aufgeteilt in `main.rs`, `doctor.rs`, `project.rs`. Neu: `project [show|add|list]`, `doctor` prüft die Konfiguration.
-- Remote `origin` auf GitHub eingerichtet, `feat/phase-1-chat` gelöscht, `feat/phase-2-sandbox` nach `main` gemergt (Fast-Forward), beides gepusht.
+- `harness-core`: `config/`, `project.rs`, Pfadvergleich, Vorlagen in `defaults/`. CLI: `project [show|add|list]`, `doctor` prüft die Konfiguration.
 
 ### 2026-10-12 (Phase 2, Pakete 1–3)
-- Cargo-Workspace (`Cargo.toml`, `.cargo/config.toml` mit 2 Jobs), clippy und rustfmt zur Toolchain hinzugefügt.
-- `harness-core`: `provider.rs` (Trait, Specs, Validierung, `ExchangeDir`), `podman/` (Machine-JSON, Argument-Builder mit fester Härtung, Provider), `image.rs` (eingebetteter Kontext, Hash, Build).
-- `harness-cli`: `doctor`, `image build`.
-- `images/base`: Containerfile, gitconfig, profile.sh. Image in der VM gebaut und in zwei VM-Tests verifiziert.
-- Nutzer hat DeepSeek als LLM-Anbieter für pi gewählt.
+- Cargo-Workspace, `provider.rs`, `podman/`, `image.rs`, `images/base`. CLI: `doctor`, `image build`. Nutzer wählt DeepSeek für pi.
 
 ### 2026-10-12
-- Windows-Sandbox-Spike verworfen (keine Exec-Ausgabe, Bluescreen), zurück zu Hyper-V + Linux. Machine `harness` mit Austauschordner und 1-GB-Startspeicher angelegt.
-- Phase 0 abgeschlossen, Doku (`ROADMAP.md`, `PROGRESS.md`, ARCHITECTURE §3/§9) aktualisiert.
+- Windows-Sandbox-Spike verworfen, zurück zu Hyper-V + Linux. Machine `harness` angelegt, Phase 0 abgeschlossen.
 
 ### 2026-10-11
 - Chat-Bug (useChat + StrictMode → `chat-store.ts`) und Login-Schleife behoben, E2E-Test und `CLAUDE.md` angelegt.
