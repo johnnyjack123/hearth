@@ -50,14 +50,24 @@ harnessd (Hintergrunddienst auf dem Rechner des Nutzers)
 
 ## 3. Laufzeitumgebung (Sandbox)
 
-> **Richtungsentscheidung (12.10.2026):** Als erster und vorerst **einziger** Provider wird **Windows Sandbox** gebaut, vorbehaltlich eines Spikes (Phase 0b). Gründe:
-> - Ein Backend bedeutet weniger Wartung und schnellere Entwicklung.
-> - Kein zweites Betriebssystem auf der Platte, Windows-Programme laufen direkt.
-> - NTFS-native Ordnerfreigaben, Hyper-V-Isolation.
+> **Richtungsentscheidung (12.10.2026, revidiert am selben Tag):** Erster und vorerst **einziger** Provider ist **Podman mit Hyper-V-Provider und Linux-VM**, im **Isoliert-Modus** (Projekte als Git-Arbeitskopie in Volumes der VM). `harness-core` wird gegen eine schmale Provider-Schnittstelle programmiert, damit später weitere Provider dazukommen können (Docker unter Linux, ggf. Windows Sandbox).
 >
-> `harness-core` wird gegen eine schmale Provider-Schnittstelle programmiert, sodass Docker (Linux) oder Hyper-V mit Linux später als weitere Provider dazukommen.
+> Windows Sandbox wurde verworfen (Spike 0b, [`docs/spikes/phase-0b-windows-sandbox.md`](docs/spikes/phase-0b-windows-sandbox.md)):
+> - Sie bootet ein vollständiges Windows mit Oberfläche, also ~1,5–2,5 GB RAM pro Instanz gegenüber 0,4–1 GB für die Linux-VM mit beliebig vielen Containern.
+> - `wsb exec` liefert keine Ausgabe.
+> - Der erste Start löste auf dem ARM64-Rechner einen Bluescreen aus.
 >
-> Die folgenden Abschnitte 3.1–3.5 beschreiben den bisher untersuchten Podman-Weg. Er bleibt die Vorlage für einen späteren Linux-Provider. Die Messergebnisse stehen in `docs/spikes/phase-0.md`.
+> Auf diesem Rechner ist RAM das knappste Gut.
+
+**Host-Modus (ungesichert, optional pro Projekt):** Die Harness läuft direkt auf dem Host im Projektordner, ohne VM und Container: volle Leistung, Windows-Tools, paralleles Bearbeiten durch den Nutzer. Es gibt **keine** Isolation, keine Netzwerkregeln und keinen Git-Worker. Er ist nur als bewusste Entscheidung des Nutzers mit deutlicher Warnung in der UI aktivierbar, nie als Standard und nie für verknüpfte Remote-Chats.
+
+> **Hinweis zum Lesen von §3.3–3.8:** Einiges dort betrifft nur den **Direkt-Modus**, also eingebundene Projektordner, später unter Linux:
+> - Bind-Mount von `/workspace`
+> - read-only `.git`
+> - versteckte und geschützte Pfade
+> - Git-Shim und Git-Worker auf dem Host (§3.6)
+>
+> Für Phase 2 maßgeblich ist der **Isoliert-Modus** nach [`docs/ROADMAP.md`](docs/ROADMAP.md) Phase 2. Die Arbeitskopie liegt im Volume, der Austausch läuft über Git-Bundles in `/mnt/exchange`. Ein Git-Shim ist dort nicht nötig, weil der Agent sein eigenes `.git` hat. Weiterhin gelten Härtung (§3.3, ohne die Bind-Mount-Zeilen), Netzwerk (§3.5), Harness-Definitionen (§3.7) und Konfiguration (§3.8).
 
 ### 3.1 Schichten
 
@@ -390,7 +400,7 @@ llm_harness/
 │  ├─ web/             React-SPA
 │  └─ desktop/         Tauri 2 (Frontend = apps/web)
 ├─ crates/
-│  ├─ harness-core/    Konfiguration, Podman-API (bollard), Instanzen, Richtlinien
+│  ├─ harness-core/    Konfiguration, Provider (Podman-CLI über SSH), Instanzen, Richtlinien
 │  ├─ harnessd/        Dienst: IPC, Git-Worker, Tunnel, Adapter
 │  ├─ harness-cli/     Kommando `harness`
 │  └─ gateway/         Egress-Proxy (läuft als Container in der VM)
@@ -410,54 +420,7 @@ pnpm-Workspaces für TypeScript, ein Cargo-Workspace für Rust. Ein eigenes `pac
 
 ## 9. Phasen
 
-**Phase 0 – Spike** (klein, parallel zu Phase 1)
-
-- Podman Machine mit Hyper-V-Provider per Skript erstellen, Admin- bzw. Gruppen-Ablauf prüfen.
-- Bind-Mount-Performance messen: `git status` in einem großen Repo, `npm install`, ein Testlauf. Jeweils Direktmount gegen Container-Volume.
-- Internes Netz, Gateway-Container, Erreichbarkeit des Hosts aus dem Container.
-- Klären, ob sich die freigegebenen Wurzelordner ohne neue Machine ändern lassen.
-- RAM einer Tauri-Testanwendung messen, mit offenem und geschlossenem Fenster.
-- **Ergebnis:** Entscheidung, ob der Direkt-Modus Standard wird oder ein Sync-Fallback nötig ist.
-
-**Phase 1 – Server und Web-Chat (Modus A)**
-
-- Monorepo, Lint/Format, CI.
-- Server mit Kysely (SQLite und Postgres), Migrationen, Tests gegen beide Datenbanken.
-- Better Auth, Rollen, Admin-Bereich (Nutzer, Registrierung, Server-Einstellungen).
-- API-Keys pro Nutzer (verschlüsselt), Modellliste live vom Anbieter.
-- Chat mit Streaming, Modellwahl, Markdown/Code-Rendering, automatischen Titeln.
-- Design-System und UI-Grundgerüst.
-- Docker-Image und `compose.yaml`.
-
-**Phase 2 – Sandbox-Kern und Terminal-Modus**
-
-- `harness-vmd`: Windows-Dienst für den VM-Lebenszyklus (siehe Abschnitt 5), Installer-Integration.
-- `harness-core`: Konfigurationsdateien, Podman-API, Bootstrap der Machine.
-- Base-Image, Tools-Volume, Harness-Definitionen (opencode, pi, claude, codex).
-- Gehärtete Instanzen im Direkt-Modus mit read-only `.git`, versteckten und geschützten Pfaden, Container-Volumes.
-- `harness <name>` mit TTY, dazu `shell`, `status`, `stop`, `update`.
-- `harnessd` mit IPC.
-
-**Phase 3 – Desktop-App und Sicherheitsfunktionen**
-
-- Tauri-App: Setup-Assistent, Instanzübersicht, Projekteinstellungen, Tray, Autostart.
-- Gateway mit Voreinstellungen, Live-Protokoll und Freigabe per Klick.
-- Git-Worker, git-Shim, Richtlinien-UI, Audit-Log, Bestätigung von Pushes.
-
-**Phase 4 – Chat ↔ Umgebung**
-
-- Pairing per Device Flow, Geräteverwaltung im Web.
-- WSS-Tunnel, Projektfreigabe, lokale Bestätigung von Verknüpfungen.
-- pi-RPC-Adapter und Darstellung der `AgentEvent`s im Chat.
-- LLM-Gateway im Server.
-
-**Phase 5 – Ausbau**
-
-- opencode-Adapter, Isoliert-Modus.
-- Checkpoints über Git-Plumbing auf einer eigenen Ref (`refs/harness/checkpoints/*`), ohne den Index des Nutzers anzufassen.
-- Port-Vorschau, Secret-Injection im Gateway.
-- Pakete für macOS und Linux (gVisor/krun).
-- Härtung für Remote-Betrieb (Rate-Limits, Audit), OIDC.
+Der Phasenplan mit Status, Arbeitspaketen und Abnahmekriterien steht in [`docs/ROADMAP.md`](docs/ROADMAP.md). Der aktuelle Arbeitsstand für die nächste Sitzung steht in [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## 10. Abgrenzung und Mehrwert
 

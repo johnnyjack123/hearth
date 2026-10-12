@@ -1,19 +1,29 @@
 # LLM Harness – Hinweise für Agenten
 
-Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Client, der Chats mit isolierten Container-Umgebungen auf dem Rechner des Nutzers verbindet. **Gesamtbild und Entscheidungen: [`ARCHITECTURE.md`](ARCHITECTURE.md). Zuerst lesen.**
+Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Client, der Chats mit isolierten Container-Umgebungen auf dem Rechner des Nutzers verbindet.
+
+**Lesereihenfolge für neue Sitzungen:**
+1. [`docs/PROGRESS.md`](docs/PROGRESS.md): wo wir stehen, nächster Schritt, offene Fragen
+2. [`docs/ROADMAP.md`](docs/ROADMAP.md): Phasen, Arbeitspakete, Abnahmekriterien
+3. [`ARCHITECTURE.md`](ARCHITECTURE.md): Gesamtbild und Begründungen
+4. bei Bedarf `docs/spikes/`
 
 ## Stand
 
-- **Phase 0 (Spike)** ist erledigt, Ergebnisse in [`docs/spikes/phase-0.md`](docs/spikes/phase-0.md). WSL-Provider gemessen, Hyper-V-Provider teilweise, siehe dort Abschnitt 12.
-- **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`.
-- **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Windows Sandbox** (siehe ARCHITECTURE.md §3). Linux-Provider (Docker, Hyper-V + Linux) folgen später über eine Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen.
-- Nächstes: Phase 0b (Spike Windows Sandbox: parallele Instanzen, Netzwerk-Allowlist, Exec/PTY, Ordner-Performance, RAM), danach Phase 2 (Sandbox-Kern, `harnessd`).
+- **Phase 0 (Spike)** ist erledigt, Ergebnisse in [`docs/spikes/phase-0.md`](docs/spikes/phase-0.md). Der Hyper-V-Teil steht in §12.
+- **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`. Reste stehen in ROADMAP.md.
+- **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Einzige Freigabe ist `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`. Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
+- Erste Harness für Phase 2: **pi** (`@earendil-works/pi-coding-agent`), LLM-Anbieter des Nutzers für pi: **DeepSeek** (`api.deepseek.com`).
+- **Phase 2, Pakete 1–3 erledigt:** Cargo-Workspace (`crates/harness-core`, `crates/harness-cli` → Binary `harness`), Provider-Schnittstelle mit `PodmanProvider`, Base-Image `images/base` (gebaut als `localhost/harness/base:latest`). CLI kann bisher nur `doctor` und `image build`.
+- **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
+- Nächstes: Phase 2 ab Paket 4 (Konfiguration, Git-Sync, Gateway, pi, CLI-Befehle; danach `harness-vmd`).
 
 ## Arbeitsweise
 
 - Sprache: Doku und UI-Texte **Deutsch** (UI zusätzlich Englisch), Code-Kommentare, Commits und Bezeichner **Englisch**.
 - Commits nur, wenn der Nutzer darum bittet. Konventionen siehe Skill `git-flow`.
 - TS/JS: JSDoc für jeden Export, geschweifte Klammern immer (Skill `ts-js-code-konventionen`). Kommentare erklären das *Warum* (Skill `code-comments`).
+- Rust: Doc-Kommentar für jedes `pub`-Element (`harness-core` hat `#![warn(missing_docs)]`), `cargo fmt` und `cargo clippy --all-targets` ohne Warnungen. Fehlermeldungen sind UI-Text, also Deutsch.
 - UI: **nur** semantische Tokens, keine festen Werte. Regeln in [`docs/design/DESIGN.md`](docs/design/DESIGN.md). Neue Primitive bekommen einen Eintrag auf der Design-Seite `/design` (nur im Dev-Modus). Skill `ui-component` beachten.
 - **Neue Erkenntnisse und Stolpersteine hier unten eintragen**, Details in `docs/`.
 - Große Downloads vorher kurz ansprechen, der Nutzer ist manchmal im Mobilfunknetz.
@@ -29,9 +39,19 @@ pnpm --filter @harness/server test    # Vitest; mit TEST_POSTGRES_URL zusätzlic
 pnpm -r typecheck
 pnpm --filter @harness/web build
 pnpm --filter @harness/web e2e        # Browser-E2E gegen isolierten Stack (siehe unten)
+
+cargo build                           # Rust-Workspace; 2 Jobs per .cargo/config.toml (RAM)
+cargo test                            # Unit-Tests
+cargo fmt; cargo clippy --all-targets
+target/debug/harness doctor           # Machine, SSH, Austauschordner, Base-Image
+target/debug/harness image build      # Base-Image in der VM bauen (--pull, --no-cache)
+cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
+cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
 ```
 
-Postgres zum Testen: `podman run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test`.
+Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Ob die Portweiterleitung über gvproxy unter Hyper-V funktioniert, ist ungetestet.
+
+VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER='hyperv'` und dann `& "C:\Program Files\RedHat\Podman\podman.exe" machine start|stop harness`.
 
 ## Stolpersteine (bitte ergänzen)
 
@@ -56,7 +76,21 @@ Postgres zum Testen: `podman run -d --name harness-pg -e POSTGRES_USER=harness -
 - **Hyper-V-9p-Freigaben sind für Entwicklung unbrauchbar:** `chmod`/`copyfile` → EPERM, rekursives Löschen → EIO, also kein git, npm oder Build. Projekte gehören in Volumes in der VM (Isoliert-Modus).
 - **gvproxy leitet `192.168.127.254` / `host.containers.internal` auf `127.0.0.1` des Windows-Hosts weiter.** Aus normalen Container-Netzen sind damit lokale Dienste des Nutzers erreichbar. Instanzen nur in `--internal`-Netzen betreiben.
 - **WSL-Provider:** Die VM sieht ganz `C:\` mit Schreibrechten, und Interop ist aktiv. Das ist nur ein Fallback (Windows Home). Bind-Mounts über 9p sind langsam (~2 ms pro Dateizugriff).
+- **Windows Sandbox:** Der erste Start (12.10.2026) hat den Rechner mit Bluescreen `0xA0` INTERNAL_POWER_ERROR abgestürzt, vermutlich ein Fehler der Energieverwaltung auf dem ARM64-Rechner beim Start der Virtualisierung. **Sandboxes nie ungefragt starten**, vorher den Nutzer bitten, seine Arbeit zu speichern. Die CLI `wsb` kommt erst mit der Store-Version (nach dem ersten Start). `wsb exec` liefert keine Ausgabe, nur den Exit-Code. Die Sandbox bootet ein vollständiges Windows mit Oberfläche, also ~1,5–2,5 GB RAM pro Instanz.
 - Wenig freier RAM (~3 GB): Die WSL-VM nimmt sich bis zu 7,7 GB, unabhängig von der Podman-Einstellung. Nicht benötigte Machines stoppen.
+
+### Sandbox-Kern (Rust, Podman, Base-Image)
+
+- **`harness-core` steuert `podman.exe` per CLI**, nicht per bollard/REST: `--url ssh://core@127.0.0.1:<Port>/run/user/<UID>/podman/podman.sock --identity <Key>`, dazu `HOME`/`USERPROFILE` auf `%LOCALAPPDATA%\llm-harness\podman\<machine>-<port>\`. Dort liegt eine eigene `known_hosts`, die beim ersten Aufruf per `ssh-keyscan.exe` (Windows-OpenSSH) gefüllt wird (Trust on first use). Port, Nutzer, UID und Key stammen immer aus der Machine-JSON.
+- **Jeder podman-Aufruf kostet ~350–500 ms**, weil jedes Mal eine neue SSH-Verbindung aufgebaut wird. Aufrufe sparsam einsetzen. Falls `harness run` zu träge wird: libpod-REST über einen gehaltenen SSH-Tunnel.
+- **Sicherheitsinvarianten sitzen im Provider, nicht beim Aufrufer:** Härtung ist in `podman/args.rs` fest verdrahtet. `create_container` prüft per `network inspect`, dass das Netz `internal` ist. Mounts sind nur als Volume oder als Unterordner des Austauschordners darstellbar, und alle Namen und Pfade werden vor dem Aufruf validiert (kein führendes `-`, keine Kommas in `--mount`). Das Gateway (Paket 6) braucht deshalb eine eigene Methode.
+- `--init` (catatonit) läuft im Container als `/run/podman-init`, `/proc/1/comm` ist `podman-init`.
+- Austauschordner (9p) und `--userns=keep-id:uid=1000,gid=1000` vertragen sich: Container (UID 1000) kann lesen und schreiben, Host sieht die Dateien sofort. Für einzelne Dateien reicht das, für Arbeitsbäume nicht (siehe 9p oben).
+- **`images/base/*` ist per `include_str!` in `harness-core/src/image.rs` eingebettet.** Neue Dateien dort eintragen, sonst schlägt der Test `base_context_is_complete` fehl. Das Image trägt das Label `io.llm-harness.context-hash`, und `doctor` meldet „veraltet“, sobald sich der eingebettete Kontext ändert.
+- **Node-`fetch` ignoriert `HTTP(S)_PROXY` ohne `NODE_USE_ENV_PROXY=1`** (im Image gesetzt, verifiziert). Die LLM-SDKs von pi nutzen `fetch`. Ohne die Variable würde pi das Gateway umgehen bzw. im internen Netz scheitern.
+- **Debians `/etc/profile` überschreibt `PATH` in Login-Shells** (`bash -l`) für Nicht-root-Nutzer. `images/base/profile.sh` (→ `/etc/profile.d/harness.sh`) fügt `/opt/harness-tools/bin` und `~/.local/bin` wieder ein.
+- Root-Dateisystem der Instanzen ist read-only: `npm i -g` geht nach `~/.local` (`NPM_CONFIG_PREFIX`), pnpm lädt corepack beim ersten Aufruf nach `~/.cache` (Home-Volume). `COREPACK_ENABLE_AUTO_PIN=0` verhindert, dass corepack `packageManager` in die `package.json` des Nutzers schreibt.
+- Node 24 bringt corepack noch mit, ab Node 25 fehlt es. Beim Wechsel auf Node 26 corepack per npm installieren.
 
 ### Testen ohne den Browser des Nutzers
 
