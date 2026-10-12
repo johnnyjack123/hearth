@@ -1,0 +1,9 @@
+# Normalize to LF everywhere: files are shared with Linux containers, and mixed
+# line endings show up as whole-file diffs there.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.woff2 binary
