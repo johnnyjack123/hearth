@@ -7,15 +7,21 @@
 # podman at an isolated HOME whose known_hosts only holds the machine's host key
 # (created with ssh-keyscan) and pass the connection explicitly.
 #
-# Machines (env):
-#   WSL machine harness-spike (default):  PODMAN_SSH_PORT=63481 PODMAN_SSH_USER=user
-#   Hyper-V machine harness-hv:           PODMAN_SSH_PORT=64411 PODMAN_SSH_USER=core
+# Machine selection (env):
+#   default: Hyper-V machine "harness"; port and user are read from its machine JSON
+#   PODMAN_MACHINE=<name> picks another Hyper-V machine,
+#   PODMAN_SSH_PORT / PODMAN_SSH_USER override both explicitly.
 # Container commands over SSH need no admin rights, even for Hyper-V machines.
 set -euo pipefail
 
 SPIKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT="${PODMAN_SSH_PORT:-63481}"
-SSH_USER="${PODMAN_SSH_USER:-user}"
+MACHINE_JSON="$USERPROFILE/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-harness}.json"
+if [[ -z "${PODMAN_SSH_PORT:-}" && -f "$MACHINE_JSON" ]]; then
+  # The port changes with every `machine init`, so never hard-code it.
+  read -r PODMAN_SSH_PORT PODMAN_SSH_USER < <(node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(c.SSH.Port, c.SSH.RemoteUsername)" "$MACHINE_JSON")
+fi
+PORT="${PODMAN_SSH_PORT:?no machine config found; set PODMAN_SSH_PORT}"
+SSH_USER="${PODMAN_SSH_USER:-core}"
 # One known_hosts per machine: each VM has its own host key.
 FAKE_HOME="$SPIKE_DIR/work/podman-home-$PORT"
 
