@@ -1,0 +1,105 @@
+import type { Kysely } from 'kysely';
+import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
+import type { DB } from './schema.ts';
+
+// Rules that keep migrations portable between SQLite and Postgres:
+// text ids, bigint epoch-millisecond timestamps, JSON as text, no booleans,
+// and only Kysely schema-builder calls (no raw SQL).
+const migrations: Record<string, Migration> = {
+  '0001_initial': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('providerCredential')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('kind', 'text', (col) => col.notNull())
+        .addColumn('label', 'text', (col) => col.notNull())
+        .addColumn('baseUrl', 'text')
+        .addColumn('encryptedKey', 'text')
+        .addColumn('keyHint', 'text')
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema
+        .createIndex('providerCredential_userId_idx')
+        .on('providerCredential')
+        .column('userId')
+        .execute();
+
+      await db.schema
+        .createTable('conversation')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('title', 'text')
+        .addColumn('credentialId', 'text', (col) =>
+          col.references('providerCredential.id').onDelete('set null'),
+        )
+        .addColumn('modelId', 'text')
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema
+        .createIndex('conversation_userId_updatedAt_idx')
+        .on('conversation')
+        .columns(['userId', 'updatedAt'])
+        .execute();
+
+      await db.schema
+        .createTable('message')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('conversationId', 'text', (col) =>
+          col.notNull().references('conversation.id').onDelete('cascade'),
+        )
+        .addColumn('role', 'text', (col) => col.notNull())
+        .addColumn('parts', 'text', (col) => col.notNull())
+        .addColumn('metadata', 'text')
+        .addColumn('seq', 'integer', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema
+        .createIndex('message_conversationId_seq_idx')
+        .on('message')
+        .columns(['conversationId', 'seq'])
+        .unique()
+        .execute();
+
+      await db.schema
+        .createTable('setting')
+        .addColumn('key', 'text', (col) => col.primaryKey())
+        .addColumn('value', 'text', (col) => col.notNull())
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('message').execute();
+      await db.schema.dropTable('conversation').execute();
+      await db.schema.dropTable('providerCredential').execute();
+      await db.schema.dropTable('setting').execute();
+    },
+  },
+};
+
+// Migrations are bundled into the server build, so they are provided in code
+// instead of being discovered on disk.
+const provider: MigrationProvider = {
+  getMigrations: async () => migrations,
+};
+
+/**
+ * Applies all pending app migrations. Must run after Better Auth's migrations
+ * because the app tables reference its `user` table.
+ *
+ * @param db - Open database.
+ * @throws {Error} If a migration fails; earlier migrations stay applied.
+ */
+export async function migrateToLatest(db: Kysely<DB>): Promise<void> {
+  const migrator = new Migrator({ db, provider });
+  const { error, results } = await migrator.migrateToLatest();
+  for (const result of results ?? []) {
+    if (result.status === 'Error') {
+      console.error(`[db] migration ${result.migrationName} failed`);
+    }
+  }
+  if (error) {
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
