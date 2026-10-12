@@ -1,0 +1,59 @@
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { KeyRound, Palette, UserRound } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
+import { useT } from '@/lib/preferences.tsx';
+import { Page } from '../shell/page.tsx';
+import { AccountPanel } from './account-panel.tsx';
+import { AppearancePanel } from './appearance-panel.tsx';
+import { ProvidersPanel } from './providers-panel.tsx';
+
+/**
+ * Tabs of the settings page, also used as the `?tab=` search parameter.
+ */
+export const SETTINGS_TABS = ['providers', 'appearance', 'account'] as const;
+
+/**
+ * One of {@link SETTINGS_TABS}.
+ */
+export type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+/**
+ * Settings page (`/settings`) with tabs for API keys, appearance and account.
+ *
+ * @returns The settings page.
+ */
+export function SettingsPage() {
+  const t = useT();
+  const navigate = useNavigate();
+  const { tab = 'providers' } = useSearch({ strict: false }) as { tab?: SettingsTab };
+
+  return (
+    <Page title={t('settings.title')}>
+      <Tabs value={tab} onValueChange={(next) => void navigate({ to: '/settings', search: { tab: next as SettingsTab }, replace: true })}>
+        <TabsList className="mb-8">
+          <TabsTrigger value="providers">
+            <KeyRound />
+            {t('settings.tabProviders')}
+          </TabsTrigger>
+          <TabsTrigger value="appearance">
+            <Palette />
+            {t('settings.tabAppearance')}
+          </TabsTrigger>
+          <TabsTrigger value="account">
+            <UserRound />
+            {t('settings.tabAccount')}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="providers">
+          <ProvidersPanel />
+        </TabsContent>
+        <TabsContent value="appearance">
+          <AppearancePanel />
+        </TabsContent>
+        <TabsContent value="account">
+          <AccountPanel />
+        </TabsContent>
+      </Tabs>
+    </Page>
+  );
+}

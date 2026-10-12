@@ -1,0 +1,191 @@
+/*
+ * Design tokens — single source of truth for every visual value.
+ * Rules and usage: docs/design/DESIGN.md.
+ *
+ * Layer 1 (--palette-*) is private to this file. Components only ever use the
+ * semantic layer below it, through the Tailwind mapping in globals.css.
+ */
+
+:root {
+  /* ---- Layer 1: primitives (cool neutral, iris accent, status hues) ---- */
+  --palette-white: oklch(1 0 0);
+  --palette-black: oklch(0 0 0);
+
+  --palette-neutral-50: oklch(0.985 0.002 275);
+  --palette-neutral-100: oklch(0.967 0.004 275);
+  --palette-neutral-150: oklch(0.945 0.005 275);
+  --palette-neutral-200: oklch(0.915 0.006 275);
+  --palette-neutral-300: oklch(0.86 0.008 275);
+  --palette-neutral-400: oklch(0.71 0.012 275);
+  --palette-neutral-500: oklch(0.56 0.014 275);
+  --palette-neutral-600: oklch(0.46 0.014 275);
+  --palette-neutral-700: oklch(0.37 0.014 275);
+  --palette-neutral-750: oklch(0.32 0.013 275);
+  --palette-neutral-800: oklch(0.275 0.012 275);
+  --palette-neutral-850: oklch(0.235 0.011 275);
+  --palette-neutral-900: oklch(0.205 0.01 275);
+  --palette-neutral-925: oklch(0.18 0.009 275);
+  --palette-neutral-950: oklch(0.155 0.008 275);
+  --palette-neutral-1000: oklch(0.13 0.007 275);
+
+  --palette-iris-50: oklch(0.97 0.014 277);
+  --palette-iris-100: oklch(0.94 0.03 277);
+  --palette-iris-200: oklch(0.88 0.06 277);
+  --palette-iris-400: oklch(0.7 0.15 277);
+  --palette-iris-500: oklch(0.6 0.2 277);
+  --palette-iris-600: oklch(0.53 0.21 277);
+  --palette-iris-925: oklch(0.255 0.035 277);
+  --palette-iris-950: oklch(0.2 0.06 277);
+
+  --palette-red-50: oklch(0.97 0.015 25);
+  --palette-red-400: oklch(0.68 0.18 25);
+  --palette-red-600: oklch(0.54 0.21 25);
+  --palette-red-950: oklch(0.22 0.06 25);
+
+  --palette-green-400: oklch(0.72 0.15 155);
+  --palette-green-600: oklch(0.53 0.14 155);
+  --palette-green-950: oklch(0.2 0.04 155);
+
+  --palette-amber-400: oklch(0.82 0.15 80);
+  --palette-amber-500: oklch(0.76 0.16 75);
+  --palette-amber-950: oklch(0.25 0.05 75);
+
+  /* ---- Layer 2: semantic tokens, light ---- */
+  --background: var(--palette-neutral-50);
+  --foreground: var(--palette-neutral-950);
+  --card: var(--palette-white);
+  --card-foreground: var(--palette-neutral-950);
+  --popover: var(--palette-white);
+  --popover-foreground: var(--palette-neutral-950);
+  --primary: var(--palette-iris-600);
+  --primary-foreground: var(--palette-white);
+  --secondary: var(--palette-neutral-100);
+  --secondary-foreground: var(--palette-neutral-900);
+  --muted: var(--palette-neutral-100);
+  --muted-foreground: var(--palette-neutral-600);
+  --accent: var(--palette-neutral-150);
+  --accent-foreground: var(--palette-neutral-950);
+  --destructive: var(--palette-red-600);
+  --destructive-foreground: var(--palette-white);
+  --destructive-subtle: var(--palette-red-50);
+  --success: var(--palette-green-600);
+  --success-foreground: var(--palette-white);
+  --warning: var(--palette-amber-500);
+  --warning-foreground: var(--palette-neutral-950);
+  --border: var(--palette-neutral-200);
+  --input: var(--palette-neutral-300);
+  --ring: var(--palette-iris-500);
+  --sidebar: var(--palette-neutral-100);
+  --sidebar-foreground: var(--palette-neutral-900);
+  --sidebar-accent: var(--palette-neutral-200);
+  --sidebar-accent-foreground: var(--palette-neutral-950);
+  --sidebar-border: var(--palette-neutral-200);
+  --bubble: var(--palette-iris-50);
+  --bubble-foreground: var(--palette-neutral-950);
+  --tooltip: var(--palette-neutral-900);
+  --tooltip-foreground: var(--palette-neutral-50);
+  --control-thumb: var(--palette-white);
+  --overlay: oklch(0.155 0.008 275 / 0.4);
+
+  /* Separation: soft shadows on light backgrounds. */
+  --elevation-0: 0 0 #0000;
+  --elevation-1: 0 1px 2px 0 oklch(0.2 0.02 275 / 0.06), 0 1px 3px 0 oklch(0.2 0.02 275 / 0.06);
+  --elevation-2: 0 0 0 1px oklch(0.2 0.02 275 / 0.05), 0 2px 4px -2px oklch(0.2 0.02 275 / 0.06),
+    0 6px 16px -4px oklch(0.2 0.02 275 / 0.12);
+  --elevation-3: 0 0 0 1px oklch(0.2 0.02 275 / 0.05), 0 24px 48px -12px oklch(0.2 0.02 275 / 0.24);
+
+  /* Shape */
+  --radius: 0.75rem;
+
+  /* Density: Tailwind's spacing scale is a multiple of this unit. */
+  --space-unit: 0.25rem;
+
+  /* Layout */
+  --sidebar-width: 17rem;
+  --content-width: 46rem;
+  --form-width: 36rem;
+
+  /* Focus */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Motion */
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
+  --duration-slow: 360ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-enter: cubic-bezier(0, 0, 0, 1);
+  --easing-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* Typography */
+  --font-family-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Code', monospace;
+
+  color-scheme: light;
+}
+
+/* ---- Layer 2: semantic tokens, dark ---- */
+.dark {
+  --background: var(--palette-neutral-950);
+  --foreground: var(--palette-neutral-50);
+  --card: var(--palette-neutral-900);
+  --card-foreground: var(--palette-neutral-50);
+  --popover: var(--palette-neutral-850);
+  --popover-foreground: var(--palette-neutral-50);
+  --primary: var(--palette-iris-400);
+  --primary-foreground: var(--palette-iris-950);
+  --secondary: var(--palette-neutral-850);
+  --secondary-foreground: var(--palette-neutral-50);
+  --muted: var(--palette-neutral-850);
+  --muted-foreground: var(--palette-neutral-400);
+  --accent: var(--palette-neutral-850);
+  --accent-foreground: var(--palette-neutral-50);
+  --destructive: var(--palette-red-400);
+  --destructive-foreground: var(--palette-red-950);
+  --destructive-subtle: var(--palette-red-950);
+  --success: var(--palette-green-400);
+  --success-foreground: var(--palette-green-950);
+  --warning: var(--palette-amber-400);
+  --warning-foreground: var(--palette-amber-950);
+  --border: var(--palette-neutral-800);
+  --input: var(--palette-neutral-750);
+  --ring: var(--palette-iris-400);
+  --sidebar: var(--palette-neutral-1000);
+  --sidebar-foreground: var(--palette-neutral-100);
+  --sidebar-accent: var(--palette-neutral-850);
+  --sidebar-accent-foreground: var(--palette-neutral-50);
+  --sidebar-border: var(--palette-neutral-850);
+  --bubble: var(--palette-iris-925);
+  --bubble-foreground: var(--palette-neutral-50);
+  --tooltip: var(--palette-neutral-750);
+  --tooltip-foreground: var(--palette-neutral-50);
+  --control-thumb: var(--palette-neutral-50);
+  --overlay: oklch(0 0 0 / 0.55);
+
+  /* Shadows barely read on dark backgrounds, so surfaces also get a hairline. */
+  --elevation-1: 0 0 0 1px oklch(1 0 0 / 0.06), 0 1px 2px 0 oklch(0 0 0 / 0.4);
+  --elevation-2: 0 0 0 1px oklch(1 0 0 / 0.08), 0 8px 24px -4px oklch(0 0 0 / 0.55);
+  --elevation-3: 0 0 0 1px oklch(1 0 0 / 0.08), 0 24px 64px -12px oklch(0 0 0 / 0.7);
+
+  color-scheme: dark;
+}
+
+/* ---- Density axis ---- */
+[data-density='compact'] {
+  --space-unit: 0.225rem;
+}
+
+[data-density='comfortable'] {
+  --space-unit: 0.275rem;
+}
+
+/* ---- Motion axis: honour the OS setting even without app code ---- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}
