@@ -107,6 +107,22 @@ pub enum Error {
         message: String,
     },
 
+    /// A git command on the host exited with a non-zero status.
+    #[error("`git {action}` ist fehlgeschlagen ({}){}", exit_text(*code), stderr_text(stderr))]
+    Git {
+        /// Subcommand, e.g. `bundle create`.
+        action: String,
+        /// Exit code, `None` if the process was killed.
+        code: Option<i32>,
+        /// Trimmed stderr of the command.
+        stderr: String,
+    },
+
+    /// Sync or merge was refused for a reason the user can fix (dirty working
+    /// tree, rewritten agent branch, …). The message says what to do.
+    #[error("{0}")]
+    Sync(String),
+
     /// No project file with this name exists.
     #[error("Projekt {0} ist nicht angelegt")]
     ProjectUnknown(String),

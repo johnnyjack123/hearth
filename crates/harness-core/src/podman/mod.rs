@@ -23,7 +23,7 @@ use serde::Deserialize;
 
 pub use machine::{DEFAULT_MACHINE, EXCHANGE_GUEST_DIR, MachineConfig, MachineMount};
 
-use crate::paths::local_data_dir;
+use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
     ContainerInfo, ContainerSpec, ContainerStatus, ExchangeDir, ExecOutput, ExecSpec, HostInfo,
     ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
@@ -442,12 +442,6 @@ fn find_keyscan() -> PathBuf {
         "ssh-keyscan"
     };
     find_on_path(exe).unwrap_or_else(|| PathBuf::from(exe))
-}
-
-fn find_on_path(exe: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?)
-        .map(|dir| dir.join(exe))
-        .find(|p| p.is_file())
 }
 
 fn command_error(action: &str, output: &Output) -> Error {

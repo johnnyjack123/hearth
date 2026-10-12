@@ -13,6 +13,7 @@ pub mod paths;
 pub mod podman;
 pub mod project;
 pub mod provider;
+pub mod sync;
 
 pub use error::{Error, Result};
 pub use provider::Provider;

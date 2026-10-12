@@ -32,6 +32,13 @@ pub fn home_dir() -> Result<PathBuf> {
         .ok_or_else(|| Error::Unsupported("Weder USERPROFILE noch HOME ist gesetzt".to_owned()))
 }
 
+/// First `exe` found in a `PATH` directory.
+pub fn find_on_path(exe: &str) -> Option<PathBuf> {
+    env::split_paths(&env::var_os("PATH")?)
+        .map(|dir| dir.join(exe))
+        .find(|p| p.is_file())
+}
+
 /// Absolute, symlink-free form of an existing path, without the `\\?\`
 /// prefix Windows adds, so it can be shown to users and stored in config.
 pub fn canonical(path: &Path) -> Result<PathBuf> {
