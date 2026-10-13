@@ -158,6 +158,50 @@ fn update_keeps_comments_and_rejects_invalid_edits() {
 }
 
 #[test]
+fn network_edits_keep_the_file_intact() {
+    let f = fixture();
+    let project = f.config.create_project(&repo(&f.base, "app")).unwrap();
+    assert!(project.ask);
+    assert_eq!(project.llm_apis[0].to_string(), "api.deepseek.com");
+
+    let open = f
+        .config
+        .set_network_preset(&project.name, NetworkPreset::Open)
+        .unwrap();
+    assert_eq!(open.network, NetworkPreset::Open);
+
+    let docs: DomainPattern = "docs.rs".parse().unwrap();
+    let (updated, changed) = f
+        .config
+        .add_network_domain(&project.name, DomainList::Allow, &docs)
+        .unwrap();
+    assert!(changed);
+    assert_eq!(updated.allow, std::slice::from_ref(&docs));
+    let (_, changed) = f
+        .config
+        .add_network_domain(&project.name, DomainList::Allow, &docs)
+        .unwrap();
+    assert!(!changed, "listed twice");
+
+    // A missing list is created.
+    let text = fs::read_to_string(&project.file)
+        .unwrap()
+        .replace("deny = []\n", "");
+    fs::write(&project.file, text).unwrap();
+    let evil: DomainPattern = "*.evil.example".parse().unwrap();
+    let (updated, _) = f
+        .config
+        .add_network_domain(&project.name, DomainList::Deny, &evil)
+        .unwrap();
+    assert_eq!(updated.deny, [evil]);
+    let text = fs::read_to_string(&project.file).unwrap();
+    assert!(
+        text.contains("# Zusätzlich erlaubte"),
+        "comments kept: {text}"
+    );
+}
+
+#[test]
 fn broken_files_do_not_hide_matches() {
     let f = fixture();
     let path = repo(&f.base, "good");

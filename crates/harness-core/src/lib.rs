@@ -8,6 +8,7 @@
 
 pub mod config;
 pub mod error;
+pub mod gateway;
 pub mod image;
 pub mod paths;
 pub mod podman;
@@ -21,3 +22,6 @@ pub use provider::Provider;
 /// Label set on every resource the harness creates, so cleanup and status
 /// never touch containers, volumes or networks the user made by hand.
 pub const MANAGED_LABEL: &str = "io.llm-harness.managed";
+
+/// Label naming the project a container or network belongs to.
+pub const PROJECT_LABEL: &str = "io.llm-harness.project";

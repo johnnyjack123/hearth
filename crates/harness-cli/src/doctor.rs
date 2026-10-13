@@ -1,10 +1,10 @@
-//! `harness doctor`: one line per check, from configuration to base image.
+//! `harness doctor`: one line per check, from configuration to the images.
 
 use std::fmt::Display;
 
 use harness_core::Provider;
 use harness_core::config::{ConfigDir, GlobalConfig};
-use harness_core::image::{BASE_IMAGE, ImageStatus};
+use harness_core::image::{BASE_IMAGE, GATEWAY_IMAGE, ImageStatus};
 use harness_core::podman::{EXCHANGE_GUEST_DIR, MachineConfig, PodmanProvider, find_podman};
 
 /// Runs all checks; returns whether all passed.
@@ -141,17 +141,19 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         report.fail(format!("{line}, aber nicht rootless"));
     }
 
-    match BASE_IMAGE.status(&provider) {
-        Ok(ImageStatus::Current) => report.ok(format!("Base-Image {} aktuell", BASE_IMAGE.tag)),
-        Ok(ImageStatus::Outdated) => report.warn(format!(
-            "Base-Image {} ist veraltet → harness image build",
-            BASE_IMAGE.tag
-        )),
-        Ok(ImageStatus::Missing) => report.fail(format!(
-            "Base-Image {} fehlt → harness image build",
-            BASE_IMAGE.tag
-        )),
-        Err(error) => report.fail(error),
+    for (label, image) in [("Base-Image", BASE_IMAGE), ("Gateway-Image", GATEWAY_IMAGE)] {
+        match image.status(&provider) {
+            Ok(ImageStatus::Current) => report.ok(format!("{label} {} aktuell", image.tag)),
+            Ok(ImageStatus::Outdated) => report.warn(format!(
+                "{label} {} ist veraltet → harness image build {}",
+                image.tag, image.name
+            )),
+            Ok(ImageStatus::Missing) => report.fail(format!(
+                "{label} {} fehlt → harness image build {}",
+                image.tag, image.name
+            )),
+            Err(error) => report.fail(error),
+        }
     }
     Ok(())
 }

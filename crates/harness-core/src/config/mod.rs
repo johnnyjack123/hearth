@@ -44,6 +44,24 @@ pub struct ConfigDir {
     root: PathBuf,
 }
 
+/// One of the two domain lists in `[network]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DomainList {
+    /// `network.allow`.
+    Allow,
+    /// `network.deny`.
+    Deny,
+}
+
+impl DomainList {
+    fn key(self) -> &'static str {
+        match self {
+            DomainList::Allow => "allow",
+            DomainList::Deny => "deny",
+        }
+    }
+}
+
 /// A project with all defaults applied.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Project {
@@ -59,10 +77,14 @@ pub struct Project {
     pub mode: FileMode,
     /// Effective network preset.
     pub network: NetworkPreset,
+    /// Ask the user about hosts that are not allowed.
+    pub ask: bool,
     /// Extra allowed domains.
     pub allow: Vec<DomainPattern>,
     /// Blocked domains; they win over the preset and `allow`.
     pub deny: Vec<DomainPattern>,
+    /// LLM APIs from `config.toml`, reachable whatever the preset.
+    pub llm_apis: Vec<DomainPattern>,
     /// Effective resource limits.
     pub resources: Resources,
 }
@@ -283,6 +305,48 @@ impl ConfigDir {
         self.resolve(name, config, &self.global()?)
     }
 
+    /// Sets `network.preset` of a project.
+    pub fn set_network_preset(&self, name: &ProjectName, preset: NetworkPreset) -> Result<Project> {
+        self.update_project(name, |doc| {
+            doc["network"]["preset"] = toml_edit::value(preset.as_str());
+            Ok(())
+        })
+    }
+
+    /// Adds a domain to `network.allow` or `network.deny` of a project.
+    /// Returns the project and whether the file changed (`false` if the
+    /// pattern was already listed).
+    pub fn add_network_domain(
+        &self,
+        name: &ProjectName,
+        list: DomainList,
+        pattern: &DomainPattern,
+    ) -> Result<(Project, bool)> {
+        let config = self.project_config(name)?;
+        let present = match list {
+            DomainList::Allow => &config.network.allow,
+            DomainList::Deny => &config.network.deny,
+        };
+        if present.contains(pattern) {
+            return Ok((self.resolve(name, config, &self.global()?)?, false));
+        }
+        let key = list.key();
+        let file = self.project_file(name);
+        let project = self.update_project(name, |doc| {
+            let item = &mut doc["network"][key];
+            if item.is_none() {
+                *item = toml_edit::value(toml_edit::Array::new());
+            }
+            let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
+                path: file.clone(),
+                message: format!("network.{key} ist keine Liste"),
+            })?;
+            array.push(pattern.to_string());
+            Ok(())
+        })?;
+        Ok((project, true))
+    }
+
     /// The named harness: `harnesses/<name>.toml`, else the built-in one.
     pub fn harness(&self, name: &str) -> Result<HarnessConfig> {
         validate_harness_name(name).map_err(|message| Error::ConfigInvalid {
@@ -342,8 +406,10 @@ impl ConfigDir {
                 .unwrap_or_else(|| defaults.harness.clone()),
             mode: config.files.mode,
             network: config.network.preset.unwrap_or(defaults.network),
+            ask: config.network.ask,
             allow: config.network.allow,
             deny: config.network.deny,
+            llm_apis: global.llm_apis.clone(),
             resources: Resources {
                 cpus: config.resources.cpus.or(defaults.resources.cpus),
                 memory: config

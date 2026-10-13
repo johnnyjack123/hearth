@@ -1,19 +1,21 @@
 //! The `harness` command.
 //!
-//! So far the commands needed to bring up the sandbox base and manage
-//! projects: `doctor`, `image build` and `project`. `run`, `shell`, `sync` and
-//! friends follow in later Phase 2 packages (docs/ROADMAP.md).
+//! So far the commands needed to bring up the sandbox base, manage projects
+//! and their network: `doctor`, `image build`, `project` and `net`. `run`,
+//! `shell`, `sync` and friends follow in later Phase 2 packages
+//! (docs/ROADMAP.md).
 
 mod doctor;
+mod net;
 mod project;
 
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use harness_core::Provider;
 use harness_core::config::ConfigDir;
-use harness_core::image::{BASE_IMAGE, BuildOptions};
+use harness_core::image::{BASE_IMAGE, BuildOptions, GATEWAY_IMAGE, IMAGES, ImageDefinition};
 use harness_core::podman::PodmanProvider;
 
 #[derive(Parser)]
@@ -33,7 +35,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Prüft Konfiguration, Machine, SSH-Verbindung, Austauschordner und Base-Image
+    /// Prüft Konfiguration, Machine, SSH-Verbindung, Austauschordner und Images
     Doctor,
     /// Images verwalten
     Image {
@@ -45,12 +47,22 @@ enum Command {
         #[command(subcommand)]
         command: Option<ProjectCommand>,
     },
+    /// Netzwerk des Projekts: Voreinstellung, Freigaben, Gateway, Nachfragen
+    Net {
+        /// Projektname (Standard: Projekt des aktuellen Git-Repositorys)
+        #[arg(long, global = true)]
+        project: Option<String>,
+        #[command(subcommand)]
+        command: Option<net::NetCommand>,
+    },
 }
 
 #[derive(Subcommand)]
 enum ImageCommand {
-    /// Baut das Base-Image in der VM
+    /// Baut die Images in der VM (Standard: alle)
     Build {
+        /// Nur dieses Image
+        image: Option<ImageName>,
         /// Neuere Versionen der Basis-Images holen
         #[arg(long)]
         pull: bool,
@@ -58,6 +70,14 @@ enum ImageCommand {
         #[arg(long)]
         no_cache: bool,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ImageName {
+    /// Base-Image der Instanzen
+    Base,
+    /// Netzwerk-Gateway
+    Gateway,
 }
 
 #[derive(Subcommand)]
@@ -89,10 +109,20 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
     match cli.command {
         Command::Doctor => doctor::run(&config, cli.machine.as_deref()),
         Command::Image {
-            command: ImageCommand::Build { pull, no_cache },
+            command:
+                ImageCommand::Build {
+                    image,
+                    pull,
+                    no_cache,
+                },
         } => {
             let machine = machine_name(&config, cli.machine)?;
-            build_base_image(&machine, BuildOptions { pull, no_cache })?;
+            let images: &[ImageDefinition] = match image {
+                None => IMAGES,
+                Some(ImageName::Base) => &[BASE_IMAGE],
+                Some(ImageName::Gateway) => &[GATEWAY_IMAGE],
+            };
+            build_images(&machine, images, BuildOptions { pull, no_cache })?;
             Ok(true)
         }
         Command::Project { command } => match command.unwrap_or(ProjectCommand::Show) {
@@ -100,6 +130,10 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             ProjectCommand::Add => project::add(&config),
             ProjectCommand::List => project::list(&config),
         },
+        Command::Net { project, command } => {
+            let machine = machine_name(&config, cli.machine)?;
+            net::run(&config, &machine, project.as_deref(), command)
+        }
     }
 }
 
@@ -111,12 +145,19 @@ fn machine_name(config: &ConfigDir, flag: Option<String>) -> anyhow::Result<Stri
     }
 }
 
-fn build_base_image(machine: &str, options: BuildOptions) -> anyhow::Result<()> {
+fn build_images(
+    machine: &str,
+    images: &[ImageDefinition],
+    options: BuildOptions,
+) -> anyhow::Result<()> {
     let provider = PodmanProvider::for_machine(machine)?;
     provider
         .ping()
         .context("VM prüfen (harness doctor zeigt Details)")?;
-    BASE_IMAGE.build(&provider, options)?;
-    println!("Base-Image {} gebaut.", BASE_IMAGE.tag);
+    for image in images {
+        println!("Baue {} …", image.tag);
+        image.build(&provider, options)?;
+        println!("{} gebaut.", image.tag);
+    }
     Ok(())
 }

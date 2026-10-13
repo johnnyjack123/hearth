@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context as _, bail};
 use harness_core::config::{ConfigDir, Project};
-use harness_core::project::find_repo_root;
+use harness_core::project::{ProjectName, find_repo_root};
 
 /// Prints the effective settings of the project for the current directory.
 pub fn show(config: &ConfigDir) -> anyhow::Result<bool> {
@@ -62,6 +62,22 @@ pub fn list(config: &ConfigDir) -> anyhow::Result<bool> {
     Ok(all_valid)
 }
 
+/// The project named on the command line, else the one of the current
+/// repository.
+pub fn resolve(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<Project> {
+    if let Some(name) = name {
+        return Ok(config.project(&ProjectName::new(name)?)?);
+    }
+    let repo = current_repo()?;
+    match config.find_project(&repo)? {
+        Some(project) => Ok(project),
+        None => bail!(
+            "{} ist noch kein Projekt. `harness project add` legt es an",
+            repo.display()
+        ),
+    }
+}
+
 fn current_repo() -> anyhow::Result<PathBuf> {
     let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
     match find_repo_root(&cwd) {
@@ -84,6 +100,9 @@ fn print_project(project: &Project) {
             .join(", ")
     };
     let mut network = project.network.to_string();
+    if !project.ask {
+        network.push_str(", ohne Nachfragen");
+    }
     if !project.allow.is_empty() {
         network.push_str(&format!(", zusätzlich erlaubt: {}", list(&project.allow)));
     }
@@ -111,8 +130,9 @@ fn print_project(project: &Project) {
         resources.pids_limit
     );
     println!(
-        "  Container:   {} im internen Netz {}",
+        "  Container:   {} im internen Netz {}, Gateway {}",
         name.instance(),
-        name.network()
+        name.network(),
+        name.gateway()
     );
 }

@@ -97,6 +97,12 @@ impl ProjectName {
         format!("harness-net-{}", self.0)
     }
 
+    /// Egress gateway of the project; one per project because each has its
+    /// own rules.
+    pub fn gateway(&self) -> String {
+        format!("harness-gw-{}", self.0)
+    }
+
     /// Volume holding the agent's clone of the repository (`/workspace`).
     pub fn workspace_volume(&self) -> String {
         format!("harness-ws-{}", self.0)
@@ -179,6 +185,7 @@ mod tests {
         for resource in [
             name.instance(),
             name.network(),
+            name.gateway(),
             name.workspace_volume(),
             name.home_volume(),
         ] {

@@ -1,0 +1,196 @@
+//! The proxy server: one thread per client connection.
+
+use std::io::{self, BufReader, Write};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::thread;
+use std::time::Duration;
+
+use crate::gateway::{Gateway, Verdict};
+use crate::http::{self, HeadError, Target};
+use crate::pattern::Host;
+use crate::policy::Reason;
+
+/// Time a client gets to send its request head.
+const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Time per address to establish the upstream connection.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Stack of connection threads. Enough for parsing and the system resolver,
+/// much less than the 2 MiB default, so hundreds of tunnels stay cheap.
+const THREAD_STACK: usize = 256 * 1024;
+
+/// Accepts connections forever (until the listener fails).
+pub fn serve(gateway: &Gateway, listener: TcpListener) -> io::Result<()> {
+    for stream in listener.incoming() {
+        let stream = match stream {
+            Ok(stream) => stream,
+            Err(error) => {
+                // E.g. out of file descriptors: back off instead of spinning.
+                eprintln!("accept: {error}");
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+        };
+        if !gateway.connection_opened() {
+            let _ = http::write_response(
+                &mut &stream,
+                503,
+                &[],
+                "Zu viele gleichzeitige Verbindungen über das harness-Gateway.\n",
+            );
+            continue;
+        }
+        let worker = gateway.clone();
+        let spawned = thread::Builder::new()
+            .name("connection".to_owned())
+            .stack_size(THREAD_STACK)
+            .spawn(move || {
+                handle(&worker, stream);
+                worker.connection_closed();
+            });
+        if spawned.is_err() {
+            gateway.connection_closed();
+        }
+    }
+    Ok(())
+}
+
+fn handle(gateway: &Gateway, client: TcpStream) {
+    let _ = client.set_read_timeout(Some(HEAD_TIMEOUT));
+    let _ = client.set_nodelay(true);
+    let Ok(reader) = client.try_clone() else {
+        return;
+    };
+    let mut reader = BufReader::new(reader);
+    let head = match http::read_head(&mut reader) {
+        Ok(head) => head,
+        Err(HeadError::Closed | HeadError::Io(_)) => return,
+        Err(HeadError::TooLarge) => {
+            let _ = http::write_response(&mut &client, 431, &[], "Anfrage zu groß.\n");
+            return;
+        }
+        Err(HeadError::Bad(message)) => {
+            let _ = http::write_response(&mut &client, 400, &[], &format!("{message}\n"));
+            return;
+        }
+    };
+    let (host, port) = head.target.host_port();
+
+    let decision = match gateway.check(host, port) {
+        Verdict::Allow(reason) => Ok(reason),
+        Verdict::Deny(reason) => Err(reason),
+        Verdict::Ask(pending) => match gateway.await_decision(&pending) {
+            (true, reason) => Ok(reason),
+            (false, reason) => Err(reason),
+        },
+    };
+    let reason = match decision {
+        Ok(reason) => reason,
+        Err(reason) => {
+            gateway.record(false, host, port, reason);
+            refuse(&client, host, reason);
+            return;
+        }
+    };
+    let upstream = match connect(gateway, host, port) {
+        Ok(upstream) => upstream,
+        Err(failure) => {
+            gateway.record(false, host, port, failure);
+            refuse(&client, host, failure);
+            return;
+        }
+    };
+    gateway.record(true, host, port, reason);
+
+    let _ = client.set_read_timeout(None);
+    let _ = upstream.set_nodelay(true);
+    let started = match &head.target {
+        Target::Tunnel { .. } => {
+            (&client).write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        }
+        Target::Forward { .. } => match http::forward_head(&head) {
+            Some(text) => (&upstream).write_all(text.as_bytes()),
+            None => return,
+        },
+    };
+    if started.is_ok() {
+        relay(&client, reader, &upstream);
+    }
+}
+
+/// Resolves `host` and connects to the first public address that answers.
+/// The checked address is the one connected to, so a second DNS answer
+/// cannot sneak in a private address (DNS rebinding).
+fn connect(gateway: &Gateway, host: &Host, port: u16) -> Result<TcpStream, Reason> {
+    let options = gateway.options();
+    let addresses: Vec<SocketAddr> = match host {
+        Host::Ip(ip) => vec![SocketAddr::new(*ip, port)],
+        Host::Name(name) => (options.resolve)(name, port).map_err(|_| Reason::ResolveFailed)?,
+    };
+    let filter = options.address_filter;
+    let allowed: Vec<&SocketAddr> = addresses.iter().filter(|a| filter(a.ip())).collect();
+    if allowed.is_empty() {
+        return Err(if addresses.is_empty() {
+            Reason::ResolveFailed
+        } else {
+            Reason::PrivateAddress
+        });
+    }
+    allowed
+        .into_iter()
+        .find_map(|address| TcpStream::connect_timeout(address, CONNECT_TIMEOUT).ok())
+        .ok_or(Reason::ConnectFailed)
+}
+
+/// Error page for a refused connection. CONNECT clients often hide the body,
+/// so the reason is also in a header.
+fn refuse(client: &TcpStream, host: &Host, reason: Reason) {
+    let status = match reason {
+        Reason::ResolveFailed | Reason::ConnectFailed => 502,
+        Reason::Unanswered => 504,
+        _ => 403,
+    };
+    let mut body = format!(
+        "harness-Gateway: Verbindung zu {host} blockiert ({}).\n\
+         harness gateway: connection to {host} blocked ({}).\n",
+        reason.describe(),
+        reason.describe_en()
+    );
+    if matches!(reason, Reason::NotAllowed | Reason::Unanswered) && host.name().is_some() {
+        body.push_str(&format!(
+            "Freigeben auf dem Host / to allow it, the user runs: harness net allow {host}\n"
+        ));
+    }
+    let _ = http::write_response(
+        &mut &*client,
+        status,
+        &[("X-Harness-Gateway", reason.as_str())],
+        &body,
+    );
+}
+
+/// Copies bytes both ways until the server is done, then closes both sides.
+/// No idle timeout: a streamed LLM answer can pause for minutes while the
+/// client sends nothing.
+fn relay(client: &TcpStream, mut from_client: BufReader<TcpStream>, upstream: &TcpStream) {
+    let Ok(mut to_upstream) = upstream.try_clone() else {
+        return;
+    };
+    let uploader = thread::Builder::new()
+        .name("upload".to_owned())
+        .stack_size(THREAD_STACK)
+        .spawn(move || {
+            // The BufReader first hands over what it already buffered.
+            let _ = io::copy(&mut from_client, &mut to_upstream);
+            let _ = to_upstream.shutdown(Shutdown::Write);
+        });
+    let _ = io::copy(&mut &*upstream, &mut &*client);
+    // Server finished: end the client side too, which also unblocks the
+    // uploader if the client keeps its half open.
+    let _ = client.shutdown(Shutdown::Both);
+    let _ = upstream.shutdown(Shutdown::Both);
+    if let Ok(uploader) = uploader {
+        let _ = uploader.join();
+    }
+}

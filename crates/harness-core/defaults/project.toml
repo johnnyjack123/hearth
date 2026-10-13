@@ -16,10 +16,16 @@ path = ""
 mode = "isolated"
 
 [network]
-# off | development | open | custom (siehe config.toml)
+# off | development | open | custom (siehe config.toml). Mit "open" kann der
+# Agent frei im Internet recherchieren, aber auch alles, was er im Container
+# sieht, nach außen schicken. Ändern: `harness net preset <name>`.
 preset = "development"
+# Nicht freigegebene Domains nachfragen: Die Anfrage wartet, bis du sie in
+# `harness net watch` erlaubst oder ablehnst. Läuft kein `harness net watch`,
+# wird sofort blockiert.
+ask = true
 # Zusätzlich erlaubte bzw. gesperrte Domains, z. B. "api.example.com" oder
-# "*.example.com". deny gewinnt gegen allow.
+# "*.example.com". deny gewinnt immer.
 allow = []
 deny = []
 

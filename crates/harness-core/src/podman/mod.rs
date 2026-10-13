@@ -16,7 +16,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -25,8 +25,8 @@ pub use machine::{DEFAULT_MACHINE, EXCHANGE_GUEST_DIR, MachineConfig, MachineMou
 
 use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
-    ContainerInfo, ContainerSpec, ContainerStatus, ExchangeDir, ExecOutput, ExecSpec, HostInfo,
-    ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
+    ContainerInfo, ContainerSpec, ContainerStatus, ExchangeDir, ExecOutput, ExecSpec, GatewaySpec,
+    HostInfo, ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
     validate_resource_name,
 };
 use crate::{Error, Result};
@@ -338,6 +338,28 @@ impl Provider for PodmanProvider {
         Ok(())
     }
 
+    fn create_gateway(&self, spec: &GatewaySpec) -> Result<()> {
+        let args = args::gateway_create(spec)?;
+        let missing = |name: &str| Error::Unsupported(format!("Netz {name} existiert nicht"));
+        match self.network_internal(&spec.internal_network)? {
+            Some(true) => {}
+            Some(false) => return Err(Error::NetworkNotInternal(spec.internal_network.clone())),
+            None => return Err(missing(&spec.internal_network)),
+        }
+        match self.network_internal(&spec.egress_network)? {
+            Some(false) => {}
+            Some(true) => {
+                return Err(Error::Unsupported(format!(
+                    "Netz {} ist intern, das Gateway käme darüber nicht nach außen",
+                    spec.egress_network
+                )));
+            }
+            None => return Err(missing(&spec.egress_network)),
+        }
+        self.run("create", &args)?;
+        Ok(())
+    }
+
     fn start_container(&self, name: &str) -> Result<()> {
         validate_resource_name("Containername", name)?;
         self.run("start", &["start", name])?;
@@ -387,6 +409,27 @@ impl Provider for PodmanProvider {
             code: output.status.code().unwrap_or(137),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+
+    fn exec_piped(&self, exec: &ExecSpec) -> Result<Child> {
+        if exec.tty {
+            return Err(Error::Unsupported(
+                "exec_piped unterstützt kein TTY".to_owned(),
+            ));
+        }
+        let spec = ExecSpec {
+            interactive: true,
+            ..exec.clone()
+        };
+        let mut cmd = self.command()?;
+        cmd.args(args::exec(&spec)?)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        cmd.spawn().map_err(|source| Error::Spawn {
+            program: self.podman.clone(),
+            source,
         })
     }
 

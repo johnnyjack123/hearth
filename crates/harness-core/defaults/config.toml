@@ -8,15 +8,22 @@
 # Podman-Machine, in der die Container laufen
 machine = "harness"
 
+# Domains der LLM-Anbieter, die die Harnesse brauchen (pi: DeepSeek). Sie
+# sind in jedem Projekt erreichbar, auch bei network = "off". Weitere z. B.
+# "api.anthropic.com", "api.openai.com" oder "openrouter.ai".
+llm_apis = ["api.deepseek.com"]
+
 [defaults]
 # Harness für `harness run` ohne Angabe
 harness = "pi"
 
-# Netzwerk-Voreinstellung für neue Projekte:
-#   off          kein Netz
-#   development  Paketquellen, Git-Hoster und LLM-APIs
-#   open         gesamtes öffentliches Internet (nie Host, LAN oder Tailnet)
-#   custom       nur die allow-Liste des Projekts
+# Netzwerk-Voreinstellung für neue Projekte. Host, lokales Netz, Tailnet und
+# VM sind immer gesperrt, auch bei "open".
+#   off          nur die LLM-APIs
+#   development  Paketquellen (npm, PyPI, crates.io, Go), GitHub, GitLab,
+#                Bitbucket, die LLM-APIs und die allow-Liste des Projekts
+#   open         gesamtes öffentliches Internet, z. B. für Recherche
+#   custom       nur die LLM-APIs und die allow-Liste des Projekts
 network = "development"
 
 [defaults.resources]

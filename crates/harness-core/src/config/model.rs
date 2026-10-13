@@ -7,7 +7,9 @@ use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use serde::Deserialize;
+pub use harness_gateway::DomainPattern;
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
 
 use crate::podman::DEFAULT_MACHINE;
 use crate::provider::{validate_container_path, validate_memory};
@@ -32,6 +34,10 @@ pub struct GlobalConfig {
     /// Podman machine the containers run in.
     #[serde(default = "default_machine")]
     pub machine: String,
+    /// LLM APIs the harnesses need; reachable from every project, whatever
+    /// its preset, because no harness works without its model.
+    #[serde(default = "default_llm_apis", deserialize_with = "domain_list")]
+    pub llm_apis: Vec<DomainPattern>,
     /// Defaults for projects.
     #[serde(default)]
     pub defaults: Defaults,
@@ -41,6 +47,7 @@ impl Default for GlobalConfig {
     fn default() -> Self {
         GlobalConfig {
             machine: default_machine(),
+            llm_apis: default_llm_apis(),
             defaults: Defaults::default(),
         }
     }
@@ -144,33 +151,69 @@ impl FileMode {
 }
 
 /// `[network]` of a project.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkConfig {
     /// Preset; falls back to `defaults.network` in `config.toml`.
     #[serde(default)]
     pub preset: Option<NetworkPreset>,
+    /// Hold requests to hosts that are not allowed and ask the user
+    /// (`harness net watch`) instead of refusing them right away.
+    #[serde(default = "default_ask")]
+    pub ask: bool,
     /// Domains allowed in addition to the preset.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "domain_list")]
     pub allow: Vec<DomainPattern>,
     /// Domains blocked even if the preset or `allow` permits them.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "domain_list")]
     pub deny: Vec<DomainPattern>,
 }
 
-/// Network preset (ARCHITECTURE.md §3.5).
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        NetworkConfig {
+            preset: None,
+            ask: default_ask(),
+            allow: Vec::new(),
+            deny: Vec::new(),
+        }
+    }
+}
+
+/// Network preset (ARCHITECTURE.md §3.5). The LLM APIs from `llm_apis` are
+/// reachable in all of them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkPreset {
-    /// No egress at all.
+    /// Nothing but the LLM APIs; `allow` is ignored.
     Off,
-    /// Package registries, git hosts and the LLM APIs the harnesses need.
+    /// Package registries and git hosts, plus `allow`.
     #[default]
     Development,
-    /// The public internet; host, LAN, tailnet and link-local stay blocked.
+    /// The public internet; host, LAN, tailnet and VM stay blocked.
     Open,
     /// Only the project's `allow` list.
     Custom,
+}
+
+impl FromStr for NetworkPreset {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        [
+            NetworkPreset::Off,
+            NetworkPreset::Development,
+            NetworkPreset::Open,
+            NetworkPreset::Custom,
+        ]
+        .into_iter()
+        .find(|p| p.as_str() == text)
+        .ok_or_else(|| {
+            format!(
+                "unbekannte Voreinstellung {text:?}, erwartet off, development, open oder custom"
+            )
+        })
+    }
 }
 
 impl NetworkPreset {
@@ -288,76 +331,16 @@ pub struct AdapterConfig {
     pub command: Vec<String>,
 }
 
-/// A domain in an allow or deny list: `example.com` or `*.example.com`
-/// (subdomains only). Stored lowercase.
-///
-/// IP literals are rejected on purpose: the gateway decides about
-/// addresses itself after resolving names (phase 0, 6.4).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
-#[serde(try_from = "String")]
-pub struct DomainPattern {
-    wildcard: bool,
-    domain: String,
-}
-
-impl DomainPattern {
-    /// Whether `host` is covered by this pattern.
-    pub fn matches(&self, host: &str) -> bool {
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
-        if self.wildcard {
-            host.strip_suffix(&self.domain)
-                .is_some_and(|rest| rest.len() > 1 && rest.ends_with('.'))
-        } else {
-            host == self.domain
-        }
-    }
-}
-
-impl FromStr for DomainPattern {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, String> {
-        let lower = text.trim().to_ascii_lowercase();
-        let (wildcard, domain) = match lower.strip_prefix("*.") {
-            Some(rest) => (true, rest.to_owned()),
-            None => (false, lower),
-        };
-        let labels: Vec<&str> = domain.split('.').collect();
-        let label_ok = |l: &&str| {
-            !l.is_empty()
-                && l.len() <= 63
-                && !l.starts_with('-')
-                && !l.ends_with('-')
-                && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        };
-        let tld_ok = labels
-            .last()
-            .is_some_and(|tld| tld.chars().any(|c| c.is_ascii_alphabetic()));
-        if labels.len() < 2 || !labels.iter().all(label_ok) || !tld_ok || domain.len() > 253 {
-            return Err(format!(
-                "ungültige Domain {text:?}, erwartet z. B. \"api.example.com\" oder \"*.example.com\""
-            ));
-        }
-        Ok(DomainPattern { wildcard, domain })
-    }
-}
-
-impl TryFrom<String> for DomainPattern {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, String> {
-        text.parse()
-    }
-}
-
-impl fmt::Display for DomainPattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.wildcard {
-            write!(f, "*.{}", self.domain)
-        } else {
-            f.write_str(&self.domain)
-        }
-    }
+/// Domain lists use the gateway's own pattern type, so the host and the
+/// gateway can never disagree about what a pattern means.
+fn domain_list<'de, D>(deserializer: D) -> Result<Vec<DomainPattern>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<String>::deserialize(deserializer)?
+        .iter()
+        .map(|text| text.parse().map_err(D::Error::custom))
+        .collect()
 }
 
 /// Harness names become file and volume names.
@@ -391,6 +374,15 @@ fn default_harness() -> String {
     DEFAULT_HARNESS.to_owned()
 }
 
+/// DeepSeek, the provider pi is set up with (docs/ROADMAP.md, package 6).
+fn default_llm_apis() -> Vec<DomainPattern> {
+    vec!["api.deepseek.com".parse().expect("valid built-in domain")]
+}
+
+fn default_ask() -> bool {
+    true
+}
+
 /// Same values as `defaults/config.toml`, so a missing file and a fresh one
 /// behave alike.
 fn default_resources() -> ResourcesConfig {
@@ -405,34 +397,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn domain_patterns() {
-        let exact: DomainPattern = "API.DeepSeek.com".parse().unwrap();
-        assert_eq!(exact.to_string(), "api.deepseek.com");
-        assert!(exact.matches("api.deepseek.com"));
-        assert!(exact.matches("API.deepseek.com."));
-        assert!(!exact.matches("x.api.deepseek.com"));
+    fn domain_lists() {
+        // Pattern rules themselves are tested in harness-gateway.
+        let text = "path = '/repo'\n[network]\nallow = ['API.example.com', '*.example.org']\n";
+        let project: ProjectConfig = toml::from_str(text).unwrap();
+        assert_eq!(project.network.allow[0].to_string(), "api.example.com");
+        assert!(project.network.allow[1].matches("a.example.org"));
+        assert!(project.network.ask);
 
-        let wildcard: DomainPattern = "*.githubusercontent.com".parse().unwrap();
-        assert!(wildcard.matches("objects.githubusercontent.com"));
-        assert!(wildcard.matches("a.b.githubusercontent.com"));
-        assert!(!wildcard.matches("githubusercontent.com"));
-        assert!(!wildcard.matches("evilgithubusercontent.com"));
+        let global: GlobalConfig = toml::from_str("llm_apis = []\n").unwrap();
+        assert!(global.llm_apis.is_empty());
+        assert!(toml::from_str::<GlobalConfig>("llm_apis = ['localhost']\n").is_err());
+    }
 
-        for bad in [
-            "",
-            "localhost",
-            "1.2.3.4",
-            "*.com.",
-            "a..b",
-            "-a.com",
-            "a.com:443",
-            "https://a.com",
-            "*",
-            "a.*.com",
-            "ex ample.com",
-        ] {
-            assert!(bad.parse::<DomainPattern>().is_err(), "{bad:?} accepted");
+    #[test]
+    fn presets_parse() {
+        for preset in ["off", "development", "open", "custom"] {
+            assert_eq!(preset.parse::<NetworkPreset>().unwrap().as_str(), preset);
         }
+        assert!("closed".parse::<NetworkPreset>().is_err());
     }
 
     #[test]
@@ -469,6 +452,13 @@ mod tests {
         let project: ProjectConfig = toml::from_str(&project).unwrap();
         assert_eq!(project.network.preset, Some(NetworkPreset::Development));
         assert_eq!(project.files.mode, FileMode::Isolated);
+        assert_eq!(
+            project.network,
+            NetworkConfig {
+                preset: Some(NetworkPreset::Development),
+                ..NetworkConfig::default()
+            }
+        );
     }
 
     #[test]

@@ -9,13 +9,16 @@
 //! forget them:
 //! - containers are always created hardened (no capabilities, read-only root,
 //!   no new privileges, fixed unprivileged user, pid limit);
-//! - containers only join internal networks;
+//! - containers only join internal networks. The single exception is the
+//!   gateway ([`Provider::create_gateway`]): it joins one internal network
+//!   and one normal one, gets no mounts, and only runs our gateway image;
 //! - the only host data a container can see is the exchange folder;
 //! - every created resource carries [`crate::MANAGED_LABEL`].
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Child;
 
 use crate::{Error, Result};
 
@@ -56,6 +59,11 @@ pub trait Provider {
     /// Creates (but does not start) a hardened container.
     fn create_container(&self, spec: &ContainerSpec) -> Result<()>;
 
+    /// Creates (but does not start) the egress gateway of a project: in the
+    /// internal network under an alias, plus one normal network with a route
+    /// out. Fails unless the first network is internal and the second is not.
+    fn create_gateway(&self, spec: &GatewaySpec) -> Result<()>;
+
     /// Starts a created or stopped container. Starting a running one is a no-op.
     fn start_container(&self, name: &str) -> Result<()>;
 
@@ -71,6 +79,11 @@ pub trait Provider {
 
     /// Runs a command in a running container and captures its output.
     fn exec_output(&self, exec: &ExecSpec) -> Result<ExecOutput>;
+
+    /// Runs a command in a running container with stdin and stdout piped to
+    /// the returned child (stderr goes to this process's stderr). For
+    /// long-lived line protocols such as the gateway's `ctl`.
+    fn exec_piped(&self, exec: &ExecSpec) -> Result<Child>;
 
     /// The folder shared between host and VM, used for git bundles.
     fn exchange(&self) -> Result<&ExchangeDir>;
@@ -155,6 +168,26 @@ pub struct ContainerSpec {
     pub workdir: Option<String>,
     /// CPU, memory and process limits.
     pub resources: Resources,
+    /// Command override; empty keeps the image's `CMD`.
+    pub command: Vec<String>,
+}
+
+/// Parameters for [`Provider::create_gateway`]. Hardening and limits are
+/// fixed by the provider.
+#[derive(Debug, Clone, Default)]
+pub struct GatewaySpec {
+    /// Container name.
+    pub name: String,
+    /// Image reference.
+    pub image: String,
+    /// Internal network of the project's instances.
+    pub internal_network: String,
+    /// Name the instances reach the gateway under (`HTTP_PROXY`).
+    pub alias: String,
+    /// Normal network with a route to the outside.
+    pub egress_network: String,
+    /// Extra labels; the managed label is added automatically.
+    pub labels: Labels,
     /// Command override; empty keeps the image's `CMD`.
     pub command: Vec<String>,
 }

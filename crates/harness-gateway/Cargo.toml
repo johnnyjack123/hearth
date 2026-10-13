@@ -1,0 +1,14 @@
+[package]
+name = "harness-gateway"
+description = "Egress gateway of llm-harness instances: allowlist, address checks, approvals"
+# Deliberately no workspace inheritance and no dependencies: the gateway image
+# compiles this crate on its own and offline inside the VM (images/gateway).
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "UNLICENSED"
+publish = false
+
+[[bin]]
+name = "harness-gateway"
+path = "src/main.rs"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/harness-core", "crates/harness-cli"]
+members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 harness-core = { path = "crates/harness-core" }
+harness-gateway = { path = "crates/harness-gateway" }
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }

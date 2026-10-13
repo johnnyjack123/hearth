@@ -162,6 +162,7 @@ dependencies = [
 name = "harness-core"
 version = "0.1.0"
 dependencies = [
+ "harness-gateway",
  "serde",
  "serde_json",
  "tempfile",
@@ -169,6 +170,10 @@ dependencies = [
  "toml",
  "toml_edit",
 ]
+
+[[package]]
+name = "harness-gateway"
+version = "0.1.0"
 
 [[package]]
 name = "hashbrown"

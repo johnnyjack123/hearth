@@ -123,6 +123,10 @@ pub enum Error {
     #[error("{0}")]
     Sync(String),
 
+    /// The project's gateway refused a request or cannot be reached.
+    #[error("Gateway: {0}")]
+    Gateway(String),
+
     /// No project file with this name exists.
     #[error("Projekt {0} ist nicht angelegt")]
     ProjectUnknown(String),

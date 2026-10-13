@@ -10,9 +10,9 @@ use std::ffi::OsString;
 use super::machine::EXCHANGE_GUEST_DIR;
 use crate::MANAGED_LABEL;
 use crate::provider::{
-    ContainerSpec, ExchangeDir, ExecSpec, ImageBuild, Labels, MountSource, NetworkSpec, VolumeSpec,
-    validate_container_path, validate_env_key, validate_image_ref, validate_label, validate_memory,
-    validate_relative_path, validate_resource_name,
+    ContainerSpec, ExchangeDir, ExecSpec, GatewaySpec, ImageBuild, Labels, MountSource,
+    NetworkSpec, VolumeSpec, validate_container_path, validate_env_key, validate_image_ref,
+    validate_label, validate_memory, validate_relative_path, validate_resource_name,
 };
 use crate::{Error, Result};
 
@@ -119,6 +119,67 @@ pub(crate) fn container_create(
         ]);
     }
     push_env(&mut args, &spec.env)?;
+    args.push(spec.image.clone());
+    args.extend(spec.command.iter().cloned());
+    Ok(args)
+}
+
+/// The gateway runs as `nobody`: it needs no files of the VM user, so
+/// without `keep-id` it maps to an unused subordinate UID in the VM.
+pub(crate) const GATEWAY_USER: &str = "65534:65534";
+
+/// Every connection costs two threads, and threads count against the pid
+/// limit; the gateway caps itself at 200 connections.
+const GATEWAY_PIDS_LIMIT: &str = "512";
+
+const GATEWAY_MEMORY: &str = "128m";
+
+/// `podman create` for a project's gateway. Like [`container_create`], the
+/// hardening is unconditional; there are no mounts at all.
+pub(crate) fn gateway_create(spec: &GatewaySpec) -> Result<Vec<String>> {
+    validate_resource_name("Containername", &spec.name)?;
+    validate_resource_name("Netz", &spec.internal_network)?;
+    validate_resource_name("Netz", &spec.egress_network)?;
+    validate_resource_name("Netzwerk-Alias", &spec.alias)?;
+    validate_image_ref(&spec.image)?;
+    if spec.internal_network == spec.egress_network {
+        return Err(Error::invalid(
+            "Netz",
+            &spec.egress_network,
+            "internes und äußeres Netz müssen verschieden sein",
+        ));
+    }
+
+    let mut args: Vec<String> = ["create", "--name", &spec.name, "--hostname", &spec.name]
+        .map(str::to_owned)
+        .to_vec();
+    push_labels(&mut args, &spec.labels)?;
+    args.extend([
+        "--network".to_owned(),
+        format!("{}:alias={}", spec.internal_network, spec.alias),
+        "--network".to_owned(),
+        spec.egress_network.clone(),
+    ]);
+    args.extend(
+        [
+            "--init",
+            "--user",
+            GATEWAY_USER,
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--read-only",
+            // Only for the control socket.
+            "--tmpfs",
+            "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777",
+            "--stop-timeout",
+            STOP_TIMEOUT,
+            "--pids-limit",
+            GATEWAY_PIDS_LIMIT,
+            "--memory",
+            GATEWAY_MEMORY,
+        ]
+        .map(str::to_owned),
+    );
     args.push(spec.image.clone());
     args.extend(spec.command.iter().cloned());
     Ok(args)
@@ -316,6 +377,50 @@ mod tests {
             container_create(&instance(), None),
             Err(Error::ExchangeMissing(_))
         ));
+    }
+
+    #[test]
+    fn gateway_is_hardened_and_joins_both_networks() {
+        let spec = GatewaySpec {
+            name: "harness-gw-demo".into(),
+            image: "localhost/harness/gateway:latest".into(),
+            internal_network: "harness-net-demo".into(),
+            alias: "gateway".into(),
+            egress_network: "harness-egress".into(),
+            labels: [("io.llm-harness.project".to_owned(), "demo".to_owned())].into(),
+            command: vec![],
+        };
+        let args = gateway_create(&spec).unwrap();
+        assert!(has_pair(
+            &args,
+            "--network",
+            "harness-net-demo:alias=gateway"
+        ));
+        assert!(has_pair(&args, "--network", "harness-egress"));
+        assert!(has_pair(&args, "--user", "65534:65534"));
+        assert!(has_pair(&args, "--memory", "128m"));
+        assert!(has_pair(&args, "--label", "io.llm-harness.managed=true"));
+        for flag in [
+            "--init",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--read-only",
+        ] {
+            assert!(args.iter().any(|a| a == flag), "missing {flag}");
+        }
+        assert!(
+            !args
+                .iter()
+                .any(|a| a == "--mount" || a.contains("privileged"))
+        );
+        assert_eq!(args.last().unwrap(), "localhost/harness/gateway:latest");
+
+        let mut same = spec.clone();
+        same.egress_network = same.internal_network.clone();
+        assert!(gateway_create(&same).is_err());
+        let mut bad = spec;
+        bad.alias = "gateway,x".into();
+        assert!(gateway_create(&bad).is_err());
     }
 
     #[test]
