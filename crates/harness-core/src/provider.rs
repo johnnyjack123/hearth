@@ -87,6 +87,10 @@ pub trait Provider {
 
     /// The folder shared between host and VM, used for git bundles.
     fn exchange(&self) -> Result<&ExchangeDir>;
+
+    /// Address under which containers in normal networks (the gateway)
+    /// reach services on the host's loopback interface, if any.
+    fn host_address(&self) -> Option<&str>;
 }
 
 /// Facts about the VM, reported by [`Provider::ping`].

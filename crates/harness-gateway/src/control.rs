@@ -15,6 +15,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::llm::LlmUpstream;
 use crate::pattern::{DomainPattern, Host};
 use crate::policy::{Policy, Reason};
 
@@ -86,6 +87,10 @@ pub enum Request {
         /// `Some` allows for the given scope, `None` refuses.
         allow: Option<Scope>,
     },
+    /// Set or clear where `llm.harness` forwards to: `llm <url> <token>` or
+    /// `llm none`. Carries the device token, so the host sends it through
+    /// stdin, never as an argument.
+    Llm(Option<LlmUpstream>),
     /// Receive events on this connection and answer questions. While at
     /// least one connection watches, requests to unknown hosts wait for an
     /// answer instead of failing.
@@ -110,6 +115,8 @@ impl fmt::Display for Request {
                 allow: Some(scope),
             } => write!(f, "decide {id} allow {scope}"),
             Request::Decide { id, allow: None } => write!(f, "decide {id} deny"),
+            Request::Llm(Some(upstream)) => write!(f, "llm {upstream}"),
+            Request::Llm(None) => f.write_str("llm none"),
             Request::Watch => f.write_str("watch"),
             Request::Status => f.write_str("status"),
             Request::Ping => f.write_str("ping"),
@@ -160,6 +167,11 @@ impl FromStr for Request {
                     _ => Err("decide: erwartet allow <dauer> oder deny".to_owned()),
                 }
             }
+            "llm" => match words[..] {
+                ["none"] => Ok(Request::Llm(None)),
+                [url, token] => Ok(Request::Llm(Some(LlmUpstream::new(url, token)?))),
+                _ => Err("llm: erwartet <url> <token> oder none".to_owned()),
+            },
             "watch" | "status" | "ping" | "bye" => {
                 arity(0)?;
                 Ok(match command {
@@ -341,6 +353,8 @@ pub struct Status {
     pub pending: Vec<(u64, Host, u16)>,
     /// Number of connected watchers.
     pub watchers: usize,
+    /// Where `llm.harness` forwards to (without the token), if set.
+    pub llm: Option<String>,
     /// Recent connection attempts, oldest first.
     pub log: Vec<LogEntry>,
 }
@@ -349,6 +363,9 @@ impl Status {
     /// Data lines of the `status` answer (without the final `ok`).
     pub fn to_lines(&self) -> Vec<String> {
         let mut lines = vec![format!("policy {}", self.policy)];
+        if let Some(url) = &self.llm {
+            lines.push(format!("llm {url}"));
+        }
         for grant in &self.grants {
             match grant.remaining_secs {
                 Some(seconds) => lines.push(format!("grant {} {seconds}", grant.pattern)),
@@ -389,6 +406,10 @@ impl Status {
                         .push((number(id)?, Host::parse(host)?, number(port)?))
                 }
                 ("watchers", [count]) => status.watchers = number(count)?,
+                // Re-validated with a placeholder token; only the URL is kept.
+                ("llm", [url]) => {
+                    status.llm = Some(LlmUpstream::new(url, "status-placeholder-token")?.url())
+                }
                 ("log", _) => status.log.push(rest.parse()?),
                 _ => return Err(format!("unerwartete Statuszeile {line:?}")),
             }
@@ -451,6 +472,14 @@ mod tests {
                 allow: Some(Scope::Once),
             },
             Request::Decide { id: 8, allow: None },
+            Request::Llm(Some(
+                LlmUpstream::new(
+                    "http://192.168.127.254:8080/api/llm",
+                    "abcdefghijklmnop0123",
+                )
+                .unwrap(),
+            )),
+            Request::Llm(None),
             Request::Watch,
             Request::Status,
             Request::Ping,
@@ -475,6 +504,9 @@ mod tests {
             "decide x deny",
             "decide 1 maybe",
             "status now",
+            "llm",
+            "llm http://example.com",
+            "llm https://example.com abcdefghijklmnop0123",
             "watch ",
             "rm -rf /",
         ] {
@@ -542,6 +574,7 @@ mod tests {
             denied: vec!["evil.example".parse().unwrap()],
             pending: vec![(3, Host::parse("docs.rs").unwrap(), 443)],
             watchers: 2,
+            llm: Some("http://192.168.127.254:8080/api/llm".into()),
             log: vec![LogEntry {
                 time_ms: 5,
                 allowed: false,

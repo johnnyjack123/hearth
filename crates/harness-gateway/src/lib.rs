@@ -20,10 +20,12 @@ pub mod address;
 pub mod control;
 mod gateway;
 pub mod http;
+pub mod llm;
 pub mod pattern;
 pub mod policy;
 pub mod proxy;
 
 pub use gateway::{Gateway, Options};
+pub use llm::{LLM_HOST, LlmUpstream};
 pub use pattern::{DomainPattern, Host};
 pub use policy::{Mode, Policy, Reason};

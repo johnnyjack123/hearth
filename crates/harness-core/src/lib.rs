@@ -14,6 +14,7 @@ pub mod paths;
 pub mod podman;
 pub mod project;
 pub mod provider;
+pub mod server;
 pub mod sync;
 
 pub use error::{Error, Result};

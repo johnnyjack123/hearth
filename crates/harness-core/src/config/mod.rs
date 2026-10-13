@@ -21,6 +21,7 @@ use toml_edit::DocumentMut;
 pub use model::{
     AGENT_HOME, AdapterConfig, DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig,
     GlobalConfig, HarnessConfig, NetworkConfig, NetworkPreset, ProjectConfig, ResourcesConfig,
+    ServerConfig,
 };
 use model::{Validate, validate_harness_name};
 
@@ -303,6 +304,27 @@ impl ConfigDir {
         self.check_separate_from(&config.path)?;
         write_atomic(&file, &doc.to_string(), true)?;
         self.resolve(name, config, &self.global()?)
+    }
+
+    /// Sets (or with `None` removes) `[server] url` in `config.toml`,
+    /// creating the configuration folder if needed.
+    pub fn set_server_url(&self, url: Option<&str>) -> Result<GlobalConfig> {
+        self.init()?;
+        let file = self.config_file();
+        let text = read_optional(&file)?.unwrap_or_default();
+        let mut doc: DocumentMut = text.parse().map_err(|e| Error::ConfigInvalid {
+            path: file.clone(),
+            message: format!("{e}"),
+        })?;
+        match url {
+            Some(url) => doc["server"]["url"] = toml_edit::value(url),
+            None => {
+                doc.remove("server");
+            }
+        }
+        let global: GlobalConfig = parse(&file, &doc.to_string())?;
+        write_atomic(&file, &doc.to_string(), true)?;
+        Ok(global)
     }
 
     /// Sets `network.preset` of a project.

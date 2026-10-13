@@ -8,10 +8,17 @@
 # Podman-Machine, in der die Container laufen
 machine = "harness"
 
-# Domains der LLM-Anbieter, die die Harnesse brauchen (pi: DeepSeek). Sie
-# sind in jedem Projekt erreichbar, auch bei network = "off". Weitere z. B.
-# "api.anthropic.com", "api.openai.com" oder "openrouter.ai".
+# Domains der LLM-Anbieter, die die Harnesse direkt ansprechen (pi:
+# DeepSeek). Sie sind in jedem Projekt erreichbar, auch bei network = "off".
+# Nach `harness login` laufen LLM-Anfragen über den harness-Server und
+# brauchen diese Liste nicht. Weitere z. B. "api.anthropic.com",
+# "api.openai.com" oder "openrouter.ai".
 llm_apis = ["api.deepseek.com"]
+
+# Der harness-Server mit deinen API-Keys. `harness login` trägt ihn ein und
+# legt das Geräte-Token in der Windows-Anmeldeinformationsverwaltung ab.
+# [server]
+# url = "http://localhost:8080"
 
 [defaults]
 # Harness für `harness run` ohne Angabe

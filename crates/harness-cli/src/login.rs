@@ -1,0 +1,160 @@
+//! `harness login` / `harness logout`: pairing this computer with the harness
+//! server, so harnesses get LLM access through it without ever holding a key.
+
+use std::env;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context as _, bail};
+use harness_core::Provider;
+use harness_core::config::ConfigDir;
+use harness_core::gateway::LlmUpstream;
+use harness_core::server::{
+    self, DEFAULT_SERVER_URL, PairingPoll, ServerClient, delete_token, load_token, save_token,
+};
+
+/// Pairs this computer with a server (device flow).
+pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> anyhow::Result<bool> {
+    let url = match url {
+        Some(url) => url,
+        None => config
+            .global()?
+            .server
+            .map_or_else(|| DEFAULT_SERVER_URL.to_owned(), |server| server.url),
+    };
+    let client = ServerClient::new(&url)?;
+    let previous = load_token(client.url())?;
+    let pairing = client.start_pairing(&device_name())?;
+
+    println!("Bestätige diesen Code in der Web-App von {}:", client.url());
+    println!();
+    println!("    {}", pairing.user_code);
+    println!();
+    println!("    {}", pairing.verification_uri_complete);
+    println!();
+    if open_browser && open(&pairing.verification_uri_complete) {
+        println!("Der Browser öffnet die Seite. Warte auf Bestätigung … (Strg+C bricht ab)");
+    } else {
+        println!("Warte auf Bestätigung … (Strg+C bricht ab)");
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(pairing.expires_in);
+    let interval = Duration::from_secs(pairing.interval.clamp(1, 30));
+    let token = loop {
+        if Instant::now() >= deadline {
+            bail!("Der Code ist abgelaufen. `harness login` erneut starten");
+        }
+        thread::sleep(interval);
+        match client.poll_pairing(&pairing.device_code)? {
+            PairingPoll::Pending => {}
+            PairingPoll::Denied => bail!("In der Web-App abgelehnt, das Gerät ist nicht gekoppelt"),
+            PairingPoll::Expired => {
+                bail!("Der Code ist abgelaufen. `harness login` erneut starten")
+            }
+            PairingPoll::Approved { token, .. } => break token,
+        }
+    };
+
+    save_token(client.url(), &token).context("Geräte-Token speichern")?;
+    config.set_server_url(Some(client.url()))?;
+    let me = client.device(&token)?;
+    println!(
+        "Angemeldet als {} ({}), Gerät „{}“.",
+        me.user.name, me.user.email, me.device.name
+    );
+    // A re-login replaces the old token; it should not stay valid.
+    if let Some(old) = previous.filter(|old| *old != token) {
+        let _ = client.revoke(&old);
+    }
+    println!("Laufende Gateways übernehmen den Zugang mit `harness net start`.");
+    Ok(true)
+}
+
+/// Revokes this computer's token and forgets it.
+pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
+    let Some(server) = config.global()?.server else {
+        println!("Nicht angemeldet.");
+        return Ok(true);
+    };
+    if let Some(token) = load_token(&server.url)? {
+        match ServerClient::new(&server.url).and_then(|client| client.revoke(&token)) {
+            Ok(()) => println!("Gerät auf {} entfernt.", server.url),
+            Err(error) => println!(
+                "Konnte das Gerät auf dem Server nicht entfernen ({error}). Bitte in der Web-App \
+                 unter Einstellungen → Geräte löschen."
+            ),
+        }
+        delete_token(&server.url)?;
+    }
+    config.set_server_url(None)?;
+    println!(
+        "Abgemeldet. Laufende Gateways verlieren den Zugang beim nächsten `harness net start`."
+    );
+    Ok(true)
+}
+
+/// Where gateways send `llm.harness` requests, if this computer is paired.
+/// Problems become a note instead of an error: without LLM access the
+/// gateway still works, harnesses then need their own provider login.
+pub fn gateway_llm(
+    config: &ConfigDir,
+    provider: &dyn Provider,
+) -> anyhow::Result<(Option<LlmUpstream>, String)> {
+    let Some(server) = config.global()?.server else {
+        return Ok((None, "nicht eingerichtet (harness login)".to_owned()));
+    };
+    let Some(token) = load_token(&server.url)? else {
+        return Ok((
+            None,
+            format!("kein Geräte-Token für {} (harness login)", server.url),
+        ));
+    };
+    match server::llm_upstream(&server.url, provider.host_address(), &token) {
+        Ok(upstream) => Ok((Some(upstream), format!("über {}", server.url))),
+        Err(error) => Ok((None, error.to_string())),
+    }
+}
+
+fn device_name() -> String {
+    let host = env::var("COMPUTERNAME")
+        .or_else(|_| env::var("HOSTNAME"))
+        .unwrap_or_default();
+    let host: String = host
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .take(40)
+        .collect();
+    if host.is_empty() {
+        "harness".to_owned()
+    } else {
+        format!("harness auf {host}")
+    }
+}
+
+/// Opens a web page in the default browser; returns whether that worked.
+fn open(url: &str) -> bool {
+    // The URL comes from the server; only ever hand web addresses to the OS.
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return false;
+    }
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("rundll32.exe");
+        command.args(["url.dll,FileProtocolHandler", url]);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(url);
+        command
+    };
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .is_ok()
+}

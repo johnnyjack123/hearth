@@ -12,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::address;
 use crate::control::{Event, GrantInfo, LogEntry, MAX_LINE, Request, Scope, Status};
+use crate::llm::LlmUpstream;
 use crate::pattern::{DomainPattern, Host};
 use crate::policy::{Mode, Policy, Reason};
 
@@ -73,6 +74,7 @@ struct State {
     watchers: Vec<Watcher>,
     next_watcher: u64,
     log: VecDeque<LogEntry>,
+    llm: Option<LlmUpstream>,
 }
 
 struct Grant {
@@ -198,6 +200,11 @@ impl Gateway {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .unwrap_or((false, Reason::Unanswered))
+    }
+
+    /// Where `llm.harness` forwards to, if the host has set it.
+    pub(crate) fn llm(&self) -> Option<LlmUpstream> {
+        self.lock().llm.clone()
     }
 
     /// Records a connection attempt and tells the watchers.
@@ -330,6 +337,10 @@ impl Gateway {
                     .collect())
             }
             Request::Status => Ok(state.status(now).to_lines()),
+            Request::Llm(upstream) => {
+                state.llm = upstream;
+                Ok(Vec::new())
+            }
             Request::Ping | Request::Bye => Ok(Vec::new()),
         };
         // Rules changed: questions they now answer are answered.
@@ -523,6 +534,7 @@ impl State {
                 .map(|p| (p.id, p.host.clone(), p.port))
                 .collect(),
             watchers: self.watchers.len(),
+            llm: self.llm.as_ref().map(LlmUpstream::url),
             log: self.log.iter().cloned().collect(),
         }
     }

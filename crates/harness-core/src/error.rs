@@ -127,6 +127,10 @@ pub enum Error {
     #[error("Gateway: {0}")]
     Gateway(String),
 
+    /// The harness server or the local credential store failed.
+    #[error("Server: {0}")]
+    Server(String),
+
     /// No project file with this name exists.
     #[error("Projekt {0} ist nicht angelegt")]
     ProjectUnknown(String),

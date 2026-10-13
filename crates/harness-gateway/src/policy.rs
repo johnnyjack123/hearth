@@ -131,10 +131,16 @@ pub enum Reason {
     ResolveFailed,
     /// No address accepted the connection.
     ConnectFailed,
+    /// `llm.harness`, forwarded to the harness server.
+    Llm,
+    /// `llm.harness`, but the host has not set up LLM access.
+    NoLlm,
 }
 
 impl Reason {
-    const ALL: [Reason; 12] = [
+    const ALL: [Reason; 14] = [
+        Reason::Llm,
+        Reason::NoLlm,
         Reason::Allowlist,
         Reason::Open,
         Reason::Grant,
@@ -164,6 +170,8 @@ impl Reason {
             Reason::Unanswered => "unanswered",
             Reason::ResolveFailed => "resolve-failed",
             Reason::ConnectFailed => "connect-failed",
+            Reason::Llm => "llm",
+            Reason::NoLlm => "no-llm",
         }
     }
 
@@ -182,6 +190,8 @@ impl Reason {
             Reason::Unanswered => "keine Antwort vom Nutzer",
             Reason::ResolveFailed => "Name nicht auflösbar",
             Reason::ConnectFailed => "Verbindung fehlgeschlagen",
+            Reason::Llm => "LLM über den harness-Server",
+            Reason::NoLlm => "kein LLM-Zugang eingerichtet (auf dem Host: harness login)",
         }
     }
 
@@ -200,6 +210,8 @@ impl Reason {
             Reason::Unanswered => "the user did not answer",
             Reason::ResolveFailed => "name does not resolve",
             Reason::ConnectFailed => "connection failed",
+            Reason::Llm => "LLM via the harness server",
+            Reason::NoLlm => "no LLM access set up (the user runs: harness login)",
         }
     }
 }

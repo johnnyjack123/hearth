@@ -315,6 +315,75 @@ fn leaving_watcher_answers_waiting_requests() {
 }
 
 #[test]
+fn llm_requests_reach_the_server_with_the_device_token_only() {
+    // The real address filter: the configured server on loopback is the one
+    // exception, everything else on loopback stays blocked.
+    let (gateway, proxy) = start(address::is_public);
+    let (port, heads) = http_server();
+    let chat = "POST http://llm.harness/c1/v1/chat/completions?x=1 HTTP/1.1\r\n\
+                Authorization: Bearer agent-made-this-up\r\nX-Api-Key: also-fake\r\n\
+                Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}";
+
+    let unset = request(proxy, chat);
+    assert_eq!(unset.status, 503);
+    assert_eq!(unset.headers["x-harness-gateway"], "no-llm");
+
+    let token = "device-token-0123456789abcdef";
+    let mut control = Control::open(&gateway);
+    control.send(&format!("llm http://127.0.0.1:{port}/api/llm {token}"));
+    let response = request(proxy, chat);
+    assert_eq!(response.status, 200);
+    assert_eq!(response.body(), "hello");
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(head[0], "POST /api/llm/c1/v1/chat/completions?x=1 HTTP/1.1");
+    assert!(
+        head.contains(&format!("Host: 127.0.0.1:{port}")),
+        "{head:?}"
+    );
+    assert!(
+        head.contains(&format!("Authorization: Bearer {token}")),
+        "{head:?}"
+    );
+    assert!(head.contains(&"Content-Type: application/json".to_owned()));
+    assert!(
+        !head
+            .iter()
+            .any(|h| h.contains("fake") || h.contains("made-this-up")),
+        "client credentials leaked: {head:?}"
+    );
+
+    // Nothing but paths below the prefix, and no TLS to the virtual host.
+    let escape = request(
+        proxy,
+        "GET http://llm.harness/../api/conversations HTTP/1.1\r\n\r\n",
+    );
+    assert_eq!(escape.status, 400);
+    assert_eq!(connect(proxy, "llm.harness:443").status, 400);
+    // The server's address is no general exception.
+    let direct = request(
+        proxy,
+        &format!("GET http://127.0.0.1:{port}/api/llm/x HTTP/1.1\r\n\r\n"),
+    );
+    assert_eq!(direct.status, 403);
+
+    // The token never shows up in the status.
+    control.writer.write_all(b"status\n").unwrap();
+    let mut lines = Vec::new();
+    loop {
+        let line = control.line();
+        if line == "ok" {
+            break;
+        }
+        lines.push(line);
+    }
+    assert!(
+        lines.contains(&format!("llm http://127.0.0.1:{port}/api/llm")),
+        "{lines:?}"
+    );
+    assert!(!lines.iter().any(|l| l.contains(token)));
+}
+
+#[test]
 fn direct_requests_get_an_explanation() {
     let (_gateway, proxy) = start(allow_loopback);
     let response = request(proxy, "GET / HTTP/1.1\r\nHost: gateway\r\n\r\n");

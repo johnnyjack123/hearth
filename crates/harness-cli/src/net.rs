@@ -16,7 +16,7 @@ use harness_core::gateway::{
 };
 use harness_core::podman::PodmanProvider;
 
-use crate::project;
+use crate::{login, project};
 
 /// Minutes behind answer `m` in `harness net watch`.
 const TEMPORARY_MINUTES: u64 = 15;
@@ -101,13 +101,15 @@ pub fn run(
         NetCommand::Preset { preset } => set_preset(config, machine, &project, preset.into()),
         NetCommand::Start => {
             let provider = PodmanProvider::for_machine(machine)?;
-            gateway::ensure_running(&provider, &project)?;
+            let (llm, llm_note) = login::gateway_llm(config, &provider)?;
+            gateway::ensure_running(&provider, &project, llm.as_ref())?;
             println!(
                 "Gateway {} läuft, Regeln von {} angewendet.",
                 project.name.gateway(),
                 project.name
             );
             print_rules(&project);
+            row("LLM:", llm_note);
             Ok(true)
         }
         NetCommand::Stop => {
@@ -174,6 +176,13 @@ fn print_runtime(project: &Project, status: &Status) {
         println!(
             "  ! Das Gateway hat andere Regeln als die Konfiguration → harness net start wendet sie an"
         );
+    }
+    match &status.llm {
+        Some(url) => row("LLM:", format!("{} → {url}", gateway::LLM_HOST)),
+        None => row(
+            "LLM:",
+            "nicht eingerichtet (harness login, dann harness net start)",
+        ),
     }
     if !status.grants.is_empty() {
         let grants: Vec<String> = status

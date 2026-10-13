@@ -94,6 +94,10 @@ pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
             contents: include_str!("../../harness-gateway/src/lib.rs"),
         },
         ContextFile {
+            name: "src/llm.rs",
+            contents: include_str!("../../harness-gateway/src/llm.rs"),
+        },
+        ContextFile {
             name: "src/main.rs",
             contents: include_str!("../../harness-gateway/src/main.rs"),
         },

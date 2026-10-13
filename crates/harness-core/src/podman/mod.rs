@@ -438,7 +438,16 @@ impl Provider for PodmanProvider {
             .as_ref()
             .ok_or_else(|| Error::ExchangeMissing(EXCHANGE_GUEST_DIR.to_owned()))
     }
+
+    fn host_address(&self) -> Option<&str> {
+        Some(HOST_ADDRESS)
+    }
 }
+
+/// gvproxy maps this address to `127.0.0.1` of the Windows host
+/// (`host.containers.internal`, phase 0 §12.6). That is why instances never
+/// join normal networks; the gateway uses it only for the harness server.
+const HOST_ADDRESS: &str = "192.168.127.254";
 
 /// Locates `podman`: `HARNESS_PODMAN`, then `PATH`, then the default install
 /// location of the Windows installer.

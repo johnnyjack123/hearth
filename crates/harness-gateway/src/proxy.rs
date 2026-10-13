@@ -6,7 +6,8 @@ use std::thread;
 use std::time::Duration;
 
 use crate::gateway::{Gateway, Verdict};
-use crate::http::{self, HeadError, Target};
+use crate::http::{self, HeadError, RequestHead, Target};
+use crate::llm::{CREDENTIAL_HEADERS, LLM_HOST};
 use crate::pattern::Host;
 use crate::policy::Reason;
 
@@ -76,6 +77,10 @@ fn handle(gateway: &Gateway, client: TcpStream) {
         }
     };
     let (host, port) = head.target.host_port();
+    if host.name() == Some(LLM_HOST) {
+        forward_llm(gateway, &client, reader, &head);
+        return;
+    }
 
     let decision = match gateway.check(host, port) {
         Verdict::Allow(reason) => Ok(reason),
@@ -119,6 +124,70 @@ fn handle(gateway: &Gateway, client: TcpStream) {
     }
 }
 
+/// A request to `llm.harness`: forwarded to the server's LLM endpoint with
+/// the device token instead of whatever credentials the client sent.
+///
+/// The upstream is the one target outside the address filter (on a local
+/// server it is the VM's route to Windows' localhost). That is safe because
+/// the host sets it; the agent only picks the path below its prefix.
+fn forward_llm(
+    gateway: &Gateway,
+    client: &TcpStream,
+    reader: BufReader<TcpStream>,
+    head: &RequestHead,
+) {
+    let (host, port) = head.target.host_port();
+    let Target::Forward { path, .. } = &head.target else {
+        // TLS to a name only the gateway knows cannot work.
+        let _ = http::write_response(
+            &mut &*client,
+            400,
+            &[],
+            "llm.harness nur per http:// (das Gateway verschlüsselt selbst).\n",
+        );
+        return;
+    };
+    let Some(upstream) = gateway.llm() else {
+        gateway.record(false, host, port, Reason::NoLlm);
+        refuse(client, host, Reason::NoLlm);
+        return;
+    };
+    let Some(upstream_path) = upstream.path(path) else {
+        let _ = http::write_response(&mut &*client, 400, &[], "Pfad nicht erlaubt.\n");
+        return;
+    };
+    let options = gateway.options();
+    let addresses = match upstream.host() {
+        Host::Ip(ip) => Ok(vec![SocketAddr::new(*ip, upstream.port())]),
+        Host::Name(name) => (options.resolve)(name, upstream.port()),
+    };
+    let server = addresses.ok().and_then(|addresses| {
+        addresses
+            .iter()
+            .find_map(|address| TcpStream::connect_timeout(address, CONNECT_TIMEOUT).ok())
+    });
+    let Some(server) = server else {
+        gateway.record(false, host, port, Reason::ConnectFailed);
+        refuse(client, host, Reason::ConnectFailed);
+        return;
+    };
+    gateway.record(true, host, port, Reason::Llm);
+
+    let bearer = format!("Bearer {}", upstream.token());
+    let text = http::rewrite_head(
+        head,
+        &upstream_path,
+        &http::host_header(upstream.host(), upstream.port()),
+        CREDENTIAL_HEADERS,
+        &[("Authorization", &bearer)],
+    );
+    let _ = client.set_read_timeout(None);
+    let _ = server.set_nodelay(true);
+    if (&server).write_all(text.as_bytes()).is_ok() {
+        relay(client, reader, &server);
+    }
+}
+
 /// Resolves `host` and connects to the first public address that answers.
 /// The checked address is the one connected to, so a second DNS answer
 /// cannot sneak in a private address (DNS rebinding).
@@ -148,6 +217,7 @@ fn connect(gateway: &Gateway, host: &Host, port: u16) -> Result<TcpStream, Reaso
 fn refuse(client: &TcpStream, host: &Host, reason: Reason) {
     let status = match reason {
         Reason::ResolveFailed | Reason::ConnectFailed => 502,
+        Reason::NoLlm => 503,
         Reason::Unanswered => 504,
         _ => 403,
     };

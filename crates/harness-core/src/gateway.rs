@@ -15,7 +15,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub use harness_gateway::control::{Event, GrantInfo, LogEntry, Reply, Request, Scope, Status};
-pub use harness_gateway::{Host, Mode, Policy, Reason};
+pub use harness_gateway::{Host, LLM_HOST, LlmUpstream, Mode, Policy, Reason};
 
 use crate::config::{DomainPattern, NetworkPreset, Project};
 use crate::image::{CONTEXT_HASH_LABEL, GATEWAY_IMAGE, ImageStatus};
@@ -117,9 +117,15 @@ pub fn state(provider: &dyn Provider, name: &ProjectName) -> Result<GatewayState
 }
 
 /// Starts the project's gateway, creating its networks and container as
-/// needed, and applies the project's rules. A container from an older
-/// gateway image is replaced, so fixes to the gateway take effect.
-pub fn ensure_running(provider: &dyn Provider, project: &Project) -> Result<()> {
+/// needed, applies the project's rules and sets where `llm.harness` leads
+/// (`None`: nowhere, harnesses then need their own provider access). A
+/// container from an older gateway image is replaced, so fixes to the
+/// gateway take effect.
+pub fn ensure_running(
+    provider: &dyn Provider,
+    project: &Project,
+    llm: Option<&LlmUpstream>,
+) -> Result<()> {
     match GATEWAY_IMAGE.status(provider)? {
         ImageStatus::Current => {}
         ImageStatus::Missing => {
@@ -150,9 +156,12 @@ pub fn ensure_running(provider: &dyn Provider, project: &Project) -> Result<()> 
 
     let container = name.gateway();
     let hash = GATEWAY_IMAGE.context_hash();
+    let mut started = true;
     match provider.container(&container)? {
         Some(info) if info.labels.get(CONTEXT_HASH_LABEL) == Some(&hash) => {
-            if info.status != ContainerStatus::Running {
+            if info.status == ContainerStatus::Running {
+                started = false;
+            } else {
                 provider.start_container(&container)?;
             }
         }
@@ -175,17 +184,21 @@ pub fn ensure_running(provider: &dyn Provider, project: &Project) -> Result<()> 
         }
     }
 
-    // Right after a start the gateway may not listen on its socket yet.
     let control = GatewayControl::new(provider, name);
-    let deadline = Instant::now() + STARTUP_TIMEOUT;
-    loop {
-        match control.apply(&policy(project)) {
-            Err(Error::Gateway(_)) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(300));
+    if started {
+        // Right after a start the gateway may not listen on its socket yet.
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        while let Err(error) = control.send(&[Request::Ping]) {
+            if Instant::now() >= deadline || !matches!(error, Error::Gateway(_)) {
+                return Err(error);
             }
-            result => return result,
+            thread::sleep(Duration::from_millis(300));
         }
     }
+    // One call for both: the token goes through stdin anyway.
+    control
+        .send_private(&[Request::Policy(policy(project)), Request::Llm(llm.cloned())])
+        .map(drop)
 }
 
 /// Stops the project's gateway; its approvals and refusals are forgotten.
@@ -222,26 +235,58 @@ impl<'a> GatewayControl<'a> {
     /// all answers. Any `error` answer fails the whole call.
     pub fn send(&self, requests: &[Request]) -> Result<Vec<String>> {
         let output = self.provider.exec_output(&self.ctl(requests))?;
-        let mut data = Vec::new();
-        let mut answered = 0;
-        for line in output.stdout.lines() {
-            match Reply::parse(line) {
-                Reply::Ok => answered += 1,
-                Reply::Error(message) => return Err(Error::Gateway(sanitize(&message))),
-                Reply::Data(line) => data.push(line),
-                Reply::Event(_) => {}
-            }
-        }
-        // `ctl` appends `bye`, which is answered as well.
-        if answered != requests.len() + 1 {
+        let lines: Vec<&str> = output.stdout.lines().collect();
+        collect_answers(&lines, requests.len(), || {
             let detail = sanitize(output.stderr.trim());
-            return Err(Error::Gateway(if detail.is_empty() {
+            if detail.is_empty() {
                 format!("keine vollständige Antwort (Exit-Code {})", output.code)
             } else {
                 detail
-            }));
+            }
+        })
+    }
+
+    /// Like [`GatewayControl::send`], but the requests go through stdin.
+    /// For requests carrying secrets: arguments of `podman exec` end up in
+    /// the VM's process list and podman's event log, stdin does not.
+    pub fn send_private(&self, requests: &[Request]) -> Result<Vec<String>> {
+        let mut child = self.provider.exec_piped(&self.ctl(&[]))?;
+        let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+            let _ = child.kill();
+            return Err(Error::Gateway("keine Verbindung zu ctl".to_owned()));
+        };
+        let mut text = String::new();
+        for request in requests.iter().chain([&Request::Bye]) {
+            text.push_str(&format!("{request}\n"));
         }
-        Ok(data)
+        // Everything is written before reading, and the gateway closes the
+        // session after `bye`, which ends `ctl` and with it stdout.
+        let written = stdin
+            .write_all(text.as_bytes())
+            .and_then(|()| stdin.flush());
+        drop(stdin);
+        let lines: Vec<String> = BufReader::new(stdout)
+            .lines()
+            .map_while(|l| l.ok())
+            .collect();
+        let status = child.wait();
+        if let Err(error) = written {
+            return Err(Error::Gateway(format!("Senden fehlgeschlagen: {error}")));
+        }
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        collect_answers(&lines, requests.len(), || {
+            format!(
+                "keine vollständige Antwort ({})",
+                status.map_or_else(|e| e.to_string(), |s| s.to_string())
+            )
+        })
+    }
+
+    /// Sets (or with `None` clears) where `llm.harness` forwards to,
+    /// including the device token.
+    pub fn set_llm(&self, upstream: Option<&LlmUpstream>) -> Result<()> {
+        self.send_private(&[Request::Llm(upstream.cloned())])
+            .map(drop)
     }
 
     /// Replaces the gateway's rules.
@@ -295,6 +340,29 @@ impl<'a> GatewayControl<'a> {
         watch.send(&Request::Watch)?;
         Ok(watch)
     }
+}
+
+/// Data lines of the answers to `expected` requests plus the `bye` that
+/// `ctl` appends; any `error` answer or a missing answer fails.
+fn collect_answers(
+    lines: &[&str],
+    expected: usize,
+    incomplete: impl FnOnce() -> String,
+) -> Result<Vec<String>> {
+    let mut data = Vec::new();
+    let mut answered = 0;
+    for line in lines {
+        match Reply::parse(line) {
+            Reply::Ok => answered += 1,
+            Reply::Error(message) => return Err(Error::Gateway(sanitize(&message))),
+            Reply::Data(line) => data.push(line),
+            Reply::Event(_) => {}
+        }
+    }
+    if answered != expected + 1 {
+        return Err(Error::Gateway(incomplete()));
+    }
+    Ok(data)
 }
 
 /// A watching control connection; see [`GatewayControl::watch`].

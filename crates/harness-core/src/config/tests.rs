@@ -202,6 +202,26 @@ fn network_edits_keep_the_file_intact() {
 }
 
 #[test]
+fn server_url_is_written_and_removed() {
+    let f = fixture();
+    let global = f
+        .config
+        .set_server_url(Some("http://localhost:8080"))
+        .unwrap();
+    assert_eq!(global.server.unwrap().url, "http://localhost:8080");
+    let text = fs::read_to_string(f.config.config_file()).unwrap();
+    assert!(text.contains("# Podman-Machine"), "template kept: {text}");
+    assert_eq!(
+        f.config.global().unwrap().server.unwrap().url,
+        "http://localhost:8080"
+    );
+
+    assert_eq!(f.config.set_server_url(None).unwrap().server, None);
+    assert_eq!(f.config.global().unwrap().server, None);
+    assert!(f.config.set_server_url(Some("localhost:8080")).is_err());
+}
+
+#[test]
 fn broken_files_do_not_hide_matches() {
     let f = fixture();
     let path = repo(&f.base, "good");

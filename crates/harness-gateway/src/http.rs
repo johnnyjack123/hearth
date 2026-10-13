@@ -236,27 +236,57 @@ pub fn forward_head(head: &RequestHead) -> Option<String> {
     let Target::Forward { host, port, path } = &head.target else {
         return None;
     };
+    Some(rewrite_head(
+        head,
+        path,
+        &host_header(host, *port),
+        &[],
+        &[],
+    ))
+}
+
+/// `Host` header value for a target (port omitted when it is 80).
+pub fn host_header(host: &Host, port: u16) -> String {
+    if port == 80 {
+        host.to_string()
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// A request head for an origin server: `path` as origin-form target, the
+/// given `Host`, the client's headers minus hop-by-hop ones and `drop`
+/// (lowercase names), then `add` and `Connection: close`.
+pub fn rewrite_head(
+    head: &RequestHead,
+    path: &str,
+    host: &str,
+    drop: &[&str],
+    add: &[(&str, &str)],
+) -> String {
     let mut listed: Vec<String> = Vec::new();
     for (name, value) in &head.headers {
         if name.eq_ignore_ascii_case("connection") {
             listed.extend(value.split(',').map(|t| t.trim().to_ascii_lowercase()));
         }
     }
-    let mut out = format!("{} {path} HTTP/1.1\r\n", head.method);
-    if *port == 80 {
-        out.push_str(&format!("Host: {host}\r\n"));
-    } else {
-        out.push_str(&format!("Host: {host}:{port}\r\n"));
-    }
+    let mut out = format!("{} {path} HTTP/1.1\r\nHost: {host}\r\n", head.method);
     for (name, value) in &head.headers {
         let lower = name.to_ascii_lowercase();
-        if lower == "host" || HOP_BY_HOP.contains(&lower.as_str()) || listed.contains(&lower) {
+        if lower == "host"
+            || HOP_BY_HOP.contains(&lower.as_str())
+            || listed.contains(&lower)
+            || drop.contains(&lower.as_str())
+        {
             continue;
         }
         out.push_str(&format!("{name}: {value}\r\n"));
     }
+    for (name, value) in add {
+        out.push_str(&format!("{name}: {value}\r\n"));
+    }
     out.push_str("Connection: close\r\n\r\n");
-    Some(out)
+    out
 }
 
 /// Writes a complete response with a plain-text body and closes nothing;

@@ -38,6 +38,9 @@ pub struct GlobalConfig {
     /// its preset, because no harness works without its model.
     #[serde(default = "default_llm_apis", deserialize_with = "domain_list")]
     pub llm_apis: Vec<DomainPattern>,
+    /// The harness server this computer is paired with (`harness login`).
+    #[serde(default)]
+    pub server: Option<ServerConfig>,
     /// Defaults for projects.
     #[serde(default)]
     pub defaults: Defaults,
@@ -48,6 +51,7 @@ impl Default for GlobalConfig {
         GlobalConfig {
             machine: default_machine(),
             llm_apis: default_llm_apis(),
+            server: None,
             defaults: Defaults::default(),
         }
     }
@@ -57,9 +61,26 @@ impl Validate for GlobalConfig {
     fn validate(&self) -> Result<(), String> {
         crate::provider::validate_resource_name("Machine-Name", &self.machine)
             .map_err(|e| e.to_string())?;
+        if let Some(server) = &self.server
+            && !(server.url.starts_with("http://") || server.url.starts_with("https://"))
+        {
+            return Err(format!(
+                "server.url muss mit http:// oder https:// beginnen, nicht {:?}",
+                server.url
+            ));
+        }
         validate_harness_name(&self.defaults.harness)?;
         self.defaults.resources.validate()
     }
+}
+
+/// `[server]` in `config.toml`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerConfig {
+    /// Base URL, e.g. `http://localhost:8080`. The device token is not stored
+    /// here but in the OS credential store.
+    pub url: String,
 }
 
 /// `[defaults]` in `config.toml`.

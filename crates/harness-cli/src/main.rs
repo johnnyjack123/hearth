@@ -1,11 +1,13 @@
 //! The `harness` command.
 //!
 //! So far the commands needed to bring up the sandbox base, manage projects
-//! and their network: `doctor`, `image build`, `project` and `net`. `run`,
+//! and their network, and pair with the server: `doctor`, `image build`,
+//! `project`, `net`, `login` and `logout`. `run`,
 //! `shell`, `sync` and friends follow in later Phase 2 packages
 //! (docs/ROADMAP.md).
 
 mod doctor;
+mod login;
 mod net;
 mod project;
 
@@ -47,6 +49,16 @@ enum Command {
         #[command(subcommand)]
         command: Option<ProjectCommand>,
     },
+    /// Koppelt diesen Rechner mit dem harness-Server (LLM-Zugang mit deinen Keys)
+    Login {
+        /// Server-Adresse (Standard: aus config.toml, sonst http://localhost:8080)
+        url: Option<String>,
+        /// Den Browser nicht öffnen, nur Code und Adresse anzeigen
+        #[arg(long)]
+        no_browser: bool,
+    },
+    /// Entfernt die Kopplung mit dem Server
+    Logout,
     /// Netzwerk des Projekts: Voreinstellung, Freigaben, Gateway, Nachfragen
     Net {
         /// Projektname (Standard: Projekt des aktuellen Git-Repositorys)
@@ -130,6 +142,8 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             ProjectCommand::Add => project::add(&config),
             ProjectCommand::List => project::list(&config),
         },
+        Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
+        Command::Logout => login::logout(&config),
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;
             net::run(&config, &machine, project.as_deref(), command)

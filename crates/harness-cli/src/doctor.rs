@@ -6,6 +6,7 @@ use harness_core::Provider;
 use harness_core::config::{ConfigDir, GlobalConfig};
 use harness_core::image::{BASE_IMAGE, GATEWAY_IMAGE, ImageStatus};
 use harness_core::podman::{EXCHANGE_GUEST_DIR, MachineConfig, PodmanProvider, find_podman};
+use harness_core::server::{ServerClient, load_token};
 
 /// Runs all checks; returns whether all passed.
 pub fn run(config: &ConfigDir, machine_flag: Option<&str>) -> anyhow::Result<bool> {
@@ -13,7 +14,43 @@ pub fn run(config: &ConfigDir, machine_flag: Option<&str>) -> anyhow::Result<boo
     let global = check_config(config, &mut report);
     let machine_name = machine_flag.unwrap_or(&global.machine);
     check_vm(machine_name, &mut report)?;
+    check_server(&global, &mut report);
     Ok(report.passed())
+}
+
+/// Pairing with the harness server; missing pairing is only a warning,
+/// because harnesses can also log in to their provider themselves.
+fn check_server(global: &GlobalConfig, report: &mut Report) {
+    let Some(server) = &global.server else {
+        report.warn("Nicht mit einem harness-Server gekoppelt → harness login");
+        return;
+    };
+    let token = match load_token(&server.url) {
+        Ok(Some(token)) => token,
+        Ok(None) => {
+            report.fail(format!(
+                "Kein Geräte-Token für {} gespeichert → harness login",
+                server.url
+            ));
+            return;
+        }
+        Err(error) => {
+            report.fail(error);
+            return;
+        }
+    };
+    let checked = ServerClient::new(&server.url).and_then(|client| {
+        let me = client.device(&token)?;
+        let credentials = client.credentials(&token)?;
+        Ok((me, credentials.len()))
+    });
+    match checked {
+        Ok((me, count)) => report.ok(format!(
+            "Server {}: angemeldet als {} (Gerät „{}“), {count} Anbieter",
+            server.url, me.user.email, me.device.name
+        )),
+        Err(error) => report.fail(error),
+    }
 }
 
 /// Checks `~/.harness`; falls back to the defaults so the VM checks still run

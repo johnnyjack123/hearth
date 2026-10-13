@@ -4,7 +4,10 @@
 //! Ignored by default; needs a running machine, both images and internet
 //! access: `cargo test -p harness-core --test gateway_vm -- --ignored --nocapture`
 
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{Ipv4Addr, TcpListener};
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,6 +21,7 @@ use harness_core::project::ProjectName;
 use harness_core::provider::{
     ContainerSpec, ExecOutput, ExecSpec, Mount, MountSource, Provider, Resources, VolumeSpec,
 };
+use harness_core::server;
 
 struct Cleanup<'a> {
     provider: &'a PodmanProvider,
@@ -57,6 +61,29 @@ fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
     value
 }
 
+/// A minimal HTTP server on 127.0.0.1 that answers `200 ok` and reports the
+/// request heads it saw.
+fn fake_server() -> (u16, Receiver<Vec<String>>) {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let head: Vec<String> = reader
+                .by_ref()
+                .lines()
+                .map_while(Result::ok)
+                .take_while(|line| !line.is_empty())
+                .collect();
+            let _ = tx.send(head);
+            let _ = (&stream)
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        }
+    });
+    (port, rx)
+}
+
 /// HTTP status curl saw through the proxy; for CONNECT the proxy's refusal
 /// shows up as curl exit 56 with the status in stderr.
 fn http_status(output: &ExecOutput) -> String {
@@ -86,11 +113,21 @@ fn instances_reach_the_internet_only_through_the_gateway() {
     };
     let development = project(&name, NetworkPreset::Development);
 
+    // Stands in for the harness server on this Windows machine's loopback.
+    let (server_port, server_heads) = fake_server();
+    let token = "hd_test-token-0123456789abcdefghijklmnopqrstuvw";
+    let upstream = server::llm_upstream(
+        &format!("http://127.0.0.1:{server_port}"),
+        provider.host_address(),
+        token,
+    )
+    .unwrap();
+
     timed("gateway start (create)", || {
-        gateway::ensure_running(&provider, &development).unwrap()
+        gateway::ensure_running(&provider, &development, None).unwrap()
     });
-    timed("gateway start (running)", || {
-        gateway::ensure_running(&provider, &development).unwrap()
+    timed("gateway start (running, with LLM)", || {
+        gateway::ensure_running(&provider, &development, Some(&upstream)).unwrap()
     });
     assert_eq!(
         gateway::state(&provider, &name).unwrap(),
@@ -163,8 +200,26 @@ fn instances_reach_the_internet_only_through_the_gateway() {
     assert_ne!(direct.code, 0);
     println!("direct: curl {} {}", direct.code, direct.stderr.trim());
 
+    // llm.harness: through the gateway and gvproxy to the server on Windows,
+    // with the device token instead of the agent's made-up key.
+    let llm = run(
+        "curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST \
+         -H 'Authorization: Bearer agent-made-this-up' -H 'Content-Type: application/json' \
+         -d '{\"model\":\"m\"}' http://llm.harness/c1/chat/completions",
+    );
+    assert_eq!(http_status(&llm), "200", "{}", llm.stderr);
+    let head = server_heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    println!("server saw: {}", head[0]);
+    assert_eq!(head[0], "POST /api/llm/proxy/c1/chat/completions HTTP/1.1");
+    assert!(
+        head.contains(&format!("Authorization: Bearer {token}")),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|h| h.contains("made-this-up")), "{head:?}");
+
     let control = GatewayControl::new(&provider, &name);
     let status = control.status().unwrap();
+    assert_eq!(status.llm.as_deref(), Some(upstream.url().as_str()));
     println!("hosts contacted:");
     for entry in &status.log {
         println!(

@@ -14,12 +14,17 @@ harness-core = { path = "crates/harness-core" }
 harness-gateway = { path = "crates/harness-gateway" }
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
+# OS credential store for the device token (Windows: Credential Manager).
+keyring = { version = "3.6", features = ["windows-native", "apple-native", "linux-native"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = "1.1.8"
 toml_edit = "0.25.17"
+# Native TLS (SChannel on Windows) instead of rustls/ring, which would need a
+# C toolchain for aarch64-pc-windows-msvc.
+ureq = { version = "3.4.2", default-features = false, features = ["native-tls", "json"] }
 
 [profile.dev]
 # Full debug info roughly doubles rustc's memory use; line tables are enough
