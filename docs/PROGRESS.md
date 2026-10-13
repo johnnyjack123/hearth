@@ -1,28 +1,41 @@
 # Progress
 
-_Last updated: 2026-10-13 · Phase 2 Pakete 1–6 fertig (Workspace, PodmanProvider, Base-Image, Konfiguration, Git-Sync, Netzwerk-Gateway), weiter mit Paket 7 (pi)_
+_Last updated: 2026-10-14 · Phase 2 Pakete 1–6 fertig, Paket 7 zur Hälfte (LLM-Zugang über den Server, uncommittet), weiter mit pi im Container_
 
 ## Where we are
 
-Server (`apps/server`) und Web-App (`apps/web`) aus Phase 1 laufen unverändert. Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` enthält Phase 1 und Phase 2 bis Paket 6, gearbeitet wird auf `feat/phase-2-sandbox`.
+Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` enthält Phase 1 und Phase 2 bis Paket 6 (`8df92f8`), gearbeitet wird auf `feat/phase-2-sandbox`. **Der LLM-Zugang über den Server ist fertig und getestet, aber noch nicht committet.**
 
-Der Rust-Workspace hat drei Crates:
-- `harness-core`: Provider, Images, Konfiguration, Git-Sync und **neu** `gateway.rs` (Regeln aus der Konfiguration, Gateway-Container, Steuerung)
-- `harness-cli` (Binary `harness`): `doctor`, `image build [base|gateway]`, `project`, **neu** `net [status|watch|allow|deny|preset|start|stop]`
-- **neu** `harness-gateway`: eigener Egress-Proxy (nur std), läuft pro Projekt als `harness-gw-<projekt>`
-
-Ein Gateway lässt sich per `harness net start` starten und per `harness net watch` beobachten und beantworten. Instanzen startet die CLI noch nicht (Paket 8), pi fehlt (Paket 7).
+Seit Paket 6 neu (Entscheidung des Nutzers: Keys nur im Server, auch für Agent-Läufe aus dem Terminal):
+- **Server:**
+  - Kopplung von Rechnern (`/api/pairing`, `/api/devices`, `/api/device`, Tabellen `device` und `devicePairing`, Migration `0002_devices`)
+  - LLM-Durchgang `/api/llm/proxy/<Anbieter-ID>/…` und `/api/llm/providers` (`routes/llm.ts`)
+  - CSRF-Ausnahme nur für die Token-Routen
+- **Web-App:** Bestätigungsseite `/device` (mit Rücksprung nach dem Login), Reiter „Geräte“ in den Einstellungen.
+- **Gateway:** virtuelle Adresse `http://llm.harness/…` zum Server, mit dem Geräte-Token, das es per stdin vom Host bekommt (`llm.rs`).
+- **CLI:**
+  - `harness login [URL] [--no-browser]` und `logout`; das Token liegt in der Windows-Anmeldeinformationsverwaltung
+  - `doctor` prüft die Kopplung
+  - `net start` gibt den LLM-Zugang ans Gateway, `net status` zeigt ihn
 
 ## Next step
 
-Paket 7 der ROADMAP (Harness-Definition pi):
+Rest von Paket 7 (pi im Container), in dieser Reihenfolge:
 
-1. **Tools-Volume** `harness-tools` (gemeinsam, für Instanzen read-only unter `/opt/harness-tools`). Die Installation läuft in einem eigenen kurzlebigen Container mit Schreibzugriff, gehärtet und mit Netz über ein Gateway: `install` aus `harnesses/pi.toml` (`npm install -g @earendil-works/pi-coding-agent`), `NPM_CONFIG_PREFIX=/opt/harness-tools`.
-2. **Login-Volume** `harness-cfg-pi` für `~/.pi` (`HarnessConfig::persist_paths`, `config_volume`).
-3. Prüfen, welche Hosts pi beim Start und beim Login braucht (Log im Gateway: `harness net status`). DeepSeek ist über `llm_apis` immer erreichbar.
-4. **Offene Frage klären:** Wie kommt der DeepSeek-Key zu pi (siehe unten)?
+1. **Tools-Volume** `harness-tools`, für Instanzen read-only unter `/opt/harness-tools`.
+   - Die Installation läuft in einem kurzlebigen, gehärteten Container mit Schreibzugriff, im Projektnetz über dessen Gateway.
+   - Befehl ist `install` aus `harnesses/pi.toml` (`npm install -g @earendil-works/pi-coding-agent`) mit `NPM_CONFIG_PREFIX=/opt/harness-tools`.
+2. **Volume** `harness-cfg-pi` für `~/.pi` (`HarnessConfig::persist_paths`, `config_volume`).
+3. **`~/.pi/agent/models.json`** aus `ServerClient::credentials` erzeugen:
+   - Eingebaute pi-Anbieter (`deepseek` für openai-compatible mit Host `api.deepseek.com`, sonst `openai`, `anthropic`, `mistral`, `openrouter`) bekommen nur `baseUrl: http://llm.harness/<id>` und `apiKey: "harness"`. So behält pi seine Modelldaten.
+   - Für `google` vorher prüfen, ob pis Basis-URL `/v1beta` enthält. Quelle: `@earendil-works/pi-ai/dist/providers/data/*.json`, dort stehen auch DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`.
+   - Ollama und andere eigene Endpunkte werden eigene Anbieter (`api: "openai-completions"`) mit der Modellliste vom Server.
+4. Prüfen, welche Hosts pi beim Start sonst braucht (`harness net status`).
 
-Danach Paket 8: `run`, `shell`, `status`, `stop`, `sync`, `merge`. `run`/`shell` rufen `gateway::ensure_running` vor dem Instanzstart, `stop` stoppt Instanz und Gateway.
+Danach Paket 8:
+- `run`, `shell`, `status`, `stop`, `sync`, `merge`.
+- `run`/`shell` rufen `gateway::ensure_running(…, login::gateway_llm(…))` vor dem Instanzstart, `stop` stoppt Instanz und Gateway.
+- Rückfragen im selben Terminal brauchen eine ConPTY zwischen Terminal und `podman exec`. Bis dahin hilft `harness net watch` im zweiten Fenster.
 
 Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeilen ✓, solange die VM läuft).
 
@@ -32,6 +45,17 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeile
 - Das echte `~/.harness` des Nutzers ist noch nicht angelegt. Probeläufe liefen mit `HARNESS_HOME` im Scratchpad.
 
 ## Decisions made this session
+
+LLM-Zugang (14.10., nach Rückfrage beim Nutzer):
+- **Der Server ist die einzige Stelle für Keys**, auch für pi im Terminal. Agent-Läufe aus Terminal und Web-Chat nutzen denselben Weg, denselben Key und dieselben Modelle.
+- **Kein echter Key im Container:**
+  - pi bekommt `llm.harness` und einen Dummy-Key.
+  - Das Gateway setzt das Geräte-Token ein.
+  - Der Server setzt den Anbieter-Key ein.
+- **Eigene Geräte-Tokens statt Better-Auth-Device-Plugin**, weil dessen Token eine volle Sitzung wäre. Gespeichert wird nur der Hash. Den Token gibt es genau einmal, Widerruf in der Web-App oder mit `logout`.
+- **Durchgang 1:1 im Protokoll des Anbieters** statt Übersetzung auf ein Format. So funktionieren Streaming, Reasoning und Caching der Harness unverändert. Erlaubt sind nur die Chat-Endpunkte.
+- **Rückfragen nie in der Oberfläche der Harness**, sondern auf dem Host: `net watch`, später `harness run`, die App, der Web-Chat. Eigene Rückfragen der Harness betreffen nur das Innere der Sandbox und bleiben.
+- Host-Ausführung: Der Nutzer hat noch keinen konkreten Bedarf. Sie soll sich später ergänzen lassen. Der Mechanismus (Anfrage halten, außerhalb entscheiden) ist mit den Netz-Rückfragen vorhanden.
 
 Paket 6 (Gateway):
 - **Eigener Rust-Proxy statt tinyproxy**, aus Phase 3 vorgezogen. Der Nutzer wollte „alles erlauben“ und Rückfragen wie bei Claude Code. tinyproxy kann weder Ziel-IPs prüfen (dann wäre „open“ ein Weg zu Host und LAN) noch Anfragen festhalten.
@@ -45,17 +69,14 @@ Paket 6 (Gateway):
 
 ## Open questions for the user
 
-- **In Klärung (13.10.), blockiert Paket 7:**
-  - Wie kommt der API-Key zu pi, sodass Agent-Läufe aus dem Web-Chat und aus dem Terminal denselben Key aus der Web-App nutzen?
-  - Wo erscheinen Rückfragen: in der App, im Web-Chat und bei `harness run pi` im Terminal?
-
-  Der Nutzer möchte die Rückfragen in der Tauri-App bzw. im Web-Chat. Im CLI-Modus sollen sie wie bei opencode direkt im Terminal erscheinen.
-- Host-Ausführung: Der Nutzer hat noch keinen konkreten Bedarf und möchte, dass sie sich später gut ergänzen lässt (Entwurf in ROADMAP Phase 5).
+- Commit des LLM-Zugangs (Server, Web, Gateway, CLI) und Merge nach `main`: Nutzer fragen.
 
 ## Known issues / debt
 
 - **Hoch:** VM-Start nur per Admin-PowerShell (→ Phase 2b). Nach einem gescheiterten Start von Hand aufräumen, siehe `spikes/phase-0.md` §12.2. Die vsock-Registry-Einträge **nicht** löschen.
 - **Mittel:** ~350–500 ms pro podman-Aufruf (neue SSH-Verbindung). `gateway::ensure_running` braucht ~4,3 s beim Anlegen und ~2,4 s, wenn das Gateway schon läuft (etwa 8 Aufrufe: Image-Status, zwei Netze, Container, Regeln). Sync hin ~0,6 s, zurück ~0,7 s. Abhilfe: libpod-REST über einen gehaltenen SSH-Tunnel, oder Prüfungen zusammenfassen.
+- **Mittel:** Das Gateway spricht zum Server nur HTTP. Ein entfernter Server mit HTTPS braucht TLS im Gateway, also rustls und damit die ersten Abhängigkeiten. Der Bau in der VM bräuchte dann crates.io.
+- **Mittel:** Der LLM-Durchgang erfasst noch keinen Verbrauch pro Gerät. Ein Limit für Anfragen pro Gerät gibt es auch nicht.
 - **Mittel:** Rückfragen hält das Gateway bis zu 120 s fest. pip bricht nach 15 s ab (`--timeout`), npm und Node-`fetch` warten länger. Bei pip ggf. erst freigeben, dann wiederholen.
 - **Mittel:** `in.bundle` enthält jedes Mal die ganze Historie. Bei großen Repos inkrementell machen (`--not` mit dem Stand des letzten Exports).
 - **Mittel:** CLI-Texte nur Deutsch, Englisch fehlt (Web-UI ist zweisprachig). Die Fehlerseite des Gateways ist zweisprachig.
@@ -68,15 +89,34 @@ Paket 6 (Gateway):
 
 ## Verification state
 
-- `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`: ohne Warnungen.
-- `cargo test`: 96 Tests grün.
-  - `harness-core`: 68 Unit-Tests, neu u. a. Regeln je Voreinstellung, Gateway-Argumente, Konfig-Änderungen mit erhaltenen Kommentaren, vollständig eingebetteter Gateway-Kontext.
-  - `harness-gateway`: 22 Unit-Tests für Muster, Adressfilter (öffentlich/privat, IPv6, mapped/NAT64/6to4), HTTP-Parser, Protokoll, Freigaben, Rückfragen und Timeouts.
-  - `harness-gateway`, 6 TCP-Tests auf Loopback:
-    - Tunnel und Weiterleitung, letztere mit bereinigtem Kopf
-    - Sperre privater Adressen mit dem echten Filter
-    - Rückfrage: einmal erlauben, dann ablehnen
-    - Zuschauer weg ergibt sofort 504
+Stand 14.10., nach dem LLM-Zugang:
+- **Rust:**
+  - `cargo build`, `cargo fmt --check` und `cargo clippy --all-targets` laufen ohne Warnungen.
+  - `cargo test`: 104 Tests grün.
+    - `harness-core`: 72, neu Server-URL in `config.toml`, Upstream-Adresse für die VM, Antworten der Kopplung.
+    - `harness-gateway`: 25 Unit-Tests, neu `llm.rs` (Upstream-URL, Pfade bleiben unter dem Präfix, Token nicht im `Debug`).
+    - `harness-gateway`: 7 TCP-Tests. Neu: `llm.harness` gibt dem Server nur das Geräte-Token, `..` ergibt 400, `CONNECT llm.harness` 400, die Server-Adresse direkt 403, das Token fehlt im Status.
+- **Server:** 64/64 grün mit SQLite **und** Postgres (`TEST_POSTGRES_URL`). Neu sind 9 Tests je Datenbank:
+  - Kopplung mit Token genau einmal; Ablehnung, Ablauf und unbekannte Codes
+  - Geräte-Token kommt nur an Geräte- und LLM-Routen
+  - Widerruf über die Web-App und über das Gerät selbst
+  - CSRF bleibt für Cookie-Routen
+  - Durchgang OpenAI-artig und Anthropic, mit Key und Pfad
+  - fremde Anbieter und fremde Pfade ergeben 404
+  - Anbieterliste ohne Keys
+- **Web:**
+  - `pnpm -r typecheck` grün.
+  - E2E 9/9 ohne Konsolenfehler: Kopplung im Browser bestätigt, danach Antwort des Mock-LLM über den Durchgang, Geräteliste, Rücksprung nach Login auf `/device`.
+  - Screenshots 12–15 angesehen.
+- **VM:** `gateway_vm` grün, mit `curl http://llm.harness/…` aus der Instanz zu einem Test-Server auf Windows (`127.0.0.1`, über `192.168.127.254`). Der Server sah das Geräte-Token, nicht den Key des Agents.
+- **Probelauf** (`login-demo.sh` im Scratchpad):
+  - echter Server mit Wegwerf-DB auf :8093, Mock-LLM auf :8094
+  - `harness login --no-browser`, Bestätigung per API
+  - `doctor` ✓, `net start` meldet „LLM: über http://127.0.0.1:8093“
+  - Container im Projektnetz: `POST http://llm.harness/<id>/chat/completions` → Antwort des Mock-LLM über Gateway und Server
+  - `logout` widerruft; danach kein Eintrag mehr in der Anmeldeinformationsverwaltung
+
+Stand 13.10. (Paket 6), weiterhin gültig:
 - VM-Tests nacheinander (`cargo test -p harness-core -- --ignored --test-threads=1`): alle 4 grün (`podman_vm`, `base_image_vm`, `sync_vm`, neu `gateway_vm`). In der VM bleibt danach nur das gemeinsame Netz `harness-egress`.
 - `gateway_vm`, Ergebnisse:
   - development: `https://example.com` → 403, `api.deepseek.com` → 401 (erreichbar), `npm view react version` → 19.3.0, `pnpm --version` → 12.11.2 (corepack lädt von `registry.npmjs.org`), ohne Proxy kein DNS
@@ -85,11 +125,17 @@ Paket 6 (Gateway):
 - Probelauf der CLI mit `HARNESS_HOME` im Scratchpad:
   - `project add`, `net`, `net start` (4,3 s), `preset open`/`development`, `allow --minutes`, `allow --always` (Projektdatei behält Kommentare), `deny`, `status`, `stop`, `doctor` (6/6 ✓, meldet ein veraltetes Gateway-Image richtig)
   - `net watch` per Skript: Ein Container im Projektnetz ruft `example.net` und `example.edu` auf. Antwort „e“ → 200, „n“ → 403, danach ohne Zuschauer weiter 403.
-- Phase 1 seit dem 11.10. nicht erneut geprüft (unverändert): `pnpm -r typecheck` grün, Server-Tests 30/30 (SQLite), E2E 7/7.
 
 ---
 
 ## Log
+
+### 2026-10-14 (Phase 2, Paket 7: LLM-Zugang)
+- Nutzer entscheidet: Keys nur im Server. Rückfragen gehören in App, Web und `harness run`, nie in die Harness selbst.
+- Server: `services/devices.ts`, `routes/devices.ts`, `routes/llm.ts`, Migration `0002_devices`, `requireDevice`, CSRF-Ausnahme für Token-Routen, `HTTPException` jetzt richtig beantwortet (vorher 500).
+- Web: `features/devices/pairing-page.tsx` (`/device`), `features/settings/devices-panel.tsx`, Rücksprung nach Login (`lib/redirect.ts`), Texte de/en.
+- Gateway: `llm.rs`, Anfrage `llm`, Gründe `llm`/`no-llm`. Host: `server.rs` (ureq, keyring), `GatewayControl::send_private`, `Provider::host_address`. CLI: `login`, `logout`, `doctor` und `net` mit LLM.
+- Postgres-Lauf wiederholt (64/64), Portweiterleitung unter Hyper-V geht.
 
 ### 2026-10-13 (Phase 2, Paket 6)
 - `crates/harness-gateway`: `pattern.rs`, `address.rs`, `policy.rs`, `control.rs`, `http.rs`, `gateway.rs`, `proxy.rs`, `main.rs` (`serve`, `ctl`). Image `images/gateway` (Bau in der VM mit `rust:1.97-slim-trixie`).

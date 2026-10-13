@@ -350,9 +350,14 @@ Deployment:
 
 ### 6.1 Pairing
 
-1. Die Desktop-App fordert einen Gerätecode an (RFC 8628).
+Umgesetzt seit Phase 2 (`harness login`, Server `routes/devices.ts`, Web-Seite `/device`):
+
+1. Der Rechner (heute die CLI, später die App) fordert einen Gerätecode an (`POST /api/pairing`, ähnlich RFC 8628).
 2. Der Nutzer bestätigt den Code im Web.
-3. Die App erhält ein Geräte-Token. Es lässt sich im Web unter „Meine Geräte“ widerrufen.
+3. Der Rechner erhält beim nächsten Abfragen **einmal** ein Geräte-Token. Es liegt in der Windows-Anmeldeinformationsverwaltung. In `config.toml` steht nur die Server-Adresse.
+4. Das Token lässt sich im Web unter Einstellungen → Geräte widerrufen, oder mit `harness logout`.
+
+**Bewusst nicht** das Device-Plugin von Better Auth: Dessen Token ist eine vollwertige Sitzung und käme an alle API-Routen, also an Chats und Keys. Geräte-Tokens sind eigene Datensätze (`device`, nur der SHA-256 gespeichert). Sie gelten nur für `/api/device` und `/api/llm`, später auch für den Tunnel.
 
 ### 6.2 Tunnel
 
@@ -376,10 +381,19 @@ Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizu
 
 - Ein verknüpfter Chat startet eine Harness im Container im Maschinenmodus. Der Adapter in `harnessd` übersetzt deren Ausgaben in einheitliche `AgentEvent`s. Der Server speichert sie und streamt sie an die UI. Kontextverwaltung, Tools und Edits übernimmt die Harness.
 - **Erster Adapter: pi** (`pi --mode rpc`, JSONL über stdin/stdout). Das passt direkt auf `podman exec -i`, ein Port ist nicht nötig. **Zweiter Adapter:** opencode (`opencode serve`, HTTP/OpenAPI).
-- **LLM-Zugang über das LLM-Gateway des Servers:**
-  - Die Harness bekommt pro Anbieter eine Basis-URL des Servers (`/llm/anthropic/*`, `/llm/openai/*` …) und ein kurzlebiges Sitzungs-Token.
-  - Der Server reicht die Anfragen 1:1 durch und setzt dabei den API-Key des Nutzers ein, dem der Chat gehört.
-  - Ergebnis: dieselben Modelle wie im Web-Chat, keine Anbieter-Keys im Container, Verbrauch pro Nutzer erfasst.
+- **LLM-Zugang über den Server, für Terminal und Chat gleich** (umgesetzt seit Phase 2):
+  - Die Harness im Container ist auf `http://llm.harness/<Anbieter-ID>` mit einem Dummy-Key eingestellt. Diese Adresse kennt nur das Gateway.
+  - Das Gateway leitet an `/api/llm/proxy/<Anbieter-ID>/…` des Servers weiter. Dabei verwirft es alle Zugangsdaten des Clients und setzt das Geräte-Token ein, das es vom Host per stdin bekommen hat.
+  - Der Server prüft das Token und setzt den API-Key des Nutzers ein. Er reicht die Anfrage 1:1 im eigenen Protokoll des Anbieters durch (OpenAI, Anthropic, Google), aber nur an die Chat-Endpunkte.
+  - Ergebnis: dieselben Keys und Modelle wie im Web-Chat, kein Schlüssel im Container (auch bei „open“ nicht), eine Stelle für Verbrauch und Budgets. Ob pi im Terminal läuft oder über einen verknüpften Chat, ist für den LLM-Weg egal.
+  - Ein lokaler Server ist aus der VM über die gvproxy-Adresse des Hosts erreichbar, als einzige Ausnahme vom Adressfilter des Gateways. Für entfernte Server mit HTTPS braucht das Gateway noch TLS.
+- **Rückfragen (Netz, später Host-Befehle, Git-Push) entscheidet immer etwas außerhalb des Containers.** Würde die Harness selbst fragen und die Antwort durch den Container laufen, könnte sich ein gekaperter Agent selbst freigeben. Oberflächen:
+  - `harness net watch` (heute)
+  - `harness run` selbst, das auf dem Host läuft und die Frage im selben Terminal einblenden kann (geplant)
+  - Benachrichtigung der App (Phase 3)
+  - Web-Chat (Phase 4)
+
+  Die erste Antwort gilt. Eigene Rückfragen der Harness (z. B. „Bash-Befehl ausführen?“) bleiben in deren Oberfläche, weil sie nur das Innere der Sandbox betreffen.
 - Wird ein bereits laufender Chat verknüpft, bekommt die Harness den bisherigen Verlauf als Kontext im ersten Prompt.
 - `AgentEvent`-Typen: `text.delta`, `reasoning.delta`, `tool.start`, `tool.output`, `tool.end`, `file.changed`, `usage`, `error`, `turn.end`. Die UI rendert Tool-Aufrufe als Terminal-Blöcke bzw. Diffs.
 

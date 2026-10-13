@@ -21,10 +21,15 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
   - Konfiguration in `~/.harness` (`harness-core/src/config/`)
   - Git-Sync über Bundles (`harness-core/src/sync/`)
   - Netzwerk-Gateway pro Projekt mit Voreinstellungen, Ziel-IP-Prüfung und Rückfragen (`harness-core/src/gateway.rs`)
+- **Paket 7 zur Hälfte: LLM-Zugang über den Server.** Keys liegen nur im Server.
+  - `harness login` koppelt den Rechner per Code-Bestätigung in der Web-App (`/device`).
+  - Das Gateway leitet `http://llm.harness/<Anbieter-ID>/…` mit dem Geräte-Token an `/api/llm/proxy/…` weiter, der Server setzt den Key ein.
+  - Offen: pi installieren und dessen `models.json` erzeugen.
 
-  Die CLI kann `doctor`, `image build`, `project [show|add|list]` und `net [status|watch|allow|deny|preset|start|stop]`. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
+  Die CLI kann `doctor`, `image build`, `project [show|add|list]`, `net [status|watch|allow|deny|preset|start|stop]`, `login` und `logout`. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: Phase 2 ab Paket 7 (pi im Tools-Volume, dann CLI-Befehle `run`/`shell`/`sync`/`merge`; danach `harness-vmd`).
+- Nächstes: Rest von Paket 7 (pi im Tools-Volume, `models.json` auf `llm.harness`), dann Paket 8 (`run`/`shell`/`sync`/`merge`), danach `harness-vmd`.
+- **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
 
@@ -56,6 +61,7 @@ target/debug/harness image build      # Base- und Gateway-Image in der VM bauen 
 target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (show, list)
 target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
 target/debug/harness net watch        # Live-Protokoll, beantwortet Rückfragen des Gateways (zweites Terminal)
+target/debug/harness login [URL]      # Rechner mit dem Server koppeln (--no-browser in Tests); logout widerruft
 HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
 cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
 cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
@@ -64,7 +70,7 @@ cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gate
 cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~70 s)
 ```
 
-Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Ob die Portweiterleitung über gvproxy unter Hyper-V funktioniert, ist ungetestet.
+Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V (14.10. geprüft). Danach `pm.sh rm -f harness-pg` und das anonyme Datenvolume löschen (`pm.sh volume ls`).
 
 VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER='hyperv'` und dann `& "C:\Program Files\RedHat\Podman\podman.exe" machine start|stop harness`.
 
@@ -121,6 +127,16 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - `podman exec -i` leitet stdin zeilenweise durch, aber das Ende von stdin kommt nicht immer an. `ctl` endet deshalb, sobald das Gateway die Verbindung schließt (`bye`). Beobachter ohne Ping für 45 s gelten als weg, ihre offenen Fragen werden dann abgelehnt.
 - Im Base-Image steht `NO_PROXY=localhost,127.0.0.1,::1`. curl auf `localhost` geht deshalb nicht übers Gateway. In Tests `--noproxy ''` nutzen.
 - Während ein `podman pull` läuft, blockieren andere podman-Befehle wie `podman images`, vermutlich wegen des Storage-Locks. Der Pull von `rust:1.97-slim-trixie` (271 MB) dauerte hier 39 Minuten.
+- **`llm.harness`** ist die einzige Ausnahme vom Adressfilter: Ziel ist der vom Host gesetzte Server, der Agent wählt nur den Pfad unterhalb von `/api/llm/proxy` (`llm.rs::safe_path`, kein `..`, kein `%`). Das Token kommt nur per stdin (`send_private`), nie als `podman exec`-Argument, und steht weder in `Debug` noch im Status.
+
+### Server-Kopplung und LLM-Durchgang (`apps/server`)
+
+- **Geräte-Tokens sind keine Better-Auth-Sitzungen.** Sie gelten nur in `/api/device` und `/api/llm` (`requireDevice`), nie in `requireUser`. Ein Test prüft, dass ein Geräte-Token an `/api/conversations` usw. 401 bekommt.
+- Routen mit eigener Auth (`/api/pairing`, `/api/device`, `/api/llm`) stehen in `app.ts` **vor** dem `api`-Router mit `requireUser`. Hono-Middleware greift in Registrierungsreihenfolge.
+- **Honos CSRF-Schutz** behandelt Anfragen ohne Content-Type wie `text/plain` und lehnt sie ohne passende Origin ab. CLI und Gateway schicken keine Origin. Die Token-Routen sind deshalb ausgenommen (`TOKEN_ROUTES` in `app.ts`, `/api/devices` mit Cookie bleibt geschützt). Honos `HTTPException` wurde früher von `handleError` zu 500. Jetzt wird daraus eine JSON-Antwort mit dem richtigen Status.
+- Der Durchgang (`routes/llm.ts`) streamt Request und Response. `Content-Encoding` und `Content-Length` der Antwort fallen weg, weil `fetch` schon entpackt hat. Erlaubte Pfade je Protokoll stehen in `ALLOWED_PATHS`. Anthropic und Google hängen die Version selbst an, deshalb kürzt `proxyRoot` deren Basis-URL.
+- Rust-Seite: `ureq` mit `native-tls` (SChannel), weil rustls/ring auf `aarch64-pc-windows-msvc` einen C-Compiler bräuchte. `keyring` bleibt auf 3.6, Version 4 hat eine neue API.
+- Git Bash: `$!` ist eine MSYS-PID, `taskkill` braucht die Windows-PID. Testserver deshalb über den Port beenden (`Get-NetTCPConnection -LocalPort … | Stop-Process`).
 
 ### Testen ohne den Browser des Nutzers
 

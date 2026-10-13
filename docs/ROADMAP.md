@@ -8,7 +8,7 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–6 erledigt |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–6 erledigt, 7 zur Hälfte (LLM-Zugang über den Server) |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
 | 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
@@ -19,7 +19,7 @@
 - [ ] Server-`Dockerfile` (multi-stage, multi-arch) und `compose.yaml` (Profile `sqlite`/`postgres`). War geplant, ist **nicht** gebaut.
 - [ ] ESLint- und Prettier-Konfiguration anlegen. Die Pakete sind installiert, es gibt aber keine Config-Dateien. Danach `pnpm lint` grün machen.
 - [ ] `README.md` (Kurzbeschreibung, Start, Verweise).
-- [ ] Postgres-Testlauf nach den letzten Server-Änderungen wiederholen (Regenerate, `/providers/:id/models`). Zuletzt grün waren 46/46 im Spike, seitdem nur SQLite (30/30).
+- [x] Postgres-Testlauf wiederholt (14.10.): 64/64 grün, SQLite und Postgres, inklusive Geräte und LLM-Durchgang. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V.
 - [ ] Bundle-Größe der Web-App: Haupt-Chunk ~955 kB (295 kB gzip), per `manualChunks` aufteilen.
 - [ ] Branch `feat/phase-1-chat` nach `main` mergen (Nutzer fragen).
 
@@ -86,11 +86,22 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - **CLI:** `harness net [status|watch|allow|deny|preset|start|stop]` und `harness image build [base|gateway]`. `doctor` prüft beide Images.
    - Geprüft: corepack holt pnpm von `registry.npmjs.org`, GitHub ist dafür nicht nötig.
    - **Offen für Paket 8:** `harness run`/`shell` starten das Gateway mit (`gateway::ensure_running`), `harness stop` stoppt es.
-7. **Harness-Definition pi:**
-   - `harnesses/pi.toml`, Installation `npm install -g @earendil-works/pi-coding-agent` in ein gemeinsames Tools-Volume
-   - Login und Einstellungen (`~/.pi`) in einem Volume pro Nutzer
-   - Start mit `podman exec -it -w /workspace … pi`
-8. **CLI-Befehle:** `run <harness>`, `shell`, `status`, `stop`, `sync`, `merge`, `doctor` (prüft VM, SSH, Image und Gateway).
+7. **Harness pi und LLM-Zugang:**
+   - ✅ **LLM-Zugang über den Server** (Entscheidung des Nutzers am 13.10.: Keys nur im Server, auch für Agent-Läufe aus dem Terminal). Damit sind Teile von Phase 4 vorgezogen:
+     - **Kopplung:** `harness login` startet einen Device-Flow (`/api/pairing`). Der Nutzer bestätigt den Code auf `/device` der Web-App. Das Token liegt in der Windows-Anmeldeinformationsverwaltung (`keyring`). Geräte stehen in den Einstellungen unter „Geräte“ und lassen sich dort widerrufen, ebenso mit `harness logout`.
+     - **Durchgang im Server** `/api/llm/proxy/<Anbieter-ID>/…`: Anfragen gehen 1:1 im Protokoll des Anbieters durch, nur an die Chat-Endpunkte. Der Key wird je nach Anbieter gesetzt (Bearer, `x-api-key`, `x-goog-api-key`). `/api/llm/providers` liefert die Anbieter ohne Keys.
+     - **Gateway:** Die virtuelle Adresse `http://llm.harness/…` führt zum Server. Das Gateway verwirft Zugangsdaten des Clients und setzt das Geräte-Token ein, das der Host per stdin übergibt. Der lokale Server ist über `192.168.127.254` erreichbar, als einzige Ausnahme vom Adressfilter.
+     - Verifiziert:
+       - Server-Tests 64/64 (SQLite und Postgres)
+       - E2E 9/9, mit Kopplung im Browser
+       - `gateway_vm` mit `llm.harness` bis zu einem Test-Server auf Windows
+       - Probelauf: `harness login`, dann `net start`, dann `curl http://llm.harness/…` im Container, Antwort des Mock-LLM über den echten Server, dann `logout`
+   - **Offen:**
+     - Installation von pi (`npm install -g @earendil-works/pi-coding-agent`) in ein gemeinsames Tools-Volume, das Instanzen nur lesen
+     - `~/.pi` im Volume `harness-cfg-pi`
+     - `~/.pi/agent/models.json` aus `/api/llm/providers` erzeugen. Eingebaute Anbieter von pi (`deepseek`, `openai`, `anthropic` …) bekommen nur `baseUrl: http://llm.harness/<id>` und den Dummy-Key `harness`, so bleiben pis Modelldaten erhalten. Eigene Endpunkte werden eigene Anbieter mit der Modellliste vom Server.
+     - Start mit `podman exec -it -w /workspace … pi`
+8. **CLI-Befehle:** `run <harness>`, `shell`, `status`, `stop`, `sync`, `merge`. `doctor` prüft VM, SSH, beide Images und die Kopplung mit dem Server schon heute. Rückfragen des Gateways soll `harness run` im selben Terminal einblenden können: Es läuft auf dem Host, also außerhalb der Sandbox. Dafür muss es die Ausgabe von pi über eine ConPTY durchreichen. Bis dahin `harness net watch` im zweiten Fenster.
 9. **Tests:** Rust-Unit-Tests für Konfiguration, Bundle- und Merge-Logik (gegen temporäre Repos) und Allowlist-Parsing, dazu ein Smoke-Skript gegen die echte VM.
 10. **Doku:** `CLAUDE.md` (Befehle, Stolpersteine) und `PROGRESS.md` aktualisieren.
 
@@ -114,12 +125,12 @@ Der Installer richtet den Dienst einmal mit UAC ein.
 
 ## Phase 4 – Chat ↔ Umgebung
 
-Pairing per Device Flow (Better Auth `deviceAuthorization`), WSS-Tunnel, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`), `AgentEvent`-Rendering im Chat, LLM-Gateway im Server mit den Keys des Nutzers (ARCHITECTURE.md §6).
+WSS-Tunnel, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). Offen dazu: Verbrauch pro Gerät erfassen, TLS im Gateway für entfernte Server.
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
 - **Host-Modus** (ungesichert, Harness direkt auf dem Host, ARCHITECTURE.md §3)
-- **Host-Ausführung mit Einzelbestätigung** (Idee des Nutzers vom 13.10.): Der Agent darf einzelne Befehle auf Windows ausführen lassen, etwa PowerShell, MSVC/.NET, Windows-GUI oder Hardware. Jeder Befehl wird außerhalb der Sandbox bestätigt, so wie die Netz-Rückfragen. Vorschlag zur Umsetzung:
+- **Host-Ausführung mit Einzelbestätigung** (Idee des Nutzers vom 13.10., noch kein konkreter Bedarf; so bauen, dass sie sich später ergänzen lässt): Der Agent darf einzelne Befehle auf Windows ausführen lassen, etwa PowerShell, MSVC/.NET, Windows-GUI oder Hardware. Jeder Befehl wird außerhalb der Sandbox bestätigt, so wie die Netz-Rückfragen. Vorschlag zur Umsetzung:
   - pro Projekt aus, solange nicht eingeschaltet, und nie für verknüpfte Remote-Chats
   - Anfrage aus dem Container über das Gateway, Bestätigung über dessen Steuerkanal (Muster wie `ask`)
   - Befehl als argv ohne Shell-String, angezeigt mit Arbeitsordner und Umgebung
