@@ -5,7 +5,9 @@ import type {
   ConversationSummary,
   CreateProviderCredentialInput,
   CredentialModels,
+  DeviceSummary,
   MessageMetadata,
+  PairingInfo,
   ProviderCredential,
   PublicSettings,
   ServerSettings,
@@ -82,6 +84,13 @@ export const api = {
   },
   models: {
     list: () => request<CredentialModels[]>('GET', '/models'),
+  },
+  devices: {
+    list: () => request<DeviceSummary[]>('GET', '/devices'),
+    remove: (id: string) => request<void>('DELETE', `/devices/${encodeURIComponent(id)}`),
+    pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
+    decide: (userCode: string, approve: boolean) =>
+      request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
   },
   conversations: {
     list: () => request<ConversationSummary[]>('GET', '/conversations'),

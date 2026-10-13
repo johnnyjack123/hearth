@@ -136,9 +136,72 @@ try {
     await page.waitForSelector(text('Und noch eine Frage'), { timeout: 10_000 });
   });
 
+  await step('pair a device that then uses the LLM through the server', async () => {
+    // What `harness login` does: start a pairing without any session.
+    const json = { 'content-type': 'application/json' };
+    const pairing = await fetch(`${BASE}/api/pairing`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ name: 'harness auf E2E' }),
+    }).then((response) => response.json());
+    await page.goto(pairing.verificationUriComplete, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('„harness auf E2E“ möchte sich mit deinem Konto verbinden.'), { timeout: 10_000 });
+    await page.waitForSelector(text(pairing.userCode));
+    await shot('12-pairing');
+    await page.click(text('Verbinden'));
+    await page.waitForSelector(text('Verbunden. Du kannst zum Terminal zurückkehren.'), { timeout: 10_000 });
+    await shot('13-paired');
+
+    const poll = await fetch(`${BASE}/api/pairing/token`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ deviceCode: pairing.deviceCode }),
+    }).then((response) => response.json());
+    if (poll.status !== 'approved') {
+      throw new Error(`pairing poll returned ${poll.status}`);
+    }
+    const device = { authorization: `Bearer ${poll.token}` };
+    const providers = await fetch(`${BASE}/api/llm/providers`, { headers: device }).then((response) => response.json());
+    const mock = providers.find((provider) => provider.kind === 'openai-compatible');
+    if (!mock) {
+      throw new Error(`no provider for the device: ${JSON.stringify(providers)}`);
+    }
+    const completion = await fetch(`${BASE}/api/llm/proxy/${mock.id}/chat/completions`, {
+      method: 'POST',
+      headers: { ...device, ...json },
+      body: JSON.stringify({ model: 'mock-model', messages: [{ role: 'user', content: 'Hallo' }] }),
+    });
+    const answer = await completion.json();
+    if (!completion.ok || !answer.choices?.[0]?.message?.content) {
+      throw new Error(`pass-through failed: ${completion.status} ${JSON.stringify(answer)}`);
+    }
+    console.log(`     device got: "${answer.choices[0].message.content}"`);
+
+    await page.goto(`${BASE}/settings?tab=devices`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('harness auf E2E'), { timeout: 10_000 });
+    await shot('14-devices');
+  });
+
+  await step('pairing page after sign-in redirect', async () => {
+    const context = await browser.createBrowserContext();
+    const fresh = await context.newPage();
+    await fresh.evaluateOnNewDocument(() => localStorage.setItem('harness.locale', 'de'));
+    await fresh.goto(`${BASE}/device?code=ABCD-EFGH`, { waitUntil: 'networkidle0' });
+    await fresh.waitForFunction(() => location.pathname === '/login', { timeout: 10_000 });
+    await fresh.type('input[autocomplete=email]', 'erika@example.com');
+    await fresh.type('input[autocomplete=current-password]', 'sehr-sicheres-passwort');
+    await fresh.click('button[type=submit]');
+    await fresh.waitForFunction(() => location.pathname === '/device' && location.search.includes('ABCD-EFGH'), {
+      timeout: 10_000,
+    });
+    await fresh.waitForSelector(text('Diesen Code gibt es nicht. Prüfe die Eingabe.'), { timeout: 10_000 });
+    await fresh.screenshot({ path: path.join(OUT, '15-pairing-unknown-code.png') });
+    await context.close();
+  });
+
   await step('dark mode and mobile screenshots', async () => {
     await page.evaluate(() => localStorage.setItem('harness.theme', 'dark'));
-    await page.reload({ waitUntil: 'networkidle0' });
+    await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Und noch eine Frage'));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('08-chat-dark');

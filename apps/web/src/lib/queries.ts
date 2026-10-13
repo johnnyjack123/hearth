@@ -11,6 +11,7 @@ export const queryKeys = {
   serverSettings: ['settings', 'server'] as const,
   providers: ['providers'] as const,
   models: ['models'] as const,
+  devices: ['devices'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,
@@ -78,6 +79,15 @@ export function useConversation(id: string) {
  */
 export function useProviders() {
   return useQuery({ queryKey: queryKeys.providers, queryFn: api.providers.list });
+}
+
+/**
+ * Lists the user's paired devices.
+ *
+ * @returns The query result.
+ */
+export function useDevices() {
+  return useQuery({ queryKey: queryKeys.devices, queryFn: api.devices.list });
 }
 
 /**

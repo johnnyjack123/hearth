@@ -13,12 +13,14 @@ import { LoginPage, RegisterPage } from '@/features/auth/auth-pages.tsx';
 import { ChatPage } from '@/features/chat/chat-page.tsx';
 import { disposeAllChats } from '@/features/chat/chat-store.ts';
 import { NewChatPage } from '@/features/chat/new-chat-page.tsx';
+import { PairingPage } from '@/features/devices/pairing-page.tsx';
 import { SETTINGS_TABS, SettingsPage, type SettingsTab } from '@/features/settings/settings-page.tsx';
 import { AppShell } from '@/features/shell/app-shell.tsx';
 import { NotFoundPage } from '@/features/shell/not-found-page.tsx';
 import { isAdmin } from '@/lib/auth-client.ts';
 import { queryClient, setUnauthorizedHandler } from '@/lib/query-client.ts';
 import { queryKeys, sessionQuery } from '@/lib/queries.ts';
+import { isLocalPath } from '@/lib/redirect.ts';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -40,16 +42,23 @@ const authRoute = createRoute({
   component: AuthLayout,
 });
 
-const loginRoute = createRoute({ getParentRoute: () => authRoute, path: '/login', component: LoginPage });
+const loginRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: '/login',
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
+    isLocalPath(search.redirect) ? { redirect: search.redirect } : {},
+  component: LoginPage,
+});
 const registerRoute = createRoute({ getParentRoute: () => authRoute, path: '/register', component: RegisterPage });
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
-  beforeLoad: async ({ context }) => {
+  beforeLoad: async ({ context, location }) => {
     const session = await context.queryClient.ensureQueryData(sessionQuery);
     if (!session) {
-      throw redirect({ to: '/login' });
+      // Come back after signing in, e.g. to confirm a device pairing.
+      throw redirect({ to: '/login', search: location.href === '/' ? {} : { redirect: location.href } });
     }
     return { session };
   },
@@ -70,6 +79,14 @@ const settingsRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { tab?: SettingsTab } =>
     SETTINGS_TABS.includes(search.tab as SettingsTab) ? { tab: search.tab as SettingsTab } : {},
   component: SettingsPage,
+});
+
+const deviceRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/device',
+  validateSearch: (search: Record<string, unknown>): { code?: string } =>
+    typeof search.code === 'string' && search.code.length <= 20 ? { code: search.code } : {},
+  component: PairingPage,
 });
 
 const adminRoute = createRoute({
@@ -94,7 +111,7 @@ const designRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   authRoute.addChildren([loginRoute, registerRoute]),
-  appRoute.addChildren([homeRoute, chatRoute, settingsRoute, adminRoute]),
+  appRoute.addChildren([homeRoute, chatRoute, settingsRoute, deviceRoute, adminRoute]),
   designRoute,
 ]);
 

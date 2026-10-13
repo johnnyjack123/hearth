@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, Navigate, useNavigate } from '@tanstack/react-router';
+import { Link, Navigate, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, Sparkles } from 'lucide-react';
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
@@ -9,6 +9,7 @@ import type { MessageKey } from '@/i18n/index.ts';
 import { authClient } from '@/lib/auth-client.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryKeys, sessionQuery, usePublicSettings } from '@/lib/queries.ts';
+import { isLocalPath } from '@/lib/redirect.ts';
 
 // Better Auth error codes we explain in our own words; anything else is generic.
 const AUTH_ERRORS: Record<string, MessageKey> = {
@@ -42,13 +43,15 @@ function FormError({ children }: { children: ReactNode }) {
 function useAfterAuth() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { redirect } = useSearch({ strict: false }) as { redirect?: string };
   return async () => {
     // Fetch, don't just invalidate: nothing observes the session on the auth pages,
     // so an invalidated query would not refetch and the route guard would still read
     // the cached "signed out" value and bounce back to /login.
     await queryClient.fetchQuery({ ...sessionQuery, staleTime: 0 });
     await queryClient.invalidateQueries({ queryKey: queryKeys.publicSettings });
-    await navigate({ to: '/' });
+    // Back to where the sign-in was required, e.g. a device pairing.
+    await (isLocalPath(redirect) ? navigate({ href: redirect }) : navigate({ to: '/' }));
   };
 }
 
