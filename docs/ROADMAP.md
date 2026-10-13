@@ -1,6 +1,6 @@
 # Roadmap
 
-> Stand 12.10.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
+> Stand 13.10.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
 > Grundsatz: **ein** Sandbox-Provider (Podman + Hyper-V + Linux-VM, Isoliert-Modus), bis er im Alltag trägt. Weitere Provider kommen erst danach.
 
 | Phase | Inhalt | Status |
@@ -8,9 +8,9 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–5 erledigt |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 in Arbeit**, Pakete 1–6 erledigt |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
-| 3 | Desktop-App (Tauri) + Rust-Gateway + UI für Netz- und Git-Regeln | offen |
+| 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -57,13 +57,35 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - **Merge** (`HostRepo::merge`): Fast-Forward, falls möglich, sonst `git merge --no-edit`. Abgelehnt werden detached HEAD, laufende Merges oder Rebases und uncommittete Änderungen an getrackten Dateien. Konflikte erkennt vorher `git merge-tree --write-tree` trocken. Bei Konflikt bleibt alles unangetastet, und die Dateien werden gemeldet.
    - **Härtung auf dem Host:** Jeder Git-Aufruf läuft mit `core.hooksPath` auf einen leeren Ordner, `core.fsmonitor=false`, `submodule.recurse=false` und `fetch.fsckObjects`/`transfer.fsckObjects`. Ein Test beweist, dass weder `.git/hooks` noch ein Hook-Ordner im Arbeitsbaum (husky) ausgeführt werden. Container-Ausgaben werden vor der Anzeige von Steuerzeichen befreit.
    - **Offen für Paket 8:** CLI-Befehle `sync` und `merge`. `in.bundle` ist jedes Mal vollständig, bei großen Repos ggf. inkrementell machen.
-6. **Netzwerk:**
-   - pro Projekt ein `--internal`-Netz
-   - ein Gateway-Container in internem **und** normalem Netz, vorerst tinyproxy aus `spikes/phase-0/proxy/`
-   - Voreinstellung „Entwicklung“: npm, PyPI, GitHub inklusive `codeload`/`objects.githubusercontent.com` **plus die LLM-APIs, die pi braucht**. Der Nutzer verwendet **DeepSeek** (`api.deepseek.com`). Weitere Anbieter (z. B. `api.anthropic.com`, `api.openai.com`, `openrouter.ai`) nur auf Wunsch
-   - corepack lädt pnpm 12 beim ersten Aufruf als Binary herunter („Downloading the pnpm 12.11.2 binary“). Prüfen, von welchem Host (npm-Registry oder GitHub), und in die Allowlist aufnehmen
-   - Gateway-Container braucht eine eigene Provider-Methode, weil `create_container` nur interne Netze zulässt. Netzwerk-Alias `gateway`, Port 8888 (so im Base-Image als `HTTP(S)_PROXY` gesetzt)
-   - Instanzen **nie** im normalen Netz, weil gvproxy dort Host-localhost durchreicht
+6. ✅ **Netzwerk-Gateway** (`crates/harness-gateway`, Image `images/gateway`, Host-Seite `harness-core/src/gateway.rs`, CLI `harness net`). Statt tinyproxy gleich ein eigener kleiner Proxy in Rust (aus Phase 3 vorgezogen): Nur er kann „open“ sicher machen und Anfragen festhalten, bis der Nutzer entscheidet. Nur Standardbibliothek, ein Thread pro Verbindung. Gebaut wird in der VM aus den eingebetteten Quellen (`rust:1.97-slim-trixie`, Build ~10 s, offline). Verifiziert mit 28 Tests im Crate (6 davon über echtes TCP), `tests/gateway_vm.rs` und einem Probelauf der CLI mit `harness net watch`:
+   - **Ein Gateway pro Projekt** (`harness-gw-<projekt>`), im internen Projektnetz unter dem Alias `gateway` (Port 8888) und zusätzlich im normalen Netz `harness-egress`. Es hat eine eigene Provider-Methode `create_gateway`: gehärtet wie Instanzen, Nutzer `nobody`, keine Mounts, 128 MB. Sie prüft, dass das erste Netz intern ist und das zweite nicht. Instanzen bleiben **nur** im internen Netz.
+   - **Entscheidung pro Host**, in dieser Reihenfolge:
+     1. Die deny-Liste gewinnt immer.
+     2. Modus `open` erlaubt jeden Host.
+     3. Sonst gelten die allow-Liste und Freigaben zur Laufzeit.
+     4. Bei `ask = true` wird nachgefragt, falls jemand zuschaut.
+     5. Sonst kommt 403 mit Begründung, auch im Header `X-Harness-Gateway`.
+   - **Ziel-IP-Prüfung in jedem Modus:** Das Gateway löst Namen selbst auf und verbindet sich nur mit öffentlichen Adressen (`address.rs`). Gesperrt sind:
+     - Loopback und RFC 1918, inklusive gvproxy `192.168.127.0/24`
+     - CGNAT (Tailscale) sowie Link-Local inklusive Cloud-Metadaten
+     - Multicast
+     - IPv6 ULA und Link-Local
+     - IPv4-mapped, NAT64 und 6to4, wenn sie auf eine private Adresse zeigen
+
+     Numerische Sonderformen wie `127.1` oder `0x7f000001` sind als Host ungültig.
+   - **Voreinstellungen:** `off` = nur `llm_apis` aus `config.toml` (Standard `api.deepseek.com`). `development` = Paketquellen (npm, PyPI, crates.io, Go), GitHub, GitLab, Bitbucket und die allow-Liste. `open` = das ganze öffentliche Internet. `custom` = nur die allow-Liste. Die LLM-APIs sind in jeder Voreinstellung erreichbar, weil keine Harness ohne Modell arbeitet.
+   - **Nachfragen wie bei Claude Code:** Bei `ask = true` (Standard) wartet eine Anfrage an einen unbekannten Host bis zu 2 Minuten, solange `harness net watch` läuft. Gleichzeitige Anfragen an denselben Host teilen sich eine Frage. Antworten:
+     - einmal
+     - 15 Minuten
+     - bis das Gateway stoppt
+     - immer (schreibt die Domain in die allow-Liste der Projektdatei)
+     - nein (gesperrt bis zum Stopp)
+
+     Ohne Zuschauer wird sofort abgelehnt, mit dem Hinweis auf `harness net allow <host>`.
+   - **Steuerung** nur über `podman exec harness-gw-<projekt> harness-gateway ctl` zu einem Unix-Socket im Gateway-Container (Zeilenprotokoll, `control.rs`). Instanzen erreichen nur Port 8888. `watch` ist ein dauerhaftes `podman exec -i`, pingt alle 15 s und gilt nach 45 s Stille als beendet.
+   - **CLI:** `harness net [status|watch|allow|deny|preset|start|stop]` und `harness image build [base|gateway]`. `doctor` prüft beide Images.
+   - Geprüft: corepack holt pnpm von `registry.npmjs.org`, GitHub ist dafür nicht nötig.
+   - **Offen für Paket 8:** `harness run`/`shell` starten das Gateway mit (`gateway::ensure_running`), `harness stop` stoppt es.
 7. **Harness-Definition pi:**
    - `harnesses/pi.toml`, Installation `npm install -g @earendil-works/pi-coding-agent` in ein gemeinsames Tools-Volume
    - Login und Einstellungen (`~/.pi`) in einem Volume pro Nutzer
@@ -87,7 +109,7 @@ Der Installer richtet den Dienst einmal mit UAC ein.
 
 - Tauri 2 als Hülle, Frontend ist `apps/web` mit Desktop-Funktionen per Capability-Erkennung
 - Prozess `harnessd` (IPC) für CLI und App gemeinsam
-- Rust-Gateway: eigene DNS-Auflösung, Ziel-IP-Prüfung, Sperre für private Bereiche, CGNAT, Link-Local und `192.168.127.0/24`, Live-Protokoll, Voreinstellungen
+- Gateway-Oberfläche: Live-Protokoll und Rückfragen als Desktop-Benachrichtigung statt `harness net watch`. Das Gateway selbst (DNS, Ziel-IP-Prüfung, Voreinstellungen, Rückfragen) gibt es seit Phase 2, Paket 6. Die App nutzt denselben Steuerkanal (`watch`, `decide`).
 - UI für Netz-Allowlist, Git-Regeln, Projekte und Harnesse (ARCHITECTURE.md §5, §7)
 
 ## Phase 4 – Chat ↔ Umgebung
@@ -97,6 +119,15 @@ Pairing per Device Flow (Better Auth `deviceAuthorization`), WSS-Tunnel, Projekt
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
 - **Host-Modus** (ungesichert, Harness direkt auf dem Host, ARCHITECTURE.md §3)
+- **Host-Ausführung mit Einzelbestätigung** (Idee des Nutzers vom 13.10.): Der Agent darf einzelne Befehle auf Windows ausführen lassen, etwa PowerShell, MSVC/.NET, Windows-GUI oder Hardware. Jeder Befehl wird außerhalb der Sandbox bestätigt, so wie die Netz-Rückfragen. Vorschlag zur Umsetzung:
+  - pro Projekt aus, solange nicht eingeschaltet, und nie für verknüpfte Remote-Chats
+  - Anfrage aus dem Container über das Gateway, Bestätigung über dessen Steuerkanal (Muster wie `ask`)
+  - Befehl als argv ohne Shell-String, angezeigt mit Arbeitsordner und Umgebung
+  - Ausführung in einem eigenen Worktree des Agent-Branches, nie im Checkout des Nutzers
+  - Umgebung ohne Secrets, mit Timeout, Ausgabelimit und Audit-Log
+  - kein „immer erlauben“ für Befehle, die Agent-Code ausführen (`python x.py`, `npm test`, `make`)
+
+  Wichtig: Wer bestätigt, führt Agent-Code mit vollen Rechten aus. Die Befehlszeile sieht harmlos aus, das Skript dahinter kann alles.
 - **Sync-Modus** (Live-Spiegelung des Volumes in einen Host-Ordner)
 - Git-Worker mit Shim und Richtlinien wie in ARCHITECTURE.md §3.6, Checkpoints
 - weitere Harnesse (opencode, Claude Code, Codex) und Adapter

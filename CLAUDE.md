@@ -14,9 +14,17 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 - **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`. Reste stehen in ROADMAP.md.
 - **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Einzige Freigabe ist `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`. Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
 - Erste Harness für Phase 2: **pi** (`@earendil-works/pi-coding-agent`), LLM-Anbieter des Nutzers für pi: **DeepSeek** (`api.deepseek.com`).
-- **Phase 2, Pakete 1–5 erledigt:** Cargo-Workspace (`crates/harness-core`, `crates/harness-cli` → Binary `harness`), Provider-Schnittstelle mit `PodmanProvider`, Base-Image `images/base` (gebaut als `localhost/harness/base:latest`), Konfiguration in `~/.harness` (`harness-core/src/config/`), Git-Sync über Bundles (`harness-core/src/sync/`). CLI kann bisher `doctor`, `image build` und `project [show|add|list]`. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
+- **Phase 2, Pakete 1–6 erledigt:**
+  - Cargo-Workspace: `crates/harness-core`, `crates/harness-cli` (Binary `harness`) und `crates/harness-gateway`
+  - Provider-Schnittstelle mit `PodmanProvider`
+  - Images `images/base` und `images/gateway`
+  - Konfiguration in `~/.harness` (`harness-core/src/config/`)
+  - Git-Sync über Bundles (`harness-core/src/sync/`)
+  - Netzwerk-Gateway pro Projekt mit Voreinstellungen, Ziel-IP-Prüfung und Rückfragen (`harness-core/src/gateway.rs`)
+
+  Die CLI kann `doctor`, `image build`, `project [show|add|list]` und `net [status|watch|allow|deny|preset|start|stop]`. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: Phase 2 ab Paket 6 (Gateway, pi, CLI-Befehle; danach `harness-vmd`).
+- Nächstes: Phase 2 ab Paket 7 (pi im Tools-Volume, dann CLI-Befehle `run`/`shell`/`sync`/`merge`; danach `harness-vmd`).
 
 ## Arbeitsweise
 
@@ -44,13 +52,16 @@ cargo build                           # Rust-Workspace; 2 Jobs per .cargo/config
 cargo test                            # Unit-Tests
 cargo fmt; cargo clippy --all-targets
 target/debug/harness doctor           # Konfiguration, Machine, SSH, Austauschordner, Base-Image
-target/debug/harness image build      # Base-Image in der VM bauen (--pull, --no-cache)
+target/debug/harness image build      # Base- und Gateway-Image in der VM bauen (base|gateway, --pull, --no-cache)
 target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (show, list)
+target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
+target/debug/harness net watch        # Live-Protokoll, beantwortet Rückfragen des Gateways (zweites Terminal)
 HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
 cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
 cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
 cargo test -p harness-core --test sync_vm -- --ignored --nocapture        # Git-Sync mit den echten Container-Skripten
-cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~40 s)
+cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gateway: Voreinstellungen, Sperren, Rückfrage (braucht Internet)
+cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~70 s)
 ```
 
 Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Ob die Portweiterleitung über gvproxy unter Hyper-V funktioniert, ist ungetestet.
@@ -100,6 +111,16 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - **Container-Skripte** (`sync/mod.rs`) bekommen Parameter nur als `$1`, `$2`, nie per Textersetzung, und setzen `PATH=/usr/bin:/bin`, weil `~/.local/bin` dem Agent gehört. Ergebnis als `result=…`-Zeile, nur diese wird ausgewertet.
 - `git rev-list … --exclude=<muster> --branches`: Das Muster steht **ohne** `refs/heads/`, sonst schließt es nichts aus.
 - Host-Git ist hier 2.49 (`merge-tree --write-tree` braucht ≥ 2.38), und `core.autocrlf=true` ist global gesetzt. Tests setzen Identität und `autocrlf` deshalb lokal im Test-Repo.
+
+### Gateway (`crates/harness-gateway`)
+
+- **Keine Abhängigkeiten, keine Workspace-Vererbung** in `Cargo.toml`. Das Gateway-Image kompiliert das Crate allein und offline in der VM, aus den in `image.rs` (`GATEWAY_IMAGE`) eingebetteten Quellen. Neue Dateien unter `src/` dort eintragen, sonst schlägt `gateway_context_is_complete` fehl. Release-Profil steht im Containerfile (`CARGO_PROFILE_RELEASE_*`), weil Profile in Member-Crates ignoriert werden.
+- **Nach jeder Änderung am Gateway-Code (auch `cargo fmt`) erst `cargo build`, dann `harness image build gateway`.** Die CLI bettet die Quellen beim Kompilieren ein. Eine alte Binary baut also den alten Stand, und die VM-Tests melden dann „veraltet“. `ensure_running` ersetzt Gateway-Container aus älteren Images automatisch.
+- **Sicherheitsinvariante:** Das Gateway verbindet sich nur mit Adressen, die `address::is_public` erlaubt. Das gilt in jedem Modus und auch für IP-Literale. Tests tauschen Filter und Resolver nur über `Options`; die Binary nutzt immer die Standards. `Host::parse` lehnt numerische Sonderformen (`127.1`, `0x7f000001`) ab.
+- Steuerung nur über `harness-gateway ctl` im Gateway-Container (Unix-Socket in `/tmp/harness-gateway/`). Antworten auf eine Anfrage enden mit `ok` bzw. `error …`. `event …`-Zeilen können **vor** dem `ok` kommen.
+- `podman exec -i` leitet stdin zeilenweise durch, aber das Ende von stdin kommt nicht immer an. `ctl` endet deshalb, sobald das Gateway die Verbindung schließt (`bye`). Beobachter ohne Ping für 45 s gelten als weg, ihre offenen Fragen werden dann abgelehnt.
+- Im Base-Image steht `NO_PROXY=localhost,127.0.0.1,::1`. curl auf `localhost` geht deshalb nicht übers Gateway. In Tests `--noproxy ''` nutzen.
+- Während ein `podman pull` läuft, blockieren andere podman-Befehle wie `podman images`, vermutlich wegen des Storage-Locks. Der Pull von `rust:1.97-slim-trixie` (271 MB) dauerte hier 39 Minuten.
 
 ### Testen ohne den Browser des Nutzers
 

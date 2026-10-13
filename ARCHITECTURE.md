@@ -171,10 +171,12 @@ Ergebnisse aus Phase 0 zu Bind-Mounts unter Windows:
 
 | Voreinstellung | Erlaubt | Einsatz |
 |---|---|---|
-| **Aus** | nichts | maximale Abschottung |
-| **Entwicklung** (Standard) | Paketquellen (npm, PyPI, crates.io …), Git-Hoster, Doku-Seiten | normales Arbeiten |
+| **Aus** | nur die LLM-APIs der Harnesse | maximale Abschottung |
+| **Entwicklung** (Standard) | Paketquellen (npm, PyPI, crates.io, Go), Git-Hoster | normales Arbeiten |
 | **Offen** | das gesamte öffentliche Internet | Web-Recherche |
 | **Benutzerdefiniert** | eigene Allow- und Deny-Listen | Sonderfälle |
+
+Die LLM-APIs (`llm_apis` in `config.toml`) sind in jeder Voreinstellung erreichbar, weil keine Harness ohne ihr Modell arbeitet. Die deny-Liste gewinnt immer. Mit `ask = true` (Standard) wartet eine Anfrage an einen nicht freigegebenen Host, bis der Nutzer sie erlaubt oder ablehnt. Das geht vorerst über `harness net watch`, später als Benachrichtigung der App. Bei einer Freigabe wählt der Nutzer die Dauer: einmal, 15 Minuten, bis zum Stopp des Gateways oder dauerhaft in die allow-Liste. Ohne Zuschauer wird sofort abgelehnt.
 
 **Immer gesperrt,** auch bei „Offen“: der Host, das lokale Netz (RFC 1918), CGNAT (`100.64.0.0/10`, darunter Tailscale), Link-Local-Adressen inklusive Cloud-Metadaten (`169.254.169.254`) und andere Instanzen. Ausnahmen sind nur explizite Systemziele, etwa das LLM-Gateway des lokalen Servers. Das Gateway löst DNS selbst auf, prüft die **Ziel-IP** und verbindet sich mit genau dieser IP. Ein reiner Domain-Filter reicht nicht (Phase 0, 6.4).
 
@@ -182,7 +184,7 @@ Ergebnisse aus Phase 0 zu Bind-Mounts unter Windows:
 
 Die UI zeigt ein Live-Protokoll aller Verbindungen. Blockierte Domains lassen sich dort mit einem Klick freigeben. Wichtig: Bei „Offen“ kann ein per Prompt-Injection manipulierter Agent alles nach außen schicken, was er im Container sieht. Daher die versteckten Pfade, und keine Secrets im Container.
 
-Implementierung: ein eigener kleiner Proxy in Rust (tokio/hyper). Er lädt Richtlinien ohne Neustart nach und streamt sein Protokoll an `harnessd`. Später kann er TLS **nur** für LLM-API-Hosts terminieren, um API-Keys erst im Gateway einzusetzen (Secret-Injection).
+Implementierung (seit Phase 2, Paket 6): ein eigener kleiner Proxy in Rust, `crates/harness-gateway`. Er nutzt nur die Standardbibliothek und einen Thread pro Verbindung, statt tokio/hyper. Das reicht für einen Agent pro Gateway, und das Image wird in der VM offline aus den eingebetteten Quellen gebaut. Jedes Projekt hat sein eigenes Gateway. Gesteuert wird über einen Unix-Socket im Gateway-Container: Der Host ruft `harness-gateway ctl` per `podman exec` auf, Instanzen erreichen nur den Proxy-Port. Darüber laufen Richtlinien ohne Neustart, Freigaben, Rückfragen und das Live-Protokoll. Später kann das Gateway TLS **nur** für LLM-API-Hosts terminieren, um API-Keys erst dort einzusetzen (Secret-Injection).
 
 ### 3.6 Git-Worker
 
