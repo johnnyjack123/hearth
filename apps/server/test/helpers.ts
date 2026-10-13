@@ -99,10 +99,15 @@ export interface TestServer {
    *
    * @param method - HTTP method.
    * @param url - Path, e.g. `/api/conversations`.
-   * @param options - JSON body and session cookie.
+   * @param options - JSON body, session cookie and extra headers (an empty
+   *   value removes a default header).
    * @returns The response.
    */
-  request(method: string, url: string, options?: { body?: unknown; cookie?: string }): Promise<Response>;
+  request(
+    method: string,
+    url: string,
+    options?: { body?: unknown; cookie?: string; headers?: Record<string, string> },
+  ): Promise<Response>;
   /**
    * Registers an account and returns its session cookie.
    *
@@ -158,6 +163,14 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
     }
     if (options.body !== undefined) {
       headers['content-type'] = 'application/json';
+    }
+    // An empty value removes a default header, e.g. `origin` for CLI clients.
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      if (value) {
+        headers[name] = value;
+      } else {
+        delete headers[name];
+      }
     }
     return Promise.resolve(
       app.request(url, {

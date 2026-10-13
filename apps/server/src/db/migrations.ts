@@ -76,6 +76,41 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('setting').execute();
     },
   },
+  // Paired computers (harness CLI, desktop app). Tokens and device codes are
+  // stored as SHA-256 hashes; a pairing keeps the issued token encrypted only
+  // until the device has picked it up.
+  '0002_devices': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('device')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('tokenHash', 'text', (col) => col.notNull().unique())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('lastUsedAt', 'bigint')
+        .execute();
+      await db.schema.createIndex('device_userId_idx').on('device').column('userId').execute();
+
+      await db.schema
+        .createTable('devicePairing')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('deviceCodeHash', 'text', (col) => col.notNull().unique())
+        .addColumn('userCode', 'text', (col) => col.notNull().unique())
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('status', 'text', (col) => col.notNull())
+        .addColumn('userId', 'text', (col) => col.references('user.id').onDelete('cascade'))
+        .addColumn('deviceId', 'text')
+        .addColumn('encryptedToken', 'text')
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('expiresAt', 'bigint', (col) => col.notNull())
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('devicePairing').execute();
+      await db.schema.dropTable('device').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

@@ -1,5 +1,6 @@
 import type { ApiErrorBody, ApiErrorCode } from '@harness/shared';
 import type { Context } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { ZodError } from 'zod';
 
@@ -53,6 +54,11 @@ export function handleError(error: unknown, c: Context): Response {
   }
   if (error instanceof SyntaxError) {
     return c.json<ApiErrorBody>({ error: { code: 'validation', message: 'Request body is not valid JSON' } }, 400);
+  }
+  // Raised by Hono's own middleware, e.g. the CSRF check.
+  if (error instanceof HTTPException) {
+    const code: ApiErrorCode = error.status === 403 ? 'forbidden' : error.status < 500 ? 'validation' : 'internal';
+    return c.json<ApiErrorBody>({ error: { code, message: error.message || 'Request rejected' } }, error.status);
   }
   console.error('[http] unhandled error', error);
   return c.json<ApiErrorBody>({ error: { code: 'internal', message: 'Internal server error' } }, 500);

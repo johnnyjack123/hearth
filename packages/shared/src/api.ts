@@ -12,6 +12,7 @@ export type ApiErrorCode =
   | 'validation'
   | 'provider_error'
   | 'custom_base_url_forbidden'
+  | 'too_many_requests'
   | 'internal';
 
 /**

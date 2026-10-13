@@ -64,6 +64,40 @@ export interface SettingTable {
 }
 
 /**
+ * Row of `device`: a paired computer. Only the SHA-256 hash of its token is
+ * stored.
+ */
+export interface DeviceTable {
+  id: string;
+  userId: string;
+  name: string;
+  tokenHash: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+/**
+ * Row of `devicePairing`: a pairing in progress or recently finished.
+ */
+export interface DevicePairingTable {
+  id: string;
+  /** SHA-256 of the device code the device polls with. */
+  deviceCodeHash: string;
+  /** Code the user confirms, stored without the dash. */
+  userCode: string;
+  name: string;
+  status: 'pending' | 'approved' | 'denied';
+  /** Account that approved or denied. */
+  userId: string | null;
+  /** Device created on approval. */
+  deviceId: string | null;
+  /** The new device's token, encrypted, until the device fetched it. */
+  encryptedToken: string | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -72,4 +106,6 @@ export interface DB {
   conversation: ConversationTable;
   message: MessageTable;
   setting: SettingTable;
+  device: DeviceTable;
+  devicePairing: DevicePairingTable;
 }

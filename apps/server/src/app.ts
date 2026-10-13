@@ -8,8 +8,13 @@ import { secureHeaders } from 'hono/secure-headers';
 import { type AppDeps, type AppEnv, requireUser } from './http/context.ts';
 import { handleError, notFound } from './http/errors.ts';
 import { conversationRoutes } from './routes/conversations.ts';
+import { deviceRoutes, deviceSelfRoutes, pairingRoutes } from './routes/devices.ts';
+import { llmRoutes } from './routes/llm.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
+
+// `/api/devices` (session) must not match, `/api/device` (token) must.
+const TOKEN_ROUTES = /^\/api\/(pairing|device|llm)(\/|$)/;
 
 /**
  * Options for {@link createApp}.
@@ -50,11 +55,22 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}) {
       },
     }),
   );
-  app.use('/api/*', csrf({ origin: deps.config.trustedOrigins }));
+  const csrfProtection = csrf({ origin: deps.config.trustedOrigins });
+  app.use('/api/*', (c, next) =>
+    // Device routes authenticate with a bearer token or not at all, never
+    // with the session cookie, so a cross-site request gains nothing there;
+    // and CLI clients send no Origin header.
+    TOKEN_ROUTES.test(c.req.path) ? next() : csrfProtection(c, next),
+  );
 
   app.get('/api/health', (c) => c.json({ ok: true }));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => deps.auth.handler(c.req.raw));
   app.route('/api/settings', publicSettingsRoutes(deps));
+  // Device routes bring their own auth (pairing: none, device token) and
+  // must be registered before the session-protected `api` router.
+  app.route('/api/pairing', pairingRoutes(deps));
+  app.route('/api/device', deviceSelfRoutes(deps));
+  app.route('/api/llm', llmRoutes(deps));
 
   const api = new Hono<AppEnv>();
   api.use(requireUser(deps.auth));
@@ -62,6 +78,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}) {
   api.route('/providers', providers);
   api.route('/models', models);
   api.route('/conversations', conversationRoutes(deps));
+  api.route('/devices', deviceRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
   app.route('/api', api);
 

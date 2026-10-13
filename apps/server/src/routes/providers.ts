@@ -29,14 +29,14 @@ import { getServerSettings } from '../services/settings.ts';
  * could make the server send requests into its internal network.
  *
  * @param db - Open database.
- * @param user - Acting user.
+ * @param user - Acting user, or the owner of the calling device.
  * @param kind - Provider kind.
  * @param baseUrl - Endpoint stored with the credential, if any.
  * @throws {HttpError} 403 if the endpoint is not allowed.
  */
 export async function assertEndpointAllowed(
   db: Kysely<DB>,
-  user: SessionUser,
+  user: { role?: string | null },
   kind: ProviderKind,
   baseUrl: string | null | undefined,
 ): Promise<void> {
