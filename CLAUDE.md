@@ -21,20 +21,20 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
   - Konfiguration in `~/.harness` (`harness-core/src/config/`)
   - Git-Sync über Bundles (`harness-core/src/sync/`)
   - Netzwerk-Gateway pro Projekt mit Voreinstellungen, Ziel-IP-Prüfung und Rückfragen (`harness-core/src/gateway.rs`)
-- **Paket 7 zur Hälfte: LLM-Zugang über den Server.** Keys liegen nur im Server.
-  - `harness login` koppelt den Rechner per Code-Bestätigung in der Web-App (`/device`).
-  - Das Gateway leitet `http://llm.harness/<Anbieter-ID>/…` mit dem Geräte-Token an `/api/llm/proxy/…` weiter, der Server setzt den Key ein.
-  - Offen: pi installieren und dessen `models.json` erzeugen.
+- **Pakete 7–9 gebaut, Smoke-Skript grün:**
+  - **LLM-Zugang über den Server.** Keys liegen nur im Server. `harness login` koppelt den Rechner per Code-Bestätigung in der Web-App (`/device`). Das Gateway leitet `http://llm.harness/<Anbieter-ID>/…` mit dem Geräte-Token an `/api/llm/proxy/…` weiter, der Server setzt den Key ein.
+  - **pi in der Instanz:** pi liegt im Tools-Volume, `models.json` zeigt auf `llm.harness` (`instance.rs`, `pi.rs`).
+  - **CLI:** `run [harness] [-- args]`, `shell`, `sync`, `merge`, `stop`, `status` (`harness-cli/src/run.rs`).
 
-  Die CLI kann `doctor`, `image build`, `project [show|add|list]`, `net [status|watch|allow|deny|preset|start|stop]`, `login` und `logout`. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
+  Offen in Phase 2: interaktiver Test in Windows Terminal durch den Nutzer, Rückfragen im selben Terminal (ConPTY). Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: Rest von Paket 7 (pi im Tools-Volume, `models.json` auf `llm.harness`), dann Paket 8 (`run`/`shell`/`sync`/`merge`), danach `harness-vmd`.
+- Nächstes: ConPTY in `harness run` (Rückfragen im selben Terminal), danach `harness-vmd` (Phase 2b).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
 
 - Sprache: Doku und UI-Texte **Deutsch** (UI zusätzlich Englisch), Code-Kommentare, Commits und Bezeichner **Englisch**.
-- Commits nur, wenn der Nutzer darum bittet. Konventionen siehe Skill `git-flow`.
+- Nach jedem fertigen, geprüften Stück committen, in `main` mergen und beides pushen, ohne nachzufragen (Freigabe des Nutzers vom 14.10.). Nur Stände, die bauen und deren Tests grün sind. Konventionen siehe Skill `git-flow`.
 - TS/JS: JSDoc für jeden Export, geschweifte Klammern immer (Skill `ts-js-code-konventionen`). Kommentare erklären das *Warum* (Skill `code-comments`).
 - Rust: Doc-Kommentar für jedes `pub`-Element (`harness-core` hat `#![warn(missing_docs)]`), `cargo fmt` und `cargo clippy --all-targets` ohne Warnungen. Fehlermeldungen sind UI-Text, also Deutsch.
 - UI: **nur** semantische Tokens, keine festen Werte. Regeln in [`docs/design/DESIGN.md`](docs/design/DESIGN.md). Neue Primitive bekommen einen Eintrag auf der Design-Seite `/design` (nur im Dev-Modus). Skill `ui-component` beachten.
@@ -62,12 +62,16 @@ target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (
 target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
 target/debug/harness net watch        # Live-Protokoll, beantwortet Rückfragen des Gateways (zweites Terminal)
 target/debug/harness login [URL]      # Rechner mit dem Server koppeln (--no-browser in Tests); logout widerruft
+target/debug/harness run [pi] [-- …]  # Gateway, Instanz, Klon, pi installieren und verbinden, dann pi (TTY)
+target/debug/harness shell            # Login-Shell in der Instanz; sync/merge holen die Commits des Agents
 HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
 cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
 cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
 cargo test -p harness-core --test sync_vm -- --ignored --nocapture        # Git-Sync mit den echten Container-Skripten
 cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gateway: Voreinstellungen, Sperren, Rückfrage (braucht Internet)
-cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~70 s)
+cargo test -p harness-core --test instance_vm -- --ignored --nocapture    # Instanz, Installation über das Gateway, models.json
+cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~2 min)
+bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
 ```
 
 Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V (14.10. geprüft). Danach `pm.sh rm -f harness-pg` und das anonyme Datenvolume löschen (`pm.sh volume ls`).
@@ -137,6 +141,18 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - Der Durchgang (`routes/llm.ts`) streamt Request und Response. `Content-Encoding` und `Content-Length` der Antwort fallen weg, weil `fetch` schon entpackt hat. Erlaubte Pfade je Protokoll stehen in `ALLOWED_PATHS`. Anthropic und Google hängen die Version selbst an, deshalb kürzt `proxyRoot` deren Basis-URL.
 - Rust-Seite: `ureq` mit `native-tls` (SChannel), weil rustls/ring auf `aarch64-pc-windows-msvc` einen C-Compiler bräuchte. `keyring` bleibt auf 3.6, Version 4 hat eine neue API.
 - Git Bash: `$!` ist eine MSYS-PID, `taskkill` braucht die Windows-PID. Testserver deshalb über den Port beenden (`Get-NetTCPConnection -LocalPort … | Stop-Process`).
+
+### Instanzen und pi (`instance.rs`, `pi.rs`, CLI `run.rs`)
+
+- **undici (pi) tunnelt auch `http://`-Ziele per `CONNECT`.** `curl` schickt dagegen absolute URLs. Das Gateway nimmt deshalb `CONNECT llm.harness:80` an und liest die HTTP-Anfrage im Tunnel selbst (`read_tunneled_head`). Andere `http://`-Ziele laufen als normaler Tunnel nach den Regeln.
+- **Eingebaute Harness-Definitionen werden nicht mehr nach `~/.harness/harnesses/` kopiert.** Eine Kopie friert sie ein und verpasst neue Felder. Genau so fehlte `llm = "pi"`, und pi hatte keine `models.json`. Eine Datei dort ersetzt die eingebaute vollständig.
+- Jede Instanz hängt die Volumes der Standard-Harness des Projekts **und** der angeforderten ein, sonst würde `harness shell` neben `harness run` den Container neu anlegen. Geänderte Mounts oder ein neues Base-Image legen die Instanz neu an (Label `io.llm-harness.mounts`). Daten liegen in Volumes.
+- Ein frisches Volume, das in ein anderes Volume eingehängt wird (`~/.pi` im Home-Volume), gehört mit `keep-id` dem Agent-Nutzer (geprüft). Am Base-Image ist dafür nichts nötig.
+- Installation der Harnesses im kurzlebigen Container `harness-install-<projekt>` (Tools-Volume beschreibbar, `npm_config_cache=/tmp/…`). Erlauben die Regeln die npm-Registry nicht, gibt es eine Freigabe für 15 Minuten. pi: 118 Pakete in ~12 s.
+- `pi::write_models` übergibt die Datei als Argument statt über stdin, weil `podman exec -i` das Ende von stdin nicht zuverlässig weitergibt. `harness run` reicht stdin ohne Terminal deshalb nicht durch, sonst wartet pi im Druckmodus ewig.
+- **`models.json` gehört dem Nutzer, harness verwaltet nur seine Einträge.** Erkennbar sind sie an `baseUrl` unter `http://llm.harness/` plus Dummy-Key (`pi::is_ours`). `pi::wire` ersetzt nur diese, `pi::unwire` entfernt sie nach `logout`. Eine kaputte Datei wird als `models.json.bak` gesichert. Das Volume `harness-cfg-pi` teilen alle Projekte, auch `scripts/smoke-run.sh` schreibt hinein und räumt per `logout` wieder auf.
+- Nach `harness logout` lehnt der Server das Token sofort ab (401), auch für Gateways, die noch laufen (geprüft).
+- **RAM der VM:** Sie startet mit 1 GB und wächst nur, wenn Windows Speicher frei hat. Während der pi-Läufe am 14.10. nahm die VM danach keine SSH-Verbindungen mehr an: TCP ging, der Banner blieb leer, gvproxy lief. Vermutlich war der Speicher knapp. Abhilfe war ein Neustart der VM.
 
 ### Testen ohne den Browser des Nutzers
 
