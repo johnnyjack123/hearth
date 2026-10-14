@@ -294,13 +294,24 @@ pub struct HarnessConfig {
     pub install: String,
     /// Program and arguments that start the harness.
     pub command: Vec<String>,
-    /// Paths (`~/…` or absolute) kept in a per-harness volume shared by all
-    /// projects, e.g. logins.
+    /// Path (`~/…` or absolute) kept in a per-harness volume shared by all
+    /// projects, e.g. logins. At most one, since it is one volume.
     #[serde(default)]
     pub persist: Vec<String>,
+    /// How harness points the harness at `llm.harness` after `harness login`.
+    #[serde(default)]
+    pub llm: Option<LlmWiring>,
     /// Machine interface for the web chat (Phase 4).
     #[serde(default)]
     pub adapter: Option<AdapterConfig>,
+}
+
+/// How a harness is configured to reach its model through the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmWiring {
+    /// pi: `~/.pi/agent/models.json` with the account's providers.
+    Pi,
 }
 
 impl HarnessConfig {
@@ -323,6 +334,11 @@ impl Validate for HarnessConfig {
         }
         if self.command.first().is_none_or(|c| c.trim().is_empty()) {
             return Err("command darf nicht leer sein".to_owned());
+        }
+        if self.persist.len() > 1 {
+            return Err(
+                "persist darf nur einen Pfad enthalten (ein Volume pro Harness)".to_owned(),
+            );
         }
         for path in &self.persist {
             let expanded = expand_home(path);

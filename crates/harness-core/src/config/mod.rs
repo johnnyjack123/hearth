@@ -20,8 +20,8 @@ use toml_edit::DocumentMut;
 
 pub use model::{
     AGENT_HOME, AdapterConfig, DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig,
-    GlobalConfig, HarnessConfig, NetworkConfig, NetworkPreset, ProjectConfig, ResourcesConfig,
-    ServerConfig,
+    GlobalConfig, HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig,
+    ResourcesConfig, ServerConfig,
 };
 use model::{Validate, validate_harness_name};
 
@@ -33,9 +33,10 @@ use crate::{Error, Result};
 const CONFIG_TEMPLATE: &str = include_str!("../../defaults/config.toml");
 const PROJECT_TEMPLATE: &str = include_str!("../../defaults/project.toml");
 
-/// Harness definitions shipped with the binary. Used when no file of that
-/// name exists, and written out by [`ConfigDir::init`] so users can see and
-/// adapt them.
+/// Harness definitions shipped with the binary, used when no file of that
+/// name exists. They are not copied into the folder: a copy would freeze the
+/// definition at the version of the first `init` and miss later fields.
+/// A file in `harnesses/` is for deliberate changes only.
 const BUILTIN_HARNESSES: &[(&str, &str)] =
     &[("pi", include_str!("../../defaults/harnesses/pi.toml"))];
 
@@ -142,15 +143,10 @@ impl ConfigDir {
                 .map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
         }
         let mut written = Vec::new();
-        let mut defaults = vec![(self.config_file(), CONFIG_TEMPLATE)];
-        for (name, text) in BUILTIN_HARNESSES {
-            defaults.push((self.harnesses_dir().join(format!("{name}.toml")), text));
-        }
-        for (path, text) in defaults {
-            if !path.exists() {
-                write_atomic(&path, text, false)?;
-                written.push(path);
-            }
+        let file = self.config_file();
+        if !file.exists() {
+            write_atomic(&file, CONFIG_TEMPLATE, false)?;
+            written.push(file);
         }
         Ok(written)
     }

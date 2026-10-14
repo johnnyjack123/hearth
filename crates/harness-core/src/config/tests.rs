@@ -30,10 +30,11 @@ fn repo(base: &Path, relative: &str) -> PathBuf {
 fn init_writes_defaults_once() {
     let f = fixture();
     let written = f.config.init().unwrap();
-    assert_eq!(written.len(), 2);
-    assert!(f.config.config_file().is_file());
-    assert!(f.config.harnesses_dir().join("pi.toml").is_file());
+    assert_eq!(written, [f.config.config_file()]);
     assert!(f.config.projects_dir().is_dir());
+    // Built-in harnesses are not copied, so they never go stale on disk.
+    assert!(!f.config.harnesses_dir().join("pi.toml").exists());
+    assert_eq!(f.config.harness("pi").unwrap().llm, Some(LlmWiring::Pi));
 
     fs::write(f.config.config_file(), "machine = \"other\"\n").unwrap();
     assert!(f.config.init().unwrap().is_empty());

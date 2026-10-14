@@ -10,6 +10,7 @@ mod doctor;
 mod login;
 mod net;
 mod project;
+mod run;
 
 use std::process::ExitCode;
 
@@ -49,6 +50,28 @@ enum Command {
         #[command(subcommand)]
         command: Option<ProjectCommand>,
     },
+    /// Startet eine Harness (Standard: pi) in der Instanz des Projekts
+    Run {
+        /// Harness, z. B. pi (Standard: aus der Projektdatei)
+        harness: Option<String>,
+        /// Weitere Argumente für die Harness, nach `--`
+        #[arg(last = true)]
+        args: Vec<String>,
+    },
+    /// Öffnet eine Shell in der Instanz des Projekts
+    Shell,
+    /// Holt die Commits des Agents als Branch agent/<projekt> ins Repository
+    Sync {
+        /// Auch einen umgeschriebenen Agent-Branch übernehmen
+        #[arg(long)]
+        force: bool,
+    },
+    /// Führt agent/<projekt> in den aktuellen Branch zusammen
+    Merge,
+    /// Stoppt Instanz und Gateway des Projekts
+    Stop,
+    /// Zeigt, was für das Projekt läuft
+    Status,
     /// Koppelt diesen Rechner mit dem harness-Server (LLM-Zugang mit deinen Keys)
     Login {
         /// Server-Adresse (Standard: aus config.toml, sonst http://localhost:8080)
@@ -142,6 +165,15 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             ProjectCommand::Add => project::add(&config),
             ProjectCommand::List => project::list(&config),
         },
+        Command::Run { harness, args } => {
+            let machine = machine_name(&config, cli.machine)?;
+            run::run(&config, &machine, harness.as_deref(), args)
+        }
+        Command::Shell => run::shell(&config, &machine_name(&config, cli.machine)?),
+        Command::Sync { force } => run::sync(&config, &machine_name(&config, cli.machine)?, force),
+        Command::Merge => run::merge(&config),
+        Command::Stop => run::stop(&config, &machine_name(&config, cli.machine)?),
+        Command::Status => run::status(&config, &machine_name(&config, cli.machine)?),
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
         Command::Net { project, command } => {

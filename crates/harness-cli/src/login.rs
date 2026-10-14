@@ -77,21 +77,42 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
         println!("Nicht angemeldet.");
         return Ok(true);
     };
+    // Running gateways hold a copy of the token; only the server can make
+    // it worthless right away.
+    let mut revoked = true;
     if let Some(token) = load_token(&server.url)? {
         match ServerClient::new(&server.url).and_then(|client| client.revoke(&token)) {
             Ok(()) => println!("Gerät auf {} entfernt.", server.url),
-            Err(error) => println!(
-                "Konnte das Gerät auf dem Server nicht entfernen ({error}). Bitte in der Web-App \
-                 unter Einstellungen → Geräte löschen."
-            ),
+            Err(error) => {
+                revoked = false;
+                println!(
+                    "Konnte das Gerät auf dem Server nicht entfernen ({error}). Bitte in der \
+                     Web-App unter Einstellungen → Geräte löschen."
+                );
+            }
         }
         delete_token(&server.url)?;
     }
     config.set_server_url(None)?;
-    println!(
-        "Abgemeldet. Laufende Gateways verlieren den Zugang beim nächsten `harness net start`."
-    );
+    if revoked {
+        println!("Abgemeldet. Laufende Gateways haben ab sofort keinen LLM-Zugang mehr.");
+    } else {
+        println!(
+            "Abgemeldet. Laufende Gateways nutzen das Token, bis es in der Web-App gelöscht ist."
+        );
+    }
     Ok(true)
+}
+
+/// The paired server and this computer's token, if any.
+pub fn paired(config: &ConfigDir) -> anyhow::Result<Option<(ServerClient, String)>> {
+    let Some(server) = config.global()?.server else {
+        return Ok(None);
+    };
+    let Some(token) = load_token(&server.url)? else {
+        return Ok(None);
+    };
+    Ok(Some((ServerClient::new(&server.url)?, token)))
 }
 
 /// Where gateways send `llm.harness` requests, if this computer is paired.

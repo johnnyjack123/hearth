@@ -1,7 +1,8 @@
 # llm-harness: globale Einstellungen
 #
-# Projekte stehen in projects/<name>.toml, Harness-Definitionen in
-# harnesses/<name>.toml. Dieser Ordner enthält sicherheitsrelevante
+# Projekte stehen in projects/<name>.toml. Harness-Definitionen (pi) sind
+# eingebaut; eine Datei harnesses/<name>.toml ersetzt sie, nur anlegen, wenn
+# du sie bewusst ändern willst. Dieser Ordner enthält sicherheitsrelevante
 # Einstellungen (Netzwerk, Ressourcen) und darf deshalb nie in einem
 # Projektordner liegen.
 

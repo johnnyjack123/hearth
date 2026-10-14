@@ -103,6 +103,12 @@ impl ProjectName {
         format!("harness-gw-{}", self.0)
     }
 
+    /// Short-lived container that installs harnesses into the tools volume,
+    /// using this project's network and gateway.
+    pub fn installer(&self) -> String {
+        format!("harness-install-{}", self.0)
+    }
+
     /// Volume holding the agent's clone of the repository (`/workspace`).
     pub fn workspace_volume(&self) -> String {
         format!("harness-ws-{}", self.0)
@@ -186,6 +192,7 @@ mod tests {
             name.instance(),
             name.network(),
             name.gateway(),
+            name.installer(),
             name.workspace_volume(),
             name.home_volume(),
         ] {

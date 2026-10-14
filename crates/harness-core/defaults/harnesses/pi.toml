@@ -12,6 +12,11 @@ command = ["pi"]
 # Logins und Einstellungen, pro Nutzer über alle Projekte geteilt
 persist = ["~/.pi"]
 
+# Nach `harness login` schreibt harness ~/.pi/agent/models.json: Alle
+# Anbieter aus der Web-App laufen dann über den harness-Server, ohne dass ein
+# Key in den Container kommt. Ohne login bleibt pis eigene Anmeldung.
+llm = "pi"
+
 # Nur für die Anbindung an den Web-Chat (Phase 4)
 [adapter]
 kind = "pi-rpc"
