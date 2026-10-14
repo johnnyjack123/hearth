@@ -217,6 +217,22 @@ fn instances_reach_the_internet_only_through_the_gateway() {
     );
     assert!(!head.iter().any(|h| h.contains("made-this-up")), "{head:?}");
 
+    // undici (pi's SDKs) tunnels plain http too; `--proxytunnel` does the same.
+    let tunneled = run(
+        "curl -sS --max-time 20 --proxytunnel -o /dev/null -w '%{http_code}' -X POST \
+         -H 'Authorization: Bearer agent-made-this-up' -H 'Content-Type: application/json' \
+         -d '{\"model\":\"m\"}' http://llm.harness/c1/chat/completions",
+    );
+    assert_eq!(http_status(&tunneled), "200", "{}", tunneled.stderr);
+    let head = server_heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    println!("server saw (tunneled): {}", head[0]);
+    assert_eq!(head[0], "POST /api/llm/proxy/c1/chat/completions HTTP/1.1");
+    assert!(
+        head.contains(&format!("Authorization: Bearer {token}")),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|h| h.contains("made-this-up")), "{head:?}");
+
     let control = GatewayControl::new(&provider, &name);
     let status = control.status().unwrap();
     assert_eq!(status.llm.as_deref(), Some(upstream.url().as_str()));

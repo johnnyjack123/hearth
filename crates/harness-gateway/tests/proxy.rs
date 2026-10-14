@@ -352,6 +352,31 @@ fn llm_requests_reach_the_server_with_the_device_token_only() {
         "client credentials leaked: {head:?}"
     );
 
+    // The same through a CONNECT tunnel, as undici's proxy agent does it.
+    let mut tunnel = connect(proxy, "llm.harness:80");
+    assert_eq!(tunnel.status, 200);
+    tunnel
+        .reader
+        .get_mut()
+        .write_all(
+            b"POST /c2/chat/completions HTTP/1.1\r\nHost: llm.harness\r\nAuthorization: Bearer fake\r\n\
+              Content-Length: 2\r\n\r\n{}",
+        )
+        .unwrap();
+    let mut answer = String::new();
+    tunnel.reader.read_to_string(&mut answer).unwrap();
+    assert!(
+        answer.starts_with("HTTP/1.1 200 OK") && answer.ends_with("hello"),
+        "{answer}"
+    );
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(head[0], "POST /api/llm/c2/chat/completions HTTP/1.1");
+    assert!(
+        head.contains(&format!("Authorization: Bearer {token}")),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|h| h.contains("fake")), "{head:?}");
+
     // Nothing but paths below the prefix, and no TLS to the virtual host.
     let escape = request(
         proxy,

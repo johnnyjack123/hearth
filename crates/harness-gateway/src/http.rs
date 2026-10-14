@@ -82,6 +82,21 @@ pub enum HeadError {
 
 /// Reads and parses a request head. Bytes after the head stay in `reader`.
 pub fn read_head(reader: &mut impl BufRead) -> Result<RequestHead, HeadError> {
+    parse_head(&read_lines(reader)?, None)
+}
+
+/// Reads a request sent inside a `CONNECT` tunnel to `host:port`: plain
+/// HTTP with an origin-form target (`POST /path`), as undici's proxy agent
+/// sends it even for `http://` URLs. The result looks like a forward request.
+pub fn read_tunneled_head(
+    reader: &mut impl BufRead,
+    host: &Host,
+    port: u16,
+) -> Result<RequestHead, HeadError> {
+    parse_head(&read_lines(reader)?, Some((host, port)))
+}
+
+fn read_lines(reader: &mut impl BufRead) -> Result<Vec<String>, HeadError> {
     let mut total = 0;
     let mut lines: Vec<String> = Vec::new();
     loop {
@@ -121,10 +136,10 @@ pub fn read_head(reader: &mut impl BufRead) -> Result<RequestHead, HeadError> {
             return Err(HeadError::TooLarge);
         }
     }
-    parse_head(&lines)
+    Ok(lines)
 }
 
-fn parse_head(lines: &[String]) -> Result<RequestHead, HeadError> {
+fn parse_head(lines: &[String], tunnel: Option<(&Host, u16)>) -> Result<RequestHead, HeadError> {
     let bad = |message: &str| HeadError::Bad(message.to_owned());
     let request_line = &lines[0];
     if request_line.chars().any(char::is_control) {
@@ -157,7 +172,18 @@ fn parse_head(lines: &[String]) -> Result<RequestHead, HeadError> {
         headers.push((name.to_owned(), value.to_owned()));
     }
 
-    let target = if method == "CONNECT" {
+    let target = if let Some((host, port)) = tunnel {
+        // The tunnel fixes the destination; only the path comes from here.
+        if method == "CONNECT" || !target.starts_with('/') {
+            return Err(bad("im Tunnel wird eine Anfrage mit Pfad erwartet"));
+        }
+        let path = target.split('#').next().unwrap_or_default().to_owned();
+        Target::Forward {
+            host: host.clone(),
+            port,
+            path,
+        }
+    } else if method == "CONNECT" {
         let (host, port) = parse_authority(target, None)?;
         Target::Tunnel { host, port }
     } else if let Some(rest) = strip_prefix_ignore_case(target, "http://") {
@@ -391,6 +417,36 @@ mod tests {
                 .unwrap()
                 .contains("Host: example.com:8080\r\n")
         );
+    }
+
+    #[test]
+    fn tunneled_requests() {
+        let llm = host("llm.harness");
+        let mut input: &[u8] =
+            b"POST /c1/chat/completions?x=1 HTTP/1.1\r\nHost: llm.harness\r\nContent-Length: 2\r\n\r\n{}";
+        let head = read_tunneled_head(&mut input, &llm, 80).unwrap();
+        assert_eq!(
+            head.target,
+            Target::Forward {
+                host: llm.clone(),
+                port: 80,
+                path: "/c1/chat/completions?x=1".into()
+            }
+        );
+        assert_eq!(input, b"{}");
+        for bad in [
+            "GET http://evil.example/ HTTP/1.1\r\n\r\n",
+            "CONNECT evil.example:443 HTTP/1.1\r\n\r\n",
+            "GET relative HTTP/1.1\r\n\r\n",
+        ] {
+            assert!(
+                matches!(
+                    read_tunneled_head(&mut bad.as_bytes(), &llm, 80),
+                    Err(HeadError::Bad(_))
+                ),
+                "{bad:?} accepted"
+            );
+        }
     }
 
     #[test]

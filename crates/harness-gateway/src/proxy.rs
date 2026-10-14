@@ -133,18 +133,44 @@ fn handle(gateway: &Gateway, client: TcpStream) {
 fn forward_llm(
     gateway: &Gateway,
     client: &TcpStream,
-    reader: BufReader<TcpStream>,
+    mut reader: BufReader<TcpStream>,
     head: &RequestHead,
 ) {
     let (host, port) = head.target.host_port();
+    let tunneled;
+    let head = match &head.target {
+        Target::Forward { .. } => head,
+        // undici's proxy agent (pi) tunnels even plain http:// URLs. Inside
+        // the tunnel comes ordinary HTTP, which the gateway reads itself.
+        Target::Tunnel { port: 80, .. } => {
+            if (&*client)
+                .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                .is_err()
+            {
+                return;
+            }
+            tunneled = match http::read_tunneled_head(&mut reader, host, port) {
+                Ok(head) => head,
+                Err(HeadError::Bad(message)) => {
+                    let _ = http::write_response(&mut &*client, 400, &[], &format!("{message}\n"));
+                    return;
+                }
+                Err(_) => return,
+            };
+            &tunneled
+        }
+        Target::Tunnel { .. } => {
+            // TLS to a name only the gateway knows cannot work.
+            let _ = http::write_response(
+                &mut &*client,
+                400,
+                &[],
+                "llm.harness nur per http:// (das Gateway verschlüsselt selbst).\n",
+            );
+            return;
+        }
+    };
     let Target::Forward { path, .. } = &head.target else {
-        // TLS to a name only the gateway knows cannot work.
-        let _ = http::write_response(
-            &mut &*client,
-            400,
-            &[],
-            "llm.harness nur per http:// (das Gateway verschlüsselt selbst).\n",
-        );
         return;
     };
     let Some(upstream) = gateway.llm() else {
