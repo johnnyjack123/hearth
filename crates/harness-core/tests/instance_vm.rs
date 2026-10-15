@@ -99,6 +99,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         command: vec![program.clone()],
         persist: vec!["~/.itest".into()],
         llm: None,
+        prompt_flag: None,
         adapter: None,
     };
     let _cleanup = Cleanup {

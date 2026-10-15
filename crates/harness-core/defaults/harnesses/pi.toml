@@ -17,6 +17,10 @@ persist = ["~/.pi"]
 # Key in den Container kommt. Ohne login bleibt pis eigene Anmeldung.
 llm = "pi"
 
+# Hängt harness' Hinweise zur Sandbox an pis System-Prompt an: Arbeitskopie,
+# Commits, Netz über das Gateway. Ohne diese Zeile bekommt pi keine Hinweise.
+prompt_flag = "--append-system-prompt"
+
 # Nur für die Anbindung an den Web-Chat (Phase 4)
 [adapter]
 kind = "pi-rpc"

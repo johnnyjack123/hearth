@@ -301,6 +301,10 @@ pub struct HarnessConfig {
     /// How harness points the harness at `llm.harness` after `harness login`.
     #[serde(default)]
     pub llm: Option<LlmWiring>,
+    /// Option that appends text to the harness's system prompt; harness
+    /// passes its notes about the sandbox with it (`briefing`).
+    #[serde(default)]
+    pub prompt_flag: Option<String>,
     /// Machine interface for the web chat (Phase 4).
     #[serde(default)]
     pub adapter: Option<AdapterConfig>,

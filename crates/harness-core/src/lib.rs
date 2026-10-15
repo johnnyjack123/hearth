@@ -6,6 +6,7 @@
 
 #![warn(missing_docs)]
 
+pub mod briefing;
 pub mod config;
 pub mod error;
 pub mod gateway;

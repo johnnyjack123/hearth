@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use anyhow::bail;
 use harness_core::Provider;
+use harness_core::briefing::briefing;
 use harness_core::config::{ConfigDir, HarnessConfig, LlmWiring, Project};
 use harness_core::gateway::{self, GatewayState};
 use harness_core::instance::{self, InstanceState};
@@ -156,6 +157,10 @@ pub fn run(
     println!();
 
     let mut command = harness.command.clone();
+    if let Some(flag) = &harness.prompt_flag {
+        command.push(flag.clone());
+        command.push(briefing(&prepared.project));
+    }
     command.extend(args);
     let code = attach(&prepared, command, false)?;
     println!();
