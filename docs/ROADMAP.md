@@ -131,12 +131,26 @@ Anforderungen stehen in `spikes/phase-0.md` §12.3:
 
 Der Installer richtet den Dienst einmal mit UAC ein.
 
+**Wunsch des Nutzers (15.10.):** Im Ordner nur noch `harness` sagen, den Rest erledigt harness im Hintergrund. Dazu:
+- `harness` ohne Argumente startet die Standard-Harness.
+- Die VM startet bei Bedarf über `harness-vmd` und stoppt nach einer Leerlaufzeit.
+- Ist der Ordner noch kein Projekt, fragt harness einmal nach und legt es an. Ohne Git-Repository bietet es `git init` an.
+- Nicht gekoppelt: Hinweis auf `harness login`.
+
 ## Phase 3 – Desktop-App und Gateway
 
 - Tauri 2 als Hülle, Frontend ist `apps/web` mit Desktop-Funktionen per Capability-Erkennung
 - Prozess `harnessd` (IPC) für CLI und App gemeinsam
 - Gateway-Oberfläche: Live-Protokoll und Rückfragen als Desktop-Benachrichtigung statt `harness net watch`. Das Gateway selbst (DNS, Ziel-IP-Prüfung, Voreinstellungen, Rückfragen) gibt es seit Phase 2, Paket 6. Die App nutzt denselben Steuerkanal (`watch`, `decide`).
 - UI für Netz-Allowlist, Git-Regeln, Projekte und Harnesse (ARCHITECTURE.md §5, §7)
+- **Umgebung grafisch anlegen** (Wunsch des Nutzers, 15.10.):
+  - Ordner wählen
+  - Voreinstellung fürs Netz wählen
+  - Schalter „für Agents aus dem Web freigeben“ (Phase 4)
+- **Automatischer Sync** (Wunsch des Nutzers, 15.10.): `harnessd` holt neue Commits des Agents laufend als `agent/<projekt>`. Das ist sicher, weil es den Ordner des Nutzers nicht anfasst.
+  - Übernehmen per Knopf, Benachrichtigung bei neuen Commits.
+  - Pro Projekt optional automatisch, aber nur konfliktfrei und nur bei sauberem Arbeitsbaum.
+  - Der Explorer sieht die Dateien also nach dem Übernehmen. Eine Live-Spiegelung ist der Sync-Modus in Phase 5.
 
 ## Phase 4 – Chat ↔ Umgebung
 

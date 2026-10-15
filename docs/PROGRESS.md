@@ -30,12 +30,12 @@ Bausteine:
 
 ## Next step
 
-1. **Der Nutzer probiert `harness run pi` und `harness shell` in Windows Terminal**, mit seinem echten Server und DeepSeek. Dabei klären: TTY, Strg+C, Fenstergröße, pi committet selbst. Befehle stehen am Ende der letzten Antwort. Das echte `~/.harness` entsteht dabei zum ersten Mal.
+1. **Interaktiver Test des Nutzers (15.10.):** `harness run pi` in Windows Terminal lief auf Anhieb, mit Dev-Servern (`PUBLIC_URL=http://localhost:5173`) und DeepSeek. pi hat eine Datei angelegt. Noch ohne Rückmeldung: `sync`/`merge` des Nutzers, Strg+C, Fenstergröße, `harness shell`.
 2. **ConPTY in `harness run`**, damit Rückfragen des Gateways im selben Terminal erscheinen:
    - `harness run` liest parallel `GatewayControl::watch`
    - pis Ausgabe läuft über eine Pseudo-Konsole
    - bei einer Frage pausiert die Ausgabe, und die Frage wird eingeblendet
-3. Danach Phase 2b `harness-vmd` (VM ohne Admin-Fenster), siehe ROADMAP.
+3. Danach Phase 2b `harness-vmd` (VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt. Das ist der Wunsch des Nutzers vom 15.10., siehe ROADMAP.
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
@@ -45,8 +45,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeile
 
 ## In flight / half-finished
 
-- `PodmanProvider::exec` mit `tty: true` (für `harness run`/`shell` im Terminal) ist **nicht interaktiv getestet**. Alle Läufe bisher ohne Terminal (Skripte).
-- Das echte `~/.harness` des Nutzers ist noch nicht angelegt. Probeläufe liefen mit `HARNESS_HOME` im Scratchpad bzw. in einem Temp-Ordner.
+- `PodmanProvider::exec` mit `tty: true`: pis Oberfläche funktioniert in Windows Terminal (Nutzer, 15.10.). Strg+C und Fenstergröße sind noch ungeprüft.
+- Das echte `~/.harness` des Nutzers gibt es seit dem 15.10., mit dem Projekt `harness-test` in `$HOME\harness-test`. Eigene Probeläufe weiter nur mit `HARNESS_HOME`.
 
 ## Decisions made this session
 
@@ -102,6 +102,10 @@ Stand 14.10. abends:
   - nach `logout` ist pis Umleitung entfernt
   - in der VM bleibt nichts übrig
 - **Von Hand:** Nach `logout` bekommt ein noch laufendes Gateway vom Server 401 (`login-demo.sh` im Scratchpad).
+- **15.10.:**
+  - Ablauf des Nutzers nachgestellt: Server auf `localhost:8080` mit `PUBLIC_URL=http://localhost:5173`, `harness login` ohne URL. Der Link zeigt auf Vite, `doctor` ist ✓, pi antwortet.
+  - `sync` meldet uncommittete Dateien im Container (`sync_vm` erweitert, CLI-Lauf mit `?? hello.py`).
+  - Der Nutzer hat pi mit DeepSeek interaktiv genutzt.
 - **Server und Web unverändert seit `183a113`:** Server 64/64 (SQLite und Postgres), E2E 9/9, Typecheck grün.
 
 ---

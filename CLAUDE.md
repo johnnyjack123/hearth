@@ -154,6 +154,9 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - `pi::write_models` übergibt die Datei als Argument statt über stdin, weil `podman exec -i` das Ende von stdin nicht zuverlässig weitergibt. `harness run` reicht stdin ohne Terminal deshalb nicht durch, sonst wartet pi im Druckmodus ewig.
 - **`models.json` gehört dem Nutzer, harness verwaltet nur seine Einträge.** Erkennbar sind sie an `baseUrl` unter `http://llm.harness/` plus Dummy-Key (`pi::is_ours`). `pi::wire` ersetzt nur diese, `pi::unwire` entfernt sie nach `logout`. Eine kaputte Datei wird als `models.json.bak` gesichert. Das Volume `harness-cfg-pi` teilen alle Projekte, auch `scripts/smoke-run.sh` schreibt hinein und räumt per `logout` wieder auf.
 - Nach `harness logout` lehnt der Server das Token sofort ab (401), auch für Gateways, die noch laufen (geprüft).
+- **`harness.exe` ist gesperrt, solange der Nutzer `harness run` nutzt.** `cargo build` meldet dann „Zugriff verweigert (os error 5)“. Die laufende Datei lässt sich umbenennen (`mv target/debug/harness.exe target/debug/harness.exe.old`), danach baut cargo neu. Die Sitzung des Nutzers läuft dabei weiter. Den Prozess nie beenden.
+- `scripts/smoke-run.sh` nicht laufen lassen, während der Nutzer pi nutzt. Es ändert `models.json` im gemeinsamen Volume `harness-cfg-pi`, und danach fehlt dort die Anbindung an seinen Server bis zum nächsten `harness run`.
+- `harness sync` holt nur Commits auf `agent/<projekt>`. Uncommittete Dateien und einen anderen ausgecheckten Branch meldet es (`sync::workspace_status`).
 - **RAM der VM:** Sie startet mit 1 GB und wächst nur, wenn Windows Speicher frei hat. Während der pi-Läufe am 14.10. nahm die VM danach keine SSH-Verbindungen mehr an: TCP ging, der Banner blieb leer, gvproxy lief. Vermutlich war der Speicher knapp. Abhilfe war ein Neustart der VM.
 
 ### Testen ohne den Browser des Nutzers
