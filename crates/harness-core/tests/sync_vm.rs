@@ -15,8 +15,9 @@ use harness_core::provider::{
     ContainerSpec, ExecSpec, Mount, MountSource, NetworkSpec, Provider, VolumeSpec,
 };
 use harness_core::sync::{
-    CONTAINER_EXCHANGE, HostRepo, ImportOutcome, MergeOutcome, PullOutcome, WORKSPACE,
-    WorkspaceState, find_git, pull_from_workspace, push_to_workspace,
+    CONTAINER_EXCHANGE, HostRepo, ImportOutcome, MAX_CHANGES, MergeOutcome, PullOutcome, WORKSPACE,
+    WorkspaceState, WorkspaceStatus, find_git, pull_from_workspace, push_to_workspace,
+    workspace_status,
 };
 
 struct Cleanup<'a> {
@@ -231,4 +232,24 @@ fn sync_round_trip_through_the_vm() {
         "from agent\nmore\n"
     );
     assert!(host_dir.join("host.txt").exists());
+
+    // What sync does not carry, so `harness sync` can point it out.
+    let status = workspace_status(&provider, &name.instance()).unwrap();
+    assert_eq!(
+        status,
+        WorkspaceStatus {
+            branch: branch.clone(),
+            changes: vec![],
+            more: false
+        }
+    );
+    agent("echo draft > draft.txt && echo edit >> readme.txt && git switch -q -c side");
+    let status = workspace_status(&provider, &name.instance()).unwrap();
+    assert_eq!(status.branch, "side");
+    assert_eq!(status.changes, [" M readme.txt", "?? draft.txt"]);
+    assert!(!status.more);
+    agent("for i in $(seq 25); do touch f$i; done");
+    let status = workspace_status(&provider, &name.instance()).unwrap();
+    assert_eq!(status.changes.len(), MAX_CHANGES);
+    assert!(status.more);
 }

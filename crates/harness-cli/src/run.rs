@@ -267,7 +267,35 @@ pub fn sync(config: &ConfigDir, machine: &str, force: bool) -> anyhow::Result<bo
             return Ok(false);
         }
     }
+    report_leftovers(&provider, &project)?;
     Ok(true)
+}
+
+/// Points out what `sync` cannot carry: it brings commits on the agent
+/// branch only, and an agent may well leave its work uncommitted.
+fn report_leftovers(provider: &PodmanProvider, project: &Project) -> anyhow::Result<()> {
+    let status = sync::workspace_status(provider, &project.name.instance())?;
+    let branch = project.name.agent_branch();
+    if !status.branch.is_empty() && status.branch != branch {
+        println!(
+            "Im Container ist Branch {} ausgecheckt, `harness sync` holt nur {branch}.",
+            status.branch
+        );
+    }
+    if !status.changes.is_empty() {
+        println!("Noch nicht committet im Container (sync holt nur Commits):");
+        for change in &status.changes {
+            println!("  {change}");
+        }
+        if status.more {
+            println!("  … und weitere");
+        }
+        println!(
+            "Bitte den Agent, das zu committen, oder committe selbst in `harness shell`. \
+             Danach erneut `harness sync`."
+        );
+    }
+    Ok(())
 }
 
 /// `harness merge`: merges `agent/<project>` into the current branch.

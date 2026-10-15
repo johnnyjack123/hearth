@@ -95,6 +95,49 @@ fi
 echo "result=written"
 "#;
 
+/// Prints the checked-out branch and the uncommitted changes of the clone,
+/// at most [`MAX_CHANGES`] + 1 of them.
+const STATUS_SCRIPT: &str = r#"set -eu
+export PATH=/usr/bin:/bin
+cd /workspace
+[ -e .git ] || exit 0
+echo "branch=$(git branch --show-current)"
+git status --porcelain=v1 --untracked-files=normal | head -n "$1" | sed 's/^/change=/'
+"#;
+
+/// Changes [`workspace_status`] lists; more are only counted as "more".
+pub const MAX_CHANGES: usize = 20;
+
+/// What [`pull_from_workspace`] leaves behind: it carries commits on the
+/// agent branch only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceStatus {
+    /// Branch checked out in the clone; empty without a clone or detached.
+    pub branch: String,
+    /// Uncommitted changes as `git status --porcelain` lines, sanitized.
+    pub changes: Vec<String>,
+    /// Whether there are more than [`MAX_CHANGES`] changes.
+    pub more: bool,
+}
+
+/// Uncommitted changes and the checked-out branch of the agent's clone.
+pub fn workspace_status(provider: &dyn Provider, container: &str) -> Result<WorkspaceStatus> {
+    let limit = (MAX_CHANGES + 1).to_string();
+    let output = run_script(provider, container, STATUS_SCRIPT, &[&limit])?;
+    let mut changes: Vec<String> = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("change="))
+        .map(sanitize)
+        .collect();
+    let more = changes.len() > MAX_CHANGES;
+    changes.truncate(MAX_CHANGES);
+    Ok(WorkspaceStatus {
+        branch: value(&output, "branch").map(sanitize).unwrap_or_default(),
+        changes,
+        more,
+    })
+}
+
 /// State of the agent's clone after [`push_to_workspace`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceState {
