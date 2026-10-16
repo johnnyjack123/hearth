@@ -23,7 +23,6 @@ struct Names {
     network: String,
     external_network: String,
     volume: String,
-    exchange_dir: String,
 }
 
 /// Removes everything the test created, also when an assertion fails midway.
@@ -40,11 +39,6 @@ impl Drop for Cleanup<'_> {
         let _ = p.remove_volume(&n.volume);
         let _ = p.remove_network(&n.network);
         let _ = p.remove_network(&n.external_network);
-        if let Ok(exchange) = p.exchange()
-            && let Ok(dir) = exchange.host_path(&n.exchange_dir)
-        {
-            let _ = fs::remove_dir_all(dir);
-        }
     }
 }
 
@@ -57,6 +51,33 @@ fn sh(provider: &PodmanProvider, container: &str, script: &str) -> (i32, String)
         })
         .unwrap();
     (output.code, format!("{}{}", output.stdout, output.stderr))
+}
+
+/// SHA-256 of a host file, via `certutil` (Windows) or `sha256sum`.
+fn sha256(path: &std::path::Path) -> String {
+    let output = if cfg!(windows) {
+        std::process::Command::new("certutil")
+            .args(["-hashfile"])
+            .arg(path)
+            .arg("SHA256")
+            .output()
+            .unwrap()
+    } else {
+        std::process::Command::new("sha256sum")
+            .arg(path)
+            .output()
+            .unwrap()
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .map(|line| {
+            line.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_lowercase()
+        })
+        .find(|hash| hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+        .unwrap_or_default()
 }
 
 fn timed<T>(label: &str, f: impl FnOnce() -> T) -> T {
@@ -82,7 +103,6 @@ fn provider_against_vm() {
         network: format!("harness-test-net-{id}"),
         external_network: format!("harness-test-ext-{id}"),
         volume: format!("harness-test-ws-{id}"),
-        exchange_dir: format!("harness-test-{id}"),
     };
     let _cleanup = Cleanup {
         provider: &provider,
@@ -114,38 +134,15 @@ fn provider_against_vm() {
     provider.ensure_volume(&volume).unwrap();
     provider.ensure_volume(&volume).unwrap();
 
-    // Exchange folder: a file placed on the host must be visible in the
-    // container, and a file written in the container must reach the host.
-    let exchange = provider.exchange().unwrap().clone();
-    exchange.create_dir(&names.exchange_dir).unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let source = scratch.path().join("hello.txt");
-    fs::write(&source, "from host\n").unwrap();
-    exchange
-        .put_file(&source, &format!("{}/hello.txt", names.exchange_dir))
-        .unwrap();
-
     let mut spec = ContainerSpec {
         name: names.container.clone(),
         image: IMAGE.to_owned(),
         network: names.network.clone(),
-        mounts: vec![
-            Mount {
-                source: MountSource::Volume(names.volume.clone()),
-                target: "/workspace".into(),
-                read_only: false,
-            },
-            Mount {
-                source: MountSource::Exchange(names.exchange_dir.clone()),
-                target: "/mnt/exchange".into(),
-                read_only: false,
-            },
-            Mount {
-                source: MountSource::Exchange(names.exchange_dir.clone()),
-                target: "/mnt/exchange-ro".into(),
-                read_only: true,
-            },
-        ],
+        mounts: vec![Mount {
+            source: MountSource::Volume(names.volume.clone()),
+            target: "/workspace".into(),
+            read_only: false,
+        }],
         env: BTreeMap::from([("FROM_CREATE".to_owned(), "x y".to_owned())]),
         labels: BTreeMap::from([("io.llm-harness.test".to_owned(), "1".to_owned())]),
         workdir: Some("/workspace".into()),
@@ -242,19 +239,46 @@ fn provider_against_vm() {
         .unwrap();
     assert_eq!(with_env.stdout, "a \"b\" $c\n/tmp\n");
 
-    // Exchange folder in both directions.
+    // Files in and out: the only way data moves; the VM sees no host folder.
+    let scratch = tempfile::tempdir().unwrap();
+    let source = scratch.path().join("hello.txt");
+    fs::write(&source, "from host\n").unwrap();
+    timed("copy_into", || {
+        provider
+            .copy_into(c, &source, "/workspace/hello.txt")
+            .unwrap()
+    });
     assert_eq!(
-        sh(&provider, c, "cat /mnt/exchange/hello.txt").1,
+        sh(&provider, c, "cat /workspace/hello.txt").1,
         "from host\n"
     );
-    let (code, out) = sh(&provider, c, "echo back > /mnt/exchange/back.txt");
-    assert_eq!(code, 0, "exchange not writable: {out}");
-    let back = exchange
-        .host_path(&format!("{}/back.txt", names.exchange_dir))
-        .unwrap();
-    assert_eq!(fs::read_to_string(back).unwrap(), "back\n");
-    let (code, _) = sh(&provider, c, "echo no > /mnt/exchange-ro/no.txt");
-    assert_ne!(code, 0, "read-only exchange mount is writable");
+    let (code, _) = sh(
+        &provider,
+        c,
+        "head -c 1000000 /dev/urandom > /workspace/blob && ln -s /workspace/blob /workspace/link \
+         && mkdir /workspace/dir",
+    );
+    assert_eq!(code, 0);
+    let back = scratch.path().join("blob");
+    timed("copy_out (1 MB)", || {
+        provider
+            .copy_out(c, "/workspace/blob", &back, 2_000_000)
+            .unwrap()
+    });
+    let (_, expected) = sh(&provider, c, "sha256sum /workspace/blob | cut -c1-64");
+    assert_eq!(sha256(&back), expected.trim(), "copy_out changed bytes");
+    // Only regular files, never more than allowed.
+    for path in ["/workspace/link", "/workspace/dir", "/workspace/missing"] {
+        assert!(
+            provider.copy_out(c, path, &back, 2_000_000).is_err(),
+            "{path} copied"
+        );
+    }
+    assert!(
+        provider
+            .copy_out(c, "/workspace/blob", &back, 1000)
+            .is_err()
+    );
 
     // Attached exec (no TTY here) passes the exit code through.
     let attached = |script: &str| {

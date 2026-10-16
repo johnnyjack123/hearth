@@ -67,7 +67,7 @@ harnessd (Hintergrunddienst auf dem Rechner des Nutzers)
 > - versteckte und geschützte Pfade
 > - Git-Shim und Git-Worker auf dem Host (§3.6)
 >
-> Für Phase 2 maßgeblich ist der **Isoliert-Modus** nach [`docs/ROADMAP.md`](docs/ROADMAP.md) Phase 2. Die Arbeitskopie liegt im Volume, der Austausch läuft über Git-Bundles in `/mnt/exchange`. Ein Git-Shim ist dort nicht nötig, weil der Agent sein eigenes `.git` hat. Weiterhin gelten Härtung (§3.3, ohne die Bind-Mount-Zeilen), Netzwerk (§3.5), Harness-Definitionen (§3.7) und Konfiguration (§3.8).
+> Für Phase 2 maßgeblich ist der **Isoliert-Modus** nach [`docs/ROADMAP.md`](docs/ROADMAP.md) Phase 2. Die Arbeitskopie liegt im Volume, der Austausch läuft über Git-Bundles, die harness per `podman cp` in die Instanz und zurück kopiert (keine Host-Freigabe in der VM). Ein Git-Shim ist dort nicht nötig, weil der Agent sein eigenes `.git` hat. Weiterhin gelten Härtung (§3.3, ohne die Bind-Mount-Zeilen), Netzwerk (§3.5), Harness-Definitionen (§3.7) und Konfiguration (§3.8).
 
 ### 3.1 Schichten
 

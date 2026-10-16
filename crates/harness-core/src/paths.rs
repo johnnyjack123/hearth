@@ -7,13 +7,10 @@ use std::path::{Component, Path, PathBuf};
 use crate::{Error, Result};
 
 /// Directory for machine-local state that is not configuration: the isolated
-/// podman home, build contexts and the exchange folder.
+/// podman home and build contexts.
 ///
 /// Windows: `%LOCALAPPDATA%\llm-harness`. Elsewhere: `$XDG_DATA_HOME/llm-harness`
 /// or `~/.local/share/llm-harness`.
-///
-/// Note that `<dir>/exchange` is shared into the VM; nothing secret may be
-/// written there.
 pub fn local_data_dir() -> Result<PathBuf> {
     if let Some(dir) = env::var_os("LOCALAPPDATA") {
         return Ok(PathBuf::from(dir).join("llm-harness"));

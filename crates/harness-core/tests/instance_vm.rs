@@ -50,11 +50,6 @@ impl Drop for Cleanup<'_> {
             let _ = p.remove_volume(&volume);
         }
         let _ = p.remove_network(&name.network());
-        if let Ok(exchange) = p.exchange()
-            && let Ok(dir) = exchange.create_dir(name.exchange_dir())
-        {
-            let _ = std::fs::remove_dir_all(dir);
-        }
     }
 }
 

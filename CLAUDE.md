@@ -12,7 +12,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
 - **Phase 0 (Spike)** ist erledigt, Ergebnisse in [`docs/spikes/phase-0.md`](docs/spikes/phase-0.md). Der Hyper-V-Teil steht in §12.
 - **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`. Reste stehen in ROADMAP.md.
-- **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Einzige Freigabe ist `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`. Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
+- **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Sie teilt noch den alten Austauschordner `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`; harness nutzt ihn seit dem 16.10. nicht mehr (Bundles per `podman cp` bzw. `podman exec cat`). Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
 - Erste Harness für Phase 2: **pi** (`@earendil-works/pi-coding-agent`), LLM-Anbieter des Nutzers für pi: **DeepSeek** (`api.deepseek.com`).
 - **Phase 2, Pakete 1–6 erledigt:**
   - Cargo-Workspace: `crates/harness-core`, `crates/harness-cli` (Binary `harness`) und `crates/harness-gateway`
@@ -58,7 +58,7 @@ pnpm --filter @harness/web e2e        # Browser-E2E gegen isolierten Stack (sieh
 cargo build                           # Rust-Workspace; 2 Jobs per .cargo/config.toml (RAM)
 cargo test                            # Unit-Tests
 cargo fmt; cargo clippy --all-targets
-target/debug/harness doctor           # Konfiguration, Machine, SSH, Austauschordner, Base-Image
+target/debug/harness doctor           # Konfiguration, Machine, SSH, Freigaben, Base-Image
 target/debug/harness image build      # Base- und Gateway-Image in der VM bauen (base|gateway, --pull, --no-cache)
 target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (show, list)
 target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
@@ -111,9 +111,9 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 
 - **`harness-core` steuert `podman.exe` per CLI**, nicht per bollard/REST: `--url ssh://core@127.0.0.1:<Port>/run/user/<UID>/podman/podman.sock --identity <Key>`, dazu `HOME`/`USERPROFILE` auf `%LOCALAPPDATA%\llm-harness\podman\<machine>-<port>\`. Dort liegt eine eigene `known_hosts`, die beim ersten Aufruf per `ssh-keyscan.exe` (Windows-OpenSSH) gefüllt wird (Trust on first use). Port, Nutzer, UID und Key stammen immer aus der Machine-JSON.
 - **Jeder podman-Aufruf kostet ~350–500 ms**, weil jedes Mal eine neue SSH-Verbindung aufgebaut wird. Aufrufe sparsam einsetzen. Falls `harness run` zu träge wird: libpod-REST über einen gehaltenen SSH-Tunnel.
-- **Sicherheitsinvarianten sitzen im Provider, nicht beim Aufrufer:** Härtung ist in `podman/args.rs` fest verdrahtet. `create_container` prüft per `network inspect`, dass das Netz `internal` ist. Mounts sind nur als Volume oder als Unterordner des Austauschordners darstellbar, und alle Namen und Pfade werden vor dem Aufruf validiert (kein führendes `-`, keine Kommas in `--mount`). Das Gateway (Paket 6) braucht deshalb eine eigene Methode.
+- **Sicherheitsinvarianten sitzen im Provider, nicht beim Aufrufer:** Härtung ist in `podman/args.rs` fest verdrahtet. `create_container` prüft per `network inspect`, dass das Netz `internal` ist. Mounts sind nur als Volume darstellbar, Host-Ordner gar nicht, und alle Namen und Pfade werden vor dem Aufruf validiert (kein führendes `-`, keine Kommas in `--mount`). Das Gateway (Paket 6) braucht deshalb eine eigene Methode.
 - `--init` (catatonit) läuft im Container als `/run/podman-init`, `/proc/1/comm` ist `podman-init`.
-- Austauschordner (9p) und `--userns=keep-id:uid=1000,gid=1000` vertragen sich: Container (UID 1000) kann lesen und schreiben, Host sieht die Dateien sofort. Für einzelne Dateien reicht das, für Arbeitsbäume nicht (siehe 9p oben).
+- **Keine Host-Ordner in der VM.** Daten gehen nur per `Provider::copy_into` (`podman cp`, Ziel im Container aufgelöst) und `copy_out` (`podman exec cat`, nur reguläre Dateien, Größenlimit) hin und her. Eine 9p-Freigabe bräuchte einen Dateiserver auf dem Host. Startet der privilegierte VM-Dienst die Machine, liefe der als SYSTEM und würde jeden Ordner servieren, auf den ein Prozess des Nutzers per Junction zeigt. `podman cp` schreibt mit `keep-id` als UID 1000. In `/tmp` ist nur 1 GB tmpfs, die Bundles liegen deshalb als `~/.harness-sync-*.bundle` im Home-Volume. Alte Klone zeigen mit dem Remote `host` noch auf `/mnt/exchange/in.bundle`, das Skript setzt die URL deshalb bei jedem Holen neu.
 - **`images/base/*` ist per `include_str!` in `harness-core/src/image.rs` eingebettet.** Neue Dateien dort eintragen, sonst schlägt der Test `base_context_is_complete` fehl. Das Image trägt das Label `io.llm-harness.context-hash`, und `doctor` meldet „veraltet“, sobald sich der eingebettete Kontext ändert.
 - **Node-`fetch` ignoriert `HTTP(S)_PROXY` ohne `NODE_USE_ENV_PROXY=1`** (im Image gesetzt, verifiziert). Die LLM-SDKs von pi nutzen `fetch`. Ohne die Variable würde pi das Gateway umgehen bzw. im internen Netz scheitern.
 - **Debians `/etc/profile` überschreibt `PATH` in Login-Shells** (`bash -l`) für Nicht-root-Nutzer. `images/base/profile.sh` (→ `/etc/profile.d/harness.sh`) fügt `/opt/harness-tools/bin` und `~/.local/bin` wieder ein.

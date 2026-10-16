@@ -13,7 +13,8 @@ pub mod machine;
 use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{self, BufWriter, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
@@ -21,12 +22,12 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-pub use machine::{DEFAULT_MACHINE, EXCHANGE_GUEST_DIR, MachineConfig, MachineMount};
+pub use machine::{DEFAULT_MACHINE, MachineConfig, MachineMount};
 
 use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
-    ContainerInfo, ContainerSpec, ContainerStatus, ExchangeDir, ExecOutput, ExecSpec, GatewaySpec,
-    HostInfo, ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
+    ContainerInfo, ContainerSpec, ContainerStatus, ExecOutput, ExecSpec, GatewaySpec, HostInfo,
+    ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
     validate_resource_name,
 };
 use crate::{Error, Result};
@@ -38,7 +39,6 @@ const SSH_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 pub struct PodmanProvider {
     podman: PathBuf,
     machine: MachineConfig,
-    exchange: Option<ExchangeDir>,
     home: PathBuf,
 }
 
@@ -66,7 +66,6 @@ impl PodmanProvider {
         let home = state_dir.join(format!("{}-{}", machine.name, machine.ssh_port));
         Ok(PodmanProvider {
             podman,
-            exchange: machine.exchange(),
             machine,
             home,
         })
@@ -323,7 +322,7 @@ impl Provider for PodmanProvider {
     }
 
     fn create_container(&self, spec: &ContainerSpec) -> Result<()> {
-        let args = args::container_create(spec, self.exchange.as_ref())?;
+        let args = args::container_create(spec)?;
         match self.network_internal(&spec.network)? {
             Some(true) => {}
             Some(false) => return Err(Error::NetworkNotInternal(spec.network.clone())),
@@ -439,10 +438,74 @@ impl Provider for PodmanProvider {
         })
     }
 
-    fn exchange(&self) -> Result<&ExchangeDir> {
-        self.exchange
-            .as_ref()
-            .ok_or_else(|| Error::ExchangeMissing(EXCHANGE_GUEST_DIR.to_owned()))
+    fn copy_into(&self, container: &str, host_file: &Path, path: &str) -> Result<()> {
+        let output = self.output(&args::copy_into(container, host_file, path)?)?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(command_error("Datei in den Container kopieren", &output))
+        }
+    }
+
+    fn copy_out(
+        &self,
+        container: &str,
+        path: &str,
+        host_file: &Path,
+        max_bytes: u64,
+    ) -> Result<()> {
+        let mut cmd = self.command()?;
+        cmd.args(args::copy_out(container, path)?)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().map_err(|source| Error::Spawn {
+            program: self.podman.clone(),
+            source,
+        })?;
+        let (Some(stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
+            let _ = child.kill();
+            return Err(Error::Unsupported("keine Ausgabe von podman".to_owned()));
+        };
+        // Read on its own thread: a full stderr pipe would stall the copy.
+        let errors = std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text);
+            text
+        });
+        let written = File::create(host_file)
+            .map_err(|e| Error::io(format!("{} anlegen", host_file.display()), e))
+            .and_then(|file| {
+                let mut out = BufWriter::new(file);
+                let copied = io::copy(&mut stdout.take(max_bytes + 1), &mut out)
+                    .map_err(|e| Error::io(format!("{} schreiben", host_file.display()), e))?;
+                out.flush()
+                    .map_err(|e| Error::io(format!("{} schreiben", host_file.display()), e))?;
+                Ok(copied)
+            });
+        let too_large = written.as_ref().is_ok_and(|&n| n > max_bytes);
+        if too_large || written.is_err() {
+            let _ = child.kill();
+        }
+        let status = child.wait().map_err(|source| Error::Spawn {
+            program: self.podman.clone(),
+            source,
+        })?;
+        let stderr = errors.join().unwrap_or_default();
+        written?;
+        if too_large {
+            return Err(Error::Unsupported(format!(
+                "{path} in {container} ist größer als {max_bytes} Bytes"
+            )));
+        }
+        if !status.success() {
+            return Err(Error::Command {
+                action: format!("{path} aus {container} kopieren"),
+                code: status.code(),
+                stderr: crate::sync::sanitize(stderr.trim()),
+            });
+        }
+        Ok(())
     }
 
     fn host_address(&self) -> Option<&str> {

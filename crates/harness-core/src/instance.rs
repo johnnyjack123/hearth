@@ -5,7 +5,6 @@
 //! - `/home/agent`: caches and history (volume per project)
 //! - `/opt/harness-tools`: installed harnesses (shared volume, read-only)
 //! - the harness's persisted path, e.g. `~/.pi` (volume per harness)
-//! - `/mnt/exchange`: the project's subfolder of the exchange folder
 
 use crate::config::{AGENT_HOME, HarnessConfig, Project};
 use crate::gateway::{self, GatewayControl, Mode, Scope};
@@ -14,7 +13,7 @@ use crate::project::ProjectName;
 use crate::provider::{
     ContainerSpec, ContainerStatus, ExecSpec, Labels, Mount, MountSource, Provider, VolumeSpec,
 };
-use crate::sync::{CONTAINER_EXCHANGE, WORKSPACE};
+use crate::sync::WORKSPACE;
 use crate::{Error, PROJECT_LABEL, Result};
 
 /// Volume with the installed harnesses, shared by all projects.
@@ -74,11 +73,6 @@ pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig]) -> Vec<Mount> {
             TOOLS_DIR,
             true,
         ),
-        mount(
-            MountSource::Exchange(name.exchange_dir().to_owned()),
-            CONTAINER_EXCHANGE,
-            false,
-        ),
     ];
     for harness in harnesses {
         if let Some(path) = harness.persist_paths().into_iter().next()
@@ -98,10 +92,7 @@ fn describe(mounts: &[Mount]) -> String {
     mounts
         .iter()
         .map(|m| {
-            let source = match &m.source {
-                MountSource::Volume(name) => name.clone(),
-                MountSource::Exchange(dir) => format!("exchange/{dir}"),
-            };
+            let MountSource::Volume(source) = &m.source;
             let mode = if m.read_only { ":ro" } else { "" };
             format!("{source}:{}{mode}", m.target)
         })
@@ -157,14 +148,12 @@ pub fn ensure_running(
         provider.remove_container(&container)?;
     }
     for mount in &mounts {
-        if let MountSource::Volume(volume) = &mount.source {
-            provider.ensure_volume(&VolumeSpec {
-                name: volume.clone(),
-                ..VolumeSpec::default()
-            })?;
-        }
+        let MountSource::Volume(volume) = &mount.source;
+        provider.ensure_volume(&VolumeSpec {
+            name: volume.clone(),
+            ..VolumeSpec::default()
+        })?;
     }
-    provider.exchange()?.create_dir(name.exchange_dir())?;
     let labels: Labels = [
         (PROJECT_LABEL.to_owned(), name.to_string()),
         (CONTEXT_HASH_LABEL.to_owned(), hash),
@@ -293,11 +282,11 @@ mod tests {
         assert_eq!(
             described,
             "harness-ws-demo:/workspace harness-home-demo:/home/agent \
-             harness-tools:/opt/harness-tools:ro exchange/demo:/mnt/exchange \
+             harness-tools:/opt/harness-tools:ro \
              harness-cfg-pi:/home/agent/.pi"
         );
         // The same harness twice does not mount twice.
         assert_eq!(super::mounts(&name, &[&pi(), &pi()]).len(), mounts.len());
-        assert_eq!(super::mounts(&name, &[]).len(), 4);
+        assert_eq!(super::mounts(&name, &[]).len(), 3);
     }
 }

@@ -157,7 +157,7 @@ impl Setup {
         let tmp = tempfile::tempdir().unwrap();
         let root = crate::paths::canonical(tmp.path()).unwrap();
         let host = host_repo(&root.join("host"));
-        let in_bundle = root.join(IN_BUNDLE);
+        let in_bundle = root.join("in.bundle");
         host.export_bundle(&in_bundle).unwrap();
         let container = FakeContainer::clone_from(&in_bundle, &root.join("container"));
         Setup {
@@ -169,7 +169,7 @@ impl Setup {
     }
 
     fn out(&self) -> PathBuf {
-        self.root.join(OUT_BUNDLE)
+        self.root.join("out.bundle")
     }
 
     fn agent_commit(&self, file: &str, text: &str) {
@@ -225,7 +225,7 @@ fn round_trip_fast_forward() {
     assert_eq!(s.host.merge(BRANCH).unwrap(), MergeOutcome::UpToDate);
 
     // Next round: the container learns about the host's state first.
-    s.host.export_bundle(&s.root.join(IN_BUNDLE)).unwrap();
+    s.host.export_bundle(&s.root.join("in.bundle")).unwrap();
     s.container.fetch();
     assert!(!s.container.export(&s.out(), false));
     s.agent_commit("second.txt", "2\n");
@@ -354,7 +354,7 @@ fn missing_prerequisites_ask_for_a_full_bundle() {
 #[test]
 fn bundle_must_contain_the_branch() {
     let s = Setup::new();
-    let in_bundle = s.root.join(IN_BUNDLE);
+    let in_bundle = s.root.join("in.bundle");
     assert!(matches!(
         s.host.import_bundle(&in_bundle, BRANCH, false),
         Err(Error::Sync(_))

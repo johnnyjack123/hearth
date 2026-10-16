@@ -15,9 +15,8 @@ use harness_core::provider::{
     ContainerSpec, ExecSpec, Mount, MountSource, NetworkSpec, Provider, VolumeSpec,
 };
 use harness_core::sync::{
-    CONTAINER_EXCHANGE, HostRepo, ImportOutcome, MAX_CHANGES, MergeOutcome, PullOutcome, WORKSPACE,
-    WorkspaceState, WorkspaceStatus, find_git, pull_from_workspace, push_to_workspace,
-    workspace_status,
+    HostRepo, ImportOutcome, MAX_CHANGES, MergeOutcome, PullOutcome, WORKSPACE, WorkspaceState,
+    WorkspaceStatus, find_git, pull_from_workspace, push_to_workspace, workspace_status,
 };
 
 struct Cleanup<'a> {
@@ -32,11 +31,6 @@ impl Drop for Cleanup<'_> {
         let _ = p.remove_volume(&self.name.workspace_volume());
         let _ = p.remove_volume(&self.name.home_volume());
         let _ = p.remove_network(&self.name.network());
-        if let Ok(exchange) = p.exchange()
-            && let Ok(dir) = exchange.host_path(self.name.exchange_dir())
-        {
-            let _ = fs::remove_dir_all(dir);
-        }
     }
 }
 
@@ -109,11 +103,6 @@ fn sync_round_trip_through_the_vm() {
             })
             .unwrap();
     }
-    provider
-        .exchange()
-        .unwrap()
-        .create_dir(name.exchange_dir())
-        .unwrap();
     let mount = |source, target: &str| Mount {
         source,
         target: target.to_owned(),
@@ -127,10 +116,6 @@ fn sync_round_trip_through_the_vm() {
             mounts: vec![
                 mount(MountSource::Volume(name.workspace_volume()), WORKSPACE),
                 mount(MountSource::Volume(name.home_volume()), "/home/agent"),
-                mount(
-                    MountSource::Exchange(name.exchange_dir().to_owned()),
-                    CONTAINER_EXCHANGE,
-                ),
             ],
             ..ContainerSpec::default()
         })
@@ -193,8 +178,11 @@ fn sync_round_trip_through_the_vm() {
         fs::read_to_string(host_dir.join("agent.txt")).unwrap(),
         "from agent\n"
     );
-    // The host removed the out bundle; the container only sees its own folder.
-    assert_eq!(agent("ls /mnt/exchange"), "in.bundle");
+    // The incoming bundle is gone once cloned; it is not left in the home.
+    assert_eq!(
+        agent("ls -A /home/agent | grep harness-sync"),
+        ".harness-sync-out.bundle"
+    );
 
     // Round 2: both sides move on, the merge needs a merge commit.
     fs::write(host_dir.join("host.txt"), "user\n").unwrap();

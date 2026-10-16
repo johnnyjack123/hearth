@@ -5,7 +5,7 @@ use std::fmt::Display;
 use harness_core::Provider;
 use harness_core::config::{ConfigDir, GlobalConfig};
 use harness_core::image::{BASE_IMAGE, GATEWAY_IMAGE, ImageStatus};
-use harness_core::podman::{EXCHANGE_GUEST_DIR, MachineConfig, PodmanProvider, find_podman};
+use harness_core::podman::{MachineConfig, PodmanProvider, find_podman};
 use harness_core::server::{ServerClient, load_token};
 
 /// Runs all checks; returns whether all passed.
@@ -111,27 +111,28 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         }
     };
 
-    match machine.exchange() {
-        Some(exchange) if exchange.host_dir().is_dir() => report.ok(format!(
-            "Austauschordner: {} → {}",
-            exchange.host_dir().display(),
-            exchange.guest_dir()
-        )),
-        Some(exchange) => report.fail(format!(
-            "Austauschordner {} fehlt auf dem Host",
-            exchange.host_dir().display()
-        )),
-        None => report.fail(format!(
-            "Machine hat keinen beschreibbaren Austauschordner unter {EXCHANGE_GUEST_DIR}"
-        )),
+    if machine.mounts.is_empty() {
+        report.ok("Keine Host-Ordner in der VM freigegeben");
     }
-    for mount in machine.unexpected_mounts() {
-        report.fail(format!(
-            "Zusätzliche Freigabe {} → {}: Die VM sieht diese Dateien. Im Isoliert-Modus \
-             soll nur der Austauschordner freigegeben sein (Machine neu anlegen)",
+    for mount in &machine.mounts {
+        // Machines from before the copies share the old exchange folder;
+        // nothing uses it any more, but it is not dangerous either.
+        let legacy = mount.target == "/mnt/exchange";
+        let message = format!(
+            "Freigabe {} → {}: Die VM sieht diese Dateien, harness braucht keine Freigaben{}",
             mount.source.display(),
-            mount.target
-        ));
+            mount.target,
+            if legacy {
+                " (alter Austauschordner, fällt mit `harness vmd install` weg)"
+            } else {
+                ". Machine ohne Freigaben neu anlegen"
+            }
+        );
+        if legacy {
+            report.warn(message);
+        } else {
+            report.fail(message);
+        }
     }
 
     let podman = match find_podman() {

@@ -10,11 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::paths::home_dir;
-use crate::provider::{ExchangeDir, validate_resource_name};
+use crate::provider::validate_resource_name;
 use crate::{Error, Result};
-
-/// Mount point of the exchange folder inside the VM (set at `machine init`).
-pub const EXCHANGE_GUEST_DIR: &str = "/mnt/exchange";
 
 /// Name of the machine the harness manages.
 pub const DEFAULT_MACHINE: &str = "harness";
@@ -36,7 +33,9 @@ pub struct MachineConfig {
     pub uid: u32,
     /// Whether the machine runs containers as root.
     pub rootful: bool,
-    /// Host folders shared into the VM.
+    /// Host folders shared into the VM. Harness needs none: containers get
+    /// their data through `podman cp`, and by default podman shares all of
+    /// `C:\` and the user profile.
     pub mounts: Vec<MachineMount>,
 }
 
@@ -129,23 +128,6 @@ impl MachineConfig {
             self.socket_path()
         )
     }
-
-    /// The exchange folder, if the machine shares one.
-    pub fn exchange(&self) -> Option<ExchangeDir> {
-        self.mounts
-            .iter()
-            .find(|m| m.target == EXCHANGE_GUEST_DIR && !m.read_only)
-            .map(|m| ExchangeDir::new(m.source.clone(), m.target.clone()))
-    }
-
-    /// Shares other than the exchange folder. In isolated mode there should be
-    /// none: by default podman shares all of `C:\` and the user profile.
-    pub fn unexpected_mounts(&self) -> Vec<&MachineMount> {
-        self.mounts
-            .iter()
-            .filter(|m| m.target != EXCHANGE_GUEST_DIR)
-            .collect()
-    }
 }
 
 #[derive(Deserialize)]
@@ -232,23 +214,16 @@ mod tests {
             machine.url(),
             "ssh://core@127.0.0.1:51747/run/user/1000/podman/podman.sock"
         );
-        let exchange = machine.exchange().unwrap();
-        assert_eq!(exchange.guest_dir(), "/mnt/exchange");
-        assert!(machine.unexpected_mounts().is_empty());
+        assert_eq!(machine.mounts.len(), 1);
+        assert_eq!(machine.mounts[0].target, "/mnt/exchange");
     }
 
     #[test]
-    fn null_mounts_and_extra_shares() {
+    fn null_mounts() {
         let no_mounts = SAMPLE.replacen(r#""Mounts": ["#, r#""Unused": ["#, 1);
         let no_mounts = no_mounts.replacen(r#""Name""#, r#""Mounts": null, "Name""#, 1);
         let machine = MachineConfig::parse(&no_mounts, Path::new("x.json")).unwrap();
         assert!(machine.mounts.is_empty());
-        assert!(machine.exchange().is_none());
-
-        let c_drive = SAMPLE.replace("/mnt/exchange", "/mnt/c");
-        let machine = MachineConfig::parse(&c_drive, Path::new("x.json")).unwrap();
-        assert!(machine.exchange().is_none());
-        assert_eq!(machine.unexpected_mounts().len(), 1);
     }
 
     #[test]

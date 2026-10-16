@@ -36,11 +36,6 @@ impl Drop for Cleanup {
         let _ = p.remove_volume(&name.workspace_volume());
         let _ = p.remove_volume(&name.home_volume());
         let _ = p.remove_network(&name.network());
-        if let Ok(exchange) = p.exchange()
-            && let Ok(dir) = exchange.host_path(name.exchange_dir())
-        {
-            let _ = fs::remove_dir_all(dir);
-        }
     }
 }
 

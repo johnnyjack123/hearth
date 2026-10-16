@@ -6,13 +6,13 @@
 //! inject options into `--mount`.
 
 use std::ffi::OsString;
+use std::path::Path;
 
-use super::machine::EXCHANGE_GUEST_DIR;
 use crate::MANAGED_LABEL;
 use crate::provider::{
-    ContainerSpec, ExchangeDir, ExecSpec, GatewaySpec, ImageBuild, Labels, MountSource,
-    NetworkSpec, VolumeSpec, validate_container_path, validate_env_key, validate_image_ref,
-    validate_label, validate_memory, validate_relative_path, validate_resource_name,
+    ContainerSpec, ExecSpec, GatewaySpec, ImageBuild, Labels, MountSource, NetworkSpec, VolumeSpec,
+    validate_container_path, validate_env_key, validate_image_ref, validate_label, validate_memory,
+    validate_resource_name,
 };
 use crate::{Error, Result};
 
@@ -44,10 +44,7 @@ pub(crate) fn network_create(spec: &NetworkSpec) -> Result<Vec<String>> {
 }
 
 /// `podman create` for an instance. The hardening block is unconditional.
-pub(crate) fn container_create(
-    spec: &ContainerSpec,
-    exchange: Option<&ExchangeDir>,
-) -> Result<Vec<String>> {
+pub(crate) fn container_create(spec: &ContainerSpec) -> Result<Vec<String>> {
     validate_resource_name("Containername", &spec.name)?;
     validate_resource_name("Netz", &spec.network)?;
     validate_image_ref(&spec.image)?;
@@ -104,12 +101,6 @@ pub(crate) fn container_create(
             MountSource::Volume(name) => {
                 validate_resource_name("Volume", name)?;
                 format!("type=volume,source={name}")
-            }
-            MountSource::Exchange(relative) => {
-                validate_relative_path("Pfad im Austauschordner", relative)?;
-                let exchange = exchange
-                    .ok_or_else(|| Error::ExchangeMissing(EXCHANGE_GUEST_DIR.to_owned()))?;
-                format!("type=bind,source={}", exchange.guest_path(relative)?)
             }
         };
         let read_only = if mount.read_only { ",readonly" } else { "" };
@@ -209,6 +200,46 @@ pub(crate) fn exec(spec: &ExecSpec) -> Result<Vec<String>> {
     Ok(args)
 }
 
+/// `podman cp` of a host file into a container. The container path is
+/// resolved inside the container's root, so it cannot point at the VM.
+pub(crate) fn copy_into(container: &str, host_file: &Path, path: &str) -> Result<Vec<OsString>> {
+    validate_resource_name("Containername", container)?;
+    validate_container_path("Zielpfad", path)?;
+    if path.contains(':') {
+        return Err(Error::invalid(
+            "Zielpfad",
+            path,
+            "darf keinen Doppelpunkt enthalten",
+        ));
+    }
+    Ok(vec![
+        "cp".into(),
+        host_file.as_os_str().to_owned(),
+        format!("{container}:{path}").into(),
+    ])
+}
+
+/// Prints a regular file of a container to stdout. The script refuses
+/// symlinks and other file types, and pins PATH because the agent owns
+/// `~/.local/bin`.
+pub(crate) fn copy_out(container: &str, path: &str) -> Result<Vec<String>> {
+    validate_container_path("Quellpfad", path)?;
+    let script = r#"export PATH=/usr/bin:/bin
+[ -f "$1" ] && [ ! -L "$1" ] || { echo "keine reguläre Datei: $1" >&2; exit 3; }
+exec cat -- "$1""#;
+    exec(&ExecSpec {
+        container: container.to_owned(),
+        command: vec![
+            "sh".into(),
+            "-c".into(),
+            script.into(),
+            "sh".into(),
+            path.to_owned(),
+        ],
+        ..ExecSpec::default()
+    })
+}
+
 pub(crate) fn build(spec: &ImageBuild) -> Result<Vec<OsString>> {
     validate_image_ref(&spec.tag)?;
     let mut args: Vec<OsString> = vec!["build".into(), "--tag".into(), spec.tag.clone().into()];
@@ -287,8 +318,8 @@ mod tests {
                     read_only: false,
                 },
                 Mount {
-                    source: MountSource::Exchange("demo".into()),
-                    target: "/mnt/exchange".into(),
+                    source: MountSource::Volume("harness-tools".into()),
+                    target: "/opt/harness-tools".into(),
                     read_only: true,
                 },
             ],
@@ -304,17 +335,13 @@ mod tests {
         }
     }
 
-    fn exchange() -> ExchangeDir {
-        ExchangeDir::new(PathBuf::from("C:\\x\\exchange"), "/mnt/exchange".into())
-    }
-
     fn has_pair(args: &[String], flag: &str, value: &str) -> bool {
         args.windows(2).any(|w| w[0] == flag && w[1] == value)
     }
 
     #[test]
     fn create_always_hardens() {
-        let args = container_create(&ContainerSpec::default_with_name(), None).unwrap();
+        let args = container_create(&ContainerSpec::default_with_name()).unwrap();
         for flag in [
             "--init",
             "--cap-drop=ALL",
@@ -332,7 +359,7 @@ mod tests {
 
     #[test]
     fn create_maps_spec() {
-        let args = container_create(&instance(), Some(&exchange())).unwrap();
+        let args = container_create(&instance()).unwrap();
         assert!(has_pair(&args, "--network", "harness-net-demo"));
         assert!(has_pair(
             &args,
@@ -342,7 +369,7 @@ mod tests {
         assert!(has_pair(
             &args,
             "--mount",
-            "type=bind,source=/mnt/exchange/demo,target=/mnt/exchange,readonly"
+            "type=volume,source=harness-tools,target=/opt/harness-tools,readonly"
         ));
         assert!(has_pair(&args, "--env", "FOO=a b=c"));
         assert!(has_pair(&args, "--memory", "2g"));
@@ -356,27 +383,41 @@ mod tests {
     fn create_rejects_injection() {
         let mut spec = instance();
         spec.name = "--privileged".into();
-        assert!(container_create(&spec, Some(&exchange())).is_err());
+        assert!(container_create(&spec).is_err());
 
         let mut spec = instance();
         spec.mounts[0].target = "/workspace,readonly=false".into();
-        assert!(container_create(&spec, Some(&exchange())).is_err());
+        assert!(container_create(&spec).is_err());
 
         let mut spec = instance();
-        spec.mounts[1].source = MountSource::Exchange("../..".into());
-        assert!(container_create(&spec, Some(&exchange())).is_err());
+        spec.mounts[1].source = MountSource::Volume("../..".into());
+        assert!(container_create(&spec).is_err());
 
         let mut spec = instance();
         spec.env.insert("A=B".into(), "x".into());
-        assert!(container_create(&spec, Some(&exchange())).is_err());
+        assert!(container_create(&spec).is_err());
     }
 
     #[test]
-    fn exchange_mount_needs_exchange() {
-        assert!(matches!(
-            container_create(&instance(), None),
-            Err(Error::ExchangeMissing(_))
-        ));
+    fn copies_stay_inside_the_container() {
+        let args = copy_into(
+            "harness-demo",
+            &PathBuf::from("C:\\t\\in.bundle"),
+            "/home/agent/x",
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            ["cp", "C:\\t\\in.bundle", "harness-demo:/home/agent/x"].map(OsString::from)
+        );
+        assert!(copy_into("harness-demo", Path::new("x"), "relative").is_err());
+        assert!(copy_into("harness-demo", Path::new("x"), "/a:b").is_err());
+        assert!(copy_into("-x", Path::new("x"), "/a").is_err());
+
+        let args = copy_out("harness-demo", "/home/agent/out.bundle").unwrap();
+        assert_eq!(args[..2], ["exec", "harness-demo"]);
+        assert_eq!(args.last().unwrap(), "/home/agent/out.bundle");
+        assert!(copy_out("harness-demo", "/a/../b").is_err());
     }
 
     #[test]

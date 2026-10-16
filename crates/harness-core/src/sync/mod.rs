@@ -1,25 +1,20 @@
 //! Git sync in isolated mode (docs/ROADMAP.md, Phase 2, package 5).
 //!
 //! The agent works on its own clone in a VM volume. Data moves only as git
-//! bundles through the project's subdirectory of the exchange folder, which
-//! the container sees at [`CONTAINER_EXCHANGE`]:
+//! bundles, copied into and out of the container ([`Provider::copy_into`],
+//! [`Provider::copy_out`]); the VM sees no host folder:
 //!
 //! - host → container: the host bundles its branches and tags into
-//!   `in.bundle`; the container clones it once (remote `host`) and fetches it
-//!   on every later run;
+//!   [`IN_BUNDLE`]; the container clones it once (remote `host`) and fetches
+//!   it on every later run;
 //! - container → host: the container bundles `agent/<project>` into
-//!   `out.bundle`, excluding what the host already has; the host imports that
-//!   one branch and nothing else;
+//!   [`OUT_BUNDLE`], excluding what the host already has; the host imports
+//!   that one branch and nothing else;
 //! - [`HostRepo::merge`] brings the agent branch into the user's branch when
 //!   that is conflict-free.
-//!
-//! 9p cannot hold a working tree (no chmod, broken recursive delete), but
-//! single files and git's lockfile-and-rename work (verified 12.10.2026).
 
 mod bundle;
 mod host;
-
-use std::fs;
 
 pub use bundle::BundleHeader;
 pub use host::{HostRepo, ImportOutcome, MergeOutcome, find_git};
@@ -28,57 +23,64 @@ use crate::project::ProjectName;
 use crate::provider::{ExecSpec, Provider};
 use crate::{Error, Result};
 
-/// Mount point of the project's exchange subdirectory inside the container.
-pub const CONTAINER_EXCHANGE: &str = "/mnt/exchange";
-
 /// The agent's clone inside the container.
 pub const WORKSPACE: &str = "/workspace";
 
-/// Bundle from the host to the container.
-pub const IN_BUNDLE: &str = "in.bundle";
+/// Bundle from the host, in the home volume: `/tmp` is a small tmpfs.
+pub const IN_BUNDLE: &str = "/home/agent/.harness-sync-in.bundle";
 
-/// Bundle from the container to the host.
-pub const OUT_BUNDLE: &str = "out.bundle";
+/// Bundle for the host, next to [`IN_BUNDLE`].
+pub const OUT_BUNDLE: &str = "/home/agent/.harness-sync-out.bundle";
+
+/// Larger bundles from the container are refused; they come from the agent
+/// and could otherwise fill the host's disk.
+pub const MAX_OUT_BUNDLE_BYTES: u64 = 4 << 30;
 
 /// Name of the remote in the agent's clone that stands for the host repository.
 pub const HOST_REMOTE: &str = "host";
 
-/// Clones or refreshes `/workspace` from `in.bundle`. `$1` is the agent
-/// branch. On the first run the agent branch continues the host's agent
-/// branch if there is one, else it starts at the host's HEAD.
+/// Clones or refreshes `/workspace` from the bundle at `$2`. `$1` is the
+/// agent branch. On the first run the agent branch continues the host's agent
+/// branch if there is one, else it starts at the host's HEAD. The bundle's
+/// path is the remote's URL; clones from before the copies used
+/// `/mnt/exchange`, hence `set-url` on every fetch.
 ///
 /// Parameters are passed as positional arguments, never spliced into the
 /// script text. PATH is pinned because `~/.local/bin` is writable by the agent.
 const PREPARE_SCRIPT: &str = r#"set -eu
 export PATH=/usr/bin:/bin
 branch="$1"
+bundle="$2"
 cd /workspace
 if [ -e .git ]; then
+  git remote set-url host "$bundle"
   git fetch --quiet --prune host
+  rm -f "$bundle"
   echo "result=fetched"
 else
   if [ -n "$(ls -A)" ]; then
     echo "/workspace ist nicht leer, enthält aber kein Git-Repository" >&2
     exit 3
   fi
-  git clone --quiet --origin host /mnt/exchange/in.bundle .
+  git clone --quiet --origin host "$bundle" .
   if git show-ref --verify --quiet "refs/remotes/host/$branch"; then
     git switch --quiet --no-track -c "$branch" "host/$branch"
   else
     git switch --quiet -c "$branch"
   fi
+  rm -f "$bundle"
   echo "result=cloned"
 fi
 echo "branch=$(git branch --show-current)"
 "#;
 
-/// Writes `out.bundle` with the agent branch. `$1` is the branch, `$2` is
+/// Writes the agent branch as a bundle to `$3`. `$1` is the branch, `$2` is
 /// `incremental` (only commits the host lacks) or `full`.
 const EXPORT_SCRIPT: &str = r#"set -eu
 export PATH=/usr/bin:/bin
 branch="$1"
 mode="$2"
-out=/mnt/exchange/out.bundle
+out="$3"
 cd /workspace
 if [ ! -e .git ]; then echo "result=no-workspace"; exit 0; fi
 if ! git show-ref --verify --quiet "refs/heads/$branch"; then echo "result=no-branch"; exit 0; fi
@@ -166,17 +168,24 @@ pub enum PullOutcome {
     Imported(ImportOutcome),
 }
 
-/// Host → container: bundles the host repository into the exchange folder and
-/// clones or fetches it in the container.
+/// Host → container: bundles the host repository, copies it into the
+/// container and clones or fetches it there.
 pub fn push_to_workspace(
     provider: &dyn Provider,
     container: &str,
     repo: &HostRepo,
     name: &ProjectName,
 ) -> Result<WorkspaceState> {
-    let dir = provider.exchange()?.create_dir(name.exchange_dir())?;
-    repo.export_bundle(&dir.join(IN_BUNDLE))?;
-    let output = run_script(provider, container, PREPARE_SCRIPT, &[&name.agent_branch()])?;
+    let dir = temp_dir()?;
+    let bundle = dir.path().join("in.bundle");
+    repo.export_bundle(&bundle)?;
+    provider.copy_into(container, &bundle, IN_BUNDLE)?;
+    let output = run_script(
+        provider,
+        container,
+        PREPARE_SCRIPT,
+        &[&name.agent_branch(), IN_BUNDLE],
+    )?;
     let branch = value(&output, "branch").unwrap_or_default().to_owned();
     match value(&output, "result") {
         Some("cloned") => Ok(WorkspaceState::Cloned { branch }),
@@ -195,10 +204,15 @@ pub fn pull_from_workspace(
     name: &ProjectName,
     force: bool,
 ) -> Result<PullOutcome> {
-    let dir = provider.exchange()?.create_dir(name.exchange_dir())?;
+    let dir = temp_dir()?;
     let branch = name.agent_branch();
     for mode in ["incremental", "full"] {
-        let output = run_script(provider, container, EXPORT_SCRIPT, &[&branch, mode])?;
+        let output = run_script(
+            provider,
+            container,
+            EXPORT_SCRIPT,
+            &[&branch, mode, OUT_BUNDLE],
+        )?;
         match value(&output, "result") {
             Some("no-workspace") => return Ok(PullOutcome::NoWorkspace),
             Some("no-branch") => return Ok(PullOutcome::NoBranch),
@@ -206,11 +220,9 @@ pub fn pull_from_workspace(
             Some("written") => {}
             _ => return Err(unexpected_output(&output)),
         }
-        let bundle = dir.join(OUT_BUNDLE);
+        let bundle = dir.path().join(format!("out-{mode}.bundle"));
+        provider.copy_out(container, OUT_BUNDLE, &bundle, MAX_OUT_BUNDLE_BYTES)?;
         let imported = repo.import_bundle(&bundle, &branch, force);
-        // The bundle has served its purpose; a stale one must not be
-        // imported by a later run whose export failed.
-        let _ = fs::remove_file(&bundle);
         match imported? {
             ImportOutcome::NeedsFullBundle => continue,
             outcome => return Ok(PullOutcome::Imported(outcome)),
@@ -219,6 +231,13 @@ pub fn pull_from_workspace(
     Err(Error::Sync(
         "Auch das vollständige Bundle des Containers passt nicht zum Host-Repository".to_owned(),
     ))
+}
+
+fn temp_dir() -> Result<tempfile::TempDir> {
+    tempfile::Builder::new()
+        .prefix("harness-sync-")
+        .tempdir()
+        .map_err(|e| Error::io("Temporären Ordner anlegen".to_owned(), e))
 }
 
 fn run_script(

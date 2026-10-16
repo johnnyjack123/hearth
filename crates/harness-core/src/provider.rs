@@ -12,11 +12,14 @@
 //! - containers only join internal networks. The single exception is the
 //!   gateway ([`Provider::create_gateway`]): it joins one internal network
 //!   and one normal one, gets no mounts, and only runs our gateway image;
-//! - the only host data a container can see is the exchange folder;
+//! - containers see no host folders; data moves only through
+//!   [`Provider::copy_into`] and [`Provider::copy_out`]. A host folder shared
+//!   into the VM would need a file server on the host, which in the
+//!   privileged VM service (`harness-vmd`) would serve whatever the user's
+//!   processes point it at;
 //! - every created resource carries [`crate::MANAGED_LABEL`].
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 
@@ -89,8 +92,16 @@ pub trait Provider {
     /// long-lived line protocols such as the gateway's `ctl`.
     fn exec_piped(&self, exec: &ExecSpec) -> Result<Child>;
 
-    /// The folder shared between host and VM, used for git bundles.
-    fn exchange(&self) -> Result<&ExchangeDir>;
+    /// Copies a host file into a running container; the directory must
+    /// exist there. With [`Provider::copy_out`] the only way data moves
+    /// between host and containers.
+    fn copy_into(&self, container: &str, host_file: &Path, path: &str) -> Result<()>;
+
+    /// Writes a regular file of a running container to `host_file`. Fails if
+    /// it is missing, no regular file, or larger than `max_bytes`. Whatever
+    /// arrives is untrusted.
+    fn copy_out(&self, container: &str, path: &str, host_file: &Path, max_bytes: u64)
+    -> Result<()>;
 
     /// Address under which containers in normal networks (the gateway)
     /// reach services on the host's loopback interface, if any.
@@ -166,7 +177,7 @@ pub struct ContainerSpec {
     pub image: String,
     /// The single network the container joins; must be internal.
     pub network: String,
-    /// Volumes and exchange-folder mounts.
+    /// Volumes.
     pub mounts: Vec<Mount>,
     /// Environment variables.
     pub env: BTreeMap<String, String>,
@@ -238,9 +249,6 @@ pub struct Mount {
 pub enum MountSource {
     /// A named volume inside the VM.
     Volume(String),
-    /// A subdirectory of the exchange folder (relative, `/`-separated; empty
-    /// for the whole folder).
-    Exchange(String),
 }
 
 /// A container as reported by [`Provider::container`].
@@ -312,95 +320,6 @@ pub struct ExecOutput {
     pub stderr: String,
 }
 
-/// The folder shared between host and VM.
-///
-/// It is the only host directory the VM can see. Files are placed atomically
-/// (copy to a temporary name, then rename), so a container never reads a
-/// half-written bundle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExchangeDir {
-    host: PathBuf,
-    guest: String,
-}
-
-impl ExchangeDir {
-    /// Creates a handle for a folder that is visible at `host` on the host and
-    /// at `guest` inside the VM.
-    pub fn new(host: PathBuf, guest: String) -> Self {
-        ExchangeDir { host, guest }
-    }
-
-    /// Location on the host.
-    pub fn host_dir(&self) -> &Path {
-        &self.host
-    }
-
-    /// Location inside the VM.
-    pub fn guest_dir(&self) -> &str {
-        &self.guest
-    }
-
-    /// Host path of a file below the exchange folder.
-    pub fn host_path(&self, relative: &str) -> Result<PathBuf> {
-        validate_relative_path("Pfad im Austauschordner", relative)?;
-        Ok(relative
-            .split('/')
-            .filter(|part| !part.is_empty())
-            .fold(self.host.clone(), |path, part| path.join(part)))
-    }
-
-    /// VM path of a file below the exchange folder.
-    pub fn guest_path(&self, relative: &str) -> Result<String> {
-        validate_relative_path("Pfad im Austauschordner", relative)?;
-        Ok(join_guest(&self.guest, relative))
-    }
-
-    /// Creates a directory below the exchange folder (e.g. one per project, so
-    /// a container can be given only its own subdirectory) and returns its
-    /// host path.
-    pub fn create_dir(&self, relative: &str) -> Result<PathBuf> {
-        let dir = self.host_path(relative)?;
-        fs::create_dir_all(&dir).map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
-        Ok(dir)
-    }
-
-    /// Copies a host file into the exchange folder and returns its new host path.
-    pub fn put_file(&self, source: &Path, relative: &str) -> Result<PathBuf> {
-        if relative.trim_matches('/').is_empty() {
-            return Err(Error::invalid(
-                "Pfad im Austauschordner",
-                relative,
-                "darf nicht leer sein",
-            ));
-        }
-        let target = self.host_path(relative)?;
-        let parent = target.parent().unwrap_or(&self.host);
-        fs::create_dir_all(parent)
-            .map_err(|e| Error::io(format!("{} anlegen", parent.display()), e))?;
-        let mut partial = target.clone().into_os_string();
-        partial.push(".partial");
-        let partial = PathBuf::from(partial);
-        fs::copy(source, &partial).map_err(|e| {
-            Error::io(
-                format!("{} in den Austauschordner kopieren", source.display()),
-                e,
-            )
-        })?;
-        fs::rename(&partial, &target)
-            .map_err(|e| Error::io(format!("{} ersetzen", target.display()), e))?;
-        Ok(target)
-    }
-}
-
-pub(crate) fn join_guest(base: &str, relative: &str) -> String {
-    let relative = relative.trim_matches('/');
-    if relative.is_empty() {
-        base.to_owned()
-    } else {
-        format!("{}/{}", base.trim_end_matches('/'), relative)
-    }
-}
-
 /// Checks a container, volume or network name.
 ///
 /// Podman allows `[a-zA-Z0-9][a-zA-Z0-9_.-]*`; the first character rule also
@@ -462,29 +381,6 @@ pub(crate) fn validate_container_path(what: &'static str, path: &str) -> Result<
     }
     if path.split('/').any(|part| part == "..") {
         return Err(Error::invalid(what, path, "darf kein '..' enthalten"));
-    }
-    Ok(())
-}
-
-/// Relative, `/`-separated path whose parts are plain names. Rules out `..`,
-/// absolute paths, drive letters and backslashes, so it cannot escape the
-/// directory it is joined to.
-pub(crate) fn validate_relative_path(what: &'static str, path: &str) -> Result<()> {
-    if path.starts_with('/') {
-        return Err(Error::invalid(what, path, "muss relativ sein"));
-    }
-    for part in path.split('/').filter(|part| !part.is_empty()) {
-        let valid = !part.starts_with('.')
-            && part
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
-        if !valid {
-            return Err(Error::invalid(
-                what,
-                path,
-                "Teile dürfen nur Buchstaben, Ziffern, '_', '.' und '-' enthalten und nicht mit '.' beginnen",
-            ));
-        }
     }
     Ok(())
 }
@@ -566,18 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn relative_paths_cannot_escape() {
-        assert!(validate_relative_path("x", "").is_ok());
-        assert!(validate_relative_path("x", "proj/in.bundle").is_ok());
-        for bad in ["../x", "/abs", "a/../b", "C:\\x", "a\\b", ".git/config"] {
-            assert!(
-                validate_relative_path("x", bad).is_err(),
-                "{bad:?} accepted"
-            );
-        }
-    }
-
-    #[test]
     fn env_keys_and_memory() {
         assert!(validate_env_key("HTTP_PROXY").is_ok());
         assert!(validate_env_key("_x1").is_ok());
@@ -599,24 +483,5 @@ mod tests {
             ContainerStatus::parse("removing"),
             ContainerStatus::Other("removing".into())
         );
-    }
-
-    #[test]
-    fn exchange_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let exchange = ExchangeDir::new(dir.path().to_path_buf(), "/mnt/exchange".into());
-        assert_eq!(exchange.guest_path("").unwrap(), "/mnt/exchange");
-        assert_eq!(
-            exchange.guest_path("p/in.bundle").unwrap(),
-            "/mnt/exchange/p/in.bundle"
-        );
-        assert!(exchange.host_path("../x").is_err());
-
-        let source = dir.path().join("source.txt");
-        fs::write(&source, "hello").unwrap();
-        let placed = exchange.put_file(&source, "proj/a.txt").unwrap();
-        assert_eq!(placed, dir.path().join("proj").join("a.txt"));
-        assert_eq!(fs::read_to_string(&placed).unwrap(), "hello");
-        assert!(exchange.put_file(&source, "").is_err());
     }
 }

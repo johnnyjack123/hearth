@@ -27,7 +27,7 @@ clear message, and always commit before you finish or hand back to the user.
 - Do not switch to other branches, rewrite history the user already has or change the \
 remote `host`: the `host/*` branches show the user's state and are updated by harness. \
 There is no `git push`; harness carries your commits.
-- `/mnt/exchange` belongs to harness; do not write there.
+- The files `~/.harness-sync-*.bundle` belong to harness; leave them alone.
 
 ## Network
 {network}

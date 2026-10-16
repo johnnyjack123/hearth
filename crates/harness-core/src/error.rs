@@ -94,10 +94,6 @@ pub enum Error {
     #[error("Netz {0} ist nicht intern. Instanzen dürfen nur in internen Netzen laufen")]
     NetworkNotInternal(String),
 
-    /// The machine has no exchange folder share.
-    #[error("Die Machine hat keinen Austauschordner unter {0}")]
-    ExchangeMissing(String),
-
     /// A configuration file cannot be parsed or fails validation.
     #[error("Konfiguration {} ist ungültig: {message}", path.display())]
     ConfigInvalid {

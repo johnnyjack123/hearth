@@ -119,12 +119,6 @@ impl ProjectName {
         format!("harness-home-{}", self.0)
     }
 
-    /// Subdirectory of the exchange folder for this project's bundles, so a
-    /// container only ever sees its own project's data.
-    pub fn exchange_dir(&self) -> &str {
-        &self.0
-    }
-
     /// Branch the agent commits to and that `harness sync` brings home.
     pub fn agent_branch(&self) -> String {
         format!("agent/{}", self.0)
