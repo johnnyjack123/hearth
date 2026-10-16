@@ -3,6 +3,7 @@
 //! Every table rejects unknown keys: a typo such as `[netwrok]` would
 //! otherwise silently fall back to a less restrictive default.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -12,7 +13,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
 use crate::podman::DEFAULT_MACHINE;
-use crate::provider::{validate_container_path, validate_memory};
+use crate::provider::{validate_container_path, validate_env_key, validate_memory};
 
 /// Harness used when neither the command line nor the project names one.
 pub const DEFAULT_HARNESS: &str = "pi";
@@ -305,6 +306,9 @@ pub struct HarnessConfig {
     /// passes its notes about the sandbox with it (`briefing`).
     #[serde(default)]
     pub prompt_flag: Option<String>,
+    /// Environment variables for the harness's process.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     /// Machine interface for the web chat (Phase 4).
     #[serde(default)]
     pub adapter: Option<AdapterConfig>,
@@ -352,6 +356,9 @@ impl Validate for HarnessConfig {
                     "persist darf nicht das ganze Home-Verzeichnis sein: {path}"
                 ));
             }
+        }
+        for key in self.env.keys() {
+            validate_env_key(key).map_err(|e| e.to_string())?;
         }
         if let Some(adapter) = &self.adapter
             && adapter.command.is_empty()

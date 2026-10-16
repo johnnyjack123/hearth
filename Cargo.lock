@@ -311,6 +311,8 @@ dependencies = [
  "anyhow",
  "clap",
  "harness-core",
+ "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -326,6 +328,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "ureq",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

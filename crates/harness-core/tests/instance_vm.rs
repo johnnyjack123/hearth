@@ -100,6 +100,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         persist: vec!["~/.itest".into()],
         llm: None,
         prompt_flag: None,
+        env: Default::default(),
         adapter: None,
     };
     let _cleanup = Cleanup {

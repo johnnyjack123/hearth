@@ -18,7 +18,7 @@ use harness_core::podman::PodmanProvider;
 
 use crate::{login, project};
 
-/// Minutes behind answer `m` in `harness net watch`.
+/// Minutes behind answer `m`.
 const TEMPORARY_MINUTES: u64 = 15;
 
 #[derive(Subcommand)]
@@ -346,11 +346,41 @@ fn parse_domain(domain: &str) -> anyhow::Result<DomainPattern> {
     domain.parse::<DomainPattern>().map_err(anyhow::Error::msg)
 }
 
-/// A question shown to the user.
-struct Question {
-    id: u64,
-    host: Host,
-    port: u16,
+/// A question of the gateway shown to the user.
+pub struct Question {
+    /// Id for the answer.
+    pub id: u64,
+    /// The host the agent wants to reach.
+    pub host: Host,
+    /// Its port.
+    pub port: u16,
+}
+
+/// The answers, as shown after a question.
+pub fn answers() -> String {
+    format!("[e] einmal  [m] {TEMPORARY_MINUTES} Minuten  [s] bis zum Stopp  [i] immer  [n] nein")
+}
+
+/// The decision behind an answer key, `None` for keys that are no answer.
+/// Answer `i` also writes the host into the project's allow list and
+/// returns what happened as a note.
+pub fn decide(
+    config: &ConfigDir,
+    project: &Project,
+    question: &Question,
+    key: &str,
+) -> Option<(Option<Scope>, Option<String>)> {
+    Some(match key {
+        "e" => (Some(Scope::Once), None),
+        "m" => (Some(Scope::For(TEMPORARY_MINUTES * 60)), None),
+        "s" => (Some(Scope::Session), None),
+        "i" => (
+            Some(Scope::Session),
+            Some(remember(config, project, &question.host)),
+        ),
+        "n" => (None, None),
+        _ => return None,
+    })
 }
 
 fn watch(config: &ConfigDir, machine: &str, project: &Project) -> anyhow::Result<bool> {
@@ -454,20 +484,13 @@ fn watch(config: &ConfigDir, machine: &str, project: &Project) -> anyhow::Result
             .iter()
             .find(|q| q.id == id)
             .expect("asked question is queued");
-        let decision = match answer.as_str() {
-            "e" => Some(Scope::Once),
-            "m" => Some(Scope::For(TEMPORARY_MINUTES * 60)),
-            "s" => Some(Scope::Session),
-            "i" => {
-                remember(config, project, &question.host);
-                Some(Scope::Session)
-            }
-            "n" => None,
-            _ => {
-                ask(question);
-                continue;
-            }
+        let Some((decision, note)) = decide(config, project, question, &answer) else {
+            ask(question);
+            continue;
         };
+        if let Some(note) = note {
+            println!("  {note}");
+        }
         watch.decide(id, decision)?;
         // The `resolved` event removes the question and prints the outcome.
     }
@@ -479,26 +502,23 @@ fn ask(question: &Question) {
         "? Der Agent möchte {}:{} erreichen.",
         question.host, question.port
     );
-    print!(
-        "  [e] einmal  [m] {TEMPORARY_MINUTES} Minuten  [s] bis zum Stopp  [i] immer  [n] nein > "
-    );
+    print!("  {} > ", answers());
     let _ = io::stdout().flush();
 }
 
 /// Answer "immer": the host goes into the project's allow list.
-fn remember(config: &ConfigDir, project: &Project, host: &Host) {
+fn remember(config: &ConfigDir, project: &Project, host: &Host) -> String {
     let Some(pattern) = host.name().and_then(|n| n.parse::<DomainPattern>().ok()) else {
-        println!(
-            "  {host} ist keine Domain, die sich dauerhaft eintragen lässt; erlaubt bis zum Stopp."
+        return format!(
+            "{host} ist keine Domain, die sich dauerhaft eintragen lässt; erlaubt bis zum Stopp."
         );
-        return;
     };
     match config.add_network_domain(&project.name, DomainList::Allow, &pattern) {
-        Ok((updated, _)) => println!(
-            "  {pattern} steht jetzt in der allow-Liste ({}).",
+        Ok((updated, _)) => format!(
+            "{pattern} steht jetzt in der allow-Liste ({}).",
             updated.file.display()
         ),
-        Err(error) => println!("  Konnte {pattern} nicht eintragen: {error}"),
+        Err(error) => format!("Konnte {pattern} nicht eintragen: {error}"),
     }
 }
 

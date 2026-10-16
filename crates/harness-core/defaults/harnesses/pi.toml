@@ -21,6 +21,13 @@ llm = "pi"
 # Commits, Netz über das Gateway. Ohne diese Zeile bekommt pi keine Hinweise.
 prompt_flag = "--append-system-prompt"
 
+# pi soll nicht von sich aus ins Netz: Updates installiert harness, und jede
+# automatische Anfrage (Versionsprüfung bei pi.dev, Telemetrie) wäre eine
+# Rückfrage des Gateways.
+[env]
+PI_SKIP_VERSION_CHECK = "1"
+PI_TELEMETRY = "0"
+
 # Nur für die Anbindung an den Web-Chat (Phase 4)
 [adapter]
 kind = "pi-rpc"

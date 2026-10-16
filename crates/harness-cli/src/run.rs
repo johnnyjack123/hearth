@@ -7,7 +7,6 @@ use std::io::IsTerminal as _;
 use std::time::Instant;
 
 use anyhow::bail;
-use harness_core::Provider;
 use harness_core::briefing::briefing;
 use harness_core::config::{ConfigDir, HarnessConfig, LlmWiring, Project};
 use harness_core::gateway::{self, GatewayState};
@@ -19,6 +18,7 @@ use harness_core::sync::{
     self, HostRepo, ImportOutcome, MergeOutcome, PullOutcome, WORKSPACE, WorkspaceState, sanitize,
 };
 
+use crate::terminal::{self, Approvals};
 use crate::{login, project};
 
 /// Gateway, instance and the clone of the repository, ready for an agent.
@@ -105,29 +105,44 @@ fn terminal_env() -> BTreeMap<String, String> {
     .into()
 }
 
-/// Runs a command in the instance attached to this terminal. Without a
-/// terminal, stdin is only passed on if `stdin` is set: `podman exec` does
-/// not reliably forward its end, so a program reading it to the end (pi in
-/// print mode) would wait forever.
-fn attach(prepared: &Prepared, command: Vec<String>, stdin: bool) -> anyhow::Result<i32> {
+/// Runs a command in the instance attached to this terminal; the gateway's
+/// questions appear there too where [`terminal::attach`] can show them.
+/// Without a terminal, stdin is only passed on if `stdin` is set: `podman
+/// exec` does not reliably forward its end, so a program reading it to the
+/// end (pi in print mode) would wait forever.
+fn attach(
+    config: &ConfigDir,
+    prepared: &Prepared,
+    command: Vec<String>,
+    env: &BTreeMap<String, String>,
+    stdin: bool,
+) -> anyhow::Result<i32> {
     let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-    Ok(prepared.provider.exec(&ExecSpec {
+    let mut all_env = terminal_env();
+    all_env.extend(env.clone());
+    let spec = ExecSpec {
         container: prepared.instance(),
         command,
         workdir: Some(WORKSPACE.to_owned()),
-        env: terminal_env(),
+        env: all_env,
         interactive: tty || stdin,
         tty,
-    })?)
-}
-
-fn approvals_hint(project: &Project) {
-    if project.ask {
+    };
+    if prepared.project.ask && !terminal::shows_questions(&spec) {
         println!(
             "Rückfragen des Gateways (nicht freigegebene Domains) beantwortest du mit \
              `harness net watch` in einem zweiten Fenster."
         );
     }
+    println!();
+    terminal::attach(
+        &prepared.provider,
+        &spec,
+        Some(Approvals {
+            config,
+            project: &prepared.project,
+        }),
+    )
 }
 
 /// `harness run [HARNESS] [-- ARGS]`.
@@ -153,16 +168,13 @@ pub fn run(
     if harness.llm == Some(LlmWiring::Pi) {
         wire_pi(config, &prepared)?;
     }
-    approvals_hint(&prepared.project);
-    println!();
-
     let mut command = harness.command.clone();
     if let Some(flag) = &harness.prompt_flag {
         command.push(flag.clone());
         command.push(briefing(&prepared.project));
     }
     command.extend(args);
-    let code = attach(&prepared, command, false)?;
+    let code = attach(config, &prepared, command, &harness.env, false)?;
     println!();
     println!(
         "{} beendet. Commits des Agents holst du mit `harness sync`, übernehmen mit `harness merge`.",
@@ -222,9 +234,8 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
 /// `harness shell`: a login shell in the instance.
 pub fn shell(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
     let prepared = prepare(config, machine, None)?;
-    approvals_hint(&prepared.project);
-    println!();
-    let code = attach(&prepared, vec!["bash".into(), "-l".into()], true)?;
+    let shell = vec!["bash".into(), "-l".into()];
+    let code = attach(config, &prepared, shell, &BTreeMap::new(), true)?;
     Ok(code == 0)
 }
 

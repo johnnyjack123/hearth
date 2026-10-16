@@ -11,6 +11,7 @@ mod login;
 mod net;
 mod project;
 mod run;
+mod terminal;
 
 use std::process::ExitCode;
 
