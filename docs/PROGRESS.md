@@ -30,7 +30,7 @@ Bausteine:
 
 ## Next step
 
-1. **Rückmeldung des Nutzers zum Terminal-Relay** in Windows Terminal: Maus, Einfügen, Farben, Rückfrage über pi. Bei Problemen `HARNESS_TERMINAL_LOG=<datei>` mitschneiden lassen. Notlösung ist `HARNESS_DIRECT_TERMINAL=1`.
+1. **Erste Rückmeldung (16.10.):** Das Relay läuft, die erste Frage kam aber zu `pi.dev` (behoben mit `PI_OFFLINE`). GitHub ging ohne Frage, weil `development` es erlaubt. Noch offen: **Rückmeldung zum Terminal-Relay** in Windows Terminal: Maus, Einfügen, Farben, Rückfrage über pi. Bei Problemen `HARNESS_TERMINAL_LOG=<datei>` mitschneiden lassen. Notlösung ist `HARNESS_DIRECT_TERMINAL=1`.
 2. **Phase 2b `harness-vmd`** (VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt. Das ist der Wunsch des Nutzers vom 15.10., siehe ROADMAP.
 
 Weitere Hinweise:
@@ -59,7 +59,8 @@ LLM-Zugang und pi (14.10.):
 Terminal-Relay und Hinweise (15./16.10.):
 - **Rückfragen im selben Terminal über eine eigene Pseudo-Konsole** statt eines zweiten Fensters, weil der Nutzer dem Vorschlag zugestimmt hat. Die Entscheidung trifft weiter harness auf dem Host, nie die Harness im Container. Fällt die Pseudo-Konsole aus, geht es mit direktem Terminal und `net watch` weiter.
 - **Hinweise an den Agent über den System-Prompt** (Wunsch des Nutzers): Arbeitskopie, Commits, Netzregeln. Der Text ist englisch, weil ihn das Modell liest.
-- **pi ohne Versionsprüfung und Telemetrie**, sonst käme bei jedem Start eine Rückfrage zu `pi.dev`. Updates von pi macht harness.
+- **pi ganz ohne eigene Netzzugriffe** (`PI_OFFLINE=1`), sonst käme bei jedem Start eine Rückfrage zu `pi.dev`. Der Nutzer bekam sie beim ersten echten Lauf am 16.10. pi lädt dort die Modellliste nach, das stellen nur `PI_OFFLINE` und kein anderer Schalter ab. Updates von pi macht harness.
+- **pi auf dem Host mit Werkzeugen in der Sandbox** (Idee des Nutzers vom 16.10.): technisch machbar, steht in ROADMAP Phase 5. Standard bleibt pi im Container.
 
 Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt tinyproxy (Ziel-IP-Prüfung, Rückfragen), Bau offline in der VM, IP-Prüfung in jedem Modus, `off` = nur LLM-APIs, Rückfragen nur bei Zuschauer, Laufzeit-Freigaben im Gateway, Steuerung per Unix-Socket. Details in ROADMAP Paket 6.
 

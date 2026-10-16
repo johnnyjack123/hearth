@@ -388,10 +388,12 @@ impl Session<'_> {
         };
         let text = format!(
             "\x1b[0m\x1b[H\x1b[2J\r\n  \x1b[1mharness · Rückfrage des Gateways\x1b[0m{more}\r\n\r\n  \
-             Der Agent möchte {}:{} erreichen.\r\n\r\n  {}\r\n\r\n  \
+             Ein Programm in der Sandbox möchte {}:{} erreichen.\r\n  \
+             \x1b[2m{}\x1b[0m\r\n\r\n  {}\r\n\r\n  \
              Bis du antwortest, wartet die Anfrage, höchstens 2 Minuten. Esc lehnt ab.\r\n",
             question.host,
             question.port,
+            net::WHO_ASKS,
             net::answers(),
         );
         lock(self.screen).write(text.as_bytes());

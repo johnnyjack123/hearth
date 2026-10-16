@@ -356,6 +356,11 @@ pub struct Question {
     pub port: u16,
 }
 
+/// Under a question: the gateway only sees a connection from the container,
+/// not which program in it made it.
+pub const WHO_ASKS: &str =
+    "Das kann der Agent sein, die Harness selbst oder ein Programm, das der Agent gestartet hat.";
+
 /// The answers, as shown after a question.
 pub fn answers() -> String {
     format!("[e] einmal  [m] {TEMPORARY_MINUTES} Minuten  [s] bis zum Stopp  [i] immer  [n] nein")
@@ -499,9 +504,10 @@ fn watch(config: &ConfigDir, machine: &str, project: &Project) -> anyhow::Result
 fn ask(question: &Question) {
     println!();
     println!(
-        "? Der Agent möchte {}:{} erreichen.",
+        "? Ein Programm in der Sandbox möchte {}:{} erreichen.",
         question.host, question.port
     );
+    println!("  {WHO_ASKS}");
     print!("  {} > ", answers());
     let _ = io::stdout().flush();
 }

@@ -22,9 +22,11 @@ llm = "pi"
 prompt_flag = "--append-system-prompt"
 
 # pi soll nicht von sich aus ins Netz: Updates installiert harness, und jede
-# automatische Anfrage (Versionsprüfung bei pi.dev, Telemetrie) wäre eine
-# Rückfrage des Gateways.
+# automatische Anfrage wäre eine Rückfrage des Gateways. Die interaktive
+# Oberfläche lädt beim Start sonst die Modellliste von pi.dev nach, das stellt
+# nur PI_OFFLINE ab. pi nutzt dann die Liste, die es mitbringt.
 [env]
+PI_OFFLINE = "1"
 PI_SKIP_VERSION_CHECK = "1"
 PI_TELEMETRY = "0"
 

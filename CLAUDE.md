@@ -161,7 +161,7 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - `scripts/smoke-run.sh` nicht laufen lassen, während der Nutzer pi nutzt. Es ändert `models.json` im gemeinsamen Volume `harness-cfg-pi`, und danach fehlt dort die Anbindung an seinen Server bis zum nächsten `harness run`.
 - `harness sync` holt nur Commits auf `agent/<projekt>`. Uncommittete Dateien und einen anderen ausgecheckten Branch meldet es (`sync::workspace_status`).
 - **Hinweise an den Agent** (`briefing.rs`): `harness run` hängt sie über `prompt_flag` der Harness-Definition an deren System-Prompt (pi: `--append-system-prompt`, landet in pis `<addendum>`, ~500 Token). Geprüft mit einem Mock-LLM, das die Anfragen mitschreibt.
-- **pi ruft von sich aus `pi.dev` auf** (Versionsprüfung, Telemetrie). Mit Rückfragen im Terminal hieße das: bei jedem Start eine Frage. `[env]` in `pi.toml` setzt deshalb `PI_SKIP_VERSION_CHECK=1` und `PI_TELEMETRY=0`. Neue Harnesses vorher auf solche Aufrufe prüfen.
+- **pi ruft von sich aus `pi.dev` auf:** Versionsprüfung, Telemetrie und vor allem beim Start der interaktiven Oberfläche (nicht mit `--print`) dreimal für die Modellliste, sobald Anbieter eingerichtet sind. Mit Rückfragen im Terminal hieße das: bei jedem Start eine Frage. Nur `PI_OFFLINE=1` stellt alles ab (geprüft am 16.10.), Modellanfragen laufen weiter. `[env]` in `pi.toml` setzt es zusammen mit `PI_SKIP_VERSION_CHECK` und `PI_TELEMETRY=0`. pi nutzt dann seine mitgelieferte Modellliste, neue Modelle kommen also mit einem neueren pi. Neue Harnesses vorher auf solche Aufrufe prüfen: interaktiv starten, dann `harness net status`.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 

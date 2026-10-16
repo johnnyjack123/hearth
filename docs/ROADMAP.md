@@ -179,6 +179,16 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
   Wichtig: Wer bestätigt, führt Agent-Code mit vollen Rechten aus. Die Befehlszeile sieht harmlos aus, das Skript dahinter kann alles.
 - **Sync-Modus** (Live-Spiegelung des Volumes in einen Host-Ordner)
+- **pi auf dem Host, Werkzeuge in der Sandbox** (Idee des Nutzers vom 16.10.). pi unterstützt das selbst: Seine Doku nennt es „tool-only isolation“, die Beispiele sind `examples/extensions/ssh.ts` und Gondolin.
+  - So ginge es: Eine harness-Erweiterung ersetzt `read`, `write`, `edit` und `bash` durch Varianten mit eigenen Operations (`createBashTool` usw.), die über eine gehaltene `podman exec`-Verbindung in der Instanz arbeiten. `user_bash` leitet pis `!`-Befehle ebenso um. Ein `tool_call`-Handler blockiert jedes andere Werkzeug, so führen Fehler zur Ablehnung statt zur Ausführung auf dem Host. Rückfragen des Gateways erscheinen als pi-Dialog (`ctx.ui.select`).
+  - Vorteile: pis Oberfläche läuft ohne Relay direkt im Terminal (Maus, Zwischenablage, Abfragen), und Rückfragen sind echte pi-Dialoge.
+  - Risiken:
+    - Der vertrauenswürdige Teil wächst um pi und seine ~120 npm-Pakete, dazu Erweiterungen und MCP-Server des Nutzers, alles mit vollen Rechten auf Windows.
+    - Jedes Werkzeug, das nicht umgeleitet wird, läuft auf dem Host.
+    - Projektdateien wie `.pi/` und `AGENTS.md` kämen nach einem Merge vom Agent; pis Projekt-Vertrauen müsste das abfangen.
+    - Pfade müssen zwischen Windows und `/workspace` übersetzt werden, und jeder Werkzeugaufruf kostet ohne gehaltene Verbindung ~0,4 s.
+  - Einschätzung: als zusätzlicher Modus machbar (ein Spike von 1–2 Tagen), aber nicht als Standard. Standard bleibt pi im Container, weil dort nichts, was das Modell auslöst, den Host erreicht, egal welche pi-Funktion es nutzt.
+- **Harnesses aktualisieren** (`harness update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.
 - Git-Worker mit Shim und Richtlinien wie in ARCHITECTURE.md §3.6, Checkpoints
 - weitere Harnesse (opencode, Claude Code, Codex) und Adapter
 - weitere Provider: Docker/Podman nativ unter Linux mit gVisor/krun, macOS, Windows Sandbox für Windows-Builds auf Rechnern mit mehr RAM

@@ -267,7 +267,7 @@ fn shell_with_questions_in_the_same_terminal() {
         "curl -sS --max-time 60 -o /dev/null -w 'HTTP-%{http_code}\\n' https://example.net/\r",
     );
     term.expect(
-        "Der Agent möchte example.net:443 erreichen",
+        "Ein Programm in der Sandbox möchte example.net:443 erreichen",
         Duration::from_secs(30),
     );
     term.send("e");
@@ -276,7 +276,7 @@ fn shell_with_questions_in_the_same_terminal() {
     // Esc refuses.
     term.send("curl -sS --max-time 60 -o /dev/null https://example.org/ || echo DENIED-$((3+4))\r");
     term.expect(
-        "Der Agent möchte example.org:443 erreichen",
+        "Ein Programm in der Sandbox möchte example.org:443 erreichen",
         Duration::from_secs(30),
     );
     term.send("\x1b");
@@ -286,7 +286,7 @@ fn shell_with_questions_in_the_same_terminal() {
     // over it and the program goes on afterwards.
     term.send("printf '\\033[?1049h'; curl -sS --max-time 60 -o /dev/null -w 'ALT-%{http_code}\\n' https://example.com/; printf '\\033[?1049l'\r");
     term.expect(
-        "Der Agent möchte example.com:443 erreichen",
+        "Ein Programm in der Sandbox möchte example.com:443 erreichen",
         Duration::from_secs(30),
     );
     term.send("e");
@@ -325,7 +325,7 @@ fn pi_draws_and_exits_in_the_relayed_terminal() {
     thread::sleep(Duration::from_millis(500));
     term.send("\r");
     term.expect(
-        "Der Agent möchte example.net:443 erreichen",
+        "Ein Programm in der Sandbox möchte example.net:443 erreichen",
         Duration::from_secs(30),
     );
     term.send("e");
