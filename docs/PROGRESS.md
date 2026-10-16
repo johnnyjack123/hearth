@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-16 · Phase 2 fertig und vom Nutzer geprüft; Merge-Prüfung (2c) und pi auf dem Host (Phase 5) vorgemerkt; nächstes ist harness-vmd_
+_Last updated: 2026-10-17 · VM-Dienst gebaut (Einrichtung durch den Nutzer steht aus), Austauschordner abgelöst, `harness` ohne Argumente; als Nächstes die Merge-Prüfung_
 
 ## Where we are
 
@@ -30,10 +30,10 @@ Bausteine:
 
 ## Next step
 
-Der Nutzer hat am 16.10. in Windows Terminal geprüft: Sperren und Freigeben über die Rückfrage im selben Fenster funktionieren. Vorschlag für die Reihenfolge (Nutzer entscheidet):
+Reihenfolge laut Nutzer (16.10.): erst VM-Dienst, gleich danach Merge-Prüfung.
 
-1. **Phase 2b `harness-vmd`:** Die VM startet und stoppt ohne Admin-Fenster. Dazu kommt `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt (Wunsch des Nutzers vom 15.10.). Für die Einrichtung des Dienstes braucht es einmal UAC.
-2. **Phase 2c Merge-Prüfung** (Wunsch des Nutzers vom 16.10.): zuerst die festen Regeln in harness, dann Scanner im Container, dann die KI-Prüfung über den Server.
+1. **VM-Dienst (Phase 2b), gebaut am 17.10.:** Der Nutzer muss `harness vmd install` ausführen (einmal UAC, stoppt die VM kurz). Danach prüfen: `harness vmd status`, `harness doctor` und ein Start und Stopp über den Dienst. Bei Fehlern `C:\ProgramData\llm-harnessmdmd.log` lesen; `harness vmd uninstall` gibt die Machine zurück.
+2. **Merge-Prüfung (Phase 2c):** zuerst die festen Regeln in harness (`harness merge` zeigt Funde, fragt bei schweren nach), dann Scanner im Container, dann die KI-Prüfung (Jev als Klassifikator oder ein Chat-Modell, im UI abwählbar).
 3. Danach Phase 3 (App) bzw. Phase 4 (Agent aus dem Web).
 
 Weitere Hinweise:
@@ -69,7 +69,7 @@ Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt t
 
 ## Open questions for the user
 
-- Reihenfolge: zuerst `harness-vmd` oder zuerst die Merge-Prüfung?
+- Ergebnis von `harness vmd install` (siehe Next step 1).
 
 ## Known issues / debt
 

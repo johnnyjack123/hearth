@@ -12,7 +12,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
 - **Phase 0 (Spike)** ist erledigt, Ergebnisse in [`docs/spikes/phase-0.md`](docs/spikes/phase-0.md). Der Hyper-V-Teil steht in §12.
 - **Phase 1 (Server + Web-Chat)** ist umgesetzt: `apps/server`, `apps/web`, `packages/shared`. Reste stehen in ROADMAP.md.
-- **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Sie teilt noch den alten Austauschordner `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`; harness nutzt ihn seit dem 16.10. nicht mehr (Bundles per `podman cp` bzw. `podman exec cat`). Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM nur per Admin-PowerShell durch den Nutzer**, bis `harness-vmd` existiert.
+- **VM für Phase 2 läuft:** Podman-Machine `harness` (Hyper-V, Fedora 44 arm64, rootless). Sie teilt noch den alten Austauschordner `%LOCALAPPDATA%\llm-harness\exchange` → `/mnt/exchange`; harness nutzt ihn seit dem 16.10. nicht mehr (Bundles per `podman cp` bzw. `podman exec cat`). Startspeicher 1 GB, dynamisch bis 4 GB. Container-Befehle aus Git Bash: `spikes/phase-0/pm.sh <podman-args>` (liest SSH-Port und -Nutzer aus der Machine-JSON). **Starten und Stoppen der VM** per Admin-PowerShell durch den Nutzer, bis er `harness vmd install` ausgeführt hat (gebaut am 17.10., Einrichtung steht aus). Danach startet `harness` die VM selbst, `harness vmd start|stop|restart` geht ohne Admin.
 - Erste Harness für Phase 2: **pi** (`@earendil-works/pi-coding-agent`), LLM-Anbieter des Nutzers für pi: **DeepSeek** (`api.deepseek.com`).
 - **Phase 2, Pakete 1–6 erledigt:**
   - Cargo-Workspace: `crates/harness-core`, `crates/harness-cli` (Binary `harness`) und `crates/harness-gateway`
@@ -30,7 +30,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
   Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: `harness-vmd` (Phase 2b, VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt.
+- Nächstes: Der Nutzer richtet `harness vmd install` ein (UAC), dann Phase 2c (Merge-Prüfung).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -64,6 +64,8 @@ target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (
 target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
 target/debug/harness net watch        # Live-Protokoll, beantwortet Rückfragen des Gateways (zweites Terminal)
 target/debug/harness login [URL]      # Rechner mit dem Server koppeln (--no-browser in Tests); logout widerruft
+target/debug/harness                  # ohne Befehl: Standard-Harness im Projekt des Ordners (legt Repo/Projekt nach Rückfrage an)
+target/debug/harness vmd [status|start|stop|restart|install|uninstall]   # VM-Dienst; install/uninstall fragen per UAC
 target/debug/harness run [pi] [-- …]  # Gateway, Instanz, Klon, pi installieren und verbinden, dann pi (TTY)
 target/debug/harness shell            # Login-Shell in der Instanz; sync/merge holen die Commits des Agents
 HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
@@ -79,7 +81,7 @@ bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, log
 
 Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V (14.10. geprüft). Danach `pm.sh rm -f harness-pg` und das anonyme Datenvolume löschen (`pm.sh volume ls`).
 
-VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER='hyperv'` und dann `& "C:\Program Files\RedHat\Podman\podman.exe" machine start|stop harness`.
+VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd start|stop` (ohne Admin). Vorher bzw. nach `harness vmd uninstall` in einer Admin-PowerShell: `$env:CONTAINERS_MACHINE_PROVIDER='hyperv'` und dann `& "C:\Program Files\RedHat\Podman\podman.exe" machine start|stop harness`. Gehört die Machine dem Dienst, sieht der podman des Nutzers sie nicht mehr (seine JSON heißt dann `harness.json.moved-to-harness-vmd`).
 
 ## Stolpersteine (bitte ergänzen)
 
@@ -162,6 +164,20 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - `harness sync` holt nur Commits auf `agent/<projekt>`. Uncommittete Dateien und einen anderen ausgecheckten Branch meldet es (`sync::workspace_status`).
 - **Hinweise an den Agent** (`briefing.rs`): `harness run` hängt sie über `prompt_flag` der Harness-Definition an deren System-Prompt (pi: `--append-system-prompt`, landet in pis `<addendum>`, ~500 Token). Geprüft mit einem Mock-LLM, das die Anfragen mitschreibt.
 - **pi ruft von sich aus `pi.dev` auf:** Versionsprüfung, Telemetrie und vor allem beim Start der interaktiven Oberfläche (nicht mit `--print`) dreimal für die Modellliste, sobald Anbieter eingerichtet sind. Mit Rückfragen im Terminal hieße das: bei jedem Start eine Frage. Nur `PI_OFFLINE=1` stellt alles ab (geprüft am 16.10.), Modellanfragen laufen weiter. `[env]` in `pi.toml` setzt es zusammen mit `PI_SKIP_VERSION_CHECK` und `PI_TELEMETRY=0`. pi nutzt dann seine mitgelieferte Modellliste, neue Modelle kommen also mit einem neueren pi. Neue Harnesses vorher auf solche Aufrufe prüfen: interaktiv starten, dann `harness net status`.
+
+### VM-Dienst (`crates/harness-vmd`, CLI `vmd.rs`, `vm.rs`, Kern `vmd.rs`)
+
+- **Der Dienst läuft als SYSTEM und darf nichts ausführen oder lesen, was ein Nutzerprozess ändern kann.**
+  - podman bekommt eine von Grund auf neue Umgebung (`env_clear`): `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `TEMP` und `CONTAINERS_CONF` zeigen in `C:\ProgramData\llm-harness\vmd`. Allein über eine `containers.conf` ließe sich sonst `helper_binaries_dir` setzen, und podman würde diese Programme als SYSTEM starten. Auch `%ProgramData%\containers\containers.conf` liest podman, und dort dürfen normale Nutzer Ordner anlegen.
+  - `vmd.toml` erlaubt podman nur unter Program Files und als `user_sid` nur `S-1-5-21-…` (die SID landet im SDDL der Pipe).
+- **Der Installer sichert `C:\ProgramData\llm-harness` samt Besitzer ab:** `icacls /setowner Administratoren`, `/reset`, dann `/inheritance:r` mit SYSTEM und Admins voll, der Nutzer nur lesen. Ein Ordner, den ein Nutzerprozess vorher angelegt hat, gehört danach nicht mehr ihm.
+- **Übernahme der Machine:** Die JSON (ohne `Mounts`) und `harness.ign` kommen in `vmd\home\.config\containers\podman\machine\hyperv\`. Die eigene JSON des Nutzers wird umbenannt. Disk (VHDX) und SSH-Key bleiben im Profil des Nutzers: Hyper-V-Admins können ohnehin jede VHDX einhängen, und den Key liest podman nur. `MachineConfig::default_path` bevorzugt die Kopie des Dienstes.
+- Pipe `\\.\pipe\llm-harness-vmd`: SDDL `D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;<Nutzer-SID>)`, `PIPE_REJECT_REMOTE_CLIENTS`. Die erste Instanz entsteht mit `FILE_FLAG_FIRST_PIPE_INSTANCE`, damit niemand den Namen vorher besetzt. Eine Anfrage pro Verbindung, JSON pro Zeile. `status` wartet nicht auf einen laufenden Start.
+- **„Läuft“ heißt: SSH grüßt** (`vmd::ssh_answers` liest `SSH-`). Ein offener TCP-Port reicht nicht, gvproxy nimmt Verbindungen auch an, wenn sshd in der VM hängt (14.10.). Dann startet der Dienst die VM neu.
+- **Vor jedem Start** (PowerShell, Name nur über Umgebungsvariable): gespeicherten Zustand verwerfen, `AutomaticStopAction ShutDown`, Startspeicher klein (`Set-VMMemory`), Ignition-KVP-Reste entfernen. Nach einem gescheiterten Start: hart ausschalten, `podman machine stop` (setzt podmans „starting“ zurück), Reste entfernen.
+- Ausgaben von Kindprozessen werden nur kurz nach deren Ende noch gelesen (`OUTPUT_GRACE`): Ein Enkelprozess (bei `cmd` gesehen, bei podman denkbar: gvproxy) hält die Pipe sonst ewig offen.
+- Log: `C:\ProgramData\llm-harness\vmd\vmd.log`. Zum Testen als Admin: `harness-vmd console`.
+- **Ungeprüft bis zur Einrichtung durch den Nutzer:** podman als SYSTEM mit dieser Umgebung, die übernommene JSON, der Start ohne 9p-Freigabe. Ohne Admin-Rechte geprüft sind die Konfiguration, die Pipe mit echter Nutzer-SID, die Timeouts und dass sich Dienst und Installer ohne Erhöhung verweigern.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 

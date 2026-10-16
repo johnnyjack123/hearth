@@ -9,7 +9,7 @@
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
 | **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
-| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
+| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | 🔨 gebaut, Einrichtung durch den Nutzer (UAC) steht aus |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | offen (Idee des Nutzers vom 16.10.) |
 | 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
@@ -133,6 +133,17 @@ Anforderungen stehen in `spikes/phase-0.md` §12.3:
 - Watchdog nach Standby
 
 Der Installer richtet den Dienst einmal mit UAC ein.
+
+**Stand 17.10.:** gebaut, Details und Sicherheitsüberlegungen in CLAUDE.md („VM-Dienst“).
+- `crates/harness-vmd`: Windows-Dienst als SYSTEM. Pipe mit Status, Start, Stopp und Neustart. podman läuft dort in einer eigenen, nur für Admins beschreibbaren Umgebung.
+- **Vorbereitung:** Die VM sieht seit dem 16.10. keinen Host-Ordner mehr. Sonst liefe der 9p-Dateiserver als SYSTEM und würde Ordner servieren, die ein Nutzerprozess umbiegen kann.
+- `harness vmd install` (einmal UAC) übernimmt die bestehende Machine samt Images und Volumes. `uninstall` gibt sie zurück.
+- **Automatischer Start:** `harness`, `run`, `shell`, `net` und `image build` starten die VM selbst, wenn SSH nicht antwortet. Antwortet SSH bei laufender VM nicht, startet der Dienst sie neu.
+- `harness` ohne Argumente startet die Standard-Harness und legt beim ersten Mal nach Rückfrage Repository und Projekt an.
+- **Offen:**
+  - Stopp im Leerlauf (Leases von `harness run`, später `harnessd`)
+  - Wiederanlauf nach Standby über den Leerlauf-Check hinaus
+  - fehlende vsock-Registry-Einträge anlegen
 
 **Wunsch des Nutzers (15.10.):** Im Ordner nur noch `harness` sagen, den Rest erledigt harness im Hintergrund. Dazu:
 - `harness` ohne Argumente startet die Standard-Harness.
