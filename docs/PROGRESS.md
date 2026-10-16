@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-14 · Phase 2 Pakete 1–9 gebaut, committet und gepusht; Smoke-Skript grün; offen ist der interaktive Test durch den Nutzer und ConPTY_
+_Last updated: 2026-10-16 · Phase 2 im Kern fertig: Rückfragen im selben Terminal und Hinweise an den Agent gebaut, alle Tests grün; nächstes ist harness-vmd_
 
 ## Where we are
 
@@ -12,8 +12,8 @@ Im Ordner eines Git-Repos läuft nach `harness project add` und `harness login` 
    - klont das Repo ins Volume bzw. holt den neuen Stand
    - installiert pi beim ersten Mal ins Tools-Volume
    - schreibt pis `models.json` auf `llm.harness`
-   - startet pi
-2. **pi** erreicht das Modell über Gateway und Server, mit dem Key aus der Web-App.
+   - startet pi mit Hinweisen zur Sandbox im System-Prompt (`briefing.rs`)
+2. **pi** erreicht das Modell über Gateway und Server, mit dem Key aus der Web-App. Will der Agent eine nicht freigegebene Domain erreichen, fragt harness im selben Terminal nach (`harness-cli/src/terminal/`).
 3. **`harness sync` / `harness merge`** holen die Commits des Agents als `agent/<projekt>` und führen sie zusammen.
 
 `scripts/smoke-run.sh` prüft das gegen die echte VM, mit einem Wegwerf-Server und einem Mock-LLM.
@@ -30,12 +30,8 @@ Bausteine:
 
 ## Next step
 
-1. **Interaktiver Test des Nutzers (15.10.):** `harness run pi` in Windows Terminal lief auf Anhieb, mit Dev-Servern (`PUBLIC_URL=http://localhost:5173`) und DeepSeek. pi hat eine Datei angelegt. Noch ohne Rückmeldung: `sync`/`merge` des Nutzers, Strg+C, Fenstergröße, `harness shell`.
-2. **ConPTY in `harness run`**, damit Rückfragen des Gateways im selben Terminal erscheinen:
-   - `harness run` liest parallel `GatewayControl::watch`
-   - pis Ausgabe läuft über eine Pseudo-Konsole
-   - bei einer Frage pausiert die Ausgabe, und die Frage wird eingeblendet
-3. Danach Phase 2b `harness-vmd` (VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt. Das ist der Wunsch des Nutzers vom 15.10., siehe ROADMAP.
+1. **Rückmeldung des Nutzers zum Terminal-Relay** in Windows Terminal: Maus, Einfügen, Farben, Rückfrage über pi. Bei Problemen `HARNESS_TERMINAL_LOG=<datei>` mitschneiden lassen. Notlösung ist `HARNESS_DIRECT_TERMINAL=1`.
+2. **Phase 2b `harness-vmd`** (VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt. Das ist der Wunsch des Nutzers vom 15.10., siehe ROADMAP.
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
@@ -45,7 +41,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeile
 
 ## In flight / half-finished
 
-- `PodmanProvider::exec` mit `tty: true`: pis Oberfläche funktioniert in Windows Terminal (Nutzer, 15.10.). Strg+C und Fenstergröße sind noch ungeprüft.
+- Das Terminal-Relay ist nur im simulierten Terminal geprüft (Größe, Strg+C, Rückfragen, pi im Vollbild). In Windows Terminal hat es der Nutzer noch nicht benutzt.
 - Das echte `~/.harness` des Nutzers gibt es seit dem 15.10., mit dem Projekt `harness-test` in `$HOME\harness-test`. Eigene Probeläufe weiter nur mit `HARNESS_HOME`.
 
 ## Decisions made this session
@@ -60,11 +56,16 @@ LLM-Zugang und pi (14.10.):
 - **harness verwaltet in `models.json` nur seine eigenen Einträge.** Einträge des Nutzers haben Vorrang. Nach `logout` entfernt harness die Umleitung, damit pis eigene Anmeldung wieder greift.
 - Commits: Der Nutzer erlaubt, nach jedem fertigen Stück zu committen, zu mergen und zu pushen.
 
+Terminal-Relay und Hinweise (15./16.10.):
+- **Rückfragen im selben Terminal über eine eigene Pseudo-Konsole** statt eines zweiten Fensters, weil der Nutzer dem Vorschlag zugestimmt hat. Die Entscheidung trifft weiter harness auf dem Host, nie die Harness im Container. Fällt die Pseudo-Konsole aus, geht es mit direktem Terminal und `net watch` weiter.
+- **Hinweise an den Agent über den System-Prompt** (Wunsch des Nutzers): Arbeitskopie, Commits, Netzregeln. Der Text ist englisch, weil ihn das Modell liest.
+- **pi ohne Versionsprüfung und Telemetrie**, sonst käme bei jedem Start eine Rückfrage zu `pi.dev`. Updates von pi macht harness.
+
 Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt tinyproxy (Ziel-IP-Prüfung, Rückfragen), Bau offline in der VM, IP-Prüfung in jedem Modus, `off` = nur LLM-APIs, Rückfragen nur bei Zuschauer, Laufzeit-Freigaben im Gateway, Steuerung per Unix-Socket. Details in ROADMAP Paket 6.
 
 ## Open questions for the user
 
-- Ergebnis des interaktiven Tests in Windows Terminal (siehe Next step 1).
+- Wie sich die Rückfragen im echten Windows Terminal anfühlen (siehe Next step 1).
 
 ## Known issues / debt
 
@@ -85,10 +86,19 @@ Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt t
 
 ## Verification state
 
-Stand 14.10. abends:
+Stand 16.10.:
 - **Rust:**
   - `cargo build`, `cargo fmt` und `cargo clippy --all-targets` laufen ohne Warnungen.
-  - `cargo test`: 109 Tests grün (core 76, gateway 26 + 7 TCP).
+  - `cargo test`: 117 Tests grün (core 81, cli 3, gateway 26 + 7 TCP).
+- **Terminal** (`cargo test -p harness-cli --test terminal_vm -- --ignored`): beide Tests grün, harness läuft dabei in einer Pseudo-Konsole des Tests.
+  - `harness shell`: Größe 100×30 und nach Änderung 120×40 im Container, Strg+C bricht `sleep 30` ab.
+  - Rückfrage zu `example.net`: „e“ ergibt HTTP 200, Esc lehnt ab (403).
+  - Rückfrage, während das Programm im alternativen Bildschirm ist.
+  - `harness run pi`: Vollbild-Oberfläche, keine Rückfrage beim Start, `!curl` in pi löst eine Rückfrage über pis Oberfläche aus, nach „e“ zeigt pi `PI-200`, Strg+D beendet.
+- **Hinweise an den Agent:** Ein Mock-LLM, das mitschreibt, sah sie in pis System-Prompt.
+- **VM-Tests** (`cargo test -p harness-core -- --ignored --test-threads=1`): alle 5 grün, Smoke-Skript grün.
+
+Stand 14.10. abends:
 - **VM-Tests** (`cargo test -p harness-core -- --ignored --test-threads=1`): alle 5 grün.
   - `gateway_vm`, neu mit dem CONNECT-Tunnel zu `llm.harness` (`curl --proxytunnel`, wie undici). Der Server sah nur das Geräte-Token.
   - neu `instance_vm`:
@@ -111,6 +121,11 @@ Stand 14.10. abends:
 ---
 
 ## Log
+
+### 2026-10-15/16 (Phase 2, Terminal-Relay)
+- Erster interaktiver Lauf des Nutzers mit DeepSeek. `sync` meldet uncommittete Arbeit des Agents.
+- `briefing.rs` (Hinweise im System-Prompt), `[env]` und `prompt_flag` in Harness-Definitionen.
+- `harness-core/src/pty.rs` (ConPTY), `harness-cli/src/terminal/` (Relay, Rückfragen, Tasten, Bildschirmzustand), `Provider::exec_command`, `tests/terminal_vm.rs`.
 
 ### 2026-10-14 (Phase 2, Pakete 7–9)
 - Server: Kopplung von Geräten, LLM-Durchgang mit gespeicherten Keys; Web: `/device`, Reiter „Geräte“.

@@ -26,9 +26,11 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
   - **pi in der Instanz:** pi liegt im Tools-Volume, `models.json` zeigt auf `llm.harness` (`instance.rs`, `pi.rs`).
   - **CLI:** `run [harness] [-- args]`, `shell`, `sync`, `merge`, `stop`, `status` (`harness-cli/src/run.rs`).
 
-  Offen in Phase 2: interaktiver Test in Windows Terminal durch den Nutzer, Rückfragen im selben Terminal (ConPTY). Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
+  - **Rückfragen des Gateways im selben Terminal** (Relay über eine Pseudo-Konsole, `harness-cli/src/terminal/`) und **Hinweise an den Agent** im System-Prompt (`briefing.rs`).
+
+  Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: ConPTY in `harness run` (Rückfragen im selben Terminal), danach `harness-vmd` (Phase 2b).
+- Nächstes: `harness-vmd` (Phase 2b, VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt.
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -71,6 +73,7 @@ cargo test -p harness-core --test sync_vm -- --ignored --nocapture        # Git-
 cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gateway: Voreinstellungen, Sperren, Rückfrage (braucht Internet)
 cargo test -p harness-core --test instance_vm -- --ignored --nocapture    # Instanz, Installation über das Gateway, models.json
 cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~2 min)
+cargo test -p harness-cli --test terminal_vm -- --ignored --test-threads=1  # harness shell/run pi in einem simulierten Terminal (Rückfragen, Strg+C, Größe)
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
 ```
 
@@ -157,6 +160,17 @@ VM-Befehle für den Nutzer (Admin-PowerShell): `$env:CONTAINERS_MACHINE_PROVIDER
 - **`harness.exe` ist gesperrt, solange der Nutzer `harness run` nutzt.** `cargo build` meldet dann „Zugriff verweigert (os error 5)“. Die laufende Datei lässt sich umbenennen (`mv target/debug/harness.exe target/debug/harness.exe.old`), danach baut cargo neu. Die Sitzung des Nutzers läuft dabei weiter. Den Prozess nie beenden.
 - `scripts/smoke-run.sh` nicht laufen lassen, während der Nutzer pi nutzt. Es ändert `models.json` im gemeinsamen Volume `harness-cfg-pi`, und danach fehlt dort die Anbindung an seinen Server bis zum nächsten `harness run`.
 - `harness sync` holt nur Commits auf `agent/<projekt>`. Uncommittete Dateien und einen anderen ausgecheckten Branch meldet es (`sync::workspace_status`).
+- **Hinweise an den Agent** (`briefing.rs`): `harness run` hängt sie über `prompt_flag` der Harness-Definition an deren System-Prompt (pi: `--append-system-prompt`, landet in pis `<addendum>`, ~500 Token). Geprüft mit einem Mock-LLM, das die Anfragen mitschreibt.
+- **pi ruft von sich aus `pi.dev` auf** (Versionsprüfung, Telemetrie). Mit Rückfragen im Terminal hieße das: bei jedem Start eine Frage. `[env]` in `pi.toml` setzt deshalb `PI_SKIP_VERSION_CHECK=1` und `PI_TELEMETRY=0`. Neue Harnesses vorher auf solche Aufrufe prüfen.
+
+### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
+
+- **`harness run`/`shell` mit Terminal (Windows):** podman läuft auf einer eigenen Pseudo-Konsole (ConPTY), die harness ans echte Terminal weiterreicht. Nur so kann harness Rückfragen des Gateways im selben Fenster zeigen. `HARNESS_DIRECT_TERMINAL=1` schaltet das ab, dann hängt podman direkt am Terminal, Rückfragen gehen dann über `harness net watch`.
+- **Die innere Pseudo-Konsole verlangt beim Start win32-input-mode** (`ESC[?9001h`). Das äußere conhost übernimmt das, danach kommen Tasten bei harness als `ESC[Vk;Sc;Uc;Kd;Cs;Rc_` an statt als Zeichen. Die Rückfrage entschlüsselt das (`screen::KeyReader`), sonst wird alles roh weitergereicht. Folgen können über zwei Lesevorgänge verteilt sein, ein einzelnes ESC am Ende ist deshalb noch kein Esc.
+- **pi läuft standardmäßig im Vollbild** (alternativer Bildschirm, `tuiMode = "fullscreen"`). Die Rückfrage nutzt dann keinen eigenen alternativen Bildschirm, sondern zeichnet darüber. Danach erzwingt eine kurze Größenänderung, dass pi neu zeichnet. Läuft das Programm im normalen Bildschirm, schaltet harness selbst auf den alternativen und danach zurück (`screen::AltScreen` verfolgt den Zustand).
+- Vor dem Start schiebt harness den Fensterinhalt per Zeilenumbrüchen in den Scrollback, weil die Pseudo-Konsole oben links zu zeichnen beginnt.
+- **Diagnose:** `HARNESS_TERMINAL_LOG=<datei>` schreibt den rohen Verkehr mit (enthält jede Taste, also nur bei Bedarf). Ein Test fährt harness selbst in einer Pseudo-Konsole (`tests/terminal_vm.rs`, `TERMINAL_VM_LOG=<datei>` für die Ausgabe des simulierten Terminals). Das simulierte Terminal beantwortet keine Abfragen (Farben, Kitty-Tastatur). pi kommt trotzdem hoch.
+- Shell-Escapes in Python-Heredocs aus Git Bash gehen oft kaputt (`\\x1b` wird zum echten ESC). Für Code mit Backslashes das Edit-Werkzeug oder eine Skriptdatei nehmen.
 - **RAM der VM:** Sie startet mit 1 GB und wächst nur, wenn Windows Speicher frei hat. Während der pi-Läufe am 14.10. nahm die VM danach keine SSH-Verbindungen mehr an: TCP ging, der Banner blieb leer, gvproxy lief. Vermutlich war der Speicher knapp. Abhilfe war ein Neustart der VM.
 
 ### Testen ohne den Browser des Nutzers

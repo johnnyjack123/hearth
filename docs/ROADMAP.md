@@ -8,7 +8,7 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **🔨 fast fertig**, Pakete 1–9 gebaut und per Smoke-Skript geprüft. Offen: interaktiver Test in Windows Terminal durch den Nutzer, Rückfragen per ConPTY |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Offen: Rückmeldung des Nutzers zum Terminal-Relay |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
 | 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
@@ -111,12 +111,14 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - `shell`: Login-Shell in der Instanz
    - `sync [--force]`, `merge`, `stop`, `status`
 
-   Ein Terminal wird nur durchgereicht, wenn stdin und stdout eines sind. **Offen:**
-   - interaktiver Test in Windows Terminal: TTY, Strg+C, Fenstergröße
-   - Rückfragen des Gateways im selben Terminal. `harness run` läuft auf dem Host, also außerhalb der Sandbox, und müsste dafür die Ausgabe von pi über eine ConPTY durchreichen. Bis dahin `harness net watch` im zweiten Fenster.
+   Ein Terminal wird nur durchgereicht, wenn stdin und stdout eines sind. Der Nutzer hat `harness run pi` am 15.10. in Windows Terminal mit DeepSeek genutzt.
+   - ✅ **Rückfragen im selben Terminal** (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`): podman läuft auf einer eigenen Pseudo-Konsole (ConPTY), die harness ans Terminal weiterreicht. Fragt das Gateway, hält harness die Ausgabe an, zeigt die Frage (e/m/s/i/n, Esc lehnt ab) und gibt das Terminal danach zurück. Das funktioniert auch über pis Vollbild-Oberfläche. Ohne Terminal oder mit `HARNESS_DIRECT_TERMINAL=1` bleibt es beim direkten Anschluss und `harness net watch`.
+   - ✅ **Hinweise an den Agent** (`briefing.rs`, Wunsch des Nutzers vom 15.10.): Sie erklären Sandbox, Arbeitskopie, Commits und Netzregeln und hängen über `prompt_flag` an den System-Prompt der Harness. Der Nutzer muss das nicht in jeder Sitzung selbst erklären.
+   - pi telefoniert nicht mehr nach Hause (`[env]` in `pi.toml`), sonst käme bei jedem Start eine Rückfrage zu `pi.dev`.
+   - **Offen:** Rückmeldung des Nutzers zum Relay in Windows Terminal (Maus, Einfügen, Farben). Im simulierten Terminal sind Größe, Strg+C, Rückfragen und pi geprüft.
 9. ✅ **Tests:**
-   - Unit-Tests: Konfiguration, Bundle- und Merge-Logik gegen temporäre Repos, Domain-Muster, Gateway, `models.json`
-   - VM-Tests: `podman_vm`, `base_image_vm`, `sync_vm`, `gateway_vm`, `instance_vm`
+   - Unit-Tests: Konfiguration, Bundle- und Merge-Logik gegen temporäre Repos, Domain-Muster, Gateway, `models.json`, Pseudo-Konsole, Tasten und Bildschirmzustand
+   - VM-Tests: `podman_vm`, `base_image_vm`, `sync_vm`, `gateway_vm`, `instance_vm`, dazu `harness-cli/tests/terminal_vm.rs` (`harness shell` und `harness run pi` in einem simulierten Terminal)
    - Smoke-Skript `scripts/smoke-run.sh`, siehe CLAUDE.md
 10. ✅ **Doku:** `CLAUDE.md` (Befehle, Stolpersteine) und `PROGRESS.md`.
 
