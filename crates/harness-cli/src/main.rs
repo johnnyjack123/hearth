@@ -1,10 +1,9 @@
 //! The `harness` command.
 //!
-//! So far the commands needed to bring up the sandbox base, manage projects
-//! and their network, and pair with the server: `doctor`, `image build`,
-//! `project`, `net`, `login` and `logout`. `run`,
-//! `shell`, `sync` and friends follow in later Phase 2 packages
-//! (docs/ROADMAP.md).
+//! Without arguments it starts the default harness in the project of the
+//! current folder, setting folder and VM up as needed. The subcommands
+//! manage projects, their network, images, the VM service and the pairing
+//! with the server (docs/ROADMAP.md, Phase 2).
 
 mod doctor;
 mod login;
@@ -12,6 +11,8 @@ mod net;
 mod project;
 mod run;
 mod terminal;
+mod vm;
+mod vmd;
 
 use std::process::ExitCode;
 
@@ -20,7 +21,6 @@ use clap::{Parser, Subcommand, ValueEnum};
 use harness_core::Provider;
 use harness_core::config::ConfigDir;
 use harness_core::image::{BASE_IMAGE, BuildOptions, GATEWAY_IMAGE, IMAGES, ImageDefinition};
-use harness_core::podman::PodmanProvider;
 
 #[derive(Parser)]
 #[command(
@@ -33,13 +33,15 @@ struct Cli {
     #[arg(long, global = true)]
     machine: Option<String>,
 
+    /// Ohne Befehl: die Standard-Harness im Projekt dieses Ordners starten
+    /// (wie `harness run`; legt Repository und Projekt nach Rückfrage an)
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Prüft Konfiguration, Machine, SSH-Verbindung, Austauschordner und Images
+    /// Prüft Konfiguration, Machine, SSH-Verbindung, VM-Dienst und Images
     Doctor,
     /// Images verwalten
     Image {
@@ -83,6 +85,11 @@ enum Command {
     },
     /// Entfernt die Kopplung mit dem Server
     Logout,
+    /// VM-Dienst: startet die VM ohne Admin-Fenster (einmalig: harness vmd install)
+    Vmd {
+        #[command(subcommand)]
+        command: Option<vmd::VmdCommand>,
+    },
     /// Netzwerk des Projekts: Voreinstellung, Freigaben, Gateway, Nachfragen
     Net {
         /// Projektname (Standard: Projekt des aktuellen Git-Repositorys)
@@ -142,7 +149,11 @@ fn main() -> ExitCode {
 /// Returns whether the command succeeded; hard errors propagate.
 fn run(cli: Cli) -> anyhow::Result<bool> {
     let config = ConfigDir::open_default()?;
-    match cli.command {
+    let Some(command) = cli.command else {
+        let machine = machine_name(&config, cli.machine)?;
+        return run::run(&config, &machine, None, Vec::new());
+    };
+    match command {
         Command::Doctor => doctor::run(&config, cli.machine.as_deref()),
         Command::Image {
             command:
@@ -177,6 +188,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Status => run::status(&config, &machine_name(&config, cli.machine)?),
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
+        Command::Vmd { command } => vmd::run(&machine_name(&config, cli.machine)?, command),
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;
             net::run(&config, &machine, project.as_deref(), command)
@@ -197,7 +209,7 @@ fn build_images(
     images: &[ImageDefinition],
     options: BuildOptions,
 ) -> anyhow::Result<()> {
-    let provider = PodmanProvider::for_machine(machine)?;
+    let provider = vm::provider(machine)?;
     provider
         .ping()
         .context("VM prüfen (harness doctor zeigt Details)")?;

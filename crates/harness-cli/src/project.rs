@@ -1,7 +1,9 @@
 //! `harness project`: show, add and list projects.
 
 use std::env;
-use std::path::PathBuf;
+use std::io::IsTerminal as _;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context as _, bail};
 use harness_core::config::{ConfigDir, Project};
@@ -78,16 +80,117 @@ pub fn resolve(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<Project
     }
 }
 
+/// Asks a yes/no question on the terminal.
+fn confirm(question: &str, default: bool) -> anyhow::Result<bool> {
+    print!("{question} {} ", if default { "[J/n]" } else { "[j/N]" });
+    std::io::Write::flush(&mut std::io::stdout())?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    Ok(match answer.trim().to_lowercase().as_str() {
+        "" => default,
+        "j" | "ja" | "y" | "yes" => true,
+        _ => false,
+    })
+}
+
+/// Files above which `git init` asks once more before committing them all.
+const MANY_FILES: usize = 2000;
+
+/// `git init` in `dir` and a first commit of everything not ignored; the
+/// agent's clone needs a commit to start from.
+fn init_repo(dir: &Path) -> anyhow::Result<()> {
+    let git = harness_core::sync::find_git()?;
+    let run = |args: &[&str]| -> anyhow::Result<String> {
+        let output = Command::new(&git)
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .with_context(|| format!("git {}", args.join(" ")))?;
+        if !output.status.success() {
+            bail!(
+                "git {}: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    };
+    run(&["init", "--quiet"])?;
+    run(&["add", "--all"])?;
+    let files = run(&["diff", "--cached", "--name-only"])?.lines().count();
+    if files > MANY_FILES
+        && !confirm(
+            &format!("{files} Dateien kommen in den ersten Commit. Wirklich alle?"),
+            false,
+        )?
+    {
+        bail!(
+            "Abgebrochen. Das Repository ist angelegt, die Dateien sind vorgemerkt; mit einer \
+             .gitignore ausdünnen und selbst committen"
+        );
+    }
+    run(&["commit", "--quiet", "--allow-empty", "-m", "Erster Stand"]).context(
+        "Erster Commit. Fehlt die Git-Identität? git config --global user.name/user.email",
+    )?;
+    println!("Git-Repository angelegt, {files} Dateien im ersten Commit.");
+    Ok(())
+}
+
+/// The project of the current folder for `harness`, `run` and `shell`. On
+/// a terminal it offers to set the folder up instead of failing: a git
+/// repository first if needed, then the project.
+pub fn resolve_or_offer(config: &ConfigDir) -> anyhow::Result<Project> {
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
+    let repo = match find_repo_root(&cwd) {
+        Some(root) => root,
+        None if interactive => {
+            let question = format!(
+                "{} ist kein Git-Repository; der Agent tauscht Arbeit über Git aus. Jetzt eins \
+                 anlegen und alle Dateien als ersten Commit übernehmen?",
+                cwd.display()
+            );
+            if !confirm(&question, false)? {
+                bail!("Abgebrochen");
+            }
+            init_repo(&cwd)?;
+            find_repo_root(&cwd).context("Repository nach git init nicht gefunden")?
+        }
+        None => return Err(not_a_repository(&cwd)),
+    };
+    if let Some(project) = config.find_project(&repo)? {
+        return Ok(project);
+    }
+    if !interactive {
+        bail!(
+            "{} ist noch kein Projekt. `harness project add` legt es an",
+            repo.display()
+        );
+    }
+    if !confirm(&format!("{} als Projekt anlegen?", repo.display()), true)? {
+        bail!("Abgebrochen");
+    }
+    config.init()?;
+    let project = config.create_project(&repo)?;
+    println!(
+        "Projekt {} angelegt (Netz: {}). Einstellungen: harness project show",
+        project.name, project.network
+    );
+    Ok(project)
+}
+
 fn current_repo() -> anyhow::Result<PathBuf> {
     let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
-    match find_repo_root(&cwd) {
-        Some(root) => Ok(root),
-        None => bail!(
-            "{} liegt in keinem Git-Repository. Projekte sind Git-Repositories, weil der \
-             Austausch mit dem Agent über Git läuft",
-            cwd.display()
-        ),
-    }
+    find_repo_root(&cwd).ok_or_else(|| not_a_repository(&cwd))
+}
+
+fn not_a_repository(dir: &Path) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{} liegt in keinem Git-Repository. Projekte sind Git-Repositories, weil der \
+         Austausch mit dem Agent über Git läuft",
+        dir.display()
+    )
 }
 
 fn print_project(project: &Project) {

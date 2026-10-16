@@ -100,7 +100,7 @@ pub fn run(
         NetCommand::Deny { domain, always } => deny(config, machine, &project, &domain, always),
         NetCommand::Preset { preset } => set_preset(config, machine, &project, preset.into()),
         NetCommand::Start => {
-            let provider = PodmanProvider::for_machine(machine)?;
+            let provider = crate::vm::provider(machine)?;
             let (llm, llm_note) = login::gateway_llm(config, &provider)?;
             gateway::ensure_running(&provider, &project, llm.as_ref())?;
             println!(
@@ -258,7 +258,7 @@ fn allow(
         }
         return Ok(true);
     }
-    let provider = PodmanProvider::for_machine(machine)?;
+    let provider = crate::vm::provider(machine)?;
     require_running(&provider, project)?;
     let scope = match minutes {
         Some(0) => bail!("--minutes muss mindestens 1 sein"),
@@ -292,7 +292,7 @@ fn deny(
         apply_and_report(machine, &updated);
         return Ok(true);
     }
-    let provider = PodmanProvider::for_machine(machine)?;
+    let provider = crate::vm::provider(machine)?;
     require_running(&provider, project)?;
     GatewayControl::new(&provider, &project.name).deny(&pattern)?;
     println!("{pattern} gesperrt, bis das Gateway stoppt (dauerhaft: --always).");
@@ -389,7 +389,7 @@ pub fn decide(
 }
 
 fn watch(config: &ConfigDir, machine: &str, project: &Project) -> anyhow::Result<bool> {
-    let provider = PodmanProvider::for_machine(machine)?;
+    let provider = crate::vm::provider(machine)?;
     require_running(&provider, project)?;
     let mut watch = GatewayControl::new(&provider, &project.name)
         .watch()

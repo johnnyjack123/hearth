@@ -53,12 +53,12 @@ fn step<T>(label: &str, work: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Res
 /// and of `extra`; otherwise `harness shell` next to a running `harness run`
 /// would recreate the container under it.
 fn prepare(config: &ConfigDir, machine: &str, extra: Option<&str>) -> anyhow::Result<Prepared> {
-    let project = project::resolve(config, None)?;
+    let project = project::resolve_or_offer(config)?;
     let mut harnesses = vec![config.harness(&project.harness)?];
     if let Some(name) = extra.filter(|name| *name != project.harness) {
         harnesses.push(config.harness(name)?);
     }
-    let provider = PodmanProvider::for_machine(machine)?;
+    let provider = crate::vm::provider(machine)?;
     let (llm, _) = login::gateway_llm(config, &provider)?;
     step(&format!("Gateway {}", project.name.gateway()), || {
         Ok(gateway::ensure_running(&provider, &project, llm.as_ref())?)

@@ -51,10 +51,15 @@ pub struct MachineMount {
 }
 
 impl MachineConfig {
-    /// Location of the JSON for a Hyper-V machine:
+    /// Location of the JSON for a Hyper-V machine: the copy of the VM service
+    /// (`harness-vmd`) if it owns the machine, else the user's own
     /// `%USERPROFILE%\.config\containers\podman\machine\hyperv\<name>.json`.
     pub fn default_path(name: &str) -> Result<PathBuf> {
         validate_resource_name("Machine-Name", name)?;
+        let service = crate::vmd::machine_json(name);
+        if service.is_file() {
+            return Ok(service);
+        }
         Ok(home_dir()?
             .join(".config")
             .join("containers")

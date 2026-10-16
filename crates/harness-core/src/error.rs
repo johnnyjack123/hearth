@@ -94,6 +94,10 @@ pub enum Error {
     #[error("Netz {0} ist nicht intern. Instanzen dürfen nur in internen Netzen laufen")]
     NetworkNotInternal(String),
 
+    /// The VM service `harness-vmd` is missing or refused a request.
+    #[error("VM-Dienst: {0}")]
+    Vmd(String),
+
     /// A configuration file cannot be parsed or fails validation.
     #[error("Konfiguration {} ist ungültig: {message}", path.display())]
     ConfigInvalid {

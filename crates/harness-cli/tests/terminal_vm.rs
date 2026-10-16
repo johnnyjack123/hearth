@@ -173,6 +173,24 @@ fn test_project(prefix: &str) -> TestProject {
     }
 }
 
+/// A folder that is neither a git repository nor a project yet.
+fn empty_folder(prefix: &str) -> TestProject {
+    let machine = std::env::var("HARNESS_MACHINE").unwrap_or_else(|_| DEFAULT_MACHINE.into());
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = format!("{prefix}-{}", std::process::id());
+    let repo = tmp.path().join(&folder);
+    fs::create_dir_all(&repo).unwrap();
+    TestProject {
+        _cleanup: Cleanup {
+            provider: PodmanProvider::for_machine(&machine).unwrap(),
+            name: ProjectName::new(&folder).unwrap(),
+        },
+        home: tmp.path().join("home"),
+        _tmp: tmp,
+        repo,
+    }
+}
+
 impl Terminal {
     /// Starts `harness <args>` in the project, on a 100×30 terminal.
     fn start(project: &TestProject, args: &[&str]) -> (Terminal, thread::JoinHandle<()>) {
@@ -331,4 +349,39 @@ fn pi_draws_and_exits_in_the_relayed_terminal() {
     term.send("\x04");
     term.expect("pi beendet", Duration::from_secs(30));
     assert_eq!(term.finish(pump), Some(0));
+}
+
+/// First use of a plain folder: harness offers a git repository and a
+/// project, then opens the shell in it.
+#[test]
+#[ignore = "needs the running Podman machine and both images"]
+fn a_new_folder_becomes_a_project_on_first_use() {
+    let project = empty_folder("termnew");
+    fs::write(project.repo.join("notes.txt"), "hello from the host\n").unwrap();
+    let (mut term, pump) = Terminal::start(&project, &["shell"]);
+    term.expect("ist kein Git-Repository", Duration::from_secs(30));
+    term.send("j\r");
+    term.expect("1 Dateien im ersten Commit", Duration::from_secs(30));
+    term.expect("als Projekt anlegen?", Duration::from_secs(30));
+    // Enter takes the default: yes.
+    term.send("\r");
+    term.expect("angelegt", Duration::from_secs(30));
+    term.send("cat notes.txt; echo READY-$((40+2))\r");
+    term.expect("READY-42", Duration::from_secs(120));
+    assert!(!term.absent_so_far("hellofromthehost"));
+    term.send("exit\r");
+    assert_eq!(term.finish(pump), Some(0));
+    let name = project
+        .repo
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        project
+            .home
+            .join("projects")
+            .join(format!("{name}.toml"))
+            .is_file()
+    );
 }

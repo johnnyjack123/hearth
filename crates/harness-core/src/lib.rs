@@ -21,6 +21,7 @@ pub mod provider;
 pub mod pty;
 pub mod server;
 pub mod sync;
+pub mod vmd;
 
 pub use error::{Error, Result};
 pub use provider::Provider;

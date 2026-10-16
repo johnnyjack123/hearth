@@ -1,0 +1,426 @@
+//! Starting and stopping the machine as SYSTEM.
+//!
+//! podman and PowerShell get an environment built from scratch: HOME,
+//! APPDATA, ProgramData, TEMP and CONTAINERS_CONF point into the service
+//! directory, which only administrators can write. Inheriting anything
+//! else could let a user process steer what podman reads or starts.
+
+use std::ffi::OsString;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use harness_core::podman::MachineConfig;
+use harness_core::vmd::{self, SSH_BANNER_TIMEOUT, VmState};
+
+use crate::config::Config;
+use crate::log;
+
+/// Upper bound for `podman machine start`; the first start after a host
+/// reboot can take a while.
+const START_TIMEOUT: Duration = Duration::from_secs(300);
+const STOP_TIMEOUT: Duration = Duration::from_secs(120);
+const SCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long output may still arrive after the command ended.
+const OUTPUT_GRACE: Duration = Duration::from_secs(3);
+
+/// How long SSH may take to answer after podman reports the machine started.
+const SSH_READY_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Prepares a stopped VM: small startup memory (the host's free RAM decides
+/// whether Hyper-V can start it at all), shut down rather than saved when
+/// the host shuts down, no saved state, and no Ignition items left over
+/// from a failed start (they make every further start fail with 32773).
+/// The machine name comes from the environment, never from the script text.
+const PREPARE_PS: &str = r#"
+$ErrorActionPreference = 'Stop'
+$name = $env:HARNESS_VM
+$vm = Get-VM -Name $name
+if ($vm.State -eq 'Saved') { Remove-VMSavedState -VMName $name }
+Set-VM -Name $name -AutomaticStopAction ShutDown -AutomaticStartAction Nothing
+Set-VMMemory -VMName $name -DynamicMemoryEnabled $true `
+  -StartupBytes ([int64]$env:HARNESS_STARTUP_MB * 1MB) `
+  -MinimumBytes ([int64]$env:HARNESS_MINIMUM_MB * 1MB) `
+  -MaximumBytes ([int64]$env:HARNESS_MAXIMUM_MB * 1MB)
+$ns = 'root\virtualization\v2'
+$cs = Get-CimInstance -Namespace $ns -ClassName Msvm_ComputerSystem -Filter "ElementName='$name'"
+$vssd = Get-CimAssociatedInstance -InputObject $cs -ResultClassName Msvm_VirtualSystemSettingData |
+  Where-Object VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized'
+$kvp = Get-CimAssociatedInstance -InputObject $vssd -ResultClassName Msvm_KvpExchangeComponentSettingData
+$items = @($kvp.HostExchangeItems | Where-Object { $_ -match 'ignition\.config' })
+if ($items.Count -gt 0) {
+  $vsms = Get-CimInstance -Namespace $ns -ClassName Msvm_VirtualSystemManagementService
+  Invoke-CimMethod -InputObject $vsms -MethodName RemoveKvpItems `
+    -Arguments @{ TargetSystem = $cs; DataItems = [string[]]$items } | Out-Null
+  "Ignition-Reste entfernt: $($items.Count)"
+}
+"#;
+
+/// Hard power-off after a failed start or stop.
+const TURN_OFF_PS: &str = r#"
+Stop-VM -Name $env:HARNESS_VM -TurnOff -Force -ErrorAction SilentlyContinue
+"#;
+
+/// Hyper-V's view of the VM: `Running`, `Off`, `Saved`, …
+const STATE_PS: &str = r#"
+$ErrorActionPreference = 'Stop'
+(Get-VM -Name $env:HARNESS_VM).State.ToString()
+"#;
+
+/// Runs a command, capturing stdout and stderr, and kills it after
+/// `timeout`. Returns success and the combined output.
+fn run(mut command: Command, timeout: Duration) -> (bool, String) {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => return (false, format!("Start fehlgeschlagen: {e}")),
+    };
+    // Output is collected as it arrives: a process the command started can
+    // inherit the pipes and keep them open long after the command ended
+    // (cmd and its children, possibly a helper of podman), so the readers
+    // are not waited for beyond a short grace period.
+    let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let readers: Vec<_> = [
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|mut stream| {
+        let output = Arc::clone(&output);
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            while let Ok(n) = stream.read(&mut buffer) {
+                if n == 0 {
+                    break;
+                }
+                output
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .extend_from_slice(&buffer[..n]);
+            }
+        })
+    })
+    .collect();
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(200)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let grace = Instant::now() + OUTPUT_GRACE;
+    while readers.iter().any(|r| !r.is_finished()) && Instant::now() < grace {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let output =
+        String::from_utf8_lossy(&output.lock().unwrap_or_else(|p| p.into_inner())).into_owned();
+    match status {
+        Some(status) => (status.success(), output),
+        None => (
+            false,
+            format!("nach {} s abgebrochen\n{output}", timeout.as_secs()),
+        ),
+    }
+}
+
+/// The last lines of command output for messages and the log.
+fn tail(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(6)..].join(" | ")
+}
+
+/// The machine the service owns.
+pub struct Vm {
+    config: Config,
+}
+
+impl Vm {
+    /// Control of the configured machine.
+    pub fn new(config: Config) -> Vm {
+        Vm { config }
+    }
+
+    fn dir(name: &str) -> PathBuf {
+        vmd::service_dir().join(name)
+    }
+
+    /// The environment for podman and PowerShell: what Windows itself needs
+    /// from the service's own (SYSTEM) environment, plus the private dirs.
+    fn base_env(&self) -> Vec<(OsString, OsString)> {
+        let mut env: Vec<(OsString, OsString)> = [
+            "SystemRoot",
+            "SystemDrive",
+            "windir",
+            "ComSpec",
+            "PATHEXT",
+            "ProgramFiles",
+            "CommonProgramFiles",
+            "NUMBER_OF_PROCESSORS",
+            "PROCESSOR_ARCHITECTURE",
+            "OS",
+            "COMPUTERNAME",
+            "PSModulePath",
+        ]
+        .into_iter()
+        .filter_map(|key| std::env::var_os(key).map(|value| (key.into(), value)))
+        .collect();
+        let system32 = Path::new(&std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into()))
+            .join("System32");
+        let mut path = vec![
+            system32.clone(),
+            system32.join("WindowsPowerShell").join("v1.0"),
+        ];
+        if let Some(dir) = self.config.podman.parent() {
+            path.push(dir.to_owned());
+        }
+        env.push((
+            "PATH".into(),
+            std::env::join_paths(path).unwrap_or_default(),
+        ));
+        let home = vmd::podman_home();
+        for (key, value) in [
+            ("HOME", home.clone()),
+            ("USERPROFILE", home),
+            ("APPDATA", Self::dir("appdata")),
+            ("LOCALAPPDATA", Self::dir("localappdata")),
+            ("ProgramData", Self::dir("programdata")),
+            ("TEMP", Self::dir("tmp")),
+            ("TMP", Self::dir("tmp")),
+            (
+                "CONTAINERS_CONF",
+                vmd::service_dir().join("containers.conf"),
+            ),
+        ] {
+            env.push((key.into(), value.into_os_string()));
+        }
+        env.push(("CONTAINERS_MACHINE_PROVIDER".into(), "hyperv".into()));
+        env.push(("HARNESS_VM".into(), self.config.machine.clone().into()));
+        env
+    }
+
+    /// Creates the private directories podman uses.
+    pub fn prepare_dirs(&self) {
+        for dir in [
+            vmd::podman_home(),
+            Self::dir("appdata"),
+            Self::dir("localappdata"),
+            Self::dir("programdata"),
+            Self::dir("tmp"),
+        ] {
+            let _ = fs::create_dir_all(dir);
+        }
+    }
+
+    fn podman(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(&self.config.podman);
+        command.env_clear().envs(self.base_env()).args(args);
+        command
+    }
+
+    fn powershell(&self, script: &str) -> Command {
+        let system32 = Path::new(&std::env::var_os("SystemRoot").unwrap_or("C:\\Windows".into()))
+            .join("System32");
+        let mut command = Command::new(
+            system32
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe"),
+        );
+        command
+            .env_clear()
+            .envs(self.base_env())
+            .env(
+                "HARNESS_STARTUP_MB",
+                self.config.startup_memory_mb.to_string(),
+            )
+            .env(
+                "HARNESS_MINIMUM_MB",
+                self.config.minimum_memory_mb.to_string(),
+            )
+            .env(
+                "HARNESS_MAXIMUM_MB",
+                self.config.maximum_memory_mb.to_string(),
+            )
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ]);
+        command
+    }
+
+    fn ssh_port(&self) -> Option<u16> {
+        MachineConfig::from_path(&vmd::machine_json(&self.config.machine))
+            .ok()
+            .map(|machine| machine.ssh_port)
+    }
+
+    /// Hyper-V's state and whether SSH answers.
+    pub fn state(&self) -> VmState {
+        let (ok, output) = run(self.powershell(STATE_PS), SCRIPT_TIMEOUT);
+        if !ok {
+            return VmState::Unknown;
+        }
+        match output.trim() {
+            "Running" => match self.ssh_port() {
+                Some(port) if vmd::ssh_answers(port, SSH_BANNER_TIMEOUT) => VmState::Running,
+                _ => VmState::Unresponsive,
+            },
+            "Off" | "Saved" => VmState::Stopped,
+            _ => VmState::Unknown,
+        }
+    }
+
+    /// Starts the machine unless it already answers; restarts it if it runs
+    /// but SSH does not answer.
+    pub fn start(&self) -> Result<String, String> {
+        match self.state() {
+            VmState::Running => return Ok("Die VM läuft bereits.".to_owned()),
+            VmState::Unresponsive => {
+                log::line("VM läuft, SSH antwortet nicht: Neustart");
+                self.stop()?;
+            }
+            VmState::Stopped | VmState::Unknown => {}
+        }
+        let (ok, output) = run(self.powershell(PREPARE_PS), SCRIPT_TIMEOUT);
+        if !ok {
+            return Err(format!("Vorbereitung fehlgeschlagen: {}", tail(&output)));
+        }
+        if !output.trim().is_empty() {
+            log::line(&format!("Vorbereitung: {}", tail(&output)));
+        }
+        let started = Instant::now();
+        let (ok, output) = run(
+            self.podman(&["machine", "start", &self.config.machine]),
+            START_TIMEOUT,
+        );
+        log::line(&format!(
+            "podman machine start ({} s): {}",
+            started.elapsed().as_secs(),
+            tail(&output)
+        ));
+        if !ok {
+            self.clean_up_failed_start();
+            return Err(format!("Start fehlgeschlagen: {}", tail(&output)));
+        }
+        let port = self.ssh_port().ok_or("SSH-Port der Machine unbekannt")?;
+        let deadline = Instant::now() + SSH_READY_TIMEOUT;
+        while !vmd::ssh_answers(port, SSH_BANNER_TIMEOUT) {
+            if Instant::now() > deadline {
+                return Err("Die VM läuft, aber SSH antwortet nicht.".to_owned());
+            }
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        Ok(format!(
+            "Die VM ist gestartet ({} s).",
+            started.elapsed().as_secs()
+        ))
+    }
+
+    /// After a failed start: power off and remove what would block the
+    /// next one (spike §12.3).
+    fn clean_up_failed_start(&self) {
+        let _ = run(self.powershell(TURN_OFF_PS), SCRIPT_TIMEOUT);
+        // Resets podman's own "starting" state of the machine.
+        let _ = run(
+            self.podman(&["machine", "stop", &self.config.machine]),
+            STOP_TIMEOUT,
+        );
+        let _ = run(self.powershell(PREPARE_PS), SCRIPT_TIMEOUT);
+    }
+
+    /// Stops the machine; powers it off if podman cannot.
+    pub fn stop(&self) -> Result<String, String> {
+        let (ok, output) = run(
+            self.podman(&["machine", "stop", &self.config.machine]),
+            STOP_TIMEOUT,
+        );
+        log::line(&format!("podman machine stop: {}", tail(&output)));
+        if ok {
+            return Ok("Die VM ist gestoppt.".to_owned());
+        }
+        let (off, output) = run(self.powershell(TURN_OFF_PS), SCRIPT_TIMEOUT);
+        if off && self.state() == VmState::Stopped {
+            Ok("Die VM wurde hart ausgeschaltet.".to_owned())
+        } else {
+            Err(format!("Stopp fehlgeschlagen: {}", tail(&output)))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commands_run_with_a_timeout() {
+        let mut slow = Command::new("cmd.exe");
+        slow.args(["/d", "/c", "ping -n 30 127.0.0.1 > nul"]);
+        let started = Instant::now();
+        let (ok, output) = run(slow, Duration::from_secs(1));
+        assert!(!ok);
+        assert!(output.contains("abgebrochen"), "{output}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        let mut quick = Command::new("cmd.exe");
+        quick.args(["/d", "/c", "echo out& echo err 1>&2"]);
+        let (ok, output) = run(quick, Duration::from_secs(10));
+        assert!(ok);
+        assert!(output.contains("out") && output.contains("err"), "{output}");
+    }
+
+    #[test]
+    fn environment_points_into_the_service_dir() {
+        let vm = Vm::new(Config {
+            machine: "harness".into(),
+            podman: r"C:\Program Files\RedHat\Podman\podman.exe".into(),
+            user_sid: "S-1-5-21-1-2-3-1001".into(),
+            startup_memory_mb: 1024,
+            minimum_memory_mb: 512,
+            maximum_memory_mb: 4096,
+        });
+        let env = vm.base_env();
+        let get = |key: &str| {
+            env.iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| PathBuf::from(v))
+        };
+        for key in [
+            "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "ProgramData",
+            "TEMP",
+            "CONTAINERS_CONF",
+        ] {
+            let value = get(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(value.starts_with(vmd::service_dir()), "{key} = {value:?}");
+        }
+        assert!(get("XDG_CONFIG_HOME").is_none());
+        assert!(get("CONTAINER_HOST").is_none());
+        assert_eq!(tail("a\n\nb\nc\n"), "a | b | c");
+    }
+}

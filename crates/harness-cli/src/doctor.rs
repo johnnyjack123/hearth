@@ -135,6 +135,15 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         }
     }
 
+    let service = harness_core::vmd::request(harness_core::vmd::Request::Status);
+    match &service {
+        Ok(answer) => report.ok(format!("VM-Dienst läuft, VM: {:?}", answer.state)),
+        Err(_) => report.warn(
+            "VM-Dienst nicht eingerichtet: `harness vmd install` startet die VM künftig ohne \
+             Admin-Fenster",
+        ),
+    }
+
     let podman = match find_podman() {
         Ok(path) => path,
         Err(error) => {
@@ -155,10 +164,14 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         Ok(info) => info,
         Err(error) => {
             report.fail(error);
-            report.hint(format!(
-                "VM in einer Admin-PowerShell starten: $env:CONTAINERS_MACHINE_PROVIDER='hyperv'; \
-                 & \"C:\\Program Files\\RedHat\\Podman\\podman.exe\" machine start {machine_name}"
-            ));
+            if service.is_ok() {
+                report.hint("VM starten: harness vmd start");
+            } else {
+                report.hint(format!(
+                    "VM in einer Admin-PowerShell starten: $env:CONTAINERS_MACHINE_PROVIDER='hyperv'; \
+                     & \"C:\\Program Files\\RedHat\\Podman\\podman.exe\" machine start {machine_name}"
+                ));
+            }
             return Ok(());
         }
     };
