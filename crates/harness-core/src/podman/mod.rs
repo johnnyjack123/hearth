@@ -398,6 +398,12 @@ impl Provider for PodmanProvider {
         Ok(status.code().unwrap_or(137))
     }
 
+    fn exec_command(&self, exec: &ExecSpec) -> Result<Command> {
+        let mut cmd = self.command()?;
+        cmd.args(args::exec(exec)?);
+        Ok(cmd)
+    }
+
     fn exec_output(&self, exec: &ExecSpec) -> Result<ExecOutput> {
         if exec.tty || exec.interactive {
             return Err(Error::Unsupported(

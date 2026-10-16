@@ -77,6 +77,10 @@ pub trait Provider {
     /// stdio (with a TTY if requested) and returns its exit code.
     fn exec(&self, exec: &ExecSpec) -> Result<i32>;
 
+    /// The process [`Provider::exec`] would start, for callers that attach
+    /// it to a console of their own (`pty`). Its stdio settings are unset.
+    fn exec_command(&self, exec: &ExecSpec) -> Result<std::process::Command>;
+
     /// Runs a command in a running container and captures its output.
     fn exec_output(&self, exec: &ExecSpec) -> Result<ExecOutput>;
 

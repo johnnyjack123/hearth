@@ -17,6 +17,8 @@ pub mod pi;
 pub mod podman;
 pub mod project;
 pub mod provider;
+#[cfg(windows)]
+pub mod pty;
 pub mod server;
 pub mod sync;
 

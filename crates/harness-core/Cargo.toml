@@ -17,5 +17,8 @@ toml.workspace = true
 toml_edit.workspace = true
 ureq.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
