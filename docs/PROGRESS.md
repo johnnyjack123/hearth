@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-16 · Phase 2 im Kern fertig: Rückfragen im selben Terminal und Hinweise an den Agent gebaut, alle Tests grün; nächstes ist harness-vmd_
+_Last updated: 2026-10-16 · Phase 2 fertig und vom Nutzer geprüft; Merge-Prüfung (2c) und pi auf dem Host (Phase 5) vorgemerkt; nächstes ist harness-vmd_
 
 ## Where we are
 
@@ -30,8 +30,11 @@ Bausteine:
 
 ## Next step
 
-1. **Erste Rückmeldung (16.10.):** Das Relay läuft, die erste Frage kam aber zu `pi.dev` (behoben mit `PI_OFFLINE`). GitHub ging ohne Frage, weil `development` es erlaubt. Noch offen: **Rückmeldung zum Terminal-Relay** in Windows Terminal: Maus, Einfügen, Farben, Rückfrage über pi. Bei Problemen `HARNESS_TERMINAL_LOG=<datei>` mitschneiden lassen. Notlösung ist `HARNESS_DIRECT_TERMINAL=1`.
-2. **Phase 2b `harness-vmd`** (VM ohne Admin-Fenster) und `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt. Das ist der Wunsch des Nutzers vom 15.10., siehe ROADMAP.
+Der Nutzer hat am 16.10. in Windows Terminal geprüft: Sperren und Freigeben über die Rückfrage im selben Fenster funktionieren. Vorschlag für die Reihenfolge (Nutzer entscheidet):
+
+1. **Phase 2b `harness-vmd`:** Die VM startet und stoppt ohne Admin-Fenster. Dazu kommt `harness` ohne Argumente, das das Projekt nach Rückfrage selbst anlegt (Wunsch des Nutzers vom 15.10.). Für die Einrichtung des Dienstes braucht es einmal UAC.
+2. **Phase 2c Merge-Prüfung** (Wunsch des Nutzers vom 16.10.): zuerst die festen Regeln in harness, dann Scanner im Container, dann die KI-Prüfung über den Server.
+3. Danach Phase 3 (App) bzw. Phase 4 (Agent aus dem Web).
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
@@ -66,7 +69,7 @@ Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt t
 
 ## Open questions for the user
 
-- Wie sich die Rückfragen im echten Windows Terminal anfühlen (siehe Next step 1).
+- Reihenfolge: zuerst `harness-vmd` oder zuerst die Merge-Prüfung?
 
 ## Known issues / debt
 

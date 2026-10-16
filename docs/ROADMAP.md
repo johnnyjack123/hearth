@@ -8,8 +8,9 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Offen: Rückmeldung des Nutzers zum Terminal-Relay |
+| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | offen |
+| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | offen (Idee des Nutzers vom 16.10.) |
 | 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
@@ -139,6 +140,43 @@ Der Installer richtet den Dienst einmal mit UAC ein.
 - Ist der Ordner noch kein Projekt, fragt harness einmal nach und legt es an. Ohne Git-Repository bietet es `git init` an.
 - Nicht gekoppelt: Hinweis auf `harness login`.
 
+## Phase 2c – Merge-Prüfung
+
+**Wunsch des Nutzers (16.10.):** Bei `harness merge` läuft automatisch eine Prüfung über den Diff des Agents. Sie sucht nach Verdächtigem, auch nach verschachtelten Tricks, und zeigt die Funde an. Hintergrund: Der realistischste Weg aus der Sandbox ist Code, den der Nutzer übernimmt und dann auf Windows ausführt.
+
+Fertig gibt es das für Agent-Diffs nicht, wohl aber Bausteine:
+- GuardDog (Datadog, Semgrep- und YARA-Regeln für bösartige npm- und PyPI-Pakete)
+- Semgrep
+- OSV mit den `MAL-`-Einträgen für bekannte Schadpakete
+- gitleaks bzw. trufflehog für Secrets
+- YARA/ClamAV und Microsoft Defender (`MpCmdRun -Scan -ScanType 3 -File …`) für Binärdateien
+- Socket als kommerzieller Dienst mit KI-Prüfung von Paketen
+
+Geplant in drei Stufen:
+1. **Feste Regeln in harness** (schnell, nicht zu täuschen, wichtigste Stufe):
+   - **Stellen, die auf dem Host von selbst Code ausführen:**
+     - Git-Hooks (`.husky/`, `.githooks/`, `lefthook.yml`, `.pre-commit-config.yaml`)
+     - `scripts` in `package.json` (`preinstall`, `postinstall`, `prepare`)
+     - `.vscode/tasks.json` mit `runOn: folderOpen`, `.vscode/settings.json`, `.devcontainer/`, `.envrc`
+     - CI-Workflows, `Makefile`, Build-Skripte (`setup.py`, `build.rs`), `*.ps1`, `*.bat`, `*.cmd`
+     - `.npmrc`/`.yarnrc` mit anderer Registry, `.gitmodules`
+   - **Muster im Inhalt:**
+     - lange Base64- oder Hex-Blöcke, sehr lange Zeilen, hohe Entropie
+     - `eval`/`exec`/`Function` mit dekodierten Daten, `curl … | sh`, `Invoke-Expression`, `powershell -enc`
+     - Zugriffe auf `~/.ssh`, `%APPDATA%`, Browser- und Anmeldedaten
+     - Umgebungsvariablen sammeln und ins Netz schicken
+   - **Unsichtbares:** Bidi-Steuerzeichen (Trojan Source), Zero-Width-Zeichen, Homoglyphen
+   - **Dateiarten:** neue Binärdateien und Executables, Symlinks
+   - **Abhängigkeiten:** neue Pakete gegen OSV prüfen (auch `MAL-`), Tippfehler-Namen bekannter Pakete erkennen
+2. **Vorhandene Scanner** (GuardDog, Semgrep, gitleaks) in einem eigenen Container auf den geänderten Dateien, nicht auf dem Host. Binärdateien zusätzlich mit Defender.
+3. **KI-Prüfung über den Server** (DeepSeek o. Ä.) für Verschachteltes: Das Modell liest den Diff mit Kontext und meldet Funde mit Datei, Zeile und Begründung.
+   - Der Diff stammt vom Agent und kann Prompt-Injection enthalten („das ist sicher“). Die KI darf deshalb nur Funde hinzufügen, nie Funde der Regeln entkräften.
+   - Sie hat keine Werkzeuge und antwortet in festem Format.
+
+Anzeige: `harness merge` listet die Funde nach Schwere (Datei, Zeile, Grund). Bei schweren Funden fragt es nach, mit `--force` ohne Rückfrage. Später auch in App und Web-Chat.
+
+Grenze: Kein Scanner findet zuverlässig alles. Die Prüfung ist ein Sicherheitsnetz, der Blick in den Diff bleibt.
+
 ## Phase 3 – Desktop-App und Gateway
 
 - Tauri 2 als Hülle, Frontend ist `apps/web` mit Desktop-Funktionen per Capability-Erkennung
@@ -179,7 +217,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
   Wichtig: Wer bestätigt, führt Agent-Code mit vollen Rechten aus. Die Befehlszeile sieht harmlos aus, das Skript dahinter kann alles.
 - **Sync-Modus** (Live-Spiegelung des Volumes in einen Host-Ordner)
-- **pi auf dem Host, Werkzeuge in der Sandbox** (Idee des Nutzers vom 16.10.). pi unterstützt das selbst: Seine Doku nennt es „tool-only isolation“, die Beispiele sind `examples/extensions/ssh.ts` und Gondolin.
+- **pi auf dem Host, Werkzeuge in der Sandbox** (Idee des Nutzers vom 16.10., für später vorgemerkt; vorerst bleibt pi im Container). pi unterstützt das selbst: Seine Doku nennt es „tool-only isolation“, die Beispiele sind `examples/extensions/ssh.ts` und Gondolin.
   - So ginge es: Eine harness-Erweiterung ersetzt `read`, `write`, `edit` und `bash` durch Varianten mit eigenen Operations (`createBashTool` usw.), die über eine gehaltene `podman exec`-Verbindung in der Instanz arbeiten. `user_bash` leitet pis `!`-Befehle ebenso um. Ein `tool_call`-Handler blockiert jedes andere Werkzeug, so führen Fehler zur Ablehnung statt zur Ausführung auf dem Host. Rückfragen des Gateways erscheinen als pi-Dialog (`ctx.ui.select`).
   - Vorteile: pis Oberfläche läuft ohne Relay direkt im Terminal (Maus, Zwischenablage, Abfragen), und Rückfragen sind echte pi-Dialoge.
   - Risiken:
