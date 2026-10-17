@@ -1,4 +1,8 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { loadConfig } from '../src/config.ts';
 import { createSecretBox, keyHint } from '../src/crypto.ts';
 import { parseDatabaseUrl } from '../src/db/index.ts';
 import { fallbackTitle } from '../src/routes/chat.ts';
@@ -34,6 +38,23 @@ describe('secret box', () => {
   it('shows only the last four characters as hint', () => {
     expect(keyHint('sk-1234567890abcd')).toBe('…abcd');
     expect(keyHint('short')).toBe('…');
+  });
+});
+
+describe('loadConfig', () => {
+  it('treats empty variables as unset, as Docker Compose passes them', () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-config-'));
+    const config = loadConfig({
+      DATA_DIR: dataDir,
+      DATABASE_URL: '',
+      HARNESS_SECRET: '',
+      TRUSTED_ORIGINS: '',
+      WEB_DIST: '',
+      NODE_ENV: 'production',
+    });
+    expect(config.databaseUrl).toBe(`sqlite:${path.join(dataDir, 'harness.db')}`);
+    expect(config.secret.length).toBeGreaterThanOrEqual(32);
+    expect(config.trustedOrigins).toEqual(['http://localhost:8080']);
   });
 });
 

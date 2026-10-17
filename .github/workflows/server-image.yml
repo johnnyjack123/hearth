@@ -1,0 +1,142 @@
+# Builds the server image for amd64 and arm64 on native runners, starts
+# each once as a smoke test, and publishes one multi-arch image to GHCR:
+# ghcr.io/<owner>/llm-harness-server:{latest,sha-<commit>,<version>}.
+name: Server-Image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - apps/server/**
+      - apps/web/**
+      - packages/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
+      - .dockerignore
+      - .github/workflows/server-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: server-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/llm-harness-server
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build for the smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: smoke:${{ matrix.arch }}
+          load: true
+          cache-from: type=gha,scope=server-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=server-${{ matrix.arch }}
+
+      - name: Smoke test (health, web app, database in the volume)
+        run: |
+          docker run -d --name smoke -p 8080:8080 \
+            -e PUBLIC_URL=http://localhost:8080 -e DATABASE_URL= \
+            -v smoke-data:/data smoke:${{ matrix.arch }}
+          for i in $(seq 60); do
+            curl -fsS http://127.0.0.1:8080/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS http://127.0.0.1:8080/device | grep -q '<div id="root">'
+          docker exec smoke ls /data | grep -q harness.db
+          docker exec smoke sh -c 'test "$(id -u)" != 0'
+          docker logs smoke
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=server-${{ matrix.arch }}
+
+      - name: Keep the digest for the manifest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+
+      - name: Create the multi-arch image
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Show it
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}

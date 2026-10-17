@@ -1,0 +1,28 @@
+# Build context of apps/server/Dockerfile: only what server and web app
+# need. Never the server's data directory: it holds the database with the
+# encrypted API keys and the secret that decrypts them.
+**/data
+**/*.db
+**/*.db-*
+**/server-secret
+.env
+.env.*
+
+**/node_modules
+**/dist
+**/.vite
+**/coverage
+**/*.tsbuildinfo
+apps/web/e2e/.output
+
+# Not part of the server
+.git
+target
+crates
+images
+spikes
+scripts
+docs
+*.md
+!apps/**/*.md
+.cargo

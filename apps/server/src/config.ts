@@ -50,7 +50,11 @@ const SECRET_FILE = 'server-secret';
  * @throws {z.ZodError} If a variable is present but invalid.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
-  const parsed = envSchema.parse(env);
+  // Docker Compose passes unset `${VAR:-}` as an empty string; empty means
+  // "not set", never an empty database URL or secret.
+  const parsed = envSchema.parse(
+    Object.fromEntries(Object.entries(env).filter(([, value]) => value !== '')),
+  );
   const dataDir = path.resolve(parsed.DATA_DIR);
   mkdirSync(dataDir, { recursive: true });
 

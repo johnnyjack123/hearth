@@ -1,0 +1,40 @@
+# Server und Web-App von llm-harness. Einstellungen stehen in .env neben
+# dieser Datei (Vorlage: .env.example).
+#
+#   docker compose up -d                      mit SQLite im Volume harness-data
+#   docker compose --profile postgres up -d   zusätzlich Postgres (DATABASE_URL in .env)
+#
+# Das Image ist privat, solange das Repository privat ist: vorher einmal
+#   docker login ghcr.io -u <github-name>     (Token mit read:packages)
+
+services:
+  server:
+    image: ghcr.io/johnnyjack123/llm-harness-server:${HARNESS_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HARNESS_PORT:-8080}:8080"
+    # PUBLIC_URL, HARNESS_SECRET, TRUSTED_ORIGINS und DATABASE_URL gehen
+    # direkt an den Server.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - harness-data:/data
+
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    profiles: [postgres]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harness
+      POSTGRES_DB: harness
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - harness-postgres:/var/lib/postgresql/data
+
+volumes:
+  harness-data:
+  harness-postgres:
