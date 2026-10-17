@@ -77,6 +77,7 @@ cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gate
 cargo test -p harness-core --test instance_vm -- --ignored --nocapture    # Instanz, Installation über das Gateway, models.json
 cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~2 min)
 cargo test -p harness-cli --test terminal_vm -- --ignored --test-threads=1  # harness shell/run pi in einem simulierten Terminal (Rückfragen, Strg+C, Größe)
+node --test crates/harness-core/pi/guard.test.ts   # Muster des pi-Schutzes gegen Prompt-Injection (läuft auch in cargo test, wenn node da ist)
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
 ```
 
@@ -187,6 +188,22 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - Im `-U0`-Patch hängt git bei Namen mit Leerzeichen einen Tab an die `+++`-Zeile; ungewöhnliche Namen kommen C-quotiert (`unquote`). Binärdateien haben keine `+++`-Zeile, sondern `Binary files … and b/<pfad> differ`.
 - Regeln sind absichtlich grob und reden nicht mit dem Agent. Neue Regeln brauchen einen Test in `review.rs`, auch einen gegen Fehlalarme (`ordinary_changes_stay_quiet`). Ähnliche Paketnamen: Abstand 1 zu `POPULAR`; legitime Nachbarn (`preact`, `just` …) stehen selbst in der Liste.
 - Fundtexte und Pfade stammen vom Agent: Ausgabe nur über `review::excerpt` bzw. `sanitize`. Richtungs- und Nullbreitenzeichen erscheinen dabei als `<U+202E>`.
+
+### Server-Image (`apps/server/Dockerfile`, `.github/workflows/server-image.yml`, `docs/deploy.md`)
+
+- Multi-Stage-Build mit Kontext Repo-Root, `pnpm deploy --prod` für die Produktions-Abhängigkeiten. **`pnpm deploy` kopiert den ganzen Paketordner**, also auch `apps/server/data` mit Entwicklungsdatenbank (verschlüsselte Keys) und `server-secret`. Deshalb schließt `.dockerignore` `**/data`, `*.db*` und `server-secret` aus. Nie entfernen.
+- `better-sqlite3` 13 bringt Prebuilds für linux-x64/arm64 mit (glibc und musl), im Image wird nichts kompiliert.
+- Workflow: amd64 auf `ubuntu-24.04`, arm64 nativ auf `ubuntu-24.04-arm` (geht auch im privaten Repo). Jede Architektur wird vor dem Push gestartet und geprüft, dann entsteht ein Multi-Arch-Manifest in GHCR. Ein neu hinzugefügter Workflow startete beim ersten Push nicht; `gh workflow run server-image.yml` half, danach lösen Pushes aus.
+- Compose reicht `.env` per `env_file` an den Server. Leere Variablen gelten im Server als nicht gesetzt (`loadConfig`), weil Compose `${VAR:-}` leer übergibt.
+- `.env*`-Dateien darf Claude Code hier nicht schreiben (Read-Deny-Regel des Nutzers). Die Vorlage steht in `docs/deploy.md`.
+
+### Schutz gegen Prompt-Injection (`harness-core/pi/guard.ts`, `briefing.rs`)
+
+- Die Erweiterung liegt im Tools-Volume unter `/opt/harness-tools/harness/pi-guard-<hash>.ts`, der Name folgt dem Inhalt. Nur der Installer-Container schreibt dort (`instance::write_tool_file`), Instanzen lesen nur. `harness run` lädt sie per `-e`, wenn die Harness-Definition `guard = "pi"` hat. Schlägt das Ablegen fehl, startet pi mit Hinweis trotzdem.
+- Sie hängt sich an `tool_result`, warnt nur und blockiert nie. Eingebettete Anweisungen erkennen ist grundsätzlich unzuverlässig, wirklich schützt die Sandbox.
+- pi (Node 24) lädt `.ts`-Erweiterungen direkt. `node --test` kann `guard.ts` ebenso direkt testen, weil nur `import type` vorkommt.
+- **Test ohne echtes Modell:** Ein Mock im OpenAI-Format kann selbst Werkzeugaufrufe schicken (`tool_calls` im Stream, `finish_reason: "tool_calls"`). pi führt sie aus und schickt das Ergebnis zurück. Mit `PI_CODING_AGENT_DIR=/tmp/…` und eigener `models.json` läuft das in `harness shell`, ohne pis gemeinsames Volume zu berühren.
+- **ureq und HTTPS:** ureq gab native-tls bisher eine eigene, leere Root-Liste mit, damit scheiterte jede HTTPS-Verbindung. `server::tls_config()` nutzt jetzt den Zertifikatsspeicher von Windows (`RootCerts::PlatformVerifier`); neue Clients bitte darüber bauen.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 
