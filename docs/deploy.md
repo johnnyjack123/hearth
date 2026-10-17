@@ -33,8 +33,73 @@ Postgres statt SQLite: `POSTGRES_PASSWORD` und `DATABASE_URL` in der `.env` setz
 
 ### Grenzen heute
 
-- **Nur `http://` zwischen Gateway und Server.** Das Gateway in der VM spricht noch kein TLS (ROADMAP, Known issues). Im Heimnetz geht das. Das Geräte-Token läuft dann aber unverschlüsselt durchs LAN. Für einen Server im Internet braucht es zuerst TLS im Gateway.
+- Mit `http://` läuft das Geräte-Token unverschlüsselt durchs Netz. Im Heimnetz mag das gehen, für einen Server im Internet immer HTTPS nehmen (nächster Abschnitt).
 - `.local`-Namen (mDNS) löst das Gateway nicht auf. In `harness login` die IP-Adresse oder einen DNS-Namen verwenden.
+- Ein Server auf dem Windows-Rechner selbst ist für das Gateway nur per `http://localhost:<port>` erreichbar, nicht per `https://`: Die VM erreicht ihn über eine andere Adresse, auf die das Zertifikat nicht ausgestellt ist.
+
+## HTTPS mit einem Reverse-Proxy (Caddy)
+
+Der Server selbst spricht nur HTTP. TLS übernimmt ein Reverse-Proxy davor, hier Caddy. Das Gateway in der VM verschlüsselt seinerseits selbst (rustls, Mozillas Wurzelzertifikate sind eingebaut) und prüft Zertifikat und Namen; abschalten lässt sich die Prüfung nicht. `harness login https://…` reicht, das Gateway übernimmt die Adresse beim nächsten `harness run` bzw. `harness net start`.
+
+Caddy neben dem Server im selben Compose-Projekt, z. B. als `docker-compose.override.yml` neben `docker-compose.yml` (Compose liest sie automatisch):
+
+```yaml
+services:
+  caddy:
+    image: docker.io/library/caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  caddy-data:
+```
+
+In der `.env` dann `PUBLIC_URL=https://<name>` setzen (der Kopplungs-Link und die Login-Cookies hängen daran). Den Port 8080 braucht nur noch Caddy; wer ihn nicht im Netz offen lassen will, setzt `HARNESS_PORT=127.0.0.1:8080`.
+
+**Server im Internet (VPS) mit öffentlichem Namen:** Caddy holt das Zertifikat selbst bei Let's Encrypt, Ports 80 und 443 müssen von außen erreichbar sein. `Caddyfile`:
+
+```
+harness.example.com {
+	reverse_proxy server:8080
+}
+```
+
+Auf dem Windows-Rechner: `harness login https://harness.example.com`. Sonst ist nichts einzurichten.
+
+**Heimnetz ohne öffentlichen Namen (Raspberry Pi):** Caddy stellt mit `tls internal` Zertifikate seiner eigenen CA aus. Der Name muss im LAN auflösbar sein (Router-DNS, z. B. `raspberrypi.fritz.box`, kein `.local`), oder man nimmt die IP-Adresse:
+
+```
+raspberrypi.fritz.box, 192.168.1.50 {
+	tls internal
+	reverse_proxy server:8080
+}
+```
+
+Dann das Wurzelzertifikat von Caddy auf den Windows-Rechner holen:
+
+```sh
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./harness-root.crt
+```
+
+und in `%USERPROFILE%\.harness\config.toml` eintragen, **vor** `harness login`:
+
+```toml
+[server]
+ca = 'C:\Users\<name>\harness-root.crt'
+```
+
+Für den Server vertraut harness dann nur dieser CA, auf dem Windows-Rechner (Kopplung, `harness doctor`) und im Gateway, das die Zertifikate mit dem Geräte-Token über seinen Steuerkanal bekommt. Die Datei darf PEM (wie Caddys `root.crt`) oder DER (Windows-Export `.cer`) sein. `harness logout` lässt den Eintrag stehen. Die CA in Windows zu importieren ist nicht nötig. Danach `harness login https://raspberrypi.fritz.box`.
+
+Antworten der Modelle kommen als Stream (Server-Sent Events); Caddy reicht sie ohne Puffern durch. Schlägt der Handshake fehl, zeigen `harness net status` und `harness net watch` bei `llm.harness` „TLS zum harness-Server fehlgeschlagen“. Die genaue Ursache steht in der Fehlerseite an den Agent (Status 502, z. B. „certificate not valid for name …“ oder `UnknownIssuer`) und in `podman logs` des Gateway-Containers.
+
+### Gateway-Image
+
+Das Gateway-Image kompiliert in der VM die TLS-Bibliotheken (rustls, ring, webpki-roots) und lädt sie dafür beim ersten `harness image build gateway` von crates.io, einige MB. Versionen und Prüfsummen stehen fest in `images/gateway/Cargo.lock`; die Datei ist der Workspace-Lock, beschränkt aufs Gateway (`bash scripts/gateway-lock.sh`, ein Test meldet Abweichungen). Auf dem Windows-Entwicklungsrechner baut das Gateway ohne TLS (Feature `tls` aus), weil `ring` dort clang bräuchte. Gelintet und getestet wird der TLS-Code im Workflow `.github/workflows/gateway.yml` und beim Bau des Images.
 
 ## `.env`-Vorlage
 
