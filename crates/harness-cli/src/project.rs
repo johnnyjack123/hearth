@@ -81,7 +81,7 @@ pub fn resolve(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<Project
 }
 
 /// Asks a yes/no question on the terminal.
-fn confirm(question: &str, default: bool) -> anyhow::Result<bool> {
+pub fn confirm(question: &str, default: bool) -> anyhow::Result<bool> {
     print!("{question} {} ", if default { "[J/n]" } else { "[j/N]" });
     std::io::Write::flush(&mut std::io::stdout())?;
     let mut answer = String::new();

@@ -9,6 +9,7 @@
 
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -63,6 +64,134 @@ pub enum MergeOutcome {
         /// Files that would conflict.
         files: Vec<String>,
     },
+}
+
+/// Result of [`HostRepo::incoming`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Incoming {
+    /// Changed files.
+    pub files: Vec<IncomingFile>,
+    /// Whether the patch was longer than allowed and cut off.
+    pub truncated: bool,
+}
+
+/// A file a merge would change.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IncomingFile {
+    /// Path in the repository, `/`-separated.
+    pub path: String,
+    /// git's status letter: `A`dded, `M`odified, `D`eleted, `T`ype changed.
+    pub status: char,
+    /// Mode before, e.g. `100644`; `000000` for new files.
+    pub old_mode: String,
+    /// Mode after: `100755` executable, `120000` symlink, `160000`
+    /// submodule; `000000` for deleted files.
+    pub new_mode: String,
+    /// Whether git treats the content as binary.
+    pub binary: bool,
+    /// Added lines with their line number in the new file. For a symlink
+    /// the one line is its target.
+    pub added: Vec<(u32, String)>,
+}
+
+/// Parses `git diff --raw -z --no-renames`.
+fn parse_raw_diff(raw: &str) -> Vec<IncomingFile> {
+    let mut files = Vec::new();
+    let mut parts = raw.split('\0');
+    while let Some(header) = parts.next() {
+        let Some(header) = header.strip_prefix(':') else {
+            continue;
+        };
+        let Some(path) = parts.next() else {
+            break;
+        };
+        let fields: Vec<&str> = header.split(' ').collect();
+        if fields.len() < 5 {
+            continue;
+        }
+        files.push(IncomingFile {
+            path: path.to_owned(),
+            status: fields[4].chars().next().unwrap_or('M'),
+            old_mode: fields[0].to_owned(),
+            new_mode: fields[1].to_owned(),
+            ..IncomingFile::default()
+        });
+    }
+    files
+}
+
+/// Undoes git's C-style quoting of unusual paths (`"a\tb"`).
+fn unquote(path: &str) -> String {
+    let Some(inner) = path.strip_prefix('"').and_then(|p| p.strip_suffix('"')) else {
+        return path.to_owned();
+    };
+    let mut bytes = Vec::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            let mut buffer = [0u8; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('n') => bytes.push(b'\n'),
+            Some('t') => bytes.push(b'\t'),
+            Some(d @ '0'..='7') => {
+                let mut value = d.to_digit(8).unwrap_or(0);
+                for _ in 0..2 {
+                    if let Some(next) = chars.peek().and_then(|c| c.to_digit(8)) {
+                        value = value * 8 + next;
+                        chars.next();
+                    }
+                }
+                bytes.push(value as u8);
+            }
+            Some(other) => {
+                let mut buffer = [0u8; 4];
+                bytes.extend_from_slice(other.encode_utf8(&mut buffer).as_bytes());
+            }
+            None => {}
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Adds the added lines and binary flags of a `-U0` patch to `files`.
+fn apply_patch(files: &mut [IncomingFile], patch: &str) {
+    let mut current: Option<usize> = None;
+    let mut line_no = 0u32;
+    let find = |files: &[IncomingFile], path: &str| files.iter().position(|f| f.path == path);
+    for line in patch.lines() {
+        if line.starts_with("diff --git ") {
+            current = None;
+        } else if let Some(path) = line.strip_prefix("+++ ") {
+            // git appends a tab when the name contains a space.
+            let path = unquote(path.trim_end_matches('\t'));
+            current = path.strip_prefix("b/").and_then(|p| find(files, p));
+        } else if let Some(rest) = line.strip_prefix("Binary files ") {
+            // "Binary files a/x and b/y differ" (or /dev/null on one side).
+            if let Some(path) = rest
+                .rsplit_once(" and ")
+                .and_then(|(_, new)| new.strip_suffix(" differ"))
+                .map(unquote)
+                .and_then(|p| p.strip_prefix("b/").map(str::to_owned))
+                && let Some(index) = find(files, &path)
+            {
+                files[index].binary = true;
+            }
+        } else if let Some(hunk) = line.strip_prefix("@@ ") {
+            // "@@ -a,b +c,d @@": the new file's lines start at c.
+            line_no = hunk
+                .split(' ')
+                .find_map(|part| part.strip_prefix('+'))
+                .and_then(|range| range.split(',').next())
+                .and_then(|start| start.parse().ok())
+                .unwrap_or(0);
+        } else if let (Some(index), Some(text)) = (current, line.strip_prefix('+')) {
+            files[index].added.push((line_no, text.to_owned()));
+            line_no += 1;
+        }
+    }
 }
 
 impl HostRepo {
@@ -273,6 +402,60 @@ impl HostRepo {
             }),
             _ => Err(git_error("merge-tree", &dry_run)),
         }
+    }
+
+    /// Whether the local branch exists.
+    pub fn branch_exists(&self, branch: &str) -> Result<bool> {
+        Ok(self.rev_parse(&format!("refs/heads/{branch}"))?.is_some())
+    }
+
+    /// What merging `branch` would bring in: everything changed on it since
+    /// its merge base with HEAD, with the added lines of text files. At most
+    /// `max_patch_bytes` of patch are read. Diff drivers and textconv stay
+    /// off, so a `.gitattributes` from the agent cannot choose programs to
+    /// run here.
+    pub fn incoming(&self, branch: &str, max_patch_bytes: usize) -> Result<Incoming> {
+        let range = format!("HEAD...refs/heads/{branch}");
+        let common = [
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+        ];
+        let mut raw_args = common.to_vec();
+        raw_args.extend(["--raw", "-z", "--abbrev=40", &range]);
+        let raw = self.run("diff --raw", &raw_args)?;
+        let mut files = parse_raw_diff(&raw);
+
+        let mut patch_args = common.to_vec();
+        patch_args.extend(["-U0", &range]);
+        let mut child = self
+            .command()
+            .args(&patch_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|source| Error::Spawn {
+                program: self.git.clone(),
+                source,
+            })?;
+        let mut patch = Vec::new();
+        if let Some(stdout) = child.stdout.take() {
+            let _ = stdout
+                .take(max_patch_bytes as u64 + 1)
+                .read_to_end(&mut patch);
+        }
+        let truncated = patch.len() > max_patch_bytes;
+        if truncated {
+            let _ = child.kill();
+            patch.truncate(max_patch_bytes);
+        }
+        let _ = child.wait();
+        apply_patch(&mut files, &String::from_utf8_lossy(&patch));
+        Ok(Incoming { files, truncated })
     }
 
     fn command(&self) -> Command {

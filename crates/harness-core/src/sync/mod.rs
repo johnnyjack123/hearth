@@ -17,7 +17,7 @@ mod bundle;
 mod host;
 
 pub use bundle::BundleHeader;
-pub use host::{HostRepo, ImportOutcome, MergeOutcome, find_git};
+pub use host::{HostRepo, ImportOutcome, Incoming, IncomingFile, MergeOutcome, find_git};
 
 use crate::project::ProjectName;
 use crate::provider::{ExecSpec, Provider};

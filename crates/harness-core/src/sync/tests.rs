@@ -439,3 +439,47 @@ fn script_output_parsing() {
     assert_eq!(value("result=a\nresult=b\n", "result"), Some("b"));
     assert_eq!(sanitize("ok\n\u{1b}[31mred\u{7}"), "ok\n�[31mred�");
 }
+
+#[test]
+fn incoming_lists_what_a_merge_brings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = crate::paths::canonical(tmp.path()).unwrap().join("host");
+    let host = host_repo(&dir);
+    commit(&dir, "gone.txt", "bye\n", "to be deleted");
+    git(&dir, &["switch", "--quiet", "-c", BRANCH]);
+    // Modified with a line in the middle, added with odd names, binary,
+    // deleted; the host side moves on too, which the merge base hides.
+    write(&dir, "f.txt", "one\ntwo and a half\nthree\n");
+    write(&dir, "mit Leerzeichen äöü.txt", "a\nb\n");
+    fs::write(dir.join("blob.bin"), [0u8, 1, 2, 3, 0, 255]).unwrap();
+    git(&dir, &["rm", "--quiet", "gone.txt"]);
+    git(&dir, &["add", "--all"]);
+    git(&dir, &["commit", "--quiet", "-m", "agent work"]);
+    git(&dir, &["switch", "--quiet", "main"]);
+    commit(&dir, "host.txt", "host only\n", "host work");
+
+    let incoming = host.incoming(BRANCH, 1 << 20).unwrap();
+    assert!(!incoming.truncated);
+    let file = |path: &str| {
+        incoming
+            .files
+            .iter()
+            .find(|f| f.path == path)
+            .unwrap_or_else(|| panic!("{path} missing in {:?}", incoming.files))
+    };
+    assert_eq!(incoming.files.len(), 4, "{:?}", incoming.files);
+    assert_eq!(file("f.txt").status, 'M');
+    assert_eq!(file("f.txt").added, [(2, "two and a half".to_owned())]);
+    let odd = file("mit Leerzeichen äöü.txt");
+    assert_eq!(odd.status, 'A');
+    assert_eq!(odd.old_mode, "000000");
+    assert_eq!(odd.added, [(1, "a".to_owned()), (2, "b".to_owned())]);
+    assert!(file("blob.bin").binary);
+    assert!(file("blob.bin").added.is_empty());
+    assert_eq!(file("gone.txt").status, 'D');
+    // The host's own commit is not part of what comes in.
+    assert!(incoming.files.iter().all(|f| f.path != "host.txt"));
+
+    let cut = host.incoming(BRANCH, 64).unwrap();
+    assert!(cut.truncated);
+}

@@ -315,10 +315,13 @@ fn report_leftovers(provider: &PodmanProvider, project: &Project) -> anyhow::Res
 }
 
 /// `harness merge`: merges `agent/<project>` into the current branch.
-pub fn merge(config: &ConfigDir) -> anyhow::Result<bool> {
+pub fn merge(config: &ConfigDir, ignore_findings: bool) -> anyhow::Result<bool> {
     let project = project::resolve(config, None)?;
     let repo = HostRepo::open(&project.path)?;
     let branch = project.name.agent_branch();
+    if !crate::review::approve(&repo, &branch, ignore_findings)? {
+        return Ok(false);
+    }
     match repo.merge(&branch)? {
         MergeOutcome::UpToDate => println!("Alles von {branch} ist schon im aktuellen Branch."),
         MergeOutcome::FastForward { commits } => {

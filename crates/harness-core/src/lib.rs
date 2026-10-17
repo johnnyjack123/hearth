@@ -19,6 +19,7 @@ pub mod project;
 pub mod provider;
 #[cfg(windows)]
 pub mod pty;
+pub mod review;
 pub mod server;
 pub mod sync;
 pub mod vmd;

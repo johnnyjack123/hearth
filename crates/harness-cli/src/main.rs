@@ -9,6 +9,7 @@ mod doctor;
 mod login;
 mod net;
 mod project;
+mod review;
 mod run;
 mod terminal;
 mod vm;
@@ -69,8 +70,14 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Führt agent/<projekt> in den aktuellen Branch zusammen
-    Merge,
+    /// Prüft die Änderungen des Agents und führt agent/<projekt> in den aktuellen Branch zusammen
+    Merge {
+        /// Auch bei schweren Funden der Prüfung übernehmen (nach eigener Prüfung)
+        #[arg(long)]
+        ignore_findings: bool,
+    },
+    /// Prüft, was `harness merge` übernehmen würde, ohne es zu übernehmen
+    Review,
     /// Stoppt Instanz und Gateway des Projekts
     Stop,
     /// Zeigt, was für das Projekt läuft
@@ -183,7 +190,8 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         }
         Command::Shell => run::shell(&config, &machine_name(&config, cli.machine)?),
         Command::Sync { force } => run::sync(&config, &machine_name(&config, cli.machine)?, force),
-        Command::Merge => run::merge(&config),
+        Command::Merge { ignore_findings } => run::merge(&config, ignore_findings),
+        Command::Review => review::run(&config),
         Command::Stop => run::stop(&config, &machine_name(&config, cli.machine)?),
         Command::Status => run::status(&config, &machine_name(&config, cli.machine)?),
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
