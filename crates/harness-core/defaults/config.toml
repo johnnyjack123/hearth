@@ -20,6 +20,13 @@ llm_apis = ["api.deepseek.com"]
 # legt das Geräte-Token in der Windows-Anmeldeinformationsverwaltung ab.
 # [server]
 # url = "http://localhost:8080"
+#
+# Nutzt der Server per https:// ein Zertifikat einer eigenen CA (z. B. Caddy
+# mit `tls internal`), hier das Wurzelzertifikat als PEM-Datei angeben,
+# absoluter Pfad in einfachen Anführungszeichen. harness vertraut dem Server
+# dann nur über diese CA, auf diesem Rechner und im Gateway. `harness logout`
+# lässt den Eintrag stehen.
+# ca = 'C:\Users\name\harness-root.crt'
 
 # Prüfung vor `harness merge`. Die festen Regeln laufen immer.
 [review]

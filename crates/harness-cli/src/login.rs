@@ -11,19 +11,19 @@ use harness_core::Provider;
 use harness_core::config::ConfigDir;
 use harness_core::gateway::LlmUpstream;
 use harness_core::server::{
-    self, DEFAULT_SERVER_URL, PairingPoll, ServerClient, delete_token, load_token, save_token,
+    self, DEFAULT_SERVER_URL, PairingPoll, ServerCa, ServerClient, delete_token, load_token,
+    save_token,
 };
 
 /// Pairs this computer with a server (device flow).
 pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> anyhow::Result<bool> {
-    let url = match url {
-        Some(url) => url,
-        None => config
-            .global()?
-            .server
-            .map_or_else(|| DEFAULT_SERVER_URL.to_owned(), |server| server.url),
-    };
-    let client = ServerClient::new(&url)?;
+    let server = config.global()?.server;
+    let url = url
+        .or_else(|| server.url.clone())
+        .unwrap_or_else(|| DEFAULT_SERVER_URL.to_owned());
+    // A server with its own CA needs it from the first request on.
+    let ca = ServerCa::from_config(&server)?;
+    let client = ServerClient::new(&url, ca.as_ref())?;
     let previous = load_token(client.url())?;
     let pairing = client.start_pairing(&device_name())?;
 
@@ -73,16 +73,20 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
 
 /// Revokes this computer's token and forgets it.
 pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
-    let Some(server) = config.global()?.server else {
+    let server = config.global()?.server;
+    let Some(url) = server.url.clone() else {
         println!("Nicht angemeldet.");
         return Ok(true);
     };
     // Running gateways hold a copy of the token; only the server can make
     // it worthless right away.
     let mut revoked = true;
-    if let Some(token) = load_token(&server.url)? {
-        match ServerClient::new(&server.url).and_then(|client| client.revoke(&token)) {
-            Ok(()) => println!("Gerät auf {} entfernt.", server.url),
+    if let Some(token) = load_token(&url)? {
+        let revoke = ServerCa::from_config(&server)
+            .and_then(|ca| ServerClient::new(&url, ca.as_ref()))
+            .and_then(|client| client.revoke(&token));
+        match revoke {
+            Ok(()) => println!("Gerät auf {url} entfernt."),
             Err(error) => {
                 revoked = false;
                 println!(
@@ -91,7 +95,7 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
                 );
             }
         }
-        delete_token(&server.url)?;
+        delete_token(&url)?;
     }
     config.set_server_url(None)?;
     if revoked {
@@ -106,13 +110,15 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
 
 /// The paired server and this computer's token, if any.
 pub fn paired(config: &ConfigDir) -> anyhow::Result<Option<(ServerClient, String)>> {
-    let Some(server) = config.global()?.server else {
+    let server = config.global()?.server;
+    let Some(url) = &server.url else {
         return Ok(None);
     };
-    let Some(token) = load_token(&server.url)? else {
+    let Some(token) = load_token(url)? else {
         return Ok(None);
     };
-    Ok(Some((ServerClient::new(&server.url)?, token)))
+    let ca = ServerCa::from_config(&server)?;
+    Ok(Some((ServerClient::new(url, ca.as_ref())?, token)))
 }
 
 /// Where gateways send `llm.harness` requests, if this computer is paired.
@@ -122,17 +128,20 @@ pub fn gateway_llm(
     config: &ConfigDir,
     provider: &dyn Provider,
 ) -> anyhow::Result<(Option<LlmUpstream>, String)> {
-    let Some(server) = config.global()?.server else {
+    let server = config.global()?.server;
+    let Some(url) = &server.url else {
         return Ok((None, "nicht eingerichtet (harness login)".to_owned()));
     };
-    let Some(token) = load_token(&server.url)? else {
-        return Ok((
-            None,
-            format!("kein Geräte-Token für {} (harness login)", server.url),
-        ));
+    let Some(token) = load_token(url)? else {
+        return Ok((None, format!("kein Geräte-Token für {url} (harness login)")));
     };
-    match server::llm_upstream(&server.url, provider.host_address(), &token) {
-        Ok(upstream) => Ok((Some(upstream), format!("über {}", server.url))),
+    let ca = match ServerCa::from_config(&server) {
+        Ok(ca) => ca,
+        Err(error) => return Ok((None, error.to_string())),
+    };
+    match server::llm_upstream(url, provider.host_address(), &token, ca.as_ref()) {
+        Ok(upstream) if upstream.ca().is_empty() => Ok((Some(upstream), format!("über {url}"))),
+        Ok(upstream) => Ok((Some(upstream), format!("über {url} (eigene CA)"))),
         Err(error) => Ok((None, error.to_string())),
     }
 }

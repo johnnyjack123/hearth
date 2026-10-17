@@ -11,8 +11,9 @@
 //! the gateway container (`podman exec`), which talks to a Unix socket that
 //! instances cannot reach. Protocol: [`control`].
 //!
-//! Standard library only, so the image build needs no crates download, and
-//! one thread per connection, which is plenty for one agent per gateway.
+//! Standard library only, apart from the TLS stack behind the `tls` feature
+//! (an `https://` harness server), and one thread per connection, which is
+//! plenty for one agent per gateway.
 
 #![warn(missing_docs)]
 
@@ -22,10 +23,12 @@ mod gateway;
 pub mod http;
 pub mod llm;
 pub mod pattern;
+pub mod pem;
 pub mod policy;
 pub mod proxy;
+mod upstream;
 
 pub use gateway::{Gateway, Options};
-pub use llm::{LLM_HOST, LlmUpstream};
+pub use llm::{LLM_HOST, LlmUpstream, Scheme};
 pub use pattern::{DomainPattern, Host};
 pub use policy::{Mode, Policy, Reason};

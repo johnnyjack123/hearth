@@ -303,7 +303,8 @@ impl ConfigDir {
     }
 
     /// Sets (or with `None` removes) `[server] url` in `config.toml`,
-    /// creating the configuration folder if needed.
+    /// creating the configuration folder if needed. Other keys of
+    /// `[server]` (`ca`) stay; the table goes once it is empty.
     pub fn set_server_url(&self, url: Option<&str>) -> Result<GlobalConfig> {
         self.init()?;
         let file = self.config_file();
@@ -315,7 +316,16 @@ impl ConfigDir {
         match url {
             Some(url) => doc["server"]["url"] = toml_edit::value(url),
             None => {
-                doc.remove("server");
+                let empty = match doc.get_mut("server").and_then(|s| s.as_table_like_mut()) {
+                    Some(server) => {
+                        server.remove("url");
+                        server.is_empty()
+                    }
+                    None => false,
+                };
+                if empty {
+                    doc.remove("server");
+                }
             }
         }
         let global: GlobalConfig = parse(&file, &doc.to_string())?;

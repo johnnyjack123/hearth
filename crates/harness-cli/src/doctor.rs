@@ -6,7 +6,7 @@ use harness_core::Provider;
 use harness_core::config::{ConfigDir, GlobalConfig};
 use harness_core::image::{BASE_IMAGE, GATEWAY_IMAGE, ImageStatus};
 use harness_core::podman::{MachineConfig, PodmanProvider, find_podman};
-use harness_core::server::{ServerClient, load_token};
+use harness_core::server::{ServerCa, ServerClient, load_token};
 
 /// Runs all checks; returns whether all passed.
 pub fn run(config: &ConfigDir, machine_flag: Option<&str>) -> anyhow::Result<bool> {
@@ -21,16 +21,15 @@ pub fn run(config: &ConfigDir, machine_flag: Option<&str>) -> anyhow::Result<boo
 /// Pairing with the harness server; missing pairing is only a warning,
 /// because harnesses can also log in to their provider themselves.
 fn check_server(global: &GlobalConfig, report: &mut Report) {
-    let Some(server) = &global.server else {
+    let Some(url) = &global.server.url else {
         report.warn("Nicht mit einem harness-Server gekoppelt → harness login");
         return;
     };
-    let token = match load_token(&server.url) {
+    let token = match load_token(url) {
         Ok(Some(token)) => token,
         Ok(None) => {
             report.fail(format!(
-                "Kein Geräte-Token für {} gespeichert → harness login",
-                server.url
+                "Kein Geräte-Token für {url} gespeichert → harness login"
             ));
             return;
         }
@@ -39,15 +38,16 @@ fn check_server(global: &GlobalConfig, report: &mut Report) {
             return;
         }
     };
-    let checked = ServerClient::new(&server.url).and_then(|client| {
+    let checked = ServerCa::from_config(&global.server).and_then(|ca| {
+        let client = ServerClient::new(url, ca.as_ref())?;
         let me = client.device(&token)?;
         let credentials = client.credentials(&token)?;
         Ok((me, credentials.len()))
     });
     match checked {
         Ok((me, count)) => report.ok(format!(
-            "Server {}: angemeldet als {} (Gerät „{}“), {count} Anbieter",
-            server.url, me.user.email, me.device.name
+            "Server {url}: angemeldet als {} (Gerät „{}“), {count} Anbieter",
+            me.user.email, me.device.name
         )),
         Err(error) => report.fail(error),
     }
