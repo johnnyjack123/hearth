@@ -10,6 +10,7 @@ use crate::http::{self, HeadError, RequestHead, Target};
 use crate::llm::{CREDENTIAL_HEADERS, LLM_HOST};
 use crate::pattern::Host;
 use crate::policy::Reason;
+use crate::upstream::Upstream;
 
 /// Time a client gets to send its request head.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
@@ -94,33 +95,36 @@ fn handle(gateway: &Gateway, client: TcpStream) {
         Ok(reason) => reason,
         Err(reason) => {
             gateway.record(false, host, port, reason);
-            refuse(&client, host, reason);
+            refuse(&client, host, reason, None);
             return;
         }
     };
-    let upstream = match connect(gateway, host, port) {
-        Ok(upstream) => upstream,
+    let socket = match connect(gateway, host, port) {
+        Ok(socket) => socket,
         Err(failure) => {
             gateway.record(false, host, port, failure);
-            refuse(&client, host, failure);
+            refuse(&client, host, failure, None);
             return;
         }
+    };
+    let _ = socket.set_nodelay(true);
+    let Ok(mut upstream) = Upstream::plain(socket) else {
+        return;
     };
     gateway.record(true, host, port, reason);
 
     let _ = client.set_read_timeout(None);
-    let _ = upstream.set_nodelay(true);
     let started = match &head.target {
         Target::Tunnel { .. } => {
             (&client).write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
         }
         Target::Forward { .. } => match http::forward_head(&head) {
-            Some(text) => (&upstream).write_all(text.as_bytes()),
+            Some(text) => upstream.writer.write_all(text.as_bytes()),
             None => return,
         },
     };
     if started.is_ok() {
-        relay(&client, reader, &upstream);
+        relay(&client, reader, upstream);
     }
 }
 
@@ -129,7 +133,10 @@ fn handle(gateway: &Gateway, client: TcpStream) {
 ///
 /// The upstream is the one target outside the address filter (on a local
 /// server it is the VM's route to Windows' localhost). That is safe because
-/// the host sets it; the agent only picks the path below its prefix.
+/// the host sets it; the agent only picks the path below its prefix. Clients
+/// always speak plain HTTP here; for an `https://` server the gateway
+/// encrypts itself, which is the only way the token stays out of the
+/// instance.
 fn forward_llm(
     gateway: &Gateway,
     client: &TcpStream,
@@ -173,9 +180,9 @@ fn forward_llm(
     let Target::Forward { path, .. } = &head.target else {
         return;
     };
-    let Some(upstream) = gateway.llm() else {
+    let Some((upstream, connector)) = gateway.llm() else {
         gateway.record(false, host, port, Reason::NoLlm);
-        refuse(client, host, Reason::NoLlm);
+        refuse(client, host, Reason::NoLlm, None);
         return;
     };
     let Some(upstream_path) = upstream.path(path) else {
@@ -194,8 +201,20 @@ fn forward_llm(
     });
     let Some(server) = server else {
         gateway.record(false, host, port, Reason::ConnectFailed);
-        refuse(client, host, Reason::ConnectFailed);
+        refuse(client, host, Reason::ConnectFailed, None);
         return;
+    };
+    let _ = server.set_nodelay(true);
+    let mut server = match connector.open(upstream.host(), server) {
+        Ok(server) => server,
+        Err((reason, detail)) => {
+            if options.print_log {
+                println!("{LLM_HOST} → {}: {detail}", upstream.url());
+            }
+            gateway.record(false, host, port, reason);
+            refuse(client, host, reason, Some(&detail));
+            return;
+        }
     };
     gateway.record(true, host, port, Reason::Llm);
 
@@ -203,14 +222,13 @@ fn forward_llm(
     let text = http::rewrite_head(
         head,
         &upstream_path,
-        &http::host_header(upstream.host(), upstream.port()),
+        &upstream.host_header(),
         CREDENTIAL_HEADERS,
         &[("Authorization", &bearer)],
     );
     let _ = client.set_read_timeout(None);
-    let _ = server.set_nodelay(true);
-    if (&server).write_all(text.as_bytes()).is_ok() {
-        relay(client, reader, &server);
+    if server.writer.write_all(text.as_bytes()).is_ok() {
+        relay(client, reader, server);
     }
 }
 
@@ -239,10 +257,11 @@ fn connect(gateway: &Gateway, host: &Host, port: u16) -> Result<TcpStream, Reaso
 }
 
 /// Error page for a refused connection. CONNECT clients often hide the body,
-/// so the reason is also in a header.
-fn refuse(client: &TcpStream, host: &Host, reason: Reason) {
+/// so the reason is also in a header. `detail` explains failures in depth
+/// (TLS errors); it never contains secrets.
+fn refuse(client: &TcpStream, host: &Host, reason: Reason, detail: Option<&str>) {
     let status = match reason {
-        Reason::ResolveFailed | Reason::ConnectFailed => 502,
+        Reason::ResolveFailed | Reason::ConnectFailed | Reason::TlsFailed => 502,
         Reason::NoLlm => 503,
         Reason::Unanswered => 504,
         _ => 403,
@@ -258,6 +277,10 @@ fn refuse(client: &TcpStream, host: &Host, reason: Reason) {
             "Freigeben auf dem Host / to allow it, the user runs: harness net allow {host}\n"
         ));
     }
+    if let Some(detail) = detail {
+        body.push_str(detail);
+        body.push('\n');
+    }
     let _ = http::write_response(
         &mut &*client,
         status,
@@ -269,23 +292,25 @@ fn refuse(client: &TcpStream, host: &Host, reason: Reason) {
 /// Copies bytes both ways until the server is done, then closes both sides.
 /// No idle timeout: a streamed LLM answer can pause for minutes while the
 /// client sends nothing.
-fn relay(client: &TcpStream, mut from_client: BufReader<TcpStream>, upstream: &TcpStream) {
-    let Ok(mut to_upstream) = upstream.try_clone() else {
-        return;
-    };
+fn relay(client: &TcpStream, mut from_client: BufReader<TcpStream>, upstream: Upstream) {
+    let Upstream {
+        mut writer,
+        mut reader,
+        socket,
+    } = upstream;
     let uploader = thread::Builder::new()
         .name("upload".to_owned())
         .stack_size(THREAD_STACK)
         .spawn(move || {
             // The BufReader first hands over what it already buffered.
-            let _ = io::copy(&mut from_client, &mut to_upstream);
-            let _ = to_upstream.shutdown(Shutdown::Write);
+            let _ = io::copy(&mut from_client, &mut writer);
+            writer.finish();
         });
-    let _ = io::copy(&mut &*upstream, &mut &*client);
+    let _ = io::copy(&mut reader, &mut &*client);
     // Server finished: end the client side too, which also unblocks the
     // uploader if the client keeps its half open.
     let _ = client.shutdown(Shutdown::Both);
-    let _ = upstream.shutdown(Shutdown::Both);
+    let _ = socket.shutdown(Shutdown::Both);
     if let Ok(uploader) = uploader {
         let _ = uploader.join();
     }

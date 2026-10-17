@@ -415,3 +415,130 @@ fn direct_requests_get_an_explanation() {
     assert_eq!(response.status, 400);
     assert!(response.body().contains("HTTP-Proxy"));
 }
+
+/// `llm.harness` to an `https://` server: the gateway speaks TLS itself and
+/// checks the certificate against the configured name and CA.
+#[cfg(feature = "tls")]
+mod tls {
+    use std::sync::Arc;
+
+    use harness_gateway::pem;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::{ServerConfig, ServerConnection, StreamOwned};
+
+    use super::*;
+
+    const CA: &str = include_str!("fixtures/ca.pem");
+    const SERVER_CHAIN: &str = include_str!("fixtures/server.pem");
+    const SERVER_KEY: &str = include_str!("fixtures/server.key");
+
+    /// Like `http_server`, over TLS with the test certificates.
+    fn https_server() -> (u16, Receiver<Vec<String>>) {
+        let chain = pem::certificates(SERVER_CHAIN)
+            .unwrap()
+            .into_iter()
+            .map(CertificateDer::from)
+            .collect();
+        let key = pem::blocks(SERVER_KEY, "PRIVATE KEY").unwrap().remove(0);
+        let config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(chain, PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key)))
+                .unwrap();
+        let config = Arc::new(config);
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            for socket in listener.incoming().flatten() {
+                let connection = ServerConnection::new(config.clone()).unwrap();
+                let mut reader = BufReader::new(StreamOwned::new(connection, socket));
+                // A failed handshake ends the first read.
+                let head: Vec<String> = reader
+                    .by_ref()
+                    .lines()
+                    .map_while(Result::ok)
+                    .take_while(|line| !line.is_empty())
+                    .collect();
+                if head.is_empty() {
+                    continue;
+                }
+                let _ = tx.send(head);
+                let tls = reader.get_mut();
+                let _ = tls.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
+                );
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+        (port, rx)
+    }
+
+    /// The test CA in the wire form of the `llm` request.
+    fn ca_field() -> String {
+        pem::certificates(CA)
+            .unwrap()
+            .iter()
+            .map(|der| pem::base64_encode(der))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    #[test]
+    fn llm_requests_reach_an_https_server() {
+        let (gateway, proxy) = start(address::is_public);
+        let (port, heads) = https_server();
+        let token = "device-token-0123456789abcdef";
+        let chat = "POST http://llm.harness/c1/v1/chat/completions HTTP/1.1\r\n\
+                    Authorization: Bearer agent-made-this-up\r\n\
+                    Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}";
+        let mut control = Control::open(&gateway);
+
+        // Mozilla's roots do not know the test CA.
+        control.send(&format!("llm https://harness.test:{port}/api/llm {token}"));
+        let unknown = request(proxy, chat);
+        assert_eq!(unknown.status, 502);
+        assert_eq!(unknown.headers["x-harness-gateway"], "tls-failed");
+        let body = unknown.body();
+        assert!(body.contains("UnknownIssuer"), "{body}");
+
+        let ca = ca_field();
+        for (url, host) in [
+            (
+                format!("https://harness.test:{port}/api/llm"),
+                format!("harness.test:{port}"),
+            ),
+            (
+                format!("https://127.0.0.1:{port}/api/llm"),
+                format!("127.0.0.1:{port}"),
+            ),
+        ] {
+            control.send(&format!("llm {url} {token} {ca}"));
+            let response = request(proxy, chat);
+            assert_eq!(response.status, 200, "{url}");
+            assert_eq!(response.body(), "hello");
+            let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(head[0], "POST /api/llm/c1/v1/chat/completions HTTP/1.1");
+            assert!(head.contains(&format!("Host: {host}")), "{head:?}");
+            assert!(
+                head.contains(&format!("Authorization: Bearer {token}")),
+                "{head:?}"
+            );
+            assert!(!head.iter().any(|h| h.contains("made-this-up")), "{head:?}");
+        }
+
+        // The same certificate under a name it does not carry.
+        control.send(&format!(
+            "llm https://other.test:{port}/api/llm {token} {ca}"
+        ));
+        let wrong = request(proxy, chat);
+        assert_eq!(wrong.status, 502);
+        assert_eq!(wrong.headers["x-harness-gateway"], "tls-failed");
+        let body = wrong.body();
+        assert!(body.contains("not valid for name"), "{body}");
+        assert!(!body.contains(token), "{body}");
+    }
+}

@@ -7,8 +7,8 @@
 //! `watch` also receives `event …` lines at any time, including between a
 //! request and its answer.
 //!
-//! All fields are validated tokens (hosts, patterns, numbers, fixed words),
-//! so a line never needs quoting. Hosts originate from agent requests; they
+//! All fields are validated tokens (hosts, patterns, numbers, fixed words,
+//! base64), so a line never needs quoting. Hosts originate from agent requests; they
 //! pass [`Host::parse`] on both ends, which also keeps terminal escapes out of
 //! the CLI.
 
@@ -87,9 +87,10 @@ pub enum Request {
         /// `Some` allows for the given scope, `None` refuses.
         allow: Option<Scope>,
     },
-    /// Set or clear where `llm.harness` forwards to: `llm <url> <token>` or
-    /// `llm none`. Carries the device token, so the host sends it through
-    /// stdin, never as an argument.
+    /// Set or clear where `llm.harness` forwards to: `llm <url> <token>`,
+    /// `llm <url> <token> <ca>` (root certificates as comma-separated
+    /// base64 DER) or `llm none`. Carries the device token, so the host
+    /// sends it through stdin, never as an argument.
     Llm(Option<LlmUpstream>),
     /// Receive events on this connection and answer questions. While at
     /// least one connection watches, requests to unknown hosts wait for an
@@ -169,8 +170,15 @@ impl FromStr for Request {
             }
             "llm" => match words[..] {
                 ["none"] => Ok(Request::Llm(None)),
-                [url, token] => Ok(Request::Llm(Some(LlmUpstream::new(url, token)?))),
-                _ => Err("llm: erwartet <url> <token> oder none".to_owned()),
+                [url, token] => Ok(Request::Llm(Some(LlmUpstream::from_wire(
+                    url, token, None,
+                )?))),
+                [url, token, ca] => Ok(Request::Llm(Some(LlmUpstream::from_wire(
+                    url,
+                    token,
+                    Some(ca),
+                )?))),
+                _ => Err("llm: erwartet <url> <token> [<ca>] oder none".to_owned()),
             },
             "watch" | "status" | "ping" | "bye" => {
                 arity(0)?;
@@ -479,6 +487,19 @@ mod tests {
                 )
                 .unwrap(),
             )),
+            Request::Llm(Some(
+                LlmUpstream::new("https://harness.example/api/llm", "abcdefghijklmnop0123")
+                    .unwrap(),
+            )),
+            Request::Llm(Some(
+                LlmUpstream::new("https://harness.example/api/llm", "abcdefghijklmnop0123")
+                    .unwrap()
+                    .with_ca(vec![
+                        [0x30, 0x01, 0x05].to_vec(),
+                        [0x30, 0x02, 1, 2].to_vec(),
+                    ])
+                    .unwrap(),
+            )),
             Request::Llm(None),
             Request::Watch,
             Request::Status,
@@ -506,7 +527,10 @@ mod tests {
             "status now",
             "llm",
             "llm http://example.com",
-            "llm https://example.com abcdefghijklmnop0123",
+            "llm ftp://example.com abcdefghijklmnop0123",
+            "llm http://example.com abcdefghijklmnop0123 MAMFAAA=",
+            "llm https://example.com abcdefghijklmnop0123 not-base64",
+            "llm https://example.com abcdefghijklmnop0123 MAEF x",
             "watch ",
             "rm -rf /",
         ] {
@@ -574,7 +598,7 @@ mod tests {
             denied: vec!["evil.example".parse().unwrap()],
             pending: vec![(3, Host::parse("docs.rs").unwrap(), 443)],
             watchers: 2,
-            llm: Some("http://192.168.127.254:8080/api/llm".into()),
+            llm: Some("https://harness.example:8443/api/llm".into()),
             log: vec![LogEntry {
                 time_ms: 5,
                 allowed: false,

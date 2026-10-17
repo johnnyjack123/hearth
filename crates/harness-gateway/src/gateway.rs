@@ -15,6 +15,7 @@ use crate::control::{Event, GrantInfo, LogEntry, MAX_LINE, Request, Scope, Statu
 use crate::llm::LlmUpstream;
 use crate::pattern::{DomainPattern, Host};
 use crate::policy::{Mode, Policy, Reason};
+use crate::upstream::Connector;
 
 /// Tunables of a [`Gateway`].
 #[derive(Debug, Clone)]
@@ -74,7 +75,7 @@ struct State {
     watchers: Vec<Watcher>,
     next_watcher: u64,
     log: VecDeque<LogEntry>,
-    llm: Option<LlmUpstream>,
+    llm: Option<(LlmUpstream, Connector)>,
 }
 
 struct Grant {
@@ -202,8 +203,8 @@ impl Gateway {
             .unwrap_or((false, Reason::Unanswered))
     }
 
-    /// Where `llm.harness` forwards to, if the host has set it.
-    pub(crate) fn llm(&self) -> Option<LlmUpstream> {
+    /// Where `llm.harness` forwards to and how, if the host has set it.
+    pub(crate) fn llm(&self) -> Option<(LlmUpstream, Connector)> {
         self.lock().llm.clone()
     }
 
@@ -337,9 +338,19 @@ impl Gateway {
                     .collect())
             }
             Request::Status => Ok(state.status(now).to_lines()),
-            Request::Llm(upstream) => {
-                state.llm = upstream;
+            Request::Llm(None) => {
+                state.llm = None;
                 Ok(Vec::new())
+            }
+            // A refused upstream also removes the previous one: requests
+            // must not keep going to a server the host has moved away from.
+            Request::Llm(Some(upstream)) => {
+                let connector = Connector::for_upstream(&upstream);
+                state.llm = None;
+                connector.map(|connector| {
+                    state.llm = Some((upstream, connector));
+                    Vec::new()
+                })
             }
             Request::Ping | Request::Bye => Ok(Vec::new()),
         };
@@ -534,7 +545,7 @@ impl State {
                 .map(|p| (p.id, p.host.clone(), p.port))
                 .collect(),
             watchers: self.watchers.len(),
-            llm: self.llm.as_ref().map(LlmUpstream::url),
+            llm: self.llm.as_ref().map(|(upstream, _)| upstream.url()),
             log: self.log.iter().cloned().collect(),
         }
     }

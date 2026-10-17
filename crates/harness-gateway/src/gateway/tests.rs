@@ -73,6 +73,40 @@ fn allowlist_open_and_deny() {
 }
 
 #[test]
+fn llm_upstreams() {
+    let gateway = gateway();
+    let token = "abcdefghijklmnop0123";
+    assert_eq!(
+        apply(
+            &gateway,
+            &format!("llm http://192.168.127.254:8080/x {token}")
+        ),
+        ["ok"]
+    );
+    let url = |gateway: &Gateway| gateway.llm().map(|(upstream, _)| upstream.url());
+    assert_eq!(
+        url(&gateway).as_deref(),
+        Some("http://192.168.127.254:8080/x")
+    );
+
+    let https = apply(&gateway, &format!("llm https://harness.example/x {token}"));
+    if cfg!(feature = "tls") {
+        assert_eq!(https, ["ok"]);
+        assert_eq!(url(&gateway).as_deref(), Some("https://harness.example/x"));
+    } else {
+        // Never plain HTTP instead, and not the old server either.
+        assert!(
+            https[0].starts_with("error ") && https[0].contains("TLS"),
+            "{https:?}"
+        );
+        assert_eq!(url(&gateway), None);
+    }
+
+    assert_eq!(apply(&gateway, "llm none"), ["ok"]);
+    assert_eq!(url(&gateway), None);
+}
+
+#[test]
 fn grants_expire_and_deny_list_wins() {
     let gateway = gateway();
     apply(&gateway, "policy allowlist noask - blocked.example");
