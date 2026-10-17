@@ -209,17 +209,57 @@ fn server_url_is_written_and_removed() {
         .config
         .set_server_url(Some("http://localhost:8080"))
         .unwrap();
-    assert_eq!(global.server.unwrap().url, "http://localhost:8080");
+    assert_eq!(global.server.url.as_deref(), Some("http://localhost:8080"));
     let text = fs::read_to_string(f.config.config_file()).unwrap();
     assert!(text.contains("# Podman-Machine"), "template kept: {text}");
     assert_eq!(
-        f.config.global().unwrap().server.unwrap().url,
-        "http://localhost:8080"
+        f.config.global().unwrap().server.url.as_deref(),
+        Some("http://localhost:8080")
     );
 
-    assert_eq!(f.config.set_server_url(None).unwrap().server, None);
-    assert_eq!(f.config.global().unwrap().server, None);
+    assert_eq!(
+        f.config.set_server_url(None).unwrap().server,
+        ServerConfig::default()
+    );
+    assert_eq!(f.config.global().unwrap().server, ServerConfig::default());
+    let text = fs::read_to_string(f.config.config_file()).unwrap();
+    assert!(!text.lines().any(|l| l == "[server]"), "{text}");
     assert!(f.config.set_server_url(Some("localhost:8080")).is_err());
+}
+
+#[test]
+fn server_ca_survives_logout() {
+    let f = fixture();
+    f.config.init().unwrap();
+    let ca = f.base.join("root.crt");
+    let mut text = fs::read_to_string(f.config.config_file()).unwrap();
+    text.push_str(&format!(
+        "\n[server]\n# Caddy tls internal\nca = '{}'\n",
+        ca.display()
+    ));
+    fs::write(f.config.config_file(), text).unwrap();
+
+    let global = f.config.set_server_url(Some("https://pi.lan")).unwrap();
+    assert_eq!(global.server.url.as_deref(), Some("https://pi.lan"));
+    assert_eq!(global.server.ca.as_deref(), Some(ca.as_path()));
+
+    // Logging out forgets the server, not the hand-written CA.
+    let global = f.config.set_server_url(None).unwrap();
+    assert_eq!(global.server.url, None);
+    assert_eq!(global.server.ca.as_deref(), Some(ca.as_path()));
+    let text = fs::read_to_string(f.config.config_file()).unwrap();
+    assert!(text.contains("# Caddy tls internal"), "{text}");
+
+    // Relative paths would depend on the current directory.
+    fs::write(f.config.config_file(), "[server]\nca = 'root.crt'\n").unwrap();
+    match f.config.global() {
+        Err(Error::ConfigInvalid { message, .. }) => {
+            assert!(message.contains("server.ca"), "{message}");
+        }
+        other => panic!("expected ConfigInvalid, got {other:?}"),
+    }
+    fs::write(f.config.config_file(), "[server]\ncert = 'x'\n").unwrap();
+    assert!(f.config.global().is_err(), "unknown key accepted");
 }
 
 #[test]

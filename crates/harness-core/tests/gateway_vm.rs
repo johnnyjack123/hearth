@@ -120,6 +120,7 @@ fn instances_reach_the_internet_only_through_the_gateway() {
         &format!("http://127.0.0.1:{server_port}"),
         provider.host_address(),
         token,
+        None,
     )
     .unwrap();
 

@@ -41,7 +41,7 @@ pub struct GlobalConfig {
     pub llm_apis: Vec<DomainPattern>,
     /// The harness server this computer is paired with (`harness login`).
     #[serde(default)]
-    pub server: Option<ServerConfig>,
+    pub server: ServerConfig,
     /// The check before `harness merge`.
     #[serde(default)]
     pub review: ReviewConfig,
@@ -55,7 +55,7 @@ impl Default for GlobalConfig {
         GlobalConfig {
             machine: default_machine(),
             llm_apis: default_llm_apis(),
-            server: None,
+            server: ServerConfig::default(),
             review: ReviewConfig::default(),
             defaults: Defaults::default(),
         }
@@ -66,12 +66,20 @@ impl Validate for GlobalConfig {
     fn validate(&self) -> Result<(), String> {
         crate::provider::validate_resource_name("Machine-Name", &self.machine)
             .map_err(|e| e.to_string())?;
-        if let Some(server) = &self.server
-            && !(server.url.starts_with("http://") || server.url.starts_with("https://"))
+        if let Some(url) = &self.server.url
+            && !(url.starts_with("http://") || url.starts_with("https://"))
         {
             return Err(format!(
-                "server.url muss mit http:// oder https:// beginnen, nicht {:?}",
-                server.url
+                "server.url muss mit http:// oder https:// beginnen, nicht {url:?}"
+            ));
+        }
+        if let Some(ca) = &self.server.ca
+            && !ca.is_absolute()
+        {
+            return Err(format!(
+                "server.ca muss ein absoluter Pfad sein, z. B. 'C:\\Users\\name\\caddy-root.crt', \
+                 nicht {:?}",
+                ca.display().to_string()
             ));
         }
         validate_harness_name(&self.defaults.harness)?;
@@ -80,12 +88,20 @@ impl Validate for GlobalConfig {
 }
 
 /// `[server]` in `config.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServerConfig {
-    /// Base URL, e.g. `http://localhost:8080`. The device token is not stored
-    /// here but in the OS credential store.
-    pub url: String,
+    /// Base URL of the paired server, e.g. `http://localhost:8080`; unset
+    /// when this computer is not paired. The device token is not stored here
+    /// but in the OS credential store.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// PEM file with the root certificate of a server with its own CA, e.g.
+    /// Caddy's `tls internal`. For an `https://` server harness then trusts
+    /// only this CA instead of the public ones, on the host and in the
+    /// gateway. Stays when logging out, unlike `url`.
+    #[serde(default)]
+    pub ca: Option<PathBuf>,
 }
 
 /// `[review]` in `config.toml`. The fixed rules always run.
