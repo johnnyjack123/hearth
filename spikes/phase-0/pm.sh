@@ -16,6 +16,10 @@ set -euo pipefail
 
 SPIKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACHINE_JSON="$USERPROFILE/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-harness}.json"
+# Once the VM service (harness vmd install) owns the machine, its JSON lives
+# in the service's directory; the user may read it.
+SERVICE_JSON="${SYSTEMDRIVE:-C:}/ProgramData/llm-harness/vmd/home/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-harness}.json"
+[[ -f "$SERVICE_JSON" ]] && MACHINE_JSON="$SERVICE_JSON"
 if [[ -z "${PODMAN_SSH_PORT:-}" && -f "$MACHINE_JSON" ]]; then
   # The port changes with every `machine init`, so never hard-code it.
   read -r PODMAN_SSH_PORT PODMAN_SSH_USER < <(node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(c.SSH.Port, c.SSH.RemoteUsername)" "$MACHINE_JSON")
