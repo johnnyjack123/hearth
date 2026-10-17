@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { checkDatabaseUrl, loadConfig, startupHint } from '../src/config.ts';
 import { createSecretBox, keyHint } from '../src/crypto.ts';
 import { parseDatabaseUrl } from '../src/db/index.ts';
-import { fallbackTitle } from '../src/routes/chat.ts';
+import { agentToolsAsText, fallbackTitle } from '../src/routes/chat.ts';
 
 describe('secret box', () => {
   const box = createSecretBox('unit-test-secret-0123456789-0123456789');
@@ -38,6 +38,33 @@ describe('secret box', () => {
   it('shows only the last four characters as hint', () => {
     expect(keyHint('sk-1234567890abcd')).toBe('…abcd');
     expect(keyHint('short')).toBe('…');
+  });
+});
+
+describe('agentToolsAsText', () => {
+  it('turns agent tool calls into text and drops display-only parts', () => {
+    const [reply] = agentToolsAsText([
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'Ich schaue nach.' },
+          {
+            type: 'dynamic-tool',
+            toolName: 'bash',
+            toolCallId: 'c1',
+            state: 'output-available',
+            input: { command: 'ls' },
+            output: { text: 'README.md' },
+          },
+          { type: 'data-notice', data: { level: 'info', text: 'x' } },
+        ],
+      },
+    ]);
+    expect(reply?.parts).toEqual([
+      { type: 'text', text: 'Ich schaue nach.' },
+      { type: 'text', text: '[The agent in the linked environment ran bash {"command":"ls"}; output: README.md]' },
+    ]);
   });
 });
 
