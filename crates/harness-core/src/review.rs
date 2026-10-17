@@ -934,6 +934,53 @@ fn declared_dependencies(file: &IncomingFile) -> Vec<(u32, String, &str)> {
     found
 }
 
+/// A dependency the changes declare.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dependency {
+    /// OSV's name for the package registry: `npm`, `PyPI` or `crates.io`.
+    pub ecosystem: &'static str,
+    /// Package name.
+    pub name: String,
+    /// File that declares it.
+    pub path: String,
+    /// Line in that file.
+    pub line: u32,
+    /// The line itself.
+    pub text: String,
+}
+
+/// The registry a manifest's dependencies come from.
+fn ecosystem(path: &str) -> Option<&'static str> {
+    let name = file_name(path).to_ascii_lowercase();
+    match name.as_str() {
+        "package.json" => Some("npm"),
+        "cargo.toml" => Some("crates.io"),
+        n if n.starts_with("requirements") && n.ends_with(".txt") => Some("PyPI"),
+        _ => None,
+    }
+}
+
+/// Dependencies declared in added lines of the manifests in `incoming`.
+pub fn dependencies(incoming: &Incoming) -> Vec<Dependency> {
+    incoming
+        .files
+        .iter()
+        .filter(|file| file.status != 'D' && !file.binary)
+        .filter_map(|file| ecosystem(&file.path).map(|ecosystem| (file, ecosystem)))
+        .flat_map(|(file, ecosystem)| {
+            declared_dependencies(file)
+                .into_iter()
+                .map(move |(line, name, text)| Dependency {
+                    ecosystem,
+                    name,
+                    path: file.path.clone(),
+                    line,
+                    text: text.to_owned(),
+                })
+        })
+        .collect()
+}
+
 fn check_dependencies(file: &IncomingFile, findings: &mut Vec<Finding>) {
     for (line, name, text) in declared_dependencies(file) {
         if let Some(original) = imitates(&name) {

@@ -331,7 +331,7 @@ pub fn merge(config: &ConfigDir, ignore_findings: bool) -> anyhow::Result<bool> 
     let project = project::resolve(config, None)?;
     let repo = HostRepo::open(&project.path)?;
     let branch = project.name.agent_branch();
-    if !crate::review::approve(&repo, &branch, ignore_findings)? {
+    if !crate::review::approve(config, &repo, &branch, ignore_findings)? {
         return Ok(false);
     }
     match repo.merge(&branch)? {

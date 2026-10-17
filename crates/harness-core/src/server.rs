@@ -12,7 +12,7 @@ use harness_gateway::LlmUpstream;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use ureq::Agent;
-use ureq::tls::{TlsConfig, TlsProvider};
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 use crate::{Error, Result};
 
@@ -137,16 +137,22 @@ pub struct ServerClient {
     agent: Agent,
 }
 
+/// TLS through Windows (SChannel) with the system's trusted roots. ureq
+/// otherwise hands native-tls its own root list, which is empty without
+/// the bundled Mozilla roots, and every https connection fails.
+pub(crate) fn tls_config() -> TlsConfig {
+    TlsConfig::builder()
+        .provider(TlsProvider::NativeTls)
+        .root_certs(RootCerts::PlatformVerifier)
+        .build()
+}
+
 impl ServerClient {
     /// A client for `url` (`http://` or `https://`, no path).
     pub fn new(url: &str) -> Result<ServerClient> {
         let url = normalize_url(url)?;
         let config = Agent::config_builder()
-            .tls_config(
-                TlsConfig::builder()
-                    .provider(TlsProvider::NativeTls)
-                    .build(),
-            )
+            .tls_config(tls_config())
             // Error bodies carry the reason; they are read below.
             .http_status_as_error(false)
             .timeout_global(Some(TIMEOUT))

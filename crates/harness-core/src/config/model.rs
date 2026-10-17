@@ -42,6 +42,9 @@ pub struct GlobalConfig {
     /// The harness server this computer is paired with (`harness login`).
     #[serde(default)]
     pub server: Option<ServerConfig>,
+    /// The check before `harness merge`.
+    #[serde(default)]
+    pub review: ReviewConfig,
     /// Defaults for projects.
     #[serde(default)]
     pub defaults: Defaults,
@@ -53,6 +56,7 @@ impl Default for GlobalConfig {
             machine: default_machine(),
             llm_apis: default_llm_apis(),
             server: None,
+            review: ReviewConfig::default(),
             defaults: Defaults::default(),
         }
     }
@@ -82,6 +86,26 @@ pub struct ServerConfig {
     /// Base URL, e.g. `http://localhost:8080`. The device token is not stored
     /// here but in the OS credential store.
     pub url: String,
+}
+
+/// `[review]` in `config.toml`. The fixed rules always run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewConfig {
+    /// Look new dependencies up in OSV's list of malicious packages; sends
+    /// their names to api.osv.dev.
+    #[serde(default = "default_true")]
+    pub osv: bool,
+}
+
+impl Default for ReviewConfig {
+    fn default() -> Self {
+        ReviewConfig { osv: true }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// `[defaults]` in `config.toml`.

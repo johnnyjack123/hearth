@@ -21,6 +21,12 @@ llm_apis = ["api.deepseek.com"]
 # [server]
 # url = "http://localhost:8080"
 
+# Prüfung vor `harness merge`. Die festen Regeln laufen immer.
+[review]
+# Neue Abhängigkeiten mit der OSV-Datenbank bekannter Schadpakete abgleichen.
+# Schickt dafür die Paketnamen an api.osv.dev; false schaltet das ab.
+osv = true
+
 [defaults]
 # Harness für `harness run` ohne Angabe
 harness = "pi"

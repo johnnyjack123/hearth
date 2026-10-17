@@ -12,6 +12,7 @@ pub mod error;
 pub mod gateway;
 pub mod image;
 pub mod instance;
+pub mod osv;
 pub mod paths;
 pub mod pi;
 pub mod podman;
