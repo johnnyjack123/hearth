@@ -326,6 +326,9 @@ pub struct HarnessConfig {
     /// How harness points the harness at `llm.harness` after `harness login`.
     #[serde(default)]
     pub llm: Option<LlmWiring>,
+    /// Guard against prompt injection that harness loads into the harness.
+    #[serde(default)]
+    pub guard: Option<GuardKind>,
     /// Option that appends text to the harness's system prompt; harness
     /// passes its notes about the sandbox with it (`briefing`).
     #[serde(default)]
@@ -336,6 +339,14 @@ pub struct HarnessConfig {
     /// Machine interface for the web chat (Phase 4).
     #[serde(default)]
     pub adapter: Option<AdapterConfig>,
+}
+
+/// Which guard against prompt injection a harness gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GuardKind {
+    /// pi: the extension `pi/guard.ts`, loaded with `-e`.
+    Pi,
 }
 
 /// How a harness is configured to reach its model through the server.

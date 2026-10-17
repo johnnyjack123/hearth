@@ -95,6 +95,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         persist: vec!["~/.itest".into()],
         llm: None,
         prompt_flag: None,
+        guard: None,
         env: Default::default(),
         adapter: None,
     };
@@ -178,6 +179,15 @@ fn instances_install_harnesses_and_keep_their_volumes() {
     assert_eq!(run(&format!("cat {}.bak", pi::MODELS_FILE)).stdout, "{oops");
     assert!(pi::unwire(&provider, &instance_name).unwrap());
     assert_eq!(read(), Existing::Missing);
+
+    // The guard against prompt injection lands in the tools volume, where
+    // the agent can read but not change it.
+    let guard = pi::ensure_guard(&provider, &project).unwrap();
+    assert!(instance::tool_file_exists(&provider, &name, &guard).unwrap());
+    assert_eq!(run(&format!("cat {guard}")).stdout, pi::GUARD_SOURCE);
+    let tamper = run(&format!("echo x > {guard}"));
+    assert_ne!(tamper.code, 0, "guard writable from the instance");
+    assert!(instance::write_tool_file(&provider, &project, "/workspace/x", "x").is_err());
 
     // Stop keeps the container; the next start reuses it.
     instance::stop(&provider, &name).unwrap();
