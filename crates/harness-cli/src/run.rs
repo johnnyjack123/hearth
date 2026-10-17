@@ -198,7 +198,19 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
         );
         return Ok(());
     };
-    let credentials = client.credentials(&token)?;
+    // Without the server pi still starts: the shell, its own logins and the
+    // wiring from the last run keep working, and model requests succeed as
+    // soon as the server is back.
+    let credentials = match client.credentials(&token) {
+        Ok(credentials) => credentials,
+        Err(error) => {
+            println!(
+                "pi: {error}. pi startet trotzdem; Anfragen ans Modell klappen erst, wenn der \
+                 harness-Server läuft."
+            );
+            return Ok(());
+        }
+    };
     let models = pi::models_json(&credentials);
     let own = pi::wire(&prepared.provider, &prepared.instance(), &models)?;
     let wired: Vec<&str> = models
