@@ -50,6 +50,8 @@ export type ButtonProps = ComponentProps<'button'> &
 
 /**
  * The only button in the app. Icon-only buttons must pass `aria-label`.
+ * It is `type="button"` unless told otherwise: inside a form the HTML default
+ * would be "submit", and a toolbar button in the composer sent the message.
  *
  * @param props - See {@link ButtonProps}.
  * @returns The button element.
@@ -62,6 +64,7 @@ export function Button({ className, variant, size, asChild = false, loading = fa
       className={cn(buttonVariants({ variant, size }), className)}
       disabled={asChild ? undefined : disabled || loading}
       aria-busy={loading || undefined}
+      type={asChild ? undefined : 'button'}
       {...props}
     >
       {asChild ? (

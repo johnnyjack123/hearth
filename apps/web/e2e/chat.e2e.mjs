@@ -238,13 +238,22 @@ try {
     try {
       await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
       await page.waitForSelector('[aria-label="Mit Umgebung verbinden"]', { timeout: 10_000 });
+      // A draft in the composer must stay a draft: the toolbar button once
+      // submitted the form.
+      await page.type('textarea', 'Noch nicht senden');
       await page.click('[aria-label="Mit Umgebung verbinden"]');
       await page.waitForSelector(`[role=dialog] ${text('demo')}`, { timeout: 10_000 });
+      const draft = await page.$eval('textarea', (element) => element.value);
+      if (draft !== 'Noch nicht senden' || received.some((message) => message.type === 'session.prompt')) {
+        throw new Error(`the environment button sent the draft (textarea: "${draft}")`);
+      }
       await page.click(`[role=dialog] ${text('demo')}`);
       await shot('16-link-dialog');
       await page.click(`[role=dialog] ${text('Verbinden')}`);
       await page.waitForSelector(text('pi in demo'), { timeout: 10_000 });
 
+      await page.click('textarea', { clickCount: 3 });
+      await page.keyboard.press('Backspace');
       await page.type('textarea', 'Schau dir das Projekt an');
       await page.keyboard.press('Enter');
       await page.waitForSelector(text('Der Agent möchte example.com erreichen'), { timeout: 15_000 });
