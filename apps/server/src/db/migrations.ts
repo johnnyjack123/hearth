@@ -111,6 +111,26 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('device').execute();
     },
   },
+  // Chats linked to a project on a device (Phase 4). Removing the device or
+  // the conversation removes the link.
+  '0003_chat_links': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('chatLink')
+        .addColumn('conversationId', 'text', (col) =>
+          col.primaryKey().references('conversation.id').onDelete('cascade'),
+        )
+        .addColumn('deviceId', 'text', (col) => col.notNull().references('device.id').onDelete('cascade'))
+        .addColumn('project', 'text', (col) => col.notNull())
+        .addColumn('harness', 'text', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema.createIndex('chatLink_deviceId_idx').on('chatLink').column('deviceId').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('chatLink').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

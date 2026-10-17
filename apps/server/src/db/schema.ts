@@ -98,6 +98,18 @@ export interface DevicePairingTable {
 }
 
 /**
+ * Row of `chatLink`: a conversation whose replies come from an agent in a
+ * project on one of the user's devices.
+ */
+export interface ChatLinkTable {
+  conversationId: string;
+  deviceId: string;
+  project: string;
+  harness: string;
+  createdAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -108,4 +120,5 @@ export interface DB {
   setting: SettingTable;
   device: DeviceTable;
   devicePairing: DevicePairingTable;
+  chatLink: ChatLinkTable;
 }

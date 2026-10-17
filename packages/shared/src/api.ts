@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ChatLink } from './agent.ts';
 import { PROVIDER_KINDS, type ProviderKind } from './providers.ts';
 
 /**
@@ -13,6 +14,8 @@ export type ApiErrorCode =
   | 'provider_error'
   | 'custom_base_url_forbidden'
   | 'too_many_requests'
+  | 'device_offline'
+  | 'conflict'
   | 'internal';
 
 /**
@@ -172,6 +175,13 @@ export interface MessageMetadata {
   modelId?: string;
   /** Credential used for an assistant message. */
   credentialId?: string;
+  /** Set on replies of an agent in a linked environment. */
+  agent?: {
+    /** Project the agent worked in. */
+    project: string;
+    /** Harness that produced the reply. */
+    harness: string;
+  };
   /** Token usage reported by the provider, if any. */
   usage?: {
     /** Prompt tokens. */
@@ -193,6 +203,8 @@ export interface ConversationSummary {
   credentialId: string | null;
   /** Last selected model, if any. */
   modelId: string | null;
+  /** Environment the chat is linked to; null for an ordinary chat. */
+  link: ChatLink | null;
   /** Creation time, epoch milliseconds. */
   createdAt: number;
   /** Time of the last message or rename, epoch milliseconds. */

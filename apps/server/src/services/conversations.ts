@@ -1,4 +1,4 @@
-import type { ConversationSummary, MessageMetadata } from '@harness/shared';
+import type { AgentDataParts, ConversationSummary, MessageMetadata } from '@harness/shared';
 import type { UIMessage } from 'ai';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
@@ -7,17 +7,43 @@ import type { ConversationTable, DB } from '../db/schema.ts';
 /**
  * Message type stored and exchanged with the web app.
  */
-export type ChatMessage = UIMessage<MessageMetadata>;
+export type ChatMessage = UIMessage<MessageMetadata, AgentDataParts>;
 
-function toSummary(row: Selectable<ConversationTable>): ConversationSummary {
+type ConversationRow = Selectable<ConversationTable> & {
+  linkDeviceId: string | null;
+  linkDeviceName: string | null;
+  linkProject: string | null;
+  linkHarness: string | null;
+};
+
+function toSummary(row: ConversationRow): ConversationSummary {
+  const { linkDeviceId, linkDeviceName, linkProject, linkHarness } = row;
   return {
     id: row.id,
     title: row.title,
     credentialId: row.credentialId,
     modelId: row.modelId,
+    link:
+      linkDeviceId && linkDeviceName && linkProject && linkHarness
+        ? { deviceId: linkDeviceId, deviceName: linkDeviceName, project: linkProject, harness: linkHarness }
+        : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function selectConversations(db: Kysely<DB>) {
+  return db
+    .selectFrom('conversation')
+    .leftJoin('chatLink', 'chatLink.conversationId', 'conversation.id')
+    .leftJoin('device', 'device.id', 'chatLink.deviceId')
+    .selectAll('conversation')
+    .select([
+      'chatLink.deviceId as linkDeviceId',
+      'device.name as linkDeviceName',
+      'chatLink.project as linkProject',
+      'chatLink.harness as linkHarness',
+    ]);
 }
 
 /**
@@ -29,11 +55,9 @@ function toSummary(row: Selectable<ConversationTable>): ConversationSummary {
  * @returns Conversation summaries.
  */
 export async function listConversations(db: Kysely<DB>, userId: string, limit = 200): Promise<ConversationSummary[]> {
-  const rows = await db
-    .selectFrom('conversation')
-    .selectAll()
-    .where('userId', '=', userId)
-    .orderBy('updatedAt', 'desc')
+  const rows = await selectConversations(db)
+    .where('conversation.userId', '=', userId)
+    .orderBy('conversation.updatedAt', 'desc')
     .limit(limit)
     .execute();
   return rows.map(toSummary);
@@ -52,11 +76,9 @@ export async function findConversation(
   userId: string,
   id: string,
 ): Promise<ConversationSummary | undefined> {
-  const row = await db
-    .selectFrom('conversation')
-    .selectAll()
-    .where('id', '=', id)
-    .where('userId', '=', userId)
+  const row = await selectConversations(db)
+    .where('conversation.id', '=', id)
+    .where('conversation.userId', '=', userId)
     .executeTakeFirst();
   return row ? toSummary(row) : undefined;
 }
@@ -85,7 +107,38 @@ export async function createConversation(
     updatedAt: now,
   };
   await db.insertInto('conversation').values(row).execute();
-  return toSummary(row);
+  return toSummary({ ...row, linkDeviceId: null, linkDeviceName: null, linkProject: null, linkHarness: null });
+}
+
+/**
+ * Links a conversation to a project on a device, replacing an earlier link.
+ *
+ * @param db - Open database.
+ * @param conversationId - Conversation, already checked for ownership.
+ * @param link - Device (already checked for ownership), project and harness.
+ */
+export async function setLink(
+  db: Kysely<DB>,
+  conversationId: string,
+  link: { deviceId: string; project: string; harness: string },
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('chatLink').where('conversationId', '=', conversationId).execute();
+    await trx
+      .insertInto('chatLink')
+      .values({ conversationId, ...link, createdAt: Date.now() })
+      .execute();
+  });
+}
+
+/**
+ * Removes a conversation's link; it becomes an ordinary chat again.
+ *
+ * @param db - Open database.
+ * @param conversationId - Conversation, already checked for ownership.
+ */
+export async function removeLink(db: Kysely<DB>, conversationId: string): Promise<void> {
+  await db.deleteFrom('chatLink').where('conversationId', '=', conversationId).execute();
 }
 
 /**
