@@ -1,0 +1,67 @@
+# Lints and tests the egress gateway (crates/harness-gateway) including its
+# TLS code. The development machine (Windows ARM64) builds the gateway
+# without the `tls` feature, because ring needs clang there; this workflow
+# and the image build in the VM are the only places that compile it.
+#
+# Also builds the gateway exactly as `harness image build gateway` does: the
+# crate alone with images/gateway/Cargo.lock and --locked.
+name: Gateway
+
+on:
+  push:
+    paths:
+      - crates/harness-gateway/**
+      - images/gateway/**
+      - scripts/gateway-lock.sh
+      - Cargo.lock
+      - .github/workflows/gateway.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same toolchain as the image build (images/gateway/Containerfile).
+  RUSTUP_TOOLCHAIN: "1.97"
+  CARGO_TERM_COLOR: always
+  # .cargo/config.toml limits jobs for the RAM of the development machine.
+  CARGO_BUILD_JOBS: "4"
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The VM on the development machine is arm64.
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy with TLS
+        run: cargo clippy --locked -p harness-gateway --features tls --all-targets -- -D warnings
+
+      - name: Clippy without TLS (as on the development machine)
+        run: cargo clippy --locked -p harness-gateway --all-targets -- -D warnings
+
+      - name: Tests with TLS
+        run: cargo test --locked -p harness-gateway --features tls
+
+      - name: Image build context with its own lock file
+        run: |
+          context="$RUNNER_TEMP/gateway"
+          mkdir -p "$context"
+          cp crates/harness-gateway/Cargo.toml images/gateway/Cargo.lock "$context/"
+          cp -r crates/harness-gateway/src "$context/"
+          cargo build --locked --release --features tls --manifest-path "$context/Cargo.toml"
+          "$context/target/release/harness-gateway" --version
