@@ -59,6 +59,48 @@ export async function parseUserMessage(raw: unknown): Promise<ChatMessage> {
   return { id: message.id, role: 'user', parts };
 }
 
+/** Longest tool output of an agent passed on to a model as context. */
+const MAX_AGENT_OUTPUT_CHARS = 1_000;
+
+/**
+ * Turns the tool calls of an agent (from a time the chat was linked to an
+ * environment) into text. A model without those tools would otherwise see
+ * calls it cannot make; DeepSeek then writes its own call syntax into the
+ * reply. Notices and gateway questions are display-only and dropped.
+ *
+ * @param messages - Stored messages.
+ * @returns The same messages with agent tool calls as text parts.
+ */
+export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) => {
+    if (!message.parts.some((part) => part.type === 'dynamic-tool' || part.type.startsWith('data-'))) {
+      return message;
+    }
+    const parts = message.parts.flatMap((part): ChatMessage['parts'] => {
+      if (part.type.startsWith('data-')) {
+        return [];
+      }
+      if (part.type !== 'dynamic-tool') {
+        return [part];
+      }
+      const output =
+        part.state === 'output-available'
+          ? String((part.output as { text?: unknown } | undefined)?.text ?? '')
+          : part.state === 'output-error'
+            ? part.errorText
+            : '';
+      const shortened = output.length > MAX_AGENT_OUTPUT_CHARS ? `${output.slice(0, MAX_AGENT_OUTPUT_CHARS)}…` : output;
+      return [
+        {
+          type: 'text',
+          text: `[The agent in the linked environment ran ${part.toolName} ${JSON.stringify(part.input)}${shortened ? `; output: ${shortened}` : ''}]`,
+        },
+      ];
+    });
+    return { ...message, parts };
+  });
+}
+
 /**
  * Derives a fallback title from the first user message.
  *
@@ -177,7 +219,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   // Reasoning from earlier turns is display-only. Sending it back breaks when the
   // user switches providers mid-conversation (signatures are provider-specific).
   const modelMessages = pruneMessages({
-    messages: await convertToModelMessages(messages),
+    messages: await convertToModelMessages(agentToolsAsText(messages)),
     reasoning: 'all',
   });
 
