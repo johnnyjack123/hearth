@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-17 · VM-Dienst gebaut (Einrichtung durch den Nutzer steht aus), Austauschordner abgelöst, `harness` ohne Argumente; als Nächstes die Merge-Prüfung_
+_Last updated: 2026-10-17 · VM-Dienst gebaut (Einrichtung durch den Nutzer steht aus), Austauschordner abgelöst, `harness` ohne Argumente, Merge-Prüfung Stufe 1 fertig_
 
 ## Where we are
 
@@ -33,7 +33,7 @@ Bausteine:
 Reihenfolge laut Nutzer (16.10.): erst VM-Dienst, gleich danach Merge-Prüfung.
 
 1. **VM-Dienst (Phase 2b), gebaut am 17.10.:** Der Nutzer muss `harness vmd install` ausführen (einmal UAC, stoppt die VM kurz). Danach prüfen: `harness vmd status`, `harness doctor` und ein Start und Stopp über den Dienst. Bei Fehlern `C:\ProgramData\llm-harnessmdmd.log` lesen; `harness vmd uninstall` gibt die Machine zurück.
-2. **Merge-Prüfung (Phase 2c):** zuerst die festen Regeln in harness (`harness merge` zeigt Funde, fragt bei schweren nach), dann Scanner im Container, dann die KI-Prüfung (Jev als Klassifikator oder ein Chat-Modell, im UI abwählbar).
+2. **Merge-Prüfung (Phase 2c):** Stufe 1 (feste Regeln, `harness review`, Prüfung in `harness merge`) ist fertig. Als Nächstes die OSV-Abfrage neuer Abhängigkeiten, dann Stufe 2 (Scanner im Container), dann Stufe 3 (Jev als Klassifikator oder ein Chat-Modell, abwählbar, Einstellung zuerst in `config.toml`).
 3. Danach Phase 3 (App) bzw. Phase 4 (Agent aus dem Web).
 
 Weitere Hinweise:
@@ -125,6 +125,11 @@ Stand 14.10. abends:
 ---
 
 ## Log
+
+### 2026-10-16/17 (Phase 2b und 2c)
+- Bundles per `podman cp`/`exec cat` statt 9p-Austauschordner (Voraussetzung für einen sicheren Dienst).
+- `crates/harness-vmd` (Windows-Dienst), `harness vmd …`, automatischer VM-Start, `harness` ohne Argumente mit Einrichtung von Repository und Projekt nach Rückfrage.
+- Merge-Prüfung Stufe 1: `review.rs`, `HostRepo::incoming`, `harness review`, Prüfung in `harness merge`.
 
 ### 2026-10-15/16 (Phase 2, Terminal-Relay)
 - Erster interaktiver Lauf des Nutzers mit DeepSeek. `sync` meldet uncommittete Arbeit des Agents.

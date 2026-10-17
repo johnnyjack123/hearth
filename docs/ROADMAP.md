@@ -10,7 +10,7 @@
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
 | **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | 🔨 gebaut, Einrichtung durch den Nutzer (UAC) steht aus |
-| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | offen (Idee des Nutzers vom 16.10.) |
+| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 Stufe 1 (feste Regeln) fertig, Stufen 2 und 3 offen |
 | 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
@@ -187,6 +187,23 @@ Geplant in drei Stufen:
 Anzeige: `harness merge` listet die Funde nach Schwere (Datei, Zeile, Grund). Bei schweren Funden fragt es nach, mit `--force` ohne Rückfrage. Später auch in App und Web-Chat.
 
 Grenze: Kein Scanner findet zuverlässig alles. Die Prüfung ist ein Sicherheitsnetz, der Blick in den Diff bleibt.
+
+**Stand 17.10.:** Stufe 1 ist gebaut.
+- `harness-core/src/review.rs`: Regeln mit Unit-Tests für Selbststarter, Muster, unsichtbare Zeichen, Modi und Binärdateien, ähnliche Paketnamen und fremde Quellen.
+- `HostRepo::incoming`: der Diff seit der Merge-Basis, ohne Diff-Treiber und textconv, höchstens 32 MB.
+- `harness review` zeigt die Funde. `harness merge` prüft immer zuerst und fragt bei schweren Funden nach. Ohne Terminal bricht es ab, außer mit `--ignore-findings`.
+- **Offen:**
+  - OSV-Abfrage neuer Abhängigkeiten (mit `MAL-`)
+  - Stufe 2 (Scanner im Container)
+  - Stufe 3 (KI)
+  - Einstellungen, welche Stufen laufen und mit welchem Modell, später in App und Web-UI. Die KI-Prüfung kostet Geld und muss abwählbar sein.
+
+**Stufe 3, Überlegungen vom 17.10.:** Ein Klassifikationsmodell wie Jev (TypeSafe; über pi auch per OpenRouter, Cloudflare und Vercel erreichbar) passt zu Ja/Nein-Fragen mit Wahrscheinlichkeit, etwa „schädlich?“ pro Datei oder Hunk. Es ist billig und schnell. Ein Chat-Modell liefert dafür Begründungen. Für beide gilt:
+- Sie können Funde nur hinzufügen.
+- Eine hohe Wahrscheinlichkeit hebt die Schwere an.
+- Eine niedrige entkräftet keinen Regel-Fund.
+
+Der Server-Durchgang erlaubt bisher nur Chat-Endpunkte, für Klassifikatoren käme ein eigener hinzu.
 
 ## Phase 3 – Desktop-App und Gateway
 

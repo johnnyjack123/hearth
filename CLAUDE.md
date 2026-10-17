@@ -30,7 +30,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
   Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: Der Nutzer richtet `harness vmd install` ein (UAC), dann Phase 2c (Merge-Prüfung).
+- Nächstes: Der Nutzer richtet `harness vmd install` ein (UAC). Phase 2c Stufe 1 (feste Regeln) ist fertig; Stufen 2 und 3 und die Einstellungen dazu folgen.
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -66,6 +66,7 @@ target/debug/harness net watch        # Live-Protokoll, beantwortet Rückfragen 
 target/debug/harness login [URL]      # Rechner mit dem Server koppeln (--no-browser in Tests); logout widerruft
 target/debug/harness                  # ohne Befehl: Standard-Harness im Projekt des Ordners (legt Repo/Projekt nach Rückfrage an)
 target/debug/harness vmd [status|start|stop|restart|install|uninstall]   # VM-Dienst; install/uninstall fragen per UAC
+target/debug/harness review           # Merge-Prüfung (feste Regeln) ohne zu übernehmen; merge prüft immer, --ignore-findings übergeht schwere Funde
 target/debug/harness run [pi] [-- …]  # Gateway, Instanz, Klon, pi installieren und verbinden, dann pi (TTY)
 target/debug/harness shell            # Login-Shell in der Instanz; sync/merge holen die Commits des Agents
 HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.harness (zum Testen)
@@ -178,6 +179,13 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - Ausgaben von Kindprozessen werden nur kurz nach deren Ende noch gelesen (`OUTPUT_GRACE`): Ein Enkelprozess (bei `cmd` gesehen, bei podman denkbar: gvproxy) hält die Pipe sonst ewig offen.
 - Log: `C:\ProgramData\llm-harness\vmd\vmd.log`. Zum Testen als Admin: `harness-vmd console`.
 - **Ungeprüft bis zur Einrichtung durch den Nutzer:** podman als SYSTEM mit dieser Umgebung, die übernommene JSON, der Start ohne 9p-Freigabe. Ohne Admin-Rechte geprüft sind die Konfiguration, die Pipe mit echter Nutzer-SID, die Timeouts und dass sich Dienst und Installer ohne Erhöhung verweigern.
+
+### Merge-Prüfung (`harness-core/src/review.rs`, `HostRepo::incoming`, CLI `review.rs`)
+
+- Diff immer mit `--no-ext-diff --no-textconv --no-renames` und `core.quotePath=false`: Eine `.gitattributes` vom Agent darf keine Programme wählen, die beim Prüfen laufen. Die Patch-Größe ist begrenzt (32 MB, dann „zu umfangreich“).
+- Im `-U0`-Patch hängt git bei Namen mit Leerzeichen einen Tab an die `+++`-Zeile; ungewöhnliche Namen kommen C-quotiert (`unquote`). Binärdateien haben keine `+++`-Zeile, sondern `Binary files … and b/<pfad> differ`.
+- Regeln sind absichtlich grob und reden nicht mit dem Agent. Neue Regeln brauchen einen Test in `review.rs`, auch einen gegen Fehlalarme (`ordinary_changes_stay_quiet`). Ähnliche Paketnamen: Abstand 1 zu `POPULAR`; legitime Nachbarn (`preact`, `just` …) stehen selbst in der Liste.
+- Fundtexte und Pfade stammen vom Agent: Ausgabe nur über `review::excerpt` bzw. `sanitize`. Richtungs- und Nullbreitenzeichen erscheinen dabei als `<U+202E>`.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 
