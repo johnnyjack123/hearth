@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadConfig } from '../src/config.ts';
+import { checkDatabaseUrl, loadConfig } from '../src/config.ts';
 import { createSecretBox, keyHint } from '../src/crypto.ts';
 import { parseDatabaseUrl } from '../src/db/index.ts';
 import { fallbackTitle } from '../src/routes/chat.ts';
@@ -55,6 +55,15 @@ describe('loadConfig', () => {
     expect(config.databaseUrl).toBe(`sqlite:${path.join(dataDir, 'harness.db')}`);
     expect(config.secret.length).toBeGreaterThanOrEqual(32);
     expect(config.trustedOrigins).toEqual(['http://localhost:8080']);
+  });
+
+  it('explains a Postgres URL with an unencoded password without repeating it', () => {
+    const base64Password = 'postgres://harness:Ab/cd+ef=@postgres:5432/harness';
+    expect(() => checkDatabaseUrl(base64Password)).toThrow(/percent-encoded/);
+    expect(() => checkDatabaseUrl(base64Password)).not.toThrow(/Ab\/cd/);
+    expect(() => checkDatabaseUrl('postgres://harness:Ab%2Fcd%2Bef%3D@postgres:5432/harness')).not.toThrow();
+    expect(() => checkDatabaseUrl('postgres://harness:0a1b2c3d@postgres:5432/harness')).not.toThrow();
+    expect(() => checkDatabaseUrl('sqlite:./data/harness.db')).not.toThrow();
   });
 });
 

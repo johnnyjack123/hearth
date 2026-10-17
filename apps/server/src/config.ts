@@ -39,6 +39,24 @@ export interface ServerConfig {
 const SECRET_FILE = 'server-secret';
 
 /**
+ * Rejects a Postgres URL that the driver could not parse, with a hint
+ * instead of pg's bare "Invalid URL". Passwords from `openssl rand -base64`
+ * contain `/` and `+`, which break the URL unless percent-encoded. The
+ * message never repeats the URL, it contains the password.
+ *
+ * @param url - Value of `DATABASE_URL`.
+ * @throws {Error} If it is a Postgres URL that is not a valid URL.
+ */
+export function checkDatabaseUrl(url: string): void {
+  if (/^postgres(ql)?:\/\//i.test(url) && !URL.canParse(url)) {
+    throw new Error(
+      'DATABASE_URL is not a valid URL. Characters like / ? # @ : % in the password must be percent-encoded ' +
+        '(/ as %2F, + as %2B, = as %3D), or use a password of letters and digits only (openssl rand -hex 32).',
+    );
+  }
+}
+
+/**
  * Reads the server configuration from environment variables.
  *
  * Without `HARNESS_SECRET`, a random secret is generated once and stored in the
@@ -55,6 +73,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const parsed = envSchema.parse(
     Object.fromEntries(Object.entries(env).filter(([, value]) => value !== '')),
   );
+  if (parsed.DATABASE_URL) {
+    checkDatabaseUrl(parsed.DATABASE_URL);
+  }
   const dataDir = path.resolve(parsed.DATA_DIR);
   mkdirSync(dataDir, { recursive: true });
 
@@ -86,7 +107,19 @@ function readOrCreateSecret(dataDir: string): string {
     return readFileSync(file, 'utf8').trim();
   }
   const secret = randomBytes(48).toString('base64url');
-  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  try {
+    writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  } catch (error) {
+    // Typical with a bind mount that Docker created as root: the image runs
+    // as uid 1000 and cannot write there.
+    if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+      throw new Error(
+        `Cannot write ${file}: the data directory is not writable for uid ${process.getuid?.() ?? '?'}. ` +
+          'For a bind mount, give the folder to that user (chown 1000:1000 <folder>) or set HARNESS_SECRET.',
+      );
+    }
+    throw error;
+  }
   return secret;
 }
 

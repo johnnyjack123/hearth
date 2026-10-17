@@ -16,7 +16,7 @@ Hintergrund und Entscheidungen stehen in [`ARCHITECTURE.md`](ARCHITECTURE.md), d
 
 Das Image gibt es für amd64 und arm64, es läuft also auch auf einem Raspberry Pi mit 64-Bit-System.
 
-1. `docker-compose.yml` in einen Ordner legen. Daneben eine `.env` mit diesem Inhalt anlegen und anpassen (dieselbe Vorlage wie `.env.example`):
+1. `docker-compose.yml` in einen Ordner legen und dort den Datenordner für den Container-Nutzer (uid 1000) anlegen: `mkdir -p data && sudo chown 1000:1000 data`. Daneben eine `.env` mit diesem Inhalt anlegen und anpassen (dieselbe Vorlage wie `.env.example`):
 
    ```sh
    # Vorlage für .env neben docker-compose.yml: kopieren, anpassen, nie committen.
@@ -34,18 +34,23 @@ Das Image gibt es für amd64 und arm64, es läuft also auch auf einem Raspberry 
 
    # Geheimnis für Sitzungen und die Verschlüsselung der API-Keys, mindestens
    # 32 Zeichen (z. B. `openssl rand -base64 48`). Leer lassen: Der Server
-   # erzeugt eins und legt es im Volume harness-data ab. Geht es verloren, sind
-   # die gespeicherten Keys nicht mehr lesbar; das Volume also sichern.
+   # erzeugt eins und legt es im Ordner data ab. Geht es verloren, sind die
+   # gespeicherten Keys nicht mehr lesbar; den Ordner also sichern.
    HARNESS_SECRET=
 
    # Weitere Adressen der Web-App, kommagetrennt, z. B. wenn der Server auch
    # unter einem Namen erreichbar ist: http://raspberrypi:8080
    TRUSTED_ORIGINS=
 
-   # Postgres statt SQLite: Passwort setzen, DATABASE_URL einkommentieren und
-   # mit `docker compose --profile postgres up -d` starten.
+   # Postgres statt SQLite: Passwort setzen und die beiden Zeilen darunter
+   # einkommentieren. COMPOSE_PROFILES startet den Postgres-Container mit.
+   # Das Passwort steht auch in DATABASE_URL, deshalb nur Buchstaben und
+   # Ziffern (z. B. `openssl rand -hex 32`). Sonst müssen / + = usw. dort
+   # URL-kodiert sein (%2F, %2B, %3D). POSTGRES_PASSWORD gilt nur beim ersten
+   # Start mit leerem Ordner postgres; danach ändert es nichts mehr.
    POSTGRES_PASSWORD=
    # DATABASE_URL=postgres://harness:<POSTGRES_PASSWORD>@postgres:5432/harness
+   # COMPOSE_PROFILES=postgres
    ```
 
 2. Solange das Repository privat ist, ist auch das Image privat. Einmal anmelden, mit einem GitHub-Token mit `read:packages`:

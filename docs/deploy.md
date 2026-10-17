@@ -15,7 +15,10 @@ Jede Architektur baut nativ auf ihrem Runner. Vor dem Hochladen startet der Work
 ## Raspberry Pi (oder ein anderer Rechner mit Docker)
 
 1. Docker mit Compose-Plugin installieren (Compose ≥ 2.24 wegen `env_file … required: false`).
-2. `docker-compose.yml` aus dem Repository in einen Ordner legen, daneben eine `.env` (Vorlage unten).
+2. `docker-compose.yml` aus dem Repository in einen Ordner legen, daneben eine `.env` (Vorlage unten). Den Datenordner vorher selbst anlegen und dem Nutzer des Containers geben (uid 1000). Legt Docker ihn an, gehört er root, und der Server kann nicht hineinschreiben:
+   ```sh
+   mkdir -p data && sudo chown 1000:1000 data
+   ```
 3. Solange das Repository privat ist, ist auch das Image privat. Einmal anmelden, mit einem GitHub-Token mit `read:packages`:
    ```sh
    docker login ghcr.io -u johnnyjack123
@@ -27,9 +30,16 @@ Jede Architektur baut nativ auf ihrem Runner. Vor dem Hochladen startet der Work
    ```
 5. Im Browser `PUBLIC_URL` öffnen, Konto anlegen, API-Keys hinterlegen. Auf dem Windows-Rechner dann `harness login http://<pi>:8080`.
 
-Aktualisieren: `docker compose pull && docker compose up -d`. Die Daten liegen im Volume `harness-data`: SQLite-Datenbank und, falls `HARNESS_SECRET` leer ist, das erzeugte Geheimnis. **Das Volume sichern**: Ohne Geheimnis sind die gespeicherten API-Keys nicht mehr lesbar.
+Aktualisieren: `docker compose pull && docker compose up -d`. Die Daten liegen neben `docker-compose.yml`:
+- `data`: SQLite-Datenbank und, falls `HARNESS_SECRET` leer ist, das erzeugte Geheimnis
+- `postgres`: die Postgres-Datenbank, falls genutzt
 
-Postgres statt SQLite: `POSTGRES_PASSWORD` und `DATABASE_URL` in der `.env` setzen, dann `docker compose --profile postgres up -d`.
+**Beide Ordner sichern.** Ohne Geheimnis sind die gespeicherten API-Keys nicht mehr lesbar.
+
+Postgres statt SQLite: `POSTGRES_PASSWORD`, `DATABASE_URL` und `COMPOSE_PROFILES=postgres` in der `.env` setzen. Ohne `COMPOSE_PROFILES` braucht jeder Aufruf `docker compose --profile postgres …`. Der Server startet beim ersten Mal eventuell ein- bis zweimal neu, bis Postgres bereit ist.
+
+- **`Invalid URL` beim Start:** Das Passwort in `DATABASE_URL` enthält `/`, `+`, `=`, `#` oder `?`. Diese Zeichen kodieren (`/` → `%2F`, `+` → `%2B`, `=` → `%3D`). Die Alternative ist ein Passwort nur aus Buchstaben und Ziffern, dann aber den Ordner `postgres` leeren, weil Postgres das alte Passwort behält.
+- **`EACCES` auf `/data`:** Der Ordner `data` gehört root. Abhilfe: `sudo chown 1000:1000 data`.
 
 ### Grenzen heute
 
@@ -121,18 +131,23 @@ HARNESS_IMAGE_TAG=latest
 
 # Geheimnis für Sitzungen und die Verschlüsselung der API-Keys, mindestens
 # 32 Zeichen (z. B. `openssl rand -base64 48`). Leer lassen: Der Server
-# erzeugt eins und legt es im Volume harness-data ab. Geht es verloren, sind
-# die gespeicherten Keys nicht mehr lesbar; das Volume also sichern.
+# erzeugt eins und legt es im Ordner data ab. Geht es verloren, sind die
+# gespeicherten Keys nicht mehr lesbar; den Ordner also sichern.
 HARNESS_SECRET=
 
 # Weitere Adressen der Web-App, kommagetrennt, z. B. wenn der Server auch
 # unter einem Namen erreichbar ist: http://raspberrypi:8080
 TRUSTED_ORIGINS=
 
-# Postgres statt SQLite: Passwort setzen, DATABASE_URL einkommentieren und
-# mit `docker compose --profile postgres up -d` starten.
+# Postgres statt SQLite: Passwort setzen und die beiden Zeilen darunter
+# einkommentieren. COMPOSE_PROFILES startet den Postgres-Container mit.
+# Das Passwort steht auch in DATABASE_URL, deshalb nur Buchstaben und
+# Ziffern (z. B. `openssl rand -hex 32`). Sonst müssen / + = usw. dort
+# URL-kodiert sein (%2F, %2B, %3D). POSTGRES_PASSWORD gilt nur beim ersten
+# Start mit leerem Ordner postgres; danach ändert es nichts mehr.
 POSTGRES_PASSWORD=
 # DATABASE_URL=postgres://harness:<POSTGRES_PASSWORD>@postgres:5432/harness
+# COMPOSE_PROFILES=postgres
 ```
 
 ## Lokal bauen
