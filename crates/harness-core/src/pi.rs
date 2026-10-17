@@ -55,6 +55,9 @@ pub struct PiModels {
     pub json: Value,
     /// pi provider ids, in the order of the credentials.
     pub providers: Vec<String>,
+    /// pi provider id of each wired credential, by credential id; a web
+    /// chat names the credential, pi wants the provider.
+    pub by_credential: BTreeMap<String, String>,
     /// Credentials that could not be wired up, with the reason (German).
     pub skipped: Vec<String>,
 }
@@ -95,6 +98,7 @@ fn slug(label: &str) -> String {
 pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
     let mut providers: BTreeMap<String, Value> = BTreeMap::new();
     let mut order = Vec::new();
+    let mut by_credential = BTreeMap::new();
     let mut skipped = Vec::new();
     for credential in credentials {
         let base = format!("http://{LLM_HOST}/{}", credential.id);
@@ -105,6 +109,7 @@ pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
                 json!({ "baseUrl": format!("{base}{path}"), "apiKey": DUMMY_KEY }),
             );
             order.push(id.to_owned());
+            by_credential.insert(credential.id.clone(), id.to_owned());
             continue;
         }
         let openai_style = matches!(credential.kind.as_str(), "ollama" | "openai-compatible");
@@ -146,11 +151,13 @@ pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
                 "models": models,
             }),
         );
+        by_credential.insert(credential.id.clone(), id.clone());
         order.push(id);
     }
     PiModels {
         json: json!({ "providers": providers }),
         providers: order,
+        by_credential,
         skipped,
     }
 }

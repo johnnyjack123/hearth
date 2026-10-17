@@ -42,9 +42,13 @@ export function pairingRoutes(deps: AppDeps) {
 export function deviceRoutes(deps: AppDeps) {
   const { db } = deps.database;
   return new Hono<AppEnv>()
-    .get('/', async (c) => c.json(await listDevices(db, c.get('user').id)))
+    .get('/', async (c) => {
+      const devices = await listDevices(db, c.get('user').id);
+      return c.json(devices.map((device) => ({ ...device, ...deps.hub.status(device.id) })));
+    })
     .delete('/:id', async (c) => {
       await deleteDevice(db, c.get('user').id, c.req.param('id'));
+      deps.hub.disconnect(c.req.param('id'));
       return c.body(null, 204);
     })
     .get('/pairing/:userCode', async (c) => c.json(await pairingInfo(db, c.req.param('userCode'))))
@@ -67,8 +71,9 @@ export function deviceSelfRoutes(deps: AppDeps) {
     .use(requireDevice(db))
     .get('/', (c) => {
       const owner = c.get('owner');
+      const device = c.get('device');
       const body: DeviceSelf = {
-        device: deviceSummary(c.get('device')),
+        device: { ...deviceSummary(device), ...deps.hub.status(device.id) },
         user: { email: owner.email, name: owner.name },
       };
       return c.json(body);
@@ -76,6 +81,7 @@ export function deviceSelfRoutes(deps: AppDeps) {
     .delete('/', async (c) => {
       // Logging out on the device revokes its token for good.
       await deleteDevice(db, c.get('owner').id, c.get('device').id);
+      deps.hub.disconnect(c.get('device').id);
       return c.body(null, 204);
     });
 }

@@ -21,7 +21,7 @@ use toml_edit::DocumentMut;
 pub use model::{
     AGENT_HOME, AdapterConfig, DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig,
     GlobalConfig, GuardKind, HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig,
-    ResourcesConfig, ReviewConfig, ServerConfig,
+    RemoteConfig, ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id,
 };
 use model::{Validate, validate_harness_name};
 
@@ -329,6 +329,60 @@ impl ConfigDir {
             doc["network"]["preset"] = toml_edit::value(preset.as_str());
             Ok(())
         })
+    }
+
+    /// Changes `[remote]` of a project: whether web chats may use it and
+    /// whether new chats need a confirmation. `None` leaves a value as is.
+    pub fn set_remote(
+        &self,
+        name: &ProjectName,
+        enabled: Option<bool>,
+        confirm: Option<bool>,
+    ) -> Result<RemoteConfig> {
+        self.update_project(name, |doc| {
+            if let Some(enabled) = enabled {
+                doc["remote"]["enabled"] = toml_edit::value(enabled);
+            }
+            if let Some(confirm) = confirm {
+                doc["remote"]["confirm"] = toml_edit::value(confirm);
+            }
+            Ok(())
+        })?;
+        Ok(self.project_config(name)?.remote)
+    }
+
+    /// Adds a chat confirmed on this computer to `remote.chats`.
+    pub fn remember_remote_chat(&self, name: &ProjectName, chat: &str) -> Result<()> {
+        if !valid_chat_id(chat) {
+            return Err(Error::invalid(
+                "Chat-ID",
+                chat,
+                "nur Buchstaben, Ziffern und '-'",
+            ));
+        }
+        if self
+            .project_config(name)?
+            .remote
+            .chats
+            .iter()
+            .any(|c| c == chat)
+        {
+            return Ok(());
+        }
+        let file = self.project_file(name);
+        self.update_project(name, |doc| {
+            let item = &mut doc["remote"]["chats"];
+            if item.is_none() {
+                *item = toml_edit::value(toml_edit::Array::new());
+            }
+            let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
+                path: file.clone(),
+                message: "remote.chats ist keine Liste".to_owned(),
+            })?;
+            array.push(chat);
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Adds a domain to `network.allow` or `network.deny` of a project.

@@ -74,8 +74,16 @@ export function normalizeUserCode(input: string): string | null {
   return valid ? code : null;
 }
 
+// Online state lives in the tunnel hub; routes that know it fill it in.
 function toSummary(row: DeviceRow): DeviceSummary {
-  return { id: row.id, name: row.name, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt };
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+    online: false,
+    projects: [],
+  };
 }
 
 /**
@@ -272,6 +280,18 @@ export async function listDevices(db: Kysely<DB>, userId: string): Promise<Devic
     .orderBy('createdAt', 'desc')
     .execute();
   return rows.map(toSummary);
+}
+
+/**
+ * Finds one of a user's devices.
+ *
+ * @param db - Open database.
+ * @param userId - Expected owner.
+ * @param id - Device id.
+ * @returns The device, or undefined if missing or owned by someone else.
+ */
+export async function findDevice(db: Kysely<DB>, userId: string, id: string): Promise<DeviceRow | undefined> {
+  return db.selectFrom('device').selectAll().where('id', '=', id).where('userId', '=', userId).executeTakeFirst();
 }
 
 /**

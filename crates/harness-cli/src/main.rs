@@ -5,6 +5,7 @@
 //! manage projects, their network, images, the VM service and the pairing
 //! with the server (docs/ROADMAP.md, Phase 2).
 
+mod connect;
 mod doctor;
 mod login;
 mod net;
@@ -92,6 +93,9 @@ enum Command {
     },
     /// Entfernt die Kopplung mit dem Server
     Logout,
+    /// Verbindet diesen Rechner mit dem Server, damit verknüpfte Web-Chats
+    /// Agents in freigegebenen Projekten starten können (läuft bis Strg+C)
+    Connect,
     /// VM-Dienst: startet die VM ohne Admin-Fenster (einmalig: harness vmd install)
     Vmd {
         #[command(subcommand)]
@@ -138,6 +142,25 @@ enum ProjectCommand {
     Add,
     /// Listet alle Projekte
     List,
+    /// Für Web-Chats freigeben (harness connect) oder die Freigabe zurücknehmen
+    Remote {
+        /// on oder off; ohne Angabe nur anzeigen
+        state: Option<Switch>,
+        /// Neue Chats ohne Bestätigung an diesem Rechner zulassen
+        #[arg(long, conflicts_with = "confirm")]
+        no_confirm: bool,
+        /// Neue Chats wieder an diesem Rechner bestätigen (Standard)
+        #[arg(long)]
+        confirm: bool,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Switch {
+    /// Einschalten
+    On,
+    /// Ausschalten
+    Off,
 }
 
 fn main() -> ExitCode {
@@ -183,6 +206,15 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             ProjectCommand::Show => project::show(&config),
             ProjectCommand::Add => project::add(&config),
             ProjectCommand::List => project::list(&config),
+            ProjectCommand::Remote {
+                state,
+                no_confirm,
+                confirm,
+            } => project::remote(
+                &config,
+                state.map(|s| matches!(s, Switch::On)),
+                (no_confirm || confirm).then_some(confirm),
+            ),
         },
         Command::Run { harness, args } => {
             let machine = machine_name(&config, cli.machine)?;
@@ -196,6 +228,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Status => run::status(&config, &machine_name(&config, cli.machine)?),
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
+        Command::Connect => connect::connect(&config, &machine_name(&config, cli.machine)?),
         Command::Vmd { command } => vmd::run(&machine_name(&config, cli.machine)?, command),
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;

@@ -6,6 +6,7 @@ import type { SecretBox } from '../crypto.ts';
 import type { Database } from '../db/index.ts';
 import type { DB } from '../db/schema.ts';
 import type { LlmGateway } from '../llm.ts';
+import type { DeviceHub } from '../tunnel/hub.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
 
@@ -24,6 +25,8 @@ export interface AppDeps {
   secretBox: SecretBox;
   /** Access to LLM providers. */
   llm: LlmGateway;
+  /** Connected devices and the agent replies running on them. */
+  hub: DeviceHub;
 }
 
 /**

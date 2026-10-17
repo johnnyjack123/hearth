@@ -15,6 +15,7 @@ pub mod instance;
 pub mod osv;
 pub mod paths;
 pub mod pi;
+pub mod pi_rpc;
 pub mod podman;
 pub mod project;
 pub mod provider;
@@ -23,6 +24,7 @@ pub mod pty;
 pub mod review;
 pub mod server;
 pub mod sync;
+pub mod tunnel;
 pub mod vmd;
 
 pub use error::{Error, Result};

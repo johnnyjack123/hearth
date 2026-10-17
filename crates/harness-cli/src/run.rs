@@ -22,14 +22,14 @@ use crate::terminal::{self, Approvals};
 use crate::{login, project};
 
 /// Gateway, instance and the clone of the repository, ready for an agent.
-struct Prepared {
-    provider: PodmanProvider,
-    project: Project,
-    harnesses: Vec<HarnessConfig>,
+pub(crate) struct Prepared {
+    pub(crate) provider: PodmanProvider,
+    pub(crate) project: Project,
+    pub(crate) harnesses: Vec<HarnessConfig>,
 }
 
 impl Prepared {
-    fn instance(&self) -> String {
+    pub(crate) fn instance(&self) -> String {
         self.project.name.instance()
     }
 }
@@ -54,6 +54,16 @@ fn step<T>(label: &str, work: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Res
 /// would recreate the container under it.
 fn prepare(config: &ConfigDir, machine: &str, extra: Option<&str>) -> anyhow::Result<Prepared> {
     let project = project::resolve_or_offer(config)?;
+    prepare_project(config, machine, project, extra)
+}
+
+/// [`prepare`] for a given project (`harness connect` gets it by name).
+pub(crate) fn prepare_project(
+    config: &ConfigDir,
+    machine: &str,
+    project: Project,
+    extra: Option<&str>,
+) -> anyhow::Result<Prepared> {
     let mut harnesses = vec![config.harness(&project.harness)?];
     if let Some(name) = extra.filter(|name| *name != project.harness) {
         harnesses.push(config.harness(name)?);
@@ -159,16 +169,45 @@ pub fn run(
         .find(|h| name.is_none_or(|n| h.name == n))
         .expect("prepare loads the requested harness");
 
+    let mut command = ready_harness(config, &prepared, harness, harness.command.clone())?.command;
+    command.extend(args);
+    let code = attach(config, &prepared, command, &harness.env, false)?;
+    println!();
+    println!(
+        "{} beendet. Commits des Agents holst du mit `harness sync`, übernehmen mit `harness merge`.",
+        harness.name
+    );
+    Ok(code == 0)
+}
+
+/// A harness installed and wired up in a prepared instance.
+pub(crate) struct ReadyHarness {
+    /// `base` plus the guard and the briefing for the system prompt.
+    pub(crate) command: Vec<String>,
+    /// pi's providers, if pi was pointed at the server.
+    pub(crate) models: Option<pi::PiModels>,
+}
+
+/// Installs `harness` if needed, points it at the server and adds guard and
+/// briefing to `base` (its terminal or its machine command).
+pub(crate) fn ready_harness(
+    config: &ConfigDir,
+    prepared: &Prepared,
+    harness: &HarnessConfig,
+    base: Vec<String>,
+) -> anyhow::Result<ReadyHarness> {
     let installed =
         instance::harness_installed(&prepared.provider, &prepared.project.name, harness)?;
     if !installed {
         println!("Installiere {} in das Tools-Volume …", harness.name);
         instance::install_harness(&prepared.provider, &prepared.project, harness)?;
     }
-    if harness.llm == Some(LlmWiring::Pi) {
-        wire_pi(config, &prepared)?;
-    }
-    let mut command = harness.command.clone();
+    let models = if harness.llm == Some(LlmWiring::Pi) {
+        wire_pi(config, prepared)?
+    } else {
+        None
+    };
+    let mut command = base;
     if harness.guard == Some(GuardKind::Pi) {
         // A warning, not a stop: pi without the guard still beats no pi.
         match pi::ensure_guard(&prepared.provider, &prepared.project) {
@@ -180,19 +219,13 @@ pub fn run(
         command.push(flag.clone());
         command.push(briefing(&prepared.project));
     }
-    command.extend(args);
-    let code = attach(config, &prepared, command, &harness.env, false)?;
-    println!();
-    println!(
-        "{} beendet. Commits des Agents holst du mit `harness sync`, übernehmen mit `harness merge`.",
-        harness.name
-    );
-    Ok(code == 0)
+    Ok(ReadyHarness { command, models })
 }
 
 /// Points pi at `llm.harness` when this computer is paired; otherwise
-/// removes that wiring again, so pi uses its own logins.
-fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
+/// removes that wiring again, so pi uses its own logins. Returns the
+/// providers it wired.
+fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<Option<pi::PiModels>> {
     let Some((client, token)) = login::paired(config)? else {
         if pi::unwire(&prepared.provider, &prepared.instance())? {
             println!(
@@ -203,7 +236,7 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
         println!(
             "pi: nicht mit einem harness-Server gekoppelt, pi nutzt seine eigene Anmeldung (/login)."
         );
-        return Ok(());
+        return Ok(None);
     };
     // Without the server pi still starts: the shell, its own logins and the
     // wiring from the last run keep working, and model requests succeed as
@@ -215,7 +248,7 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
                 "pi: {error}. pi startet trotzdem; Anfragen ans Modell klappen erst, wenn der \
                  harness-Server läuft."
             );
-            return Ok(());
+            return Ok(None);
         }
     };
     let models = pi::models_json(&credentials);
@@ -247,7 +280,7 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<()> {
     for note in &models.skipped {
         println!("  übersprungen: {note}");
     }
-    Ok(())
+    Ok(Some(models))
 }
 
 /// `harness shell`: a login shell in the instance.

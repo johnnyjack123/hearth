@@ -12,6 +12,7 @@ import { createSecretBox } from '../src/crypto.ts';
 import { createDatabase, type Database, type DatabaseKind } from '../src/db/index.ts';
 import { migrateToLatest } from '../src/db/migrations.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
+import { DeviceHub } from '../src/tunnel/hub.ts';
 
 /**
  * Dialects to run integration tests against. Postgres is included when
@@ -94,6 +95,10 @@ export interface TestServer {
   database: Database;
   /** The mock LLM used by the app. */
   llm: MockLlm;
+  /** Device tunnels; tests attach fake sockets. */
+  hub: DeviceHub;
+  /** The app itself, e.g. to serve it on a real port. */
+  app: ReturnType<typeof createApp>;
   /**
    * Sends a request to the app with the test origin and an optional session.
    *
@@ -154,7 +159,8 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
   const auth = createAuth(config, database);
 
   const llm = createMockLlm();
-  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm });
+  const hub = new DeviceHub();
+  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub });
 
   const request: TestServer['request'] = (method, url, options = {}) => {
     const headers: Record<string, string> = { origin: ORIGIN };
@@ -184,6 +190,8 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
   return {
     database,
     llm,
+    hub,
+    app,
     request,
     async signUp(email) {
       const response = await request('POST', '/api/auth/sign-up/email', {
