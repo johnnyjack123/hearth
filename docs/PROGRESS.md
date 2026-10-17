@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-17 · VM-Dienst gebaut (Einrichtung durch den Nutzer steht aus), Austauschordner abgelöst, `harness` ohne Argumente, Merge-Prüfung Stufe 1 fertig_
+_Last updated: 2026-10-17 · VM-Dienst beim Nutzer eingerichtet, Merge-Prüfung Stufe 1 fertig, Prompt-Injection-Hinweis im System-Prompt; nächstes: Server dauerhaft betreiben_
 
 ## Where we are
 
@@ -30,11 +30,14 @@ Bausteine:
 
 ## Next step
 
-Reihenfolge laut Nutzer (16.10.): erst VM-Dienst, gleich danach Merge-Prüfung.
+Stand 17.10.: Der Nutzer hat `harness vmd install` ausgeführt. Der Dienst läuft, und `harness` startet im Projektordner. Vorschlag für die Reihenfolge (Nutzer entscheidet):
 
-1. **VM-Dienst (Phase 2b), gebaut am 17.10.:** Der Nutzer muss `harness vmd install` ausführen (einmal UAC, stoppt die VM kurz). Danach prüfen: `harness vmd status`, `harness doctor` und ein Start und Stopp über den Dienst. Bei Fehlern `C:\ProgramData\llm-harnessmdmd.log` lesen; `harness vmd uninstall` gibt die Machine zurück.
-2. **Merge-Prüfung (Phase 2c):** Stufe 1 (feste Regeln, `harness review`, Prüfung in `harness merge`) ist fertig. Als Nächstes die OSV-Abfrage neuer Abhängigkeiten, dann Stufe 2 (Scanner im Container), dann Stufe 3 (Jev als Klassifikator oder ein Chat-Modell, abwählbar, Einstellung zuerst in `config.toml`).
-3. Danach Phase 3 (App) bzw. Phase 4 (Agent aus dem Web).
+1. **Server dauerhaft betreiben:** Der Nutzer musste den Server von Hand starten, weil die Keys dort liegen. Plan:
+   - Server-Image plus `compose.yaml` (ROADMAP Phase 1 Reste) für Heimserver und VPS
+   - auf diesem PC als Container in der VM, der mit ihr startet: Port nur auf `127.0.0.1`, Daten im Volume
+   - offen: Wie erreicht das Gateway den Server ohne Umweg über den Host, und wie bleibt der Server-Container von Instanzen getrennt?
+2. **Prompt-Injection-Warnungen** (Phase 2d, Baustein 2) und **OSV-Abfrage** in der Merge-Prüfung: zwei kleine Sicherheitspakete.
+3. **Phase 4: Agent aus dem Web** (das große Ziel des Nutzers) bzw. Phase 3 (App).
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
@@ -69,7 +72,7 @@ Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt t
 
 ## Open questions for the user
 
-- Ergebnis von `harness vmd install` (siehe Next step 1).
+- Reihenfolge der nächsten Pakete (siehe Next step).
 
 ## Known issues / debt
 
