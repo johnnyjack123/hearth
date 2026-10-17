@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { createAuth, migrateAuth } from './auth.ts';
-import { loadConfig } from './config.ts';
+import { loadConfig, startupHint } from './config.ts';
 import { createSecretBox } from './crypto.ts';
 import { createDatabase, parseDatabaseUrl } from './db/index.ts';
 import { migrateToLatest } from './db/migrations.ts';
@@ -44,5 +44,9 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   console.error('[server] failed to start', error);
+  const hint = startupHint(error);
+  if (hint) {
+    console.error(`[server] ${hint}`);
+  }
   process.exit(1);
 });

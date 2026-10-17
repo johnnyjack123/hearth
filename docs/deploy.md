@@ -40,6 +40,8 @@ Postgres statt SQLite: `POSTGRES_PASSWORD`, `DATABASE_URL` und `COMPOSE_PROFILES
 
 - **`Invalid URL` beim Start:** Das Passwort in `DATABASE_URL` enthält `/`, `+`, `=`, `#` oder `?`. Diese Zeichen kodieren (`/` → `%2F`, `+` → `%2B`, `=` → `%3D`). Die Alternative ist ein Passwort nur aus Buchstaben und Ziffern, dann aber den Ordner `postgres` leeren, weil Postgres das alte Passwort behält.
 - **`EACCES` auf `/data`:** Der Ordner `data` gehört root. Abhilfe: `sudo chown 1000:1000 data`.
+- **`getaddrinfo ENOTFOUND postgres`:** Der Postgres-Container läuft nicht, meist fehlt `COMPOSE_PROFILES=postgres` in der `.env`. Ohne das Profil legt Compose auch den Ordner `postgres` nicht an.
+- **Anmelden klappt nicht, obwohl die Seite lädt:** `PUBLIC_URL` muss genau die Adresse sein, die im Browser steht, mit dem Port aus `HARNESS_PORT`.
 
 ### Grenzen heute
 
@@ -120,7 +122,8 @@ Compose liest die `.env` neben `docker-compose.yml` und reicht sie an den Server
 
 # Adresse, unter der Browser und harness-CLI den Server erreichen. Sie steht
 # im Kopplungs-Link (harness login) und bestimmt, für welche Adresse die
-# Login-Cookies gelten. Beispiel Raspberry Pi im Heimnetz:
+# Login-Cookies gelten; der Port ist der aus HARNESS_PORT. Beispiel Raspberry
+# Pi im Heimnetz:
 PUBLIC_URL=http://192.168.1.50:8080
 
 # Port auf dem Host.

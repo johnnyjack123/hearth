@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkDatabaseUrl, loadConfig } from '../src/config.ts';
+import { checkDatabaseUrl, loadConfig, startupHint } from '../src/config.ts';
 import { createSecretBox, keyHint } from '../src/crypto.ts';
 import { parseDatabaseUrl } from '../src/db/index.ts';
 import { fallbackTitle } from '../src/routes/chat.ts';
@@ -64,6 +64,13 @@ describe('loadConfig', () => {
     expect(() => checkDatabaseUrl('postgres://harness:Ab%2Fcd%2Bef%3D@postgres:5432/harness')).not.toThrow();
     expect(() => checkDatabaseUrl('postgres://harness:0a1b2c3d@postgres:5432/harness')).not.toThrow();
     expect(() => checkDatabaseUrl('sqlite:./data/harness.db')).not.toThrow();
+  });
+
+  it('points at the compose profile when the Postgres service is missing', () => {
+    const missing = Object.assign(new Error('getaddrinfo ENOTFOUND postgres'), { code: 'ENOTFOUND', hostname: 'postgres' });
+    expect(startupHint(missing)).toMatch(/COMPOSE_PROFILES=postgres/);
+    expect(startupHint(new Error('other'))).toBeNull();
+    expect(startupHint(undefined)).toBeNull();
   });
 });
 
