@@ -44,6 +44,49 @@ pub fn add(config: &ConfigDir) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// `harness project remote [on|off]`: offers the project of the current
+/// repository to web chats, or stops that.
+pub fn remote(
+    config: &ConfigDir,
+    enabled: Option<bool>,
+    confirm: Option<bool>,
+) -> anyhow::Result<bool> {
+    let repo = current_repo()?;
+    let Some(project) = config.find_project(&repo)? else {
+        bail!(
+            "{} ist noch kein Projekt. `harness project add` legt es an.",
+            repo.display()
+        );
+    };
+    let remote = if enabled.is_some() || confirm.is_some() {
+        config.set_remote(&project.name, enabled, confirm)?
+    } else {
+        config.project_config(&project.name)?.remote
+    };
+    if remote.enabled {
+        println!(
+            "{} ist für Web-Chats freigegeben, solange `harness connect` läuft.",
+            project.name
+        );
+        if remote.confirm {
+            println!(
+                "Neue Chats bestätigst du in dem Fenster mit `harness connect` ({} bisher bestätigt).",
+                remote.chats.len()
+            );
+        } else {
+            println!(
+                "Neue Chats starten ohne Bestätigung. Wer dein Server-Konto nutzt, kann hier                  Agents starten."
+            );
+        }
+    } else {
+        println!(
+            "{} ist nicht für Web-Chats freigegeben. Einschalten: `harness project remote on`.",
+            project.name
+        );
+    }
+    Ok(true)
+}
+
 /// Lists all projects with their repositories.
 pub fn list(config: &ConfigDir) -> anyhow::Result<bool> {
     let names = config.project_names()?;

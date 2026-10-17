@@ -326,3 +326,36 @@ fn unknown_project() {
         Err(Error::ProjectUnknown(_))
     ));
 }
+
+#[test]
+fn remote_access_is_switched_and_chats_remembered() {
+    let f = fixture();
+    f.config.init().unwrap();
+    let project = f.config.create_project(&repo(&f.base, "app")).unwrap();
+    let name = project.name;
+    assert_eq!(
+        f.config.project_config(&name).unwrap().remote,
+        RemoteConfig::default()
+    );
+
+    let remote = f.config.set_remote(&name, Some(true), None).unwrap();
+    assert!(remote.enabled && remote.confirm);
+    f.config.remember_remote_chat(&name, "0199-abc").unwrap();
+    f.config.remember_remote_chat(&name, "0199-abc").unwrap();
+    assert!(f.config.remember_remote_chat(&name, "../x").is_err());
+    let remote = f.config.set_remote(&name, None, Some(false)).unwrap();
+    assert_eq!(remote.chats, ["0199-abc"]);
+    assert!(!remote.confirm);
+
+    // A project file from before `[remote]` existed gets the table on demand.
+    let file = f.config.project_file(&name);
+    let text = fs::read_to_string(&file).unwrap();
+    let start = text.find("[remote]").unwrap();
+    let end = text.find("[resources]").unwrap();
+    fs::write(&file, format!("{}{}", &text[..start], &text[end..])).unwrap();
+    assert!(!f.config.project_config(&name).unwrap().remote.enabled);
+    f.config.remember_remote_chat(&name, "c2").unwrap();
+    assert_eq!(f.config.project_config(&name).unwrap().remote.chats, ["c2"]);
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains("# Git-Repository auf dem Host"), "{text}");
+}

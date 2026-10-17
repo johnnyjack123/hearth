@@ -151,6 +151,39 @@ pub struct ProjectConfig {
     /// Resource limits; unset values fall back to `config.toml`.
     #[serde(default)]
     pub resources: ResourcesConfig,
+    /// Access from web chats through `harness connect`.
+    #[serde(default)]
+    pub remote: RemoteConfig,
+}
+
+/// `[remote]` of a project: whether web chats may run agents in it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteConfig {
+    /// Offered to web chats while `harness connect` runs.
+    #[serde(default)]
+    pub enabled: bool,
+    /// A chat needs a confirmation on this computer before its first use.
+    #[serde(default = "default_true")]
+    pub confirm: bool,
+    /// Chats confirmed so far (conversation ids).
+    #[serde(default)]
+    pub chats: Vec<String>,
+}
+
+impl Default for RemoteConfig {
+    fn default() -> Self {
+        RemoteConfig {
+            enabled: false,
+            confirm: true,
+            chats: Vec::new(),
+        }
+    }
+}
+
+/// Whether `id` looks like a conversation id of the server (UUID).
+pub fn valid_chat_id(id: &str) -> bool {
+    (1..=100).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 impl Validate for ProjectConfig {
@@ -163,6 +196,9 @@ impl Validate for ProjectConfig {
         }
         if let Some(harness) = &self.default_harness {
             validate_harness_name(harness)?;
+        }
+        if let Some(bad) = self.remote.chats.iter().find(|id| !valid_chat_id(id)) {
+            return Err(format!("remote.chats: ungültige Chat-ID {bad:?}"));
         }
         self.resources.validate()
     }
@@ -541,6 +577,20 @@ mod tests {
                 preset: Some(NetworkPreset::Development),
                 ..NetworkConfig::default()
             }
+        );
+        assert_eq!(project.remote, RemoteConfig::default());
+        assert_eq!(
+            toml::from_str::<ProjectConfig>("path = '/repo'")
+                .unwrap()
+                .remote,
+            RemoteConfig::default()
+        );
+        let odd = "path = '/repo'\n[remote]\nchats = ['a b']\n";
+        assert!(
+            toml::from_str::<ProjectConfig>(odd)
+                .unwrap()
+                .validate()
+                .is_err()
         );
     }
 
