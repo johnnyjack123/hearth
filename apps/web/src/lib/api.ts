@@ -1,11 +1,14 @@
 import type {
+  AgentDataParts,
   ApiErrorBody,
   ApiErrorCode,
+  ApprovalDecision,
   ConversationDetail,
   ConversationSummary,
   CreateProviderCredentialInput,
   CredentialModels,
   DeviceSummary,
+  LinkConversationInput,
   MessageMetadata,
   PairingInfo,
   ProviderCredential,
@@ -19,7 +22,7 @@ import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 /**
  * Chat message type shared with the server.
  */
-export type ChatMessage = UIMessage<MessageMetadata>;
+export type ChatMessage = UIMessage<MessageMetadata, AgentDataParts>;
 
 /**
  * Error raised for non-2xx API responses and network failures.
@@ -60,6 +63,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(response.status, payload?.error.code ?? 'internal', payload?.error.message ?? response.statusText);
   }
   if (response.status === 204) {
+    // Read to the end, or the browser reports the request as aborted.
+    await response.text().catch(() => '');
     return undefined as T;
   }
   return (await response.json()) as T;
@@ -100,6 +105,11 @@ export const api = {
     rename: (id: string, title: string) =>
       request<ConversationSummary>('PATCH', `/conversations/${encodeURIComponent(id)}`, { title }),
     remove: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}`),
+    link: (id: string, input: LinkConversationInput) =>
+      request<ConversationSummary>('PUT', `/conversations/${encodeURIComponent(id)}/link`, input),
+    unlink: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}/link`),
+    approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
+      request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
   },
 };
 

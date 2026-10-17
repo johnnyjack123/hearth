@@ -26,6 +26,8 @@ export interface ComposerProps {
   toolbar?: ReactNode;
   /** Focus the input on mount. */
   autoFocus?: boolean;
+  /** Placeholder instead of the default one, e.g. for a linked agent. */
+  placeholder?: string;
 }
 
 /**
@@ -35,7 +37,17 @@ export interface ComposerProps {
  * @param props - See {@link ComposerProps}.
  * @returns The composer form.
  */
-export function Composer({ value, onValueChange, onSubmit, onStop, busy = false, blockedReason, toolbar, autoFocus }: ComposerProps) {
+export function Composer({
+  value,
+  onValueChange,
+  onSubmit,
+  onStop,
+  busy = false,
+  blockedReason,
+  toolbar,
+  autoFocus,
+  placeholder,
+}: ComposerProps) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const canSend = value.trim().length > 0 && !blockedReason && !busy;
@@ -96,8 +108,8 @@ export function Composer({ value, onValueChange, onSubmit, onStop, busy = false,
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={t('chat.placeholder')}
-        aria-label={t('chat.placeholder')}
+        placeholder={placeholder ?? t('chat.placeholder')}
+        aria-label={placeholder ?? t('chat.placeholder')}
         rows={1}
         autoFocus={autoFocus}
         className="max-h-60 min-h-12 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground"

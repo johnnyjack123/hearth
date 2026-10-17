@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { ConfirmDialog } from '@/components/ui/dialog.tsx';
-import { Card, EmptyState, Separator, Skeleton } from '@/components/ui/display.tsx';
+import { Badge, Card, EmptyState, Separator, Skeleton } from '@/components/ui/display.tsx';
 import { api, errorMessage } from '@/lib/api.ts';
 import { springs } from '@/lib/motion.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
@@ -79,7 +79,14 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
         <Laptop className="size-5" aria-hidden="true" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="truncate text-sm font-medium text-foreground">{device.name}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">{device.name}</span>
+          {device.online ? (
+            <Badge variant="success" className="shrink-0">
+              {t('devices.online')}
+            </Badge>
+          ) : null}
+        </span>
         <span className="text-xs text-muted-foreground">
           {t('devices.paired', { date: date(device.createdAt) })} ·{' '}
           {device.lastUsedAt ? t('devices.lastUsed', { date: date(device.lastUsedAt) }) : t('devices.neverUsed')}
