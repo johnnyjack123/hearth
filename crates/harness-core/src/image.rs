@@ -57,6 +57,10 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
 /// The egress gateway (`images/gateway`), compiled from the
 /// `harness-gateway` crate inside the VM. Every file in that crate's `src/`
 /// must be listed here (checked by a test).
+///
+/// The lock file is the gateway's own, pruned from the workspace lock
+/// (`scripts/gateway-lock.sh`, checked by a test): with the whole workspace
+/// lock, every unrelated dependency update would mark the image outdated.
 pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
     name: "gateway",
     tag: "localhost/harness/gateway:latest",
@@ -64,6 +68,10 @@ pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
         ContextFile {
             name: "Containerfile",
             contents: include_str!("../../../images/gateway/Containerfile"),
+        },
+        ContextFile {
+            name: "Cargo.lock",
+            contents: include_str!("../../../images/gateway/Cargo.lock"),
         },
         ContextFile {
             name: "Cargo.toml",
@@ -106,12 +114,28 @@ pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
             contents: include_str!("../../harness-gateway/src/pattern.rs"),
         },
         ContextFile {
+            name: "src/pem.rs",
+            contents: include_str!("../../harness-gateway/src/pem.rs"),
+        },
+        ContextFile {
             name: "src/policy.rs",
             contents: include_str!("../../harness-gateway/src/policy.rs"),
         },
         ContextFile {
             name: "src/proxy.rs",
             contents: include_str!("../../harness-gateway/src/proxy.rs"),
+        },
+        ContextFile {
+            name: "src/upstream.rs",
+            contents: include_str!("../../harness-gateway/src/upstream.rs"),
+        },
+        ContextFile {
+            name: "src/upstream/tls.rs",
+            contents: include_str!("../../harness-gateway/src/upstream/tls.rs"),
+        },
+        ContextFile {
+            name: "src/upstream/tls/tests.rs",
+            contents: include_str!("../../harness-gateway/src/upstream/tls/tests.rs"),
         },
     ],
 };
@@ -247,7 +271,11 @@ mod tests {
     fn gateway_context_is_complete() {
         let embedded: Vec<&str> = GATEWAY_IMAGE.files.iter().map(|f| f.name).collect();
         let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../harness-gateway");
-        let mut on_disk = vec!["Containerfile".to_owned(), "Cargo.toml".to_owned()];
+        let mut on_disk = vec![
+            "Containerfile".to_owned(),
+            "Cargo.lock".to_owned(),
+            "Cargo.toml".to_owned(),
+        ];
         let mut dirs = vec![crate_dir.join("src")];
         while let Some(dir) = dirs.pop() {
             for entry in fs::read_dir(&dir).unwrap() {
@@ -281,6 +309,121 @@ mod tests {
             let disk = fs::read_to_string(crate_dir.join(file.name)).unwrap();
             assert_eq!(disk, file.contents, "{}", file.name);
         }
+    }
+
+    /// `[[package]]` of a `Cargo.lock`.
+    #[derive(serde::Deserialize)]
+    struct LockedPackage {
+        name: String,
+        version: String,
+        source: Option<String>,
+        checksum: Option<String>,
+        #[serde(default)]
+        dependencies: Vec<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct LockFile {
+        package: Vec<LockedPackage>,
+    }
+
+    impl LockFile {
+        fn parse(text: &str) -> LockFile {
+            toml::from_str(text).unwrap()
+        }
+
+        fn get(&self, name: &str, version: &str) -> Option<&LockedPackage> {
+            self.package
+                .iter()
+                .find(|p| p.name == name && p.version == version)
+        }
+
+        /// `name`, `name version` or `name version (source)` as listed in
+        /// `dependencies`; the bare name only appears when one version is
+        /// locked, so the reference is unambiguous within its own file.
+        fn resolve(&self, reference: &str) -> (String, String) {
+            let mut words = reference.split(' ');
+            let name = words.next().unwrap();
+            let version = match words.next() {
+                Some(version) => version.to_owned(),
+                None => {
+                    let matches: Vec<_> = self.package.iter().filter(|p| p.name == name).collect();
+                    assert_eq!(matches.len(), 1, "{reference} is ambiguous");
+                    matches[0].version.clone()
+                }
+            };
+            (name.to_owned(), version)
+        }
+
+        fn dependencies(&self, package: &LockedPackage) -> Vec<(String, String)> {
+            let mut list: Vec<_> = package
+                .dependencies
+                .iter()
+                .map(|d| self.resolve(d))
+                .collect();
+            list.sort();
+            list
+        }
+    }
+
+    /// The image is built with `--locked` from images/gateway/Cargo.lock.
+    /// It must be exactly the workspace lock pruned to the gateway: same
+    /// versions and checksums as what the workspace builds and tests. Not
+    /// covered here: different features of the same versions (edges the
+    /// workspace adds through other crates make that ambiguous); the
+    /// workflow `gateway.yml` builds the image context with `--locked`.
+    #[test]
+    fn gateway_lock_matches_the_workspace() {
+        let hint = "images/gateway/Cargo.lock passt nicht zu Cargo.lock; neu erzeugen mit \
+                    `bash scripts/gateway-lock.sh`";
+        let lock = GATEWAY_IMAGE
+            .files
+            .iter()
+            .find(|f| f.name == "Cargo.lock")
+            .unwrap()
+            .contents;
+        let gateway = LockFile::parse(lock);
+        let workspace_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock");
+        let workspace = LockFile::parse(&fs::read_to_string(workspace_path).unwrap());
+
+        for package in &gateway.package {
+            let label = format!("{} {}", package.name, package.version);
+            let theirs = workspace
+                .get(&package.name, &package.version)
+                .unwrap_or_else(|| panic!("{label} fehlt im Workspace. {hint}"));
+            assert_eq!(package.source, theirs.source, "{label}: {hint}");
+            assert_eq!(package.checksum, theirs.checksum, "{label}: {hint}");
+            let ours = gateway.dependencies(package);
+            let all = workspace.dependencies(theirs);
+            if package.name == "harness-gateway" {
+                // The crate's own dependencies come from its manifest alone.
+                assert_eq!(ours, all, "{label}: {hint}");
+            } else {
+                for dependency in &ours {
+                    assert!(all.contains(dependency), "{label} → {dependency:?}: {hint}");
+                }
+            }
+        }
+
+        // Nothing beyond what the gateway reaches; cargo would want to drop it.
+        let mut reached = vec![gateway.resolve("harness-gateway")];
+        let mut index = 0;
+        while let Some((name, version)) = reached.get(index).cloned() {
+            let package = gateway
+                .get(&name, &version)
+                .unwrap_or_else(|| panic!("{name} {version} fehlt. {hint}"));
+            for dependency in gateway.dependencies(package) {
+                if !reached.contains(&dependency) {
+                    reached.push(dependency);
+                }
+            }
+            index += 1;
+        }
+        assert_eq!(
+            reached.len(),
+            gateway.package.len(),
+            "überzählige Pakete. {hint}"
+        );
     }
 
     #[test]

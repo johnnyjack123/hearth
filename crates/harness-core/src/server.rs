@@ -6,14 +6,19 @@
 //! good for the server's LLM pass-through; it lives in the OS credential
 //! store and reaches the VM only inside the gateway, never an instance.
 
+use std::fs;
+use std::io::Read as _;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
-use harness_gateway::LlmUpstream;
+use harness_gateway::{LlmUpstream, pem};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use ureq::Agent;
-use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
+use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
+use crate::config::ServerConfig;
 use crate::{Error, Result};
 
 /// Name of the credential store entries ("service" in keyring terms).
@@ -147,12 +152,88 @@ pub(crate) fn tls_config() -> TlsConfig {
         .build()
 }
 
+/// Largest CA file read; a root certificate is a few KiB.
+const MAX_CA_FILE: u64 = 256 * 1024;
+
+/// Root certificates of a server with its own CA (`[server] ca`), trusted
+/// for that server instead of the public CAs: by [`ServerClient`] on this
+/// computer and by the gateway, which gets them with the LLM upstream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerCa {
+    path: PathBuf,
+    certificates: Vec<Vec<u8>>,
+}
+
+impl ServerCa {
+    /// Reads the certificates from a PEM file, or a single certificate in
+    /// DER form (what Windows exports as `.cer`).
+    pub fn load(path: &Path) -> Result<ServerCa> {
+        let invalid = |message: String| {
+            Error::Server(format!(
+                "CA-Datei {} (server.ca): {message}",
+                path.display()
+            ))
+        };
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .and_then(|file| file.take(MAX_CA_FILE + 1).read_to_end(&mut bytes))
+            .map_err(|e| invalid(e.to_string()))?;
+        if bytes.len() as u64 > MAX_CA_FILE {
+            return Err(invalid("zu groß für ein Wurzelzertifikat".to_owned()));
+        }
+        // One DER structure spanning the whole file is never PEM text.
+        let der = vec![bytes];
+        let certificates = if pem::check_certificates(&der).is_ok() {
+            der
+        } else {
+            let text = String::from_utf8(der.into_iter().next().unwrap_or_default())
+                .map_err(|_| invalid("weder PEM noch DER".to_owned()))?;
+            pem::certificates(&text).map_err(invalid)?
+        };
+        Ok(ServerCa {
+            path: path.to_owned(),
+            certificates,
+        })
+    }
+
+    /// The CA configured in `[server]`, if any.
+    pub fn from_config(server: &ServerConfig) -> Result<Option<ServerCa>> {
+        server.ca.as_deref().map(ServerCa::load).transpose()
+    }
+
+    /// The file the certificates came from.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The certificates (DER).
+    pub fn certificates(&self) -> &[Vec<u8>] {
+        &self.certificates
+    }
+}
+
 impl ServerClient {
-    /// A client for `url` (`http://` or `https://`, no path).
-    pub fn new(url: &str) -> Result<ServerClient> {
+    /// A client for `url` (`http://` or `https://`, no path). With `ca`, an
+    /// `https://` server must present a certificate from that CA; the
+    /// system's roots then do not count for it.
+    pub fn new(url: &str, ca: Option<&ServerCa>) -> Result<ServerClient> {
         let url = normalize_url(url)?;
+        let tls = match ca {
+            Some(ca) if url.starts_with("https://") => {
+                let roots: Vec<Certificate<'static>> = ca
+                    .certificates()
+                    .iter()
+                    .map(|der| Certificate::from_der(der).to_owned())
+                    .collect();
+                TlsConfig::builder()
+                    .provider(TlsProvider::NativeTls)
+                    .root_certs(RootCerts::Specific(Arc::new(roots)))
+                    .build()
+            }
+            _ => tls_config(),
+        };
         let config = Agent::config_builder()
-            .tls_config(tls_config())
+            .tls_config(tls)
             // Error bodies carry the reason; they are read below.
             .http_status_as_error(false)
             .timeout_global(Some(TIMEOUT))
@@ -303,26 +384,37 @@ fn credential_error(error: keyring::Error) -> Error {
 /// Where a gateway sends `llm.harness` requests for `server_url`.
 ///
 /// A server on this machine's loopback is reached from the VM through
-/// `host_address` (gvproxy's mapping of the host's 127.0.0.1). The gateway
-/// only speaks plain HTTP to its upstream so far.
+/// `host_address` (gvproxy's mapping of the host's 127.0.0.1); only plain
+/// HTTP works there, because the certificate would name `localhost`, not
+/// that address. An `https://` server gets `ca` along, if set.
 pub fn llm_upstream(
     server_url: &str,
     host_address: Option<&str>,
     token: &str,
+    ca: Option<&ServerCa>,
 ) -> Result<LlmUpstream> {
     let url = normalize_url(server_url)?;
-    let Some(authority) = url.strip_prefix("http://") else {
-        return Err(Error::Unsupported(
-            "Das Gateway erreicht den Server bisher nur per http:// (TLS im Gateway fehlt noch)"
-                .to_owned(),
-        ));
-    };
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((host, port)) if !host.ends_with(':') => (host, Some(port)),
-        _ => (authority, None),
+    let (scheme, authority) = url.split_once("://").unwrap_or(("http", &url));
+    let (host, port) = if authority.starts_with('[') {
+        match authority.split_once("]:") {
+            Some((host, port)) => (&authority[..=host.len()], Some(port)),
+            None => (authority, None),
+        }
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
     };
     let loopback = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
     let host = match (loopback, host_address) {
+        (true, _) if scheme == "https" => {
+            return Err(Error::Unsupported(format!(
+                "Einen Server auf diesem Rechner erreicht das Gateway nur per http:// \
+                 (http://localhost:{}), nicht per https://",
+                port.unwrap_or("8080")
+            )));
+        }
         (true, Some(address)) => address,
         (true, None) => {
             return Err(Error::Unsupported(
@@ -333,10 +425,16 @@ pub fn llm_upstream(
         (false, _) => host,
     };
     let base = match port {
-        Some(port) => format!("http://{host}:{port}{LLM_PROXY_PATH}"),
-        None => format!("http://{host}{LLM_PROXY_PATH}"),
+        Some(port) => format!("{scheme}://{host}:{port}{LLM_PROXY_PATH}"),
+        None => format!("{scheme}://{host}{LLM_PROXY_PATH}"),
     };
-    LlmUpstream::new(&base, token).map_err(Error::Server)
+    let upstream = LlmUpstream::new(&base, token).map_err(Error::Server)?;
+    match ca {
+        Some(ca) if scheme == "https" => upstream
+            .with_ca(ca.certificates().to_vec())
+            .map_err(|e| Error::Server(format!("{}: {e}", ca.path().display()))),
+        _ => Ok(upstream),
+    }
 }
 
 #[cfg(test)]
@@ -369,14 +467,80 @@ mod tests {
 
     #[test]
     fn upstream_for_the_vm() {
-        let local = llm_upstream("http://localhost:8080", Some("192.168.127.254"), TOKEN).unwrap();
+        let vm = Some("192.168.127.254");
+        let local = llm_upstream("http://localhost:8080", vm, TOKEN, None).unwrap();
         assert_eq!(local.url(), "http://192.168.127.254:8080/api/llm/proxy");
-        let ip = llm_upstream("http://127.0.0.1:9000/", Some("192.168.127.254"), TOKEN).unwrap();
+        let ip = llm_upstream("http://127.0.0.1:9000/", vm, TOKEN, None).unwrap();
         assert_eq!(ip.url(), "http://192.168.127.254:9000/api/llm/proxy");
-        let lan = llm_upstream("http://harness.lan", Some("192.168.127.254"), TOKEN).unwrap();
+        let v6 = llm_upstream("http://[::1]:9000", vm, TOKEN, None).unwrap();
+        assert_eq!(v6.url(), "http://192.168.127.254:9000/api/llm/proxy");
+        let lan = llm_upstream("http://harness.lan", vm, TOKEN, None).unwrap();
         assert_eq!(lan.url(), "http://harness.lan/api/llm/proxy");
-        assert!(llm_upstream("https://harness.example", Some("x"), TOKEN).is_err());
-        assert!(llm_upstream("http://localhost:8080", None, TOKEN).is_err());
+        let lan6 = llm_upstream("http://[fd00::1:5]:8080", vm, TOKEN, None).unwrap();
+        assert_eq!(lan6.url(), "http://[fd00::1:5]:8080/api/llm/proxy");
+        assert!(llm_upstream("http://localhost:8080", None, TOKEN, None).is_err());
+
+        let remote = llm_upstream("https://harness.example", vm, TOKEN, None).unwrap();
+        assert_eq!(remote.url(), "https://harness.example/api/llm/proxy");
+        assert!(remote.ca().is_empty());
+        let port = llm_upstream("https://harness.example:8443", vm, TOKEN, None).unwrap();
+        assert_eq!(port.url(), "https://harness.example:8443/api/llm/proxy");
+        // The certificate would name localhost, not the VM's host address.
+        let local_tls = llm_upstream("https://localhost:8443", vm, TOKEN, None).unwrap_err();
+        assert!(
+            local_tls.to_string().contains("http://localhost:8443"),
+            "{local_tls}"
+        );
+    }
+
+    const CA_PEM: &str = include_str!("../../harness-gateway/tests/fixtures/ca.pem");
+    const SERVER_PEM: &str = include_str!("../../harness-gateway/tests/fixtures/server.pem");
+
+    #[test]
+    fn own_ca() {
+        let dir = tempfile::tempdir().unwrap();
+        let pem_file = dir.path().join("root.crt");
+        fs::write(&pem_file, CA_PEM).unwrap();
+        let ca = ServerCa::load(&pem_file).unwrap();
+        assert_eq!(ca.certificates().len(), 1);
+        assert_eq!(ca.path(), pem_file);
+
+        // DER as Windows exports it, and a chain in PEM.
+        let der_file = dir.path().join("root.cer");
+        fs::write(&der_file, &ca.certificates()[0]).unwrap();
+        assert_eq!(
+            ServerCa::load(&der_file).unwrap().certificates(),
+            ca.certificates()
+        );
+        let chain_file = dir.path().join("chain.pem");
+        fs::write(&chain_file, SERVER_PEM).unwrap();
+        assert_eq!(ServerCa::load(&chain_file).unwrap().certificates().len(), 2);
+
+        let tls = llm_upstream("https://harness.example", None, TOKEN, Some(&ca)).unwrap();
+        assert_eq!(tls.ca(), ca.certificates());
+        // Only TLS needs it; an http:// server ignores it.
+        let plain = llm_upstream("http://harness.lan", None, TOKEN, Some(&ca)).unwrap();
+        assert!(plain.ca().is_empty());
+        assert!(ServerClient::new("https://harness.example", Some(&ca)).is_ok());
+
+        let config = ServerConfig {
+            url: None,
+            ca: Some(pem_file.clone()),
+        };
+        assert_eq!(ServerCa::from_config(&config).unwrap(), Some(ca));
+        assert_eq!(
+            ServerCa::from_config(&ServerConfig::default()).unwrap(),
+            None
+        );
+
+        let empty = dir.path().join("empty.pem");
+        fs::write(&empty, "nothing here\n").unwrap();
+        let big = dir.path().join("big.pem");
+        fs::write(&big, CA_PEM.repeat(1000)).unwrap();
+        for bad in [dir.path().join("missing.pem"), empty, big] {
+            let error = ServerCa::load(&bad).unwrap_err().to_string();
+            assert!(error.contains("server.ca"), "{error}");
+        }
     }
 
     #[test]

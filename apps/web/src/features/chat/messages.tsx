@@ -1,12 +1,15 @@
-import { Brain, Check, ChevronRight, CircleAlert, Copy, RefreshCw } from 'lucide-react';
+import type { ApprovalDecision } from '@harness/shared';
+import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Tooltip } from '@/components/ui/menu.tsx';
+import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { AgentNotice, ApprovalCard, ToolCall } from './agent-parts.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -34,6 +37,8 @@ export interface MessageListProps {
   initialIds: ReadonlySet<string>;
   /** Re-runs the last request after an error or for a new reply. */
   onRegenerate: () => void;
+  /** Answers a question of the gateway in a linked chat. */
+  onApprove?: (id: number, decision: ApprovalDecision) => Promise<void>;
 }
 
 /**
@@ -42,7 +47,7 @@ export interface MessageListProps {
  * @param props - See {@link MessageListProps}.
  * @returns The message column.
  */
-export function MessageList({ messages, status, error, initialIds, onRegenerate }: MessageListProps) {
+export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove }: MessageListProps) {
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
 
@@ -63,6 +68,7 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate 
               streaming={isLast && status === 'streaming'}
               canRegenerate={message.id === lastAssistantId && !busy}
               onRegenerate={onRegenerate}
+              onApprove={onApprove}
             />
           );
         }
@@ -93,18 +99,29 @@ function AssistantMessage({
   streaming,
   canRegenerate,
   onRegenerate,
+  onApprove,
 }: {
   message: ChatMessage;
   animate: boolean;
   streaming: boolean;
   canRegenerate: boolean;
   onRegenerate: () => void;
+  onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
 }) {
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
       {message.parts.map((part, index) => {
         if (part.type === 'reasoning' && part.text.trim()) {
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
+        }
+        if (part.type === 'dynamic-tool') {
+          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} />;
+        }
+        if (part.type === 'data-notice') {
+          return <AgentNotice key={index} notice={part.data} />;
+        }
+        if (part.type === 'data-approval') {
+          return <ApprovalCard key={part.id ?? index} approval={part.data} live={streaming} onDecide={onApprove} />;
         }
         if (part.type === 'text') {
           return (
@@ -188,6 +205,12 @@ function MessageActions({
           </Button>
         </Tooltip>
       ) : null}
+      {message.metadata?.agent ? (
+        <span className="ms-1 inline-flex min-w-0 items-center gap-1 truncate text-xs">
+          <Container className="size-3.5 shrink-0" aria-hidden="true" />
+          {t('agent.linkedTo', { harness: message.metadata.agent.harness, project: message.metadata.agent.project })}
+        </span>
+      ) : null}
       {message.metadata?.modelId ? (
         <span className="ms-1 truncate text-xs">
           {message.metadata.modelId}
@@ -223,6 +246,32 @@ function TypingIndicator() {
   );
 }
 
+const RUN_FAILURES = new Set(['device_replaced', 'device_lost', 'device_protocol', 'chat_unlinked', 'agent_ended']);
+
+/**
+ * The text of a failed reply: codes of the server become sentences, an API
+ * error body its translated message, anything else stays as it is (the
+ * computer reports its own errors in German).
+ *
+ * @param t - Translation function.
+ * @param message - Error message from useChat.
+ * @returns Text for the user.
+ */
+export function streamErrorText(t: TranslateFn, message: string): string {
+  if (RUN_FAILURES.has(message)) {
+    return t(`agent.failures.${message}` as MessageKey);
+  }
+  try {
+    const body = JSON.parse(message) as { error?: { code?: string; message?: string } };
+    if (body.error?.code) {
+      return t(`errors.${body.error.code}` as MessageKey, { detail: body.error.message ?? '' });
+    }
+  } catch {
+    // Not JSON: shown as it is.
+  }
+  return message;
+}
+
 function StreamError({ error, onRetry }: { error: Error; onRetry: () => void }) {
   const t = useT();
   return (
@@ -230,7 +279,7 @@ function StreamError({ error, onRetry }: { error: Error; onRetry: () => void }) 
       <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="font-medium">{t('chat.streamError')}</p>
-        {error.message ? <p className="break-words opacity-90">{error.message}</p> : null}
+        {error.message ? <p className="break-words opacity-90">{streamErrorText(t, error.message)}</p> : null}
       </div>
       <Button variant="outline" size="sm" onClick={onRetry}>
         <RefreshCw />

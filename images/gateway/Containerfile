@@ -1,9 +1,14 @@
 # Egress gateway of llm-harness projects (crates/harness-gateway).
 #
-# Built inside the VM by `harness image build`. The context is this file plus
-# the gateway crate's Cargo.toml and src/, all embedded into the CLI binary
-# (crates/harness-core/src/image.rs). The crate has no dependencies, so the
-# build runs offline and needs nothing but the Rust image.
+# Built inside the VM by `harness image build`. The context is this file,
+# Cargo.lock from this directory and the gateway crate's Cargo.toml and src/,
+# all embedded into the CLI binary (crates/harness-core/src/image.rs).
+#
+# The crate's only dependencies are the TLS stack (rustls, ring, Mozilla's
+# roots) for an https:// harness server. They come from crates.io, pinned
+# and checksum-verified by Cargo.lock, which is the workspace lock pruned to
+# the gateway (scripts/gateway-lock.sh); `--locked` refuses to build if it
+# does not fit. ring compiles C and assembly with the gcc of the Rust image.
 #
 # Multi-arch: both source images exist for linux/amd64 and linux/arm64.
 
@@ -12,16 +17,21 @@ ARG RUST_VERSION=1.97
 
 FROM docker.io/library/rust:${RUST_VERSION}-slim-trixie AS build
 WORKDIR /src
-COPY Cargo.toml ./
+# Dependencies first, in their own layer: a change to the gateway's code
+# then needs no download. Only the build platform's packages are fetched.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && touch src/lib.rs src/main.rs \
+ && cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
 COPY src ./src
 # Release profile set here rather than in Cargo.toml: there it would be
 # ignored (with a warning) while the crate is a workspace member.
 ENV CARGO_PROFILE_RELEASE_LTO=true \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_STRIP=true
-RUN cargo build --release --offline --bin harness-gateway
+RUN cargo build --release --locked --offline --features tls --bin harness-gateway
 
-# Same base as the instances, already in the VM; glibc for the resolver.
+# Same base as the instances, already in the VM; glibc for the resolver. No
+# CA bundle needed: the gateway brings Mozilla's roots itself.
 FROM docker.io/library/debian:trixie-slim
 COPY --from=build /src/target/release/harness-gateway /usr/local/bin/harness-gateway
 

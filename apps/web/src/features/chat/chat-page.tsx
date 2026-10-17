@@ -9,9 +9,11 @@ import { EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { ApiError, type ChatMessage } from '@/lib/api.ts';
 import { fade } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
+import { api } from '@/lib/api.ts';
 import { useConversation } from '@/lib/queries.ts';
 import { getChat } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
+import { EnvironmentButton, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
@@ -79,6 +81,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const { messages, sendMessage, regenerate, stop, status, error } = useChat<ChatMessage>({ chat: entry.chat });
 
   const busy = status === 'submitted' || status === 'streaming';
+  const { link } = conversation;
+  const online = useLinkOnline(link);
 
   function submit(text: string) {
     setDraft('');
@@ -89,7 +93,14 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <MessageList messages={messages} status={status} error={error} initialIds={initialIds} onRegenerate={() => void regenerate()} />
+        <MessageList
+          messages={messages}
+          status={status}
+          error={error}
+          initialIds={initialIds}
+          onRegenerate={() => void regenerate()}
+          onApprove={(id, decision) => api.conversations.approve(conversation.id, id, decision)}
+        />
       </div>
 
       <div className="relative shrink-0 px-4 pb-4 pt-2">
@@ -121,9 +132,15 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             onSubmit={submit}
             onStop={() => void stop()}
             busy={busy}
-            blockedReason={selection ? null : t('chat.modelRequired')}
+            blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
-            toolbar={<ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />}
+            placeholder={link ? t('agent.placeholder', { harness: link.harness, project: link.project }) : undefined}
+            toolbar={
+              <>
+                <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
+                <EnvironmentButton conversation={conversation} online={online} />
+              </>
+            }
           />
           <ComposerHint />
         </div>

@@ -1,163 +1,113 @@
 # Progress
 
-_Last updated: 2026-10-17 · Server-Image (amd64/arm64) per GitHub Actions, OSV-Abgleich, pi-Schutz gegen Prompt-Injection; nächstes: Phase 4 oder TLS im Gateway_
+_Last updated: 2026-10-17 · Phase 4 gebaut (Web-Chat steuert pi auf dem Rechner), TLS im Gateway; nächstes: Test des Nutzers mit DeepSeek, dann Jev und Stopp der VM im Leerlauf_
 
 ## Where we are
 
-Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). `main` und `feat/phase-2-sandbox` stehen auf demselben Stand.
+Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf `feat/phase-4-chat-env`, nach jedem fertigen Stück in `main` gemergt.
 
-Im Ordner eines Git-Repos läuft nach `harness project add` und `harness login` jetzt der ganze Ablauf von Phase 2:
-1. **`harness run pi`:**
-   - startet das Gateway und die Instanz
-   - klont das Repo ins Volume bzw. holt den neuen Stand
-   - installiert pi beim ersten Mal ins Tools-Volume
-   - schreibt pis `models.json` auf `llm.harness`
-   - startet pi mit Hinweisen zur Sandbox im System-Prompt (`briefing.rs`)
-2. **pi** erreicht das Modell über Gateway und Server, mit dem Key aus der Web-App. Will der Agent eine nicht freigegebene Domain erreichen, fragt harness im selben Terminal nach (`harness-cli/src/terminal/`).
-3. **`harness sync` / `harness merge`** holen die Commits des Agents als `agent/<projekt>` und führen sie zusammen.
+**Terminal (Phase 2):** Im Ordner eines Git-Repos startet `harness` (oder `harness run pi`) Gateway und Instanz, klont das Repo, installiert pi und verbindet es über den Server mit dem Modell. Rückfragen des Gateways kommen im selben Terminal. `harness sync`/`merge` holen die Commits; `merge` prüft sie vorher (Regeln und OSV).
 
-`scripts/smoke-run.sh` prüft das gegen die echte VM, mit einem Wegwerf-Server und einem Mock-LLM.
+**Web-Chat (Phase 4, neu):**
+1. Auf dem Rechner: `harness project remote on` im Projektordner, dann `harness connect` laufen lassen.
+2. Im Web-Chat (bestehender Chat) im Composer „Umgebung“ → Gerät → Projekt.
+3. Die erste Nachricht bestätigt man im Fenster von `harness connect`. Danach arbeitet pi in der Instanz. Der Chat zeigt Text, Werkzeugaufrufe (aufklappbar, mit Ausgabe) und Rückfragen des Gateways mit Knöpfen.
+4. Die Commits des Agents holt man wie bisher mit `harness sync`/`merge`.
 
-Bausteine:
-- **Server:** Kopplung (`/api/pairing`, `/api/devices`, `/api/device`) und LLM-Durchgang (`/api/llm/proxy/<id>/…`)
-- **Web-App:** Seite `/device`, Reiter „Geräte“
-- **Gateway:** `llm.harness` mit dem Geräte-Token, auch per `CONNECT` (undici)
-- **harness-core:** `server.rs`, `instance.rs`, `pi.rs`
-- **CLI:**
-  - Kopplung: `login`, `logout`
-  - Agent: `run`, `shell`, `sync`, `merge`, `stop`, `status`
-  - dazu wie bisher `net …`, `project …`, `image build`, `doctor`
+**Server per HTTPS:** Das Gateway spricht jetzt TLS. Ein Server hinter Caddy (öffentliches Zertifikat oder `tls internal` mit `[server] ca`) geht als LLM-Ziel, Anleitung in `docs/deploy.md`.
+
+Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓, solange die VM läuft), dann `bash scripts/smoke-connect.sh` (oder `smoke-run.sh` für Phase 2).
 
 ## Next step
 
-Stand 17.10.:
-- **Server-Image:** fertig, GitHub baut amd64 und arm64. Der Nutzer stellt es auf seinem Raspberry Pi auf (`docs/deploy.md`).
-- **Prompt-Injection-Warnungen und OSV-Abgleich:** fertig.
-
-Nächste Kandidaten (Nutzer entscheidet):
-1. **Phase 4: Agent aus dem Web**, das große Ziel des Nutzers. Bausteine:
-   - Verbindung von `harnessd` zum Server
-   - pi im RPC-Modus
-   - Chat-Ansicht für die Schritte des Agents
-   - Freigaben im Web
-2. **TLS im Gateway**, damit ein Server per HTTPS (VPS, Reverse-Proxy auf dem Pi) als LLM-Ziel geht. Bisher nur `http://`.
-3. **Jev bzw. ein Chat-Modell als dritte Stufe** der Merge-Prüfung und als Klassifikator für Prompt-Injection: Server-Durchgang für Klassifikatoren, Einstellungen, was läuft und mit welchem Modell.
-4. **Stopp der VM im Leerlauf** (Leases von `harness run`).
-
-Noch zu prüfen, sobald der Nutzer pi beendet hat: `cargo test -p harness-cli --test terminal_vm -- --ignored` (startet pi mit `-e`-Guard über `harness run`, berührt pis gemeinsames Volume).
+1. **Nutzer testet Phase 4 mit DeepSeek**: Server läuft, `harness project remote on`, `harness connect`, im Web einen Chat verknüpfen. Rückmeldung zu Darstellung und Ablauf einholen.
+2. Danach (Reihenfolge laut Nutzer):
+   - **Jev bzw. ein Chat-Modell** als dritte Stufe der Merge-Prüfung und als Klassifikator gegen Prompt-Injection. Dafür: Server-Durchgang für Klassifikatoren, Einstellungen (was läuft, mit welchem Modell).
+   - **Stopp der VM im Leerlauf** (Leases von `harness run` und `harness connect`).
+3. Phase-4-Reste (ROADMAP Phase 4 „Offen“), am wichtigsten:
+   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
+   - neuer Chat direkt mit Umgebung
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
 - Mistral nutzt dort `mistral-conversations`, das der Server-Durchgang nicht erlaubt. Mistral fehlt deshalb noch in `models.json`.
-
-Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alle Zeilen ✓, solange die VM läuft), dann `bash scripts/smoke-run.sh`.
+- pis RPC-Doku liegt im Tools-Volume unter `…/@earendil-works/pi-coding-agent/docs/rpc*.md` (lesen per `pm.sh run --rm -v harness-tools:/t:ro alpine …`).
 
 ## In flight / half-finished
 
-- Das Terminal-Relay ist nur im simulierten Terminal geprüft (Größe, Strg+C, Rückfragen, pi im Vollbild). In Windows Terminal hat es der Nutzer noch nicht benutzt.
-- Das echte `~/.harness` des Nutzers gibt es seit dem 15.10., mit dem Projekt `harness-test` in `$HOME\harness-test`. Eigene Probeläufe weiter nur mit `HARNESS_HOME`.
+- Nichts halb Fertiges im Code. Offene Phase-4-Punkte stehen in ROADMAP Phase 4.
+- Das Terminal-Relay ist nur im simulierten Terminal und vom Nutzer kurz in Windows Terminal geprüft.
+- Das echte `~/.harness` des Nutzers hat das Projekt `harness-test` in `$HOME\harness-test`. Eigene Probeläufe nur mit `HARNESS_HOME`.
 
 ## Decisions made this session
 
-LLM-Zugang und pi (14.10.):
-- **Der Server ist die einzige Stelle für Keys** (Entscheidung des Nutzers), auch für pi im Terminal. Kein echter Key im Container: pi bekommt `llm.harness` und einen Dummy-Key. Das Gateway setzt das Geräte-Token ein, der Server den Anbieter-Key.
-- **Eigene Geräte-Tokens statt Better-Auth-Device-Plugin**, weil dessen Token eine volle Sitzung wäre. Gespeichert wird nur der Hash.
-- **Durchgang 1:1 im Protokoll des Anbieters**, damit Streaming, Reasoning und Caching der Harness unverändert funktionieren. Erlaubt sind nur die Chat-Endpunkte.
-- **Rückfragen nie in der Oberfläche der Harness**, sondern auf dem Host (`net watch`, später `harness run`, App, Web-Chat).
-- **pi liegt in einem gemeinsamen Tools-Volume, das Instanzen nur lesen.** So ändert ein Agent nicht die pi-Version anderer Projekte. Installiert wird in einem kurzlebigen Installer-Container.
-- **Eingebaute Harness-Definitionen werden nicht mehr nach `~/.harness` kopiert.** Kopien veralten still, so fehlte `llm = "pi"`.
-- **harness verwaltet in `models.json` nur seine eigenen Einträge.** Einträge des Nutzers haben Vorrang. Nach `logout` entfernt harness die Umleitung, damit pis eigene Anmeldung wieder greift.
-- Commits: Der Nutzer erlaubt, nach jedem fertigen Stück zu committen, zu mergen und zu pushen.
+Phase 4 (17.10., Nutzer: „Mach als nächstes Phase 4 und parallel TLS im Gateway“):
+- **WebSocket mit `ws` (Server) und `tungstenite` (Gerät)**, ausgehend vom Gerät. Reverse-Proxies wie Caddy reichen WebSockets ohne Konfiguration durch.
+- **Agent-Antworten als normale AI-SDK-Nachrichten** (dynamische Tool-Teile, Datenteile) statt eines eigenen Formats. Chat-Ansicht, Speicherung und `useChat` bleiben gleich; Modell- und Agent-Antworten mischen sich in einem Chat.
+- **Neutrale Agent-Ereignisse vom Gerät**: Nur das Gerät kennt pis RPC-Format. Weitere Harnesses (opencode) brauchen nur einen neuen Übersetzer.
+- **Eine pi-Sitzung pro Chat** über `--session-id <conversation-id>`. Sie übersteht Neustarts von `harness connect`, den Verlauf bekommt pi nur bei leerer Sitzung.
+- **Bestätigung neuer Chats auf dem Rechner**, gemerkt in der Projektdatei. Ohne Terminal wird abgelehnt. Grund: Wer das Server-Konto übernimmt, soll nicht ungefragt Agents auf dem Rechner starten.
+- **Rückfragen des Gateways im Chat** beantwortet der Nutzer im Browser, ausgeführt von `harness connect` auf dem Host, nie im Container.
+- **Erste Version als `harness connect` im Vordergrund** statt `harnessd`: Der Dienst samt App ist Phase 3. Die Logik in `connect.rs` lässt sich dorthin umziehen.
 
-Terminal-Relay und Hinweise (15./16.10.):
-- **Rückfragen im selben Terminal über eine eigene Pseudo-Konsole** statt eines zweiten Fensters, weil der Nutzer dem Vorschlag zugestimmt hat. Die Entscheidung trifft weiter harness auf dem Host, nie die Harness im Container. Fällt die Pseudo-Konsole aus, geht es mit direktem Terminal und `net watch` weiter.
-- **Hinweise an den Agent über den System-Prompt** (Wunsch des Nutzers): Arbeitskopie, Commits, Netzregeln. Der Text ist englisch, weil ihn das Modell liest.
-- **pi ganz ohne eigene Netzzugriffe** (`PI_OFFLINE=1`), sonst käme bei jedem Start eine Rückfrage zu `pi.dev`. Der Nutzer bekam sie beim ersten echten Lauf am 16.10. pi lädt dort die Modellliste nach, das stellen nur `PI_OFFLINE` und kein anderer Schalter ab. Updates von pi macht harness.
-- **pi auf dem Host mit Werkzeugen in der Sandbox** (Idee des Nutzers vom 16.10.): technisch machbar, steht in ROADMAP Phase 5. Standard bleibt pi im Container.
+TLS im Gateway (17.10., gebaut von einem Hilfsagenten in einem eigenen Worktree):
+- rustls/ring hinter dem Feature `tls`, weil Windows ARM64 ring nicht baut. Der Image-Bau lädt Crates, gepinnt über einen eigenen Lock.
+- `[server] ca` ersetzt die öffentlichen CAs für den Server (Host und Gateway), die Prüfung ist nicht abschaltbar.
 
-Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt tinyproxy (Ziel-IP-Prüfung, Rückfragen), Bau offline in der VM, IP-Prüfung in jedem Modus, `off` = nur LLM-APIs, Rückfragen nur bei Zuschauer, Laufzeit-Freigaben im Gateway, Steuerung per Unix-Socket. Details in ROADMAP Paket 6.
+Früher (Kurzfassung, Details in ROADMAP):
+- Keys nur im Server, auch für pi im Terminal; eigene Geräte-Tokens statt Better-Auth-Device-Plugin; Durchgang 1:1 im Protokoll des Anbieters.
+- Rückfragen nie in der Oberfläche der Harness; pi in einem gemeinsamen, für Instanzen schreibgeschützten Tools-Volume.
+- pi ohne eigene Netzzugriffe (`PI_OFFLINE=1`); Hinweise an den Agent im System-Prompt; Schutz-Erweiterung gegen Prompt-Injection.
+- Der Nutzer erlaubt, nach jedem fertigen Stück zu committen, zu mergen und zu pushen.
 
 ## Open questions for the user
 
-- Welches Paket als Nächstes (siehe Next step)?
+- Wie fühlt sich der Web-Chat mit pi an (Darstellung der Werkzeugaufrufe, Rückfragen, Bestätigung im connect-Fenster)?
 
 ## Known issues / debt
 
-- **Hoch:** VM-Start nur per Admin-PowerShell (→ Phase 2b). Nach einem gescheiterten Start von Hand aufräumen, siehe `spikes/phase-0.md` §12.2. Die vsock-Registry-Einträge **nicht** löschen.
-- **Mittel:** Die VM bekommt nur so viel RAM, wie Windows frei hat (Start 1 GB). Am 14.10. nahm sie nach den pi-Läufen keine SSH-Verbindungen mehr an, nur ein Neustart half. Ursache nicht sicher geklärt, vermutlich Speicher.
-- **Mittel:** ~350–500 ms pro podman-Aufruf (neue SSH-Verbindung). `harness run` braucht bis zum Start von pi ~5–10 s. Abhilfe: libpod-REST über einen gehaltenen SSH-Tunnel, oder Prüfungen zusammenfassen.
-- **Mittel:** Das Gateway spricht zum Server nur HTTP. Ein entfernter Server mit HTTPS braucht TLS im Gateway, also rustls und damit die ersten Abhängigkeiten. Der Bau in der VM bräuchte dann crates.io.
-- **Mittel:** Der LLM-Durchgang erfasst noch keinen Verbrauch pro Gerät. Ein Limit für Anfragen pro Gerät gibt es auch nicht.
+- **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab (Server kann Abbruch und Stop nicht unterscheiden). Abhilfe: fortsetzbare Streams.
+- **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
+- **Mittel:** pis Sitzungen aller Projekte liegen gemeinsam in `harness-cfg-pi` (cwd ist überall `/workspace`). `--continue` im Terminal könnte die Sitzung eines anderen Projekts fortsetzen.
+- **Mittel:** Die VM bekommt nur so viel RAM, wie Windows frei hat (Start 1 GB). `doctor` meldete am 17.10. 154 MiB frei in der VM. Bei mehreren Agents parallel den Startspeicher anheben.
+- **Mittel:** ~350–500 ms pro podman-Aufruf (neue SSH-Verbindung). Der erste Chat-Prompt braucht ~10 s Vorbereitung.
+- **Mittel:** Der LLM-Durchgang erfasst keinen Verbrauch pro Gerät, kein Limit pro Gerät.
 - **Mittel:** Rückfragen hält das Gateway bis zu 120 s fest. pip bricht nach 15 s ab (`--timeout`).
-- **Mittel:** `in.bundle` enthält jedes Mal die ganze Historie. Bei großen Repos inkrementell machen.
-- **Mittel:** CLI-Texte nur Deutsch, Englisch fehlt (Web-UI ist zweisprachig). Die Fehlerseite des Gateways ist zweisprachig.
-- **Mittel:** kein Dockerfile/compose für den Server, keine ESLint/Prettier-Konfiguration, kein README (ROADMAP „Phase 1 – Reste“). Web-Haupt-Chunk ~955 kB.
-- **Niedrig:** Image-Builds hinterlassen `<none>`-Images in der VM. Später `harness image prune`.
-- **Niedrig:** `harness net watch` druckt Protokollzeilen während einer offenen Frage erst nach der Antwort.
-- **Niedrig:** Mit `HARNESS_HOME` aus Git Bash (`C:/…`) zeigt `project show` gemischte Schrägstriche. Nur kosmetisch.
-- **Niedrig:** Host-Key der VM per Trust on first use. Bei neuem Host-Key mit gleichem Port `%LOCALAPPDATA%\llm-harness\podman\harness-<port>\` löschen.
-- Rechner-Stabilität: Bluescreen `0xA0` beim Start der Windows Sandbox, Abbruch der WSL-VM bei Standby. Nutzer vor riskanten Virtualisierungs-Starts fragen.
+- **Mittel:** `in.bundle` enthält jedes Mal die ganze Historie.
+- **Mittel:** CLI-Texte nur Deutsch. Keine ESLint/Prettier-Konfiguration. Web-Haupt-Chunk ~955 kB.
+- **Niedrig:** `https://localhost` geht fürs Gateway nicht (Zertifikat passt nicht zu `192.168.127.254`). Lokal weiter `http://localhost`.
+- **Niedrig:** Image-Builds hinterlassen `<none>`-Images in der VM.
+- **Niedrig:** Host-Key der VM per Trust on first use.
+- Rechner-Stabilität: Bluescreen `0xA0` beim Start der Windows Sandbox. Nutzer vor riskanten Virtualisierungs-Starts fragen. Bei knappem Commit-Limit (17.10.: 29,6 von 31,6 GB) scheitern Browser-Tests.
 
 ## Verification state
 
-Stand 16.10.:
-- **Rust:**
-  - `cargo build`, `cargo fmt` und `cargo clippy --all-targets` laufen ohne Warnungen.
-  - `cargo test`: 117 Tests grün (core 81, cli 3, gateway 26 + 7 TCP).
-- **Terminal** (`cargo test -p harness-cli --test terminal_vm -- --ignored`): beide Tests grün, harness läuft dabei in einer Pseudo-Konsole des Tests.
-  - `harness shell`: Größe 100×30 und nach Änderung 120×40 im Container, Strg+C bricht `sleep 30` ab.
-  - Rückfrage zu `example.net`: „e“ ergibt HTTP 200, Esc lehnt ab (403).
-  - Rückfrage, während das Programm im alternativen Bildschirm ist.
-  - `harness run pi`: Vollbild-Oberfläche, keine Rückfrage beim Start, `!curl` in pi löst eine Rückfrage über pis Oberfläche aus, nach „e“ zeigt pi `PI-200`, Strg+D beendet.
-- **Hinweise an den Agent:** Ein Mock-LLM, das mitschreibt, sah sie in pis System-Prompt.
-- **VM-Tests** (`cargo test -p harness-core -- --ignored --test-threads=1`): alle 5 grün, Smoke-Skript grün.
-
-Stand 14.10. abends:
-- **VM-Tests** (`cargo test -p harness-core -- --ignored --test-threads=1`): alle 5 grün.
-  - `gateway_vm`, neu mit dem CONNECT-Tunnel zu `llm.harness` (`curl --proxytunnel`, wie undici). Der Server sah nur das Geräte-Token.
-  - neu `instance_vm`:
-    - Anlegen, Wiederverwenden, Neuanlage bei neuen Mounts, Daten bleiben erhalten
-    - Installation unter `off` nur über die Freigabe, Tools-Volume aus der Instanz nicht beschreibbar
-    - `models.json`: verbinden, eigener Eintrag bleibt, Abmelden, kaputte Datei → `.bak`
-- **`scripts/smoke-run.sh`** grün in 37 s:
-  - Kopplung, `pi --print` antwortet über `llm.harness`
-  - in `harness shell`: `example.com` gesperrt, `npm view react version` geht
-  - Commit im Container, `sync`, `merge` per Fast-Forward
-  - nach `logout` ist pis Umleitung entfernt
-  - in der VM bleibt nichts übrig
-- **Von Hand:** Nach `logout` bekommt ein noch laufendes Gateway vom Server 401 (`login-demo.sh` im Scratchpad).
-- **15.10.:**
-  - Ablauf des Nutzers nachgestellt: Server auf `localhost:8080` mit `PUBLIC_URL=http://localhost:5173`, `harness login` ohne URL. Der Link zeigt auf Vite, `doctor` ist ✓, pi antwortet.
-  - `sync` meldet uncommittete Dateien im Container (`sync_vm` erweitert, CLI-Lauf mit `?? hello.py`).
-  - Der Nutzer hat pi mit DeepSeek interaktiv genutzt.
-- **Server und Web unverändert seit `183a113`:** Server 64/64 (SQLite und Postgres), E2E 9/9, Typecheck grün.
+Stand 17.10. abends, nach dem Merge von TLS und Phase 4:
+- **Rust:** `cargo fmt --check`, `cargo clippy --all-targets` ohne Warnungen, `cargo test` grün (core 103 inkl. Tunnel-Protokoll, pi-Übersetzer und `[remote]`).
+- **Server:** 49/49 Tests (SQLite), davon 9 neu für Hub, Verknüpfung, Agent-Stream und WebSocket mit Token. Postgres diesmal nicht gelaufen.
+- **Typecheck:** alle drei Pakete grün.
+- **Browser-E2E:** 10/10 Schritte, 0 Konsolenprobleme, neu mit simuliertem Gerät (Dialog, Rückfrage per Klick, gespeicherte Antwort). Screenshots 16–20 hell, dunkel und mobil angesehen.
+- **VM:**
+  - `scripts/smoke-connect.sh`: 19/19, mit dem neuen TLS-Gateway.
+  - `gateway_vm`: 2/2, auch HTTPS mit eigener CA und mit falschem Namen.
+  - `terminal_vm`: 3/3 (pi mit Schutz-Erweiterung über `harness run`).
+- Gateway-Workflow auf GitHub grün (amd64, arm64). Gateway-Image beim Nutzer neu gebaut (`deac67bae652`), `doctor` grün.
+- **Nicht geprüft:** echter Lauf mit DeepSeek über den Web-Chat, Bestätigung im connect-Fenster per Tastatur, echter Caddy.
 
 ---
 
 ## Log
 
+### 2026-10-17 (Phase 4, TLS, Server-Image)
+- Phase 4: Tunnel, Hub, `chatLink`, Agent-Stream (Server); `harness connect`, `project remote`, pi im RPC-Modus (Gerät); Umgebung-Knopf, Werkzeug-Blöcke, Rückfrage-Karten (Web); `scripts/smoke-connect.sh`.
+- TLS im Gateway (rustls, eigener Lock, `[server] ca`, Workflow `gateway.yml`).
+- Server-Image für amd64/arm64 mit GitHub Actions, README mit Quick Start, OSV-Abgleich, pi-Schutz gegen Prompt-Injection.
+
 ### 2026-10-16/17 (Phase 2b und 2c)
-- Bundles per `podman cp`/`exec cat` statt 9p-Austauschordner (Voraussetzung für einen sicheren Dienst).
-- `crates/harness-vmd` (Windows-Dienst), `harness vmd …`, automatischer VM-Start, `harness` ohne Argumente mit Einrichtung von Repository und Projekt nach Rückfrage.
-- Merge-Prüfung Stufe 1: `review.rs`, `HostRepo::incoming`, `harness review`, Prüfung in `harness merge`.
+- Bundles per `podman cp`/`exec cat` statt 9p, `harness-vmd`, automatischer VM-Start, Merge-Prüfung Stufe 1.
 
-### 2026-10-15/16 (Phase 2, Terminal-Relay)
-- Erster interaktiver Lauf des Nutzers mit DeepSeek. `sync` meldet uncommittete Arbeit des Agents.
-- `briefing.rs` (Hinweise im System-Prompt), `[env]` und `prompt_flag` in Harness-Definitionen.
-- `harness-core/src/pty.rs` (ConPTY), `harness-cli/src/terminal/` (Relay, Rückfragen, Tasten, Bildschirmzustand), `Provider::exec_command`, `tests/terminal_vm.rs`.
-
-### 2026-10-14 (Phase 2, Pakete 7–9)
-- Server: Kopplung von Geräten, LLM-Durchgang mit gespeicherten Keys; Web: `/device`, Reiter „Geräte“.
-- Gateway: `llm.harness` mit Geräte-Token, CONNECT-Tunnel auf Port 80.
-- harness-core: `server.rs`, `instance.rs`, `pi.rs`; CLI: `login`, `logout`, `run`, `shell`, `sync`, `merge`, `stop`, `status`.
-- `tests/instance_vm.rs`, `scripts/smoke-run.sh`. VM musste einmal neu gestartet werden (SSH-Banner blieb leer).
-
-### 2026-10-13 (Phase 2, Paket 6)
-- `crates/harness-gateway`, Image `images/gateway`, `harness-core/src/gateway.rs`, CLI `harness net …`, `doctor` prüft das Gateway-Image.
-
-### 2026-10-12 (Phase 2, Pakete 1–5)
-- Cargo-Workspace, Provider, Base-Image, Konfiguration (`~/.harness`), Git-Sync über Bundles. Nutzer wählt DeepSeek für pi. Remote `origin` eingerichtet.
-- Windows-Sandbox-Spike verworfen, zurück zu Hyper-V + Linux. Machine `harness` angelegt, Phase 0 abgeschlossen.
+### 2026-10-12 bis 2026-10-15 (Phase 2)
+- Workspace, Provider, Base-Image, Konfiguration, Git-Sync, Gateway, Kopplung und LLM-Durchgang, `run`/`shell`/`sync`/`merge`, Terminal-Relay, Hinweise im System-Prompt.
 
 ### 2026-10-10 bis 2026-10-11
-- Architektur geplant, Server und Web-App (Phase 1) gebaut, WSL-Spike. Chat-Bug (useChat + StrictMode) und Login-Schleife behoben, E2E-Test angelegt.
+- Architektur, Server und Web-App (Phase 1), WSL-Spike, E2E-Test.

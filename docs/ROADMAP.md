@@ -20,7 +20,7 @@
 
 - [x] Server-Image (`apps/server/Dockerfile`, amd64 und arm64) mit `docker-compose.yml` und `.env`; GitHub baut und testet es bei jedem Push auf `main` (17.10., `docs/deploy.md`).
 - [ ] ESLint- und Prettier-Konfiguration anlegen. Die Pakete sind installiert, es gibt aber keine Config-Dateien. Danach `pnpm lint` grün machen.
-- [ ] `README.md` (Kurzbeschreibung, Start, Verweise).
+- [x] `README.md` mit Quick Start für Server (inkl. `.env`) und Sandbox (17.10.).
 - [x] Postgres-Testlauf wiederholt (14.10.): 64/64 grün, SQLite und Postgres, inklusive Geräte und LLM-Durchgang. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V.
 - [ ] Bundle-Größe der Web-App: Haupt-Chunk ~955 kB (295 kB gzip), per `manualChunks` aufteilen.
 - [x] Branch `feat/phase-1-chat` nach `main` gemergt (12.10.).
@@ -59,7 +59,7 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - **Merge** (`HostRepo::merge`): Fast-Forward, falls möglich, sonst `git merge --no-edit`. Abgelehnt werden detached HEAD, laufende Merges oder Rebases und uncommittete Änderungen an getrackten Dateien. Konflikte erkennt vorher `git merge-tree --write-tree` trocken. Bei Konflikt bleibt alles unangetastet, und die Dateien werden gemeldet.
    - **Härtung auf dem Host:** Jeder Git-Aufruf läuft mit `core.hooksPath` auf einen leeren Ordner, `core.fsmonitor=false`, `submodule.recurse=false` und `fetch.fsckObjects`/`transfer.fsckObjects`. Ein Test beweist, dass weder `.git/hooks` noch ein Hook-Ordner im Arbeitsbaum (husky) ausgeführt werden. Container-Ausgaben werden vor der Anzeige von Steuerzeichen befreit.
    - **Offen:** `in.bundle` ist jedes Mal vollständig, bei großen Repos ggf. inkrementell machen.
-6. ✅ **Netzwerk-Gateway** (`crates/harness-gateway`, Image `images/gateway`, Host-Seite `harness-core/src/gateway.rs`, CLI `harness net`). Statt tinyproxy gleich ein eigener kleiner Proxy in Rust (aus Phase 3 vorgezogen): Nur er kann „open“ sicher machen und Anfragen festhalten, bis der Nutzer entscheidet. Nur Standardbibliothek, ein Thread pro Verbindung. Gebaut wird in der VM aus den eingebetteten Quellen (`rust:1.97-slim-trixie`, Build ~10 s, offline). Verifiziert mit 28 Tests im Crate (6 davon über echtes TCP), `tests/gateway_vm.rs` und einem Probelauf der CLI mit `harness net watch`:
+6. ✅ **Netzwerk-Gateway** (`crates/harness-gateway`, Image `images/gateway`, Host-Seite `harness-core/src/gateway.rs`, CLI `harness net`). Statt tinyproxy gleich ein eigener kleiner Proxy in Rust (aus Phase 3 vorgezogen): Nur er kann „open“ sicher machen und Anfragen festhalten, bis der Nutzer entscheidet. Nur Standardbibliothek außer TLS zum Server (rustls, Feature `tls`), ein Thread pro Verbindung. Gebaut wird in der VM aus den eingebetteten Quellen (`rust:1.97-slim-trixie`) mit dem gepinnten `images/gateway/Cargo.lock` (Crates von crates.io, ~34 s). Verifiziert mit 28 Tests im Crate (6 davon über echtes TCP), `tests/gateway_vm.rs` und einem Probelauf der CLI mit `harness net watch`:
    - **Ein Gateway pro Projekt** (`harness-gw-<projekt>`), im internen Projektnetz unter dem Alias `gateway` (Port 8888) und zusätzlich im normalen Netz `harness-egress`. Es hat eine eigene Provider-Methode `create_gateway`: gehärtet wie Instanzen, Nutzer `nobody`, keine Mounts, 128 MB. Sie prüft, dass das erste Netz intern ist und das zweite nicht. Instanzen bleiben **nur** im internen Netz.
    - **Entscheidung pro Host**, in dieser Reihenfolge:
      1. Die deny-Liste gewinnt immer.
@@ -252,7 +252,33 @@ Bausteine:
 
 **Projekte direkt aus dem Web anlegen:** leerer Arbeitsbereich oder Klon einer Git-URL, ohne Repository auf dem Host. Offen ist dabei, wohin die Ergebnisse gehen: Download, Push aus dem Container mit eigenem Token, oder ein Host-Ordner.
 
-Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`, Instanz und pi-Anbindung aus Phase 2 wiederverwendet), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Für „wenige Klicks“ müssen außerdem der VM-Start ohne Admin-Fenster (Phase 2b) und der Setup-Assistent (Phase 3) stehen. Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). Offen dazu: Verbrauch pro Gerät erfassen, TLS im Gateway für entfernte Server.
+Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`, Instanz und pi-Anbindung aus Phase 2 wiederverwendet), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Für „wenige Klicks“ müssen außerdem der VM-Start ohne Admin-Fenster (Phase 2b) und der Setup-Assistent (Phase 3) stehen. Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). TLS im Gateway gibt es seit dem 17.10. (`https://`-Server, eigene CA über `[server] ca`). Offen dazu: Verbrauch pro Gerät erfassen.
+
+**Stand 17.10.: gebaut und gegen die echte VM geprüft.**
+- **Server** (`apps/server/src/tunnel/`, `routes/agent.ts`):
+  - WebSocket `/api/device/tunnel` mit Geräte-Token und `DeviceHub` (Online-Status, Projekte, laufende Antworten).
+  - Tabelle `chatLink`; `PUT/DELETE /api/conversations/:id/link`, `POST …/approvals/:id`.
+  - Ein verknüpfter Chat schickt Nachrichten ans Gerät statt ans Modell. Die Agent-Ereignisse werden als AI-SDK-Stream gestreamt und gespeichert.
+- **Gerät** (`harness connect`, `harness project remote on|off`):
+  - nur freigegebene Projekte, neue Chats mit Bestätigung im Terminal
+  - pi im RPC-Modus mit einer Sitzung pro Chat (`--session-id`)
+  - Übersetzung in neutrale Agent-Ereignisse (`pi_rpc.rs`)
+  - Rückfragen des Gateways in den Chat und Antworten zurück
+- **Web:**
+  - Umgebung-Knopf im Composer, Dialog Gerät → Projekt
+  - Werkzeugaufrufe als Blöcke, Hinweise, Rückfragen als Karte mit den Antworten aus `harness net watch`
+  - Online-Status; Fehlercodes werden übersetzt
+- **Geprüft:**
+  - Server-Tests (Hub, Verknüpfung, Stream, WebSocket mit Token)
+  - Browser-E2E mit simuliertem Gerät
+  - `scripts/smoke-connect.sh` gegen die VM: Ablehnung ohne Bestätigung, pi per RPC, `bash` mit Commit, Rückfrage zu example.com im Chat beantwortet, Antwort gespeichert, `harness sync`
+- **Offen:**
+  - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
+  - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
+  - Dialoge von pi-Erweiterungen im Web (heute abgelehnt)
+  - fortsetzbare Streams: Neuladen während einer Antwort bricht sie ab
+  - `harnessd` statt `harness connect` im Vordergrund, Bestätigung später in der App
+  - Verbrauch und Limits pro Gerät
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 

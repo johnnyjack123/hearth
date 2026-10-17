@@ -1,11 +1,13 @@
 //! The gateway on the VM: an instance in the internal project network reaches
-//! the internet only through it, by the project's rules.
+//! the internet only through it, by the project's rules, and its model only
+//! through `llm.harness`, also to `https://` servers.
 //!
 //! Ignored by default; needs a running machine, both images and internet
 //! access: `cargo test -p harness-core --test gateway_vm -- --ignored --nocapture`
 
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, TcpListener, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -13,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use harness_core::config::{FileMode, NetworkPreset, Project};
 use harness_core::gateway::{
-    self, Event, GatewayControl, GatewayState, Host, Reason, Reply, Scope,
+    self, Event, GatewayControl, GatewayState, Host, LLM_HOST, Reason, Reply, Scope,
 };
 use harness_core::image::{BASE_IMAGE, GATEWAY_IMAGE, ImageStatus};
 use harness_core::podman::{DEFAULT_MACHINE, PodmanProvider};
@@ -21,7 +23,8 @@ use harness_core::project::ProjectName;
 use harness_core::provider::{
     ContainerSpec, ExecOutput, ExecSpec, Mount, MountSource, Provider, Resources, VolumeSpec,
 };
-use harness_core::server;
+use harness_core::server::{self, ServerCa};
+use harness_gateway::pem;
 
 struct Cleanup<'a> {
     provider: &'a PodmanProvider,
@@ -35,6 +38,16 @@ impl Drop for Cleanup<'_> {
         let _ = p.remove_container(&self.name.gateway());
         let _ = p.remove_volume(&self.name.home_volume());
         let _ = p.remove_network(&self.name.network());
+    }
+}
+
+/// Removes one more container; declared after [`Cleanup`], so it goes
+/// before the network.
+struct RemoveContainer<'a>(&'a PodmanProvider, &'a str);
+
+impl Drop for RemoveContainer<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.remove_container(self.1);
     }
 }
 
@@ -120,6 +133,7 @@ fn instances_reach_the_internet_only_through_the_gateway() {
         &format!("http://127.0.0.1:{server_port}"),
         provider.host_address(),
         token,
+        None,
     )
     .unwrap();
 
@@ -346,4 +360,204 @@ fn instances_reach_the_internet_only_through_the_gateway() {
         gateway::state(&provider, &name).unwrap(),
         GatewayState::Stopped
     );
+}
+
+/// Name of the stand-in HTTPS server; the test certificate is valid for it.
+const TLS_SERVER: &str = "harness-tls-test";
+
+/// Serves HTTPS on 8443 with the test certificate (Node in the base image)
+/// and echoes what it received: request line, Host and Authorization.
+const TLS_SERVER_SCRIPT: &str = r#"
+const https = require("https");
+const pem = (name) => Buffer.from(process.env[name], "base64");
+https.createServer({ cert: pem("TLS_CERT"), key: pem("TLS_KEY") }, (req, res) => {
+  req.resume();
+  req.on("end", () => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end(`${req.method} ${req.url}\nhost=${req.headers.host}\nauth=${req.headers.authorization}\n`);
+  });
+}).listen(8443);
+"#;
+
+const FIXTURES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../harness-gateway/tests/fixtures"
+);
+
+#[test]
+#[ignore = "needs the running Podman machine, both images and internet access"]
+fn llm_harness_reaches_https_servers() {
+    let machine = std::env::var("HARNESS_MACHINE").unwrap_or_else(|_| DEFAULT_MACHINE.into());
+    let provider = PodmanProvider::for_machine(&machine).unwrap();
+    for image in [BASE_IMAGE, GATEWAY_IMAGE] {
+        assert_eq!(
+            image.status(&provider).unwrap(),
+            ImageStatus::Current,
+            "run `harness image build` first"
+        );
+    }
+    let name = ProjectName::new(&format!("gwtls-{}", std::process::id())).unwrap();
+    let _cleanup = Cleanup {
+        provider: &provider,
+        name: &name,
+    };
+    let _ = provider.remove_container(TLS_SERVER);
+    let _server_cleanup = RemoveContainer(&provider, TLS_SERVER);
+    let project = project(&name, NetworkPreset::Off);
+    let token = "hd_test-token-0123456789abcdefghijklmnopqrstuvw";
+    let ca = ServerCa::load(&PathBuf::from(FIXTURES).join("ca.pem")).unwrap();
+    let upstream = |url: &str, ca: Option<&ServerCa>| {
+        server::llm_upstream(url, provider.host_address(), token, ca).unwrap()
+    };
+
+    // A public server with a certificate from a public CA.
+    timed("gateway start (https://example.com)", || {
+        gateway::ensure_running(
+            &provider,
+            &project,
+            Some(&upstream("https://example.com", None)),
+        )
+        .unwrap()
+    });
+    let control = GatewayControl::new(&provider, &name);
+
+    let fixture =
+        |file: &str| pem::base64_encode(&fs::read(PathBuf::from(FIXTURES).join(file)).unwrap());
+    for (container, command, env) in [
+        (name.instance(), vec![], vec![]),
+        (
+            TLS_SERVER.to_owned(),
+            vec![
+                "node".to_owned(),
+                "-e".to_owned(),
+                TLS_SERVER_SCRIPT.to_owned(),
+            ],
+            vec![
+                ("TLS_CERT".to_owned(), fixture("server.pem")),
+                ("TLS_KEY".to_owned(), fixture("server.key")),
+            ],
+        ),
+    ] {
+        provider
+            .create_container(&ContainerSpec {
+                name: container.clone(),
+                image: BASE_IMAGE.tag.to_owned(),
+                network: name.network(),
+                command,
+                env: env.into_iter().collect(),
+                ..ContainerSpec::default()
+            })
+            .unwrap();
+        provider.start_container(&container).unwrap();
+    }
+    let instance = name.instance();
+    let run = |script: &str| {
+        provider
+            .exec_output(&ExecSpec {
+                container: instance.clone(),
+                command: vec!["sh".into(), "-c".into(), script.into()],
+                ..ExecSpec::default()
+            })
+            .unwrap()
+    };
+    // Status line and body of a chat request to llm.harness, as an agent
+    // would send it with its made-up key.
+    let chat = || {
+        let output = run(
+            "curl -sS --max-time 30 -i -X POST -H 'Authorization: Bearer agent-made-this-up' \
+             -H 'Content-Type: application/json' -d '{}' http://llm.harness/c1/chat/completions",
+        );
+        assert_eq!(output.code, 0, "{}", output.stderr);
+        let text = output.stdout.replace('\r', "");
+        let status = text.lines().next().unwrap_or_default().to_owned();
+        println!("  → {status}");
+        (status, text)
+    };
+    // The gateway's verdict about the last llm.harness request.
+    let last_llm = || {
+        let status = control.status().unwrap();
+        let host = Host::parse(LLM_HOST).unwrap();
+        let entry = status.log.iter().rev().find(|e| e.host == host).unwrap();
+        (entry.allowed, entry.reason)
+    };
+
+    println!("https://example.com (Mozilla roots):");
+    let (status, text) = chat();
+    // Whatever example.com answers to the path, it is not the gateway.
+    assert!(!text.contains("X-Harness-Gateway"), "{text}");
+    assert!(status.starts_with("HTTP/1.1 "), "{status}");
+    assert_eq!(last_llm(), (true, Reason::Llm));
+
+    // The same server under an address its certificate does not name. A CDN
+    // may already refuse the handshake without a name (no SNI); either way
+    // the request must not get through. The exact name check follows below
+    // with the own CA.
+    let ip = ("example.com", 443)
+        .to_socket_addrs()
+        .unwrap()
+        .map(|a| a.ip())
+        .find(IpAddr::is_ipv4)
+        .unwrap();
+    println!("https://{ip} (example.com by address):");
+    control
+        .set_llm(Some(&upstream(&format!("https://{ip}"), None)))
+        .unwrap();
+    let (status, text) = chat();
+    assert!(status.contains(" 502 "), "{text}");
+    assert!(text.contains("X-Harness-Gateway: tls-failed"), "{text}");
+    println!("  {}", text.lines().last().unwrap_or_default());
+    assert_eq!(last_llm(), (false, Reason::TlsFailed));
+
+    // A server with its own CA, like Caddy's `tls internal`.
+    let own = format!("https://{TLS_SERVER}:8443");
+    println!("{own} without its CA:");
+    control.set_llm(Some(&upstream(&own, None))).unwrap();
+    // Node needs a moment to listen; the first try may find it closed.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let (status, text) = loop {
+        let (status, text) = chat();
+        if !text.contains("connect-failed") || Instant::now() > deadline {
+            break (status, text);
+        }
+        thread::sleep(Duration::from_millis(500));
+    };
+    assert!(status.contains(" 502 "), "{text}");
+    assert!(text.contains("UnknownIssuer"), "{text}");
+    assert_eq!(last_llm(), (false, Reason::TlsFailed));
+
+    println!("{own} with its CA:");
+    control.set_llm(Some(&upstream(&own, Some(&ca)))).unwrap();
+    let (status, text) = chat();
+    assert!(status.contains(" 200 "), "{text}");
+    assert!(
+        text.contains("POST /api/llm/proxy/c1/chat/completions\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("host={TLS_SERVER}:8443\n")),
+        "{text}"
+    );
+    assert!(text.contains(&format!("auth=Bearer {token}\n")), "{text}");
+    assert!(!text.contains("made-this-up"), "{text}");
+    assert_eq!(last_llm(), (true, Reason::Llm));
+    let status = control.status().unwrap();
+    assert_eq!(
+        status.llm.as_deref(),
+        Some(format!("{own}/api/llm/proxy").as_str())
+    );
+
+    // The same server by its address, which the certificate does not name.
+    let address = run(&format!("getent hosts {TLS_SERVER}"));
+    let address = address.stdout.split_whitespace().next().unwrap().to_owned();
+    println!("https://{address}:8443 with the CA:");
+    control
+        .set_llm(Some(&upstream(
+            &format!("https://{address}:8443"),
+            Some(&ca),
+        )))
+        .unwrap();
+    let (status, text) = chat();
+    assert!(status.contains(" 502 "), "{text}");
+    assert!(text.contains("not valid for name"), "{text}");
+    assert_eq!(last_llm(), (false, Reason::TlsFailed));
 }

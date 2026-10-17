@@ -2,10 +2,19 @@
 // against an isolated server and Vite instance started by run-e2e.mjs.
 // Uses an installed browser (puppeteer-core) so nothing large is downloaded.
 import { existsSync, mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
+// Node's own WebSocket cannot send an Authorization header; the server's ws
+// package can.
+const { WebSocket } = createRequire(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../server/package.json'),
+)('ws');
+
 const BASE = process.env.E2E_BASE ?? 'http://127.0.0.1:5174';
+const API = process.env.E2E_API ?? 'http://127.0.0.1:8090';
 const OUT = path.resolve(process.env.E2E_OUT ?? './shots');
 mkdirSync(OUT, { recursive: true });
 
@@ -94,6 +103,7 @@ try {
   });
 
   let conversationPath = '';
+  let deviceToken = '';
   await step('first message from the start page', async () => {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForSelector('textarea');
@@ -160,6 +170,7 @@ try {
     if (poll.status !== 'approved') {
       throw new Error(`pairing poll returned ${poll.status}`);
     }
+    deviceToken = poll.token;
     const device = { authorization: `Bearer ${poll.token}` };
     const providers = await fetch(`${BASE}/api/llm/providers`, { headers: device }).then((response) => response.json());
     const mock = providers.find((provider) => provider.kind === 'openai-compatible');
@@ -180,6 +191,82 @@ try {
     await page.goto(`${BASE}/settings?tab=devices`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('harness auf E2E'), { timeout: 10_000 });
     await shot('14-devices');
+  });
+
+  await step('agent on a device answers in a linked chat', async () => {
+    // What `harness connect` does, scripted: offer a project, answer a prompt
+    // with a tool call that needs a gateway approval.
+    const device = new WebSocket(`${API.replace('http', 'ws')}/api/device/tunnel`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    const received = [];
+    const sendEvent = (session, event) => device.send(JSON.stringify({ type: 'session.event', session, event }));
+    device.on('message', (data) => {
+      const message = JSON.parse(data.toString());
+      received.push(message);
+      if (message.type === 'welcome') {
+        device.send(JSON.stringify({ type: 'hello', version: 1, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
+      }
+      if (message.type === 'session.prompt') {
+        const s = message.session;
+        sendEvent(s, { type: 'turn.start' });
+        sendEvent(s, { type: 'text.start', id: 't1' });
+        sendEvent(s, { type: 'text.delta', id: 't1', delta: 'Ich schaue mir das Projekt an.' });
+        sendEvent(s, { type: 'text.end', id: 't1' });
+        sendEvent(s, { type: 'tool.start', id: 'call-1', name: 'bash', input: { command: 'ls -la && curl -sI https://example.com' } });
+        sendEvent(s, { type: 'approval', id: 1, host: 'example.com', port: 443, state: 'pending' });
+      }
+      if (message.type === 'approval.decide') {
+        const s = message.session;
+        sendEvent(s, { type: 'approval', id: 1, host: 'example.com', port: 443, state: 'resolved' });
+        sendEvent(s, { type: 'tool.end', id: 'call-1', output: 'README.md\nsrc\nHTTP/2 200', isError: false });
+        sendEvent(s, { type: 'turn.end' });
+        sendEvent(s, { type: 'turn.start' });
+        sendEvent(s, { type: 'text.start', id: 't2' });
+        sendEvent(s, { type: 'text.delta', id: 't2', delta: 'Fertig: zwei Einträge, example.com antwortet.' });
+        sendEvent(s, { type: 'text.end', id: 't2' });
+        sendEvent(s, { type: 'turn.end' });
+        sendEvent(s, { type: 'usage', inputTokens: 1200, outputTokens: 80 });
+        sendEvent(s, { type: 'done', aborted: false });
+      }
+    });
+    await new Promise((resolve, reject) => {
+      device.once('open', resolve);
+      device.once('error', reject);
+    });
+
+    try {
+      await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
+      await page.waitForSelector('[aria-label="Mit Umgebung verbinden"]', { timeout: 10_000 });
+      await page.click('[aria-label="Mit Umgebung verbinden"]');
+      await page.waitForSelector(`[role=dialog] ${text('demo')}`, { timeout: 10_000 });
+      await page.click(`[role=dialog] ${text('demo')}`);
+      await shot('16-link-dialog');
+      await page.click(`[role=dialog] ${text('Verbinden')}`);
+      await page.waitForSelector(text('pi in demo'), { timeout: 10_000 });
+
+      await page.type('textarea', 'Schau dir das Projekt an');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector(text('Der Agent möchte example.com erreichen'), { timeout: 15_000 });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await shot('17-agent-approval');
+      await page.click(text('Einmal erlauben'));
+      await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 15_000 });
+      const decision = received.find((message) => message.type === 'approval.decide');
+      if (decision?.decision !== 'once' || decision.id !== 1) {
+        throw new Error(`device got ${JSON.stringify(decision)}`);
+      }
+      await page.click(text('ls -la && curl -sI https://example.com'));
+      await page.waitForSelector(text('HTTP/2 200'), { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await shot('18-agent-reply');
+
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 10_000 });
+      await page.waitForSelector(text('Beantwortet'), { timeout: 5_000 });
+    } finally {
+      device.close();
+    }
   });
 
   await step('pairing page after sign-in redirect', async () => {
@@ -205,6 +292,9 @@ try {
     await page.waitForSelector(text('Und noch eine Frage'));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('08-chat-dark');
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'));
+    await shot('19-agent-dark');
     await page.goto(`${BASE}/settings?tab=appearance`, { waitUntil: 'networkidle0' });
     await shot('09-settings-dark');
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
@@ -212,6 +302,9 @@ try {
     await page.waitForSelector(text('Und noch eine Frage'));
     await shot('10-chat-mobile-dark');
     await page.evaluate(() => localStorage.setItem('harness.theme', 'light'));
+    await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'));
+    await shot('20-agent-mobile-light');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await shot('11-home-mobile-light');
   });

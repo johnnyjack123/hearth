@@ -135,12 +135,16 @@ pub enum Reason {
     Llm,
     /// `llm.harness`, but the host has not set up LLM access.
     NoLlm,
+    /// `llm.harness`: the TLS handshake with the harness server failed,
+    /// e.g. a certificate for another name or from an untrusted CA.
+    TlsFailed,
 }
 
 impl Reason {
-    const ALL: [Reason; 14] = [
+    const ALL: [Reason; 15] = [
         Reason::Llm,
         Reason::NoLlm,
+        Reason::TlsFailed,
         Reason::Allowlist,
         Reason::Open,
         Reason::Grant,
@@ -172,6 +176,7 @@ impl Reason {
             Reason::ConnectFailed => "connect-failed",
             Reason::Llm => "llm",
             Reason::NoLlm => "no-llm",
+            Reason::TlsFailed => "tls-failed",
         }
     }
 
@@ -192,6 +197,9 @@ impl Reason {
             Reason::ConnectFailed => "Verbindung fehlgeschlagen",
             Reason::Llm => "LLM über den harness-Server",
             Reason::NoLlm => "kein LLM-Zugang eingerichtet (auf dem Host: harness login)",
+            Reason::TlsFailed => {
+                "TLS zum harness-Server fehlgeschlagen (Zertifikat ungültig oder für einen anderen Namen)"
+            }
         }
     }
 
@@ -212,6 +220,9 @@ impl Reason {
             Reason::ConnectFailed => "connection failed",
             Reason::Llm => "LLM via the harness server",
             Reason::NoLlm => "no LLM access set up (the user runs: harness login)",
+            Reason::TlsFailed => {
+                "TLS to the harness server failed (untrusted or wrong certificate)"
+            }
         }
     }
 }

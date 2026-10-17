@@ -208,16 +208,15 @@ export const approvalDecisionSchema = z
 
 /**
  * Data parts of agent replies, beyond the AI SDK's own text, reasoning and
- * tool parts.
+ * tool parts. A type alias, not an interface: the AI SDK requires it to be
+ * assignable to a record, which interfaces are not.
  */
-export interface AgentDataParts {
+export type AgentDataParts = {
   /** A message of harness or the harness itself (warnings, progress). */
   notice: { level: 'info' | 'warning' | 'error'; text: string };
   /** A question of the project's gateway; updated in place when answered. */
   approval: { id: number; host: string; port: number; state: 'pending' | 'resolved' };
-  /** Index signature required by the AI SDK's data type constraint. */
-  [key: string]: unknown;
-}
+};
 
 /**
  * Output of a tool call in an agent reply.

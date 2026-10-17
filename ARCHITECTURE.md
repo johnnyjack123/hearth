@@ -361,12 +361,14 @@ Umgesetzt seit Phase 2 (`harness login`, Server `routes/devices.ts`, Web-Seite `
 
 ### 6.2 Tunnel
 
-`harnessd` baut eine WSS-Verbindung zum Server auf, ausgehend, also ohne Port-Freigaben. Er akzeptiert **nur** diese Nachrichtentypen:
+Das Gerät baut eine WebSocket-Verbindung zum Server auf (`/api/device/tunnel`, Geräte-Token als Bearer), ausgehend, also ohne Port-Freigaben. Heute macht das `harness connect` im Vordergrund, später `harnessd`. Das Protokoll steht in `packages/shared/src/agent.ts` und `harness-core/src/tunnel.rs`. Es gibt **nur** diese Nachrichtentypen:
 
 | Richtung | Nachricht |
 |---|---|
-| Server → Gerät | `projects.list` (nur Projekte mit `remote_access = true`), `session.open`, `session.input`, `session.cancel`, `session.close` |
-| Gerät → Server | `hello`, `projects`, `session.event`, `session.closed` |
+| Server → Gerät | `welcome`, `session.prompt` (Projekt, Harness, Text, bei neuer Sitzung der bisherige Verlauf, gewähltes Modell), `session.cancel`, `session.close`, `approval.decide` |
+| Gerät → Server | `hello` (Version, angebotene Projekte), `projects`, `session.event` (Agent-Ereignis), `session.closed` |
+
+Angeboten werden nur Projekte mit `[remote] enabled = true` und Harnesses mit Adapter. Eine Sitzung entsteht beim ersten `session.prompt` eines Chats; ihre ID ist die Conversation-ID.
 
 Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizugriff für den Server. Selbst ein kompromittierter Server kann daher nur Harness-Sitzungen in freigegebenen Projekten steuern, und diese laufen in der Sandbox.
 
@@ -374,7 +376,7 @@ Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizu
 
 1. Ein neuer Chat ist **nicht** verknüpft. Er läuft als klassischer Chat über den Server (Modus A) und hat keine Tools für Umgebungen.
 2. „Mit Umgebung verbinden“ im Chat-Kopf führt zur Auswahl: Gerät, dann Projekt (nur freigegebene), dann Harness (nur solche mit Adapter).
-3. Die erste Verknüpfung eines Chats mit einem Projekt muss in der Desktop-App bestätigt werden. Optional lässt sich „für eigene Chats automatisch erlauben“ einstellen.
+3. Die erste Nachricht eines Chats an ein Projekt muss auf dem Rechner bestätigt werden, heute im Fenster von `harness connect`, später in der Desktop-App. Bestätigte Chats stehen in `remote.chats` der Projektdatei. Mit `confirm = false` (`harness project remote on --no-confirm`) entfällt die Frage.
 4. Die Verknüpfung ist im Chat sichtbar und jederzeit lösbar. Die Desktop-App zeigt alle aktiven Verknüpfungen und hat einen Not-Aus.
 
 ### 6.4 Agent im Container
@@ -388,14 +390,14 @@ Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizu
   - Ergebnis: dieselben Keys und Modelle wie im Web-Chat, kein Schlüssel im Container (auch bei „open“ nicht), eine Stelle für Verbrauch und Budgets. Ob pi im Terminal läuft oder über einen verknüpften Chat, ist für den LLM-Weg egal.
   - Ein lokaler Server ist aus der VM über die gvproxy-Adresse des Hosts erreichbar, als einzige Ausnahme vom Adressfilter des Gateways. Für entfernte Server mit HTTPS braucht das Gateway noch TLS.
 - **Rückfragen (Netz, später Host-Befehle, Git-Push) entscheidet immer etwas außerhalb des Containers.** Würde die Harness selbst fragen und die Antwort durch den Container laufen, könnte sich ein gekaperter Agent selbst freigeben. Oberflächen:
-  - `harness net watch` (heute)
+  - `harness net watch`
   - `harness run` selbst, das auf dem Host läuft und die Frage im selben Terminal einblenden kann (geplant)
   - Benachrichtigung der App (Phase 3)
   - Web-Chat (Phase 4)
 
   Die erste Antwort gilt. Eigene Rückfragen der Harness (z. B. „Bash-Befehl ausführen?“) bleiben in deren Oberfläche, weil sie nur das Innere der Sandbox betreffen.
 - Wird ein bereits laufender Chat verknüpft, bekommt die Harness den bisherigen Verlauf als Kontext im ersten Prompt.
-- `AgentEvent`-Typen: `text.delta`, `reasoning.delta`, `tool.start`, `tool.output`, `tool.end`, `file.changed`, `usage`, `error`, `turn.end`. Die UI rendert Tool-Aufrufe als Terminal-Blöcke bzw. Diffs.
+- `AgentEvent`-Typen: `turn.start/end`, `text.start/delta/end`, `reasoning.start/delta/end`, `tool.start`, `tool.update`, `tool.end`, `notice`, `approval`, `usage`, `error`, `done`. Der Server übersetzt sie in AI-SDK-Chunks (dynamische Tool-Teile, Datenteile `notice` und `approval`), damit Speicherung und Chat-Ansicht für Modell- und Agent-Antworten gleich sind. Die UI rendert Tool-Aufrufe als aufklappbare Blöcke mit Befehl und Ausgabe.
 
 ## 7. Frontend
 

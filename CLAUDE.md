@@ -28,9 +28,15 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
   - **Rückfragen des Gateways im selben Terminal** (Relay über eine Pseudo-Konsole, `harness-cli/src/terminal/`) und **Hinweise an den Agent** im System-Prompt (`briefing.rs`).
 
-  Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`, Branch `feat/phase-2-sandbox`.
+  Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`. Arbeitsbranch seit dem 17.10.: `feat/phase-4-chat-env`.
+- **Phase 4 (Web-Chat ↔ Umgebung) gebaut, 17.10.:**
+  - `harness connect` hält einen WebSocket zum Server (`/api/device/tunnel`).
+  - Ein Web-Chat lässt sich mit einem freigegebenen Projekt verknüpfen (`harness project remote on`).
+  - Nachrichten gehen dann an pi im RPC-Modus in der Instanz, Werkzeugaufrufe und Rückfragen des Gateways erscheinen im Chat.
+  - Siehe Stolpersteine „Web-Chat ↔ Gerät“.
+- **TLS im Gateway, 17.10.:** `llm.harness` geht auch an einen `https://`-Server (rustls im Gateway, Feature `tls`). Server mit eigener CA über `[server] ca` in `config.toml`, Anleitung mit Caddy in `docs/deploy.md`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: siehe PROGRESS.md (Vorschlag: Server dauerhaft betreiben, dann Prompt-Injection-Warnungen und OSV, dann Phase 4).
+- Nächstes: siehe PROGRESS.md (Nutzer testet Phase 4 mit DeepSeek; danach Jev als Klassifikator und Stopp der VM im Leerlauf).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -73,12 +79,16 @@ HARNESS_HOME=<ordner> target/debug/harness …   # andere Konfiguration als ~/.h
 cargo test -p harness-core --test podman_vm -- --ignored --nocapture      # Provider gegen die echte VM (alpine)
 cargo test -p harness-core --test base_image_vm -- --ignored --nocapture  # Base-Image im gehärteten Container
 cargo test -p harness-core --test sync_vm -- --ignored --nocapture        # Git-Sync mit den echten Container-Skripten
-cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gateway: Voreinstellungen, Sperren, Rückfrage (braucht Internet)
+cargo test -p harness-core --test gateway_vm -- --ignored --nocapture     # Gateway: Voreinstellungen, Sperren, Rückfrage, llm.harness auch per https:// mit eigener CA (braucht Internet)
 cargo test -p harness-core --test instance_vm -- --ignored --nocapture    # Instanz, Installation über das Gateway, models.json
 cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~2 min)
 cargo test -p harness-cli --test terminal_vm -- --ignored --test-threads=1  # harness shell/run pi in einem simulierten Terminal (Rückfragen, Strg+C, Größe)
 node --test crates/harness-core/pi/guard.test.ts   # Muster des pi-Schutzes gegen Prompt-Injection (läuft auch in cargo test, wenn node da ist)
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
+bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync (~1 min)
+bash scripts/gateway-lock.sh          # images/gateway/Cargo.lock neu aus Cargo.lock (nach cargo update / neuen Gateway-Abhängigkeiten)
+target/debug/harness connect          # Rechner für verknüpfte Web-Chats bereitstellen (läuft bis Strg+C, bestätigt neue Chats)
+target/debug/harness project remote on|off [--no-confirm]   # Projekt für Web-Chats freigeben
 ```
 
 Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V (14.10. geprüft). Danach `pm.sh rm -f harness-pg` und das anonyme Datenvolume löschen (`pm.sh volume ls`).
@@ -131,7 +141,7 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 
 ### Gateway (`crates/harness-gateway`)
 
-- **Keine Abhängigkeiten, keine Workspace-Vererbung** in `Cargo.toml`. Das Gateway-Image kompiliert das Crate allein und offline in der VM, aus den in `image.rs` (`GATEWAY_IMAGE`) eingebetteten Quellen. Neue Dateien unter `src/` dort eintragen, sonst schlägt `gateway_context_is_complete` fehl. Release-Profil steht im Containerfile (`CARGO_PROFILE_RELEASE_*`), weil Profile in Member-Crates ignoriert werden.
+- **Keine Workspace-Vererbung; Abhängigkeiten nur für TLS** (rustls mit ring, webpki-roots, hinter dem Feature `tls`). Sonst bleibt alles Standardbibliothek. Das Gateway-Image kompiliert das Crate allein in der VM aus den in `image.rs` (`GATEWAY_IMAGE`) eingebetteten Quellen, mit `images/gateway/Cargo.lock` und `--locked`. Die Crates kommen dabei von crates.io. Neue Dateien unter `src/` dort eintragen, sonst schlägt `gateway_context_is_complete` fehl. Release-Profil steht im Containerfile (`CARGO_PROFILE_RELEASE_*`), weil Profile in Member-Crates ignoriert werden.
 - **Nach jeder Änderung am Gateway-Code (auch `cargo fmt`) erst `cargo build`, dann `harness image build gateway`.** Die CLI bettet die Quellen beim Kompilieren ein. Eine alte Binary baut also den alten Stand, und die VM-Tests melden dann „veraltet“. `ensure_running` ersetzt Gateway-Container aus älteren Images automatisch.
 - **Sicherheitsinvariante:** Das Gateway verbindet sich nur mit Adressen, die `address::is_public` erlaubt. Das gilt in jedem Modus und auch für IP-Literale. Tests tauschen Filter und Resolver nur über `Options`; die Binary nutzt immer die Standards. `Host::parse` lehnt numerische Sonderformen (`127.1`, `0x7f000001`) ab.
 - Steuerung nur über `harness-gateway ctl` im Gateway-Container (Unix-Socket in `/tmp/harness-gateway/`). Antworten auf eine Anfrage enden mit `ok` bzw. `error …`. `event …`-Zeilen können **vor** dem `ok` kommen.
@@ -204,6 +214,35 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - pi (Node 24) lädt `.ts`-Erweiterungen direkt. `node --test` kann `guard.ts` ebenso direkt testen, weil nur `import type` vorkommt.
 - **Test ohne echtes Modell:** Ein Mock im OpenAI-Format kann selbst Werkzeugaufrufe schicken (`tool_calls` im Stream, `finish_reason: "tool_calls"`). pi führt sie aus und schickt das Ergebnis zurück. Mit `PI_CODING_AGENT_DIR=/tmp/…` und eigener `models.json` läuft das in `harness shell`, ohne pis gemeinsames Volume zu berühren.
 - **ureq und HTTPS:** ureq gab native-tls bisher eine eigene, leere Root-Liste mit, damit scheiterte jede HTTPS-Verbindung. `server::tls_config()` nutzt jetzt den Zertifikatsspeicher von Windows (`RootCerts::PlatformVerifier`); neue Clients bitte darüber bauen.
+
+### TLS im Gateway (`harness-gateway/src/upstream/`, `pem.rs`, `server.rs`)
+
+- **ring baut auf Windows ARM64 nicht** (braucht clang). TLS steckt deshalb hinter dem Feature `tls`, standardmäßig aus. `cargo build/test/clippy` auf dem Rechner bauen ohne, das Image mit `--features tls`. Ein Gateway ohne TLS lehnt `https://` mit Fehler ab und fällt nie auf HTTP zurück. Den TLS-Code prüft `.github/workflows/gateway.yml` (amd64 und arm64). Schneller geht es in einem Wegwerf-Container in der VM: `pm.sh run -d --name … docker.io/library/rust:1.97-slim-trixie sleep 7200`, Crate per `pm.sh cp`, dann `cargo test --features tls` (~15 s).
+- **`images/gateway/Cargo.lock`** ist der Workspace-Lock, beschränkt aufs Gateway. Nach `cargo update` oder neuen Gateway-Abhängigkeiten: `bash scripts/gateway-lock.sh`. Der Test `gateway_lock_matches_the_workspace` meldet Abweichungen. Gleiche Versionen mit anderen Features sieht er nicht; das fängt der Workflow (baut den Image-Kontext mit `--locked`). Den ganzen Workspace-Lock nicht einbetten, sonst ist das Image nach jedem fremden Update „veraltet“. Bei einem Konflikt in `Cargo.lock` die Seite mit den Gateway-Versionen nehmen und cargo den Rest ergänzen lassen.
+- Das Containerfile holt die Crates in einer eigenen Schicht (`cargo fetch --locked --target <host>`). Codeänderungen laden also nichts nach. Erster Bau: 34 s.
+- **Steuerprotokoll:** `llm <url> <token> [<ca>]`, `<ca>` = Zertifikate als base64-DER, kommagetrennt. Geht wie das Token nur per `send_private`. Ein abgelehntes `llm` entfernt auch das alte Ziel.
+- **`[server] ca` ersetzt die öffentlichen CAs** für diesen Server, auf dem Host und im Gateway. ureq mit native-tls kennt nur „nur diese Wurzeln“. Namen werden immer geprüft (SNI, IP-SANs bei IP-Adressen); abschalten lässt sich das absichtlich nicht. `ServerCa::load` liest PEM oder DER (`.cer`). `harness logout` entfernt nur `server.url`, `ca` bleibt stehen.
+- `https://localhost` geht fürs Gateway nicht: Die VM erreicht den Server über `192.168.127.254`, und darauf ist kein Zertifikat ausgestellt. `server::llm_upstream` verweist dann auf `http://localhost`.
+- **Relay mit TLS:** Beide Richtungen teilen sich eine `rustls::ClientConnection` hinter einem Mutex, der nie während Socket-I/O gehalten wird. Wer sendet, nimmt erst das Schreib-Lock des Sockets und gibt dann die Verbindung frei, sonst kämen Records in falscher Reihenfolge an. Handshake mit 15 s Timeout, danach ohne Lese-Timeout (Streams).
+- Fehlgeschlagener Handshake: Grund `tls-failed` (Log, `harness net status`), Status 502, Ursache im Text der Fehlerseite (`UnknownIssuer`, „certificate not valid for name …“) und in `podman logs`.
+- Cloudflare (example.com) bricht den Handshake ohne SNI ab (`HandshakeFailure`), wenn man per IP-Adresse kommt. Die Namensprüfung testet `gateway_vm` deshalb mit einem eigenen Node-HTTPS-Server im Projektnetz.
+- **Testzertifikate** in `crates/harness-gateway/tests/fixtures/`: Wurzel, Zwischen-CA, Server für `harness.test`, `harness-tls-test`, 127.0.0.1 und ::1, 100 Jahre gültig, mit Schlüssel, nur für Tests. Neu erzeugen: `sh crates/harness-gateway/tests/fixtures/generate.sh`. In Git Bash braucht openssl `MSYS2_ARG_CONV_EXCL=/CN`, sonst wird `-subj` zum Pfad.
+- **Das Image-Tag gilt für alle Checkouts:** `harness image build gateway` aus einem Branch oder Worktree macht die CLI anderer Checkouts „veraltet“. Vorher die ID merken (`pm.sh image inspect localhost/harness/gateway:latest`), danach zurück mit `pm.sh tag <ID> localhost/harness/gateway:latest`.
+
+### Web-Chat ↔ Gerät (Phase 4: `apps/server/src/tunnel/`, `routes/agent.ts`, CLI `connect.rs`, `harness-core/src/pi_rpc.rs`, `tunnel.rs`)
+
+- **Protokoll** in `packages/shared/src/agent.ts` (zod) und gespiegelt in `harness-core/src/tunnel.rs` (serde). Änderungen immer an beiden Stellen und `TUNNEL_VERSION` erhöhen, wenn alte Gegenstellen sie missverstehen würden. Der Server prüft jede Nachricht des Geräts mit zod und schließt den Socket bei Unsinn (Code 4002). Unbekannte Server-Nachrichten ignoriert das Gerät (`ServerMessage::Unknown`).
+- **Der Hub lebt im Speicher** (`DeviceHub`). Ein Neustart des Servers trennt alle Geräte; `harness connect` verbindet sich mit Backoff neu. Sitzungs-ID = Conversation-ID. Ein Gerät darf nur Ereignisse zu Sitzungen schicken, die der Server bei ihm geöffnet hat. Ein zweiter Socket desselben Geräts ersetzt den ersten (4000), ein entferntes Gerät wird sofort getrennt (4003).
+- **Agent-Antworten sind normale AI-SDK-Nachrichten:** `ChunkMapper` macht aus Agent-Ereignissen UI-Chunks (`dynamic-tool`, `data-notice`, `data-approval` mit fester ID, damit die beantwortete Frage die offene ersetzt). Speichern, Laden und `useChat` bleiben dadurch unverändert. `AgentDataParts` muss ein `type`-Alias sein, kein `interface`: Die AI SDK verlangt einen Record-Typ, und mit Index-Signatur wären die Datenteile `unknown`.
+- **Fehler einer laufenden Antwort** kommen als Codes (`device_lost`, `chat_unlinked` …), die Web-App übersetzt sie (`streamErrorText`). Fehlertexte des Geräts sind schon Deutsch und werden unverändert gezeigt.
+- **Das Gerät entscheidet, was läuft:** Nur Projekte mit `[remote] enabled = true` und einer Harness mit `[adapter] kind = "pi-rpc"`. Ein neuer Chat wird im Fenster von `harness connect` bestätigt und in `remote.chats` gemerkt. Ohne Terminal (stdin kein TTY) wird abgelehnt, außer `confirm = false`. `[remote]` liest `connect` direkt aus der Projektdatei (`project_config`), `Project` hat das Feld absichtlich nicht.
+- **pi im RPC-Modus:** `pi --mode rpc --session-id <conversation-id> [--name <Titel>]`, dazu Guard (`-e`) und Hinweise wie bei `harness run` (`run::ready_harness`). pi legt die Sitzung beim ersten Mal selbst an. Alle Projekte haben `/workspace` als cwd, pis Sitzungen liegen deshalb gemeinsam in `harness-cfg-pi`. Zeilen von pi nur an `\n` trennen (JSON darf U+2028 enthalten). Dialoge von pi-Erweiterungen (`select`, `confirm` …) lehnt harness sofort ab, sonst wartet pi bis zum Timeout.
+- **Modellwahl:** Der Chat schickt Zugang und Modell mit, `PiModels::by_credential` übersetzt den Zugang in pis Anbieter-ID (`set_model`). Den bisherigen Verlauf bekommt pi nur, wenn seine Sitzung leer ist (`get_state` → `messageCount`).
+- **Rückfragen des Gateways** laufen über einen eigenen `watch` pro Sitzung (`ApprovalBridge`). Die Antwort aus dem Chat nimmt denselben Weg wie in `harness net watch` (`net::decide`, „immer“ schreibt die allow-Liste). Im Terminal von `harness run` kann dieselbe Frage parallel beantwortet werden, die erste Antwort gilt.
+- **Stop im Chat bricht den Agent ab** (`session.cancel` → pi `abort`). Das gilt auch für Neuladen oder Schließen des Tabs, weil der Server den Abbruch des Requests nicht von Stop unterscheiden kann. Fortsetzbare Streams gibt es noch nicht.
+- `tungstenite` mit native-tls; ein Lese-Timeout von 100 ms lässt ausgehende Nachrichten zum Zug kommen (`WouldBlock`/`TimedOut` sind dann kein Fehler). Pings des Servers beantwortet tungstenite beim nächsten Lesen selbst.
+- **Testen:** `scripts/smoke-connect.sh` (echte VM, Mock-LLM mit Werkzeugaufruf aus `scripts/mock-agent-llm.mjs`). Der Browser-E2E simuliert das Gerät mit dem `ws`-Paket des Servers (Nodes eigenes `WebSocket` kann keinen `Authorization`-Header). curl puffert Streams, die in eine Datei gehen: `-N`. Umlaute in curl-Argumenten gehen in Git Bash kaputt, Body deshalb aus einer Datei (`--data-binary @…`).
+- Bei knappem Commit-Limit scheitert der Browser-E2E mit `ERR_INSUFFICIENT_RESOURCES` oder Timeouts beim Start, auch in unveränderten Schritten. Dann erst Speicher freimachen (parallele Builds), nicht den Test ändern.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 
