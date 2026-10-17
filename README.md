@@ -23,7 +23,8 @@ Das Image gibt es für amd64 und arm64, es läuft also auch auf einem Raspberry 
 
    # Adresse, unter der Browser und harness-CLI den Server erreichen. Sie steht
    # im Kopplungs-Link (harness login) und bestimmt, für welche Adresse die
-   # Login-Cookies gelten. Beispiel Raspberry Pi im Heimnetz:
+   # Login-Cookies gelten; der Port ist der aus HARNESS_PORT. Beispiel Raspberry
+   # Pi im Heimnetz:
    PUBLIC_URL=http://192.168.1.50:8080
 
    # Port auf dem Host.

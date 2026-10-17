@@ -39,6 +39,25 @@ export interface ServerConfig {
 const SECRET_FILE = 'server-secret';
 
 /**
+ * A hint for start failures with a known cause in the Docker setup.
+ *
+ * @param error - What made the start fail.
+ * @returns One line for the log, or null.
+ */
+export function startupHint(error: unknown): string | null {
+  const { code, hostname } = (error ?? {}) as { code?: unknown; hostname?: unknown };
+  // The compose file starts Postgres only with its profile; without it the
+  // service name does not resolve.
+  if (code === 'ENOTFOUND' && hostname === 'postgres') {
+    return (
+      'The host "postgres" does not resolve: the Postgres container is not running. With docker compose, ' +
+      'set COMPOSE_PROFILES=postgres in .env (or run docker compose --profile postgres up -d).'
+    );
+  }
+  return null;
+}
+
+/**
  * Rejects a Postgres URL that the driver could not parse, with a hint
  * instead of pg's bare "Invalid URL". Passwords from `openssl rand -base64`
  * contain `/` and `+`, which break the URL unless percent-encoded. The
