@@ -20,7 +20,7 @@ use toml_edit::DocumentMut;
 
 pub use model::{
     AGENT_HOME, AdapterConfig, DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig,
-    GlobalConfig, HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig,
+    GlobalConfig, GuardKind, HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig,
     ResourcesConfig, ReviewConfig, ServerConfig,
 };
 use model::{Validate, validate_harness_name};

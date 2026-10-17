@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-17 · VM-Dienst beim Nutzer eingerichtet, Merge-Prüfung Stufe 1 fertig, Prompt-Injection-Hinweis im System-Prompt; nächstes: Server dauerhaft betreiben_
+_Last updated: 2026-10-17 · Server-Image (amd64/arm64) per GitHub Actions, OSV-Abgleich, pi-Schutz gegen Prompt-Injection; nächstes: Phase 4 oder TLS im Gateway_
 
 ## Where we are
 
@@ -30,14 +30,21 @@ Bausteine:
 
 ## Next step
 
-Stand 17.10.: Der Nutzer hat `harness vmd install` ausgeführt. Der Dienst läuft, und `harness` startet im Projektordner. Vorschlag für die Reihenfolge (Nutzer entscheidet):
+Stand 17.10.:
+- **Server-Image:** fertig, GitHub baut amd64 und arm64. Der Nutzer stellt es auf seinem Raspberry Pi auf (`docs/deploy.md`).
+- **Prompt-Injection-Warnungen und OSV-Abgleich:** fertig.
 
-1. **Server dauerhaft betreiben:** Der Nutzer musste den Server von Hand starten, weil die Keys dort liegen. Plan:
-   - Server-Image plus `compose.yaml` (ROADMAP Phase 1 Reste) für Heimserver und VPS
-   - auf diesem PC als Container in der VM, der mit ihr startet: Port nur auf `127.0.0.1`, Daten im Volume
-   - offen: Wie erreicht das Gateway den Server ohne Umweg über den Host, und wie bleibt der Server-Container von Instanzen getrennt?
-2. **Prompt-Injection-Warnungen** (Phase 2d, Baustein 2) und **OSV-Abfrage** in der Merge-Prüfung: zwei kleine Sicherheitspakete.
-3. **Phase 4: Agent aus dem Web** (das große Ziel des Nutzers) bzw. Phase 3 (App).
+Nächste Kandidaten (Nutzer entscheidet):
+1. **Phase 4: Agent aus dem Web**, das große Ziel des Nutzers. Bausteine:
+   - Verbindung von `harnessd` zum Server
+   - pi im RPC-Modus
+   - Chat-Ansicht für die Schritte des Agents
+   - Freigaben im Web
+2. **TLS im Gateway**, damit ein Server per HTTPS (VPS, Reverse-Proxy auf dem Pi) als LLM-Ziel geht. Bisher nur `http://`.
+3. **Jev bzw. ein Chat-Modell als dritte Stufe** der Merge-Prüfung und als Klassifikator für Prompt-Injection: Server-Durchgang für Klassifikatoren, Einstellungen, was läuft und mit welchem Modell.
+4. **Stopp der VM im Leerlauf** (Leases von `harness run`).
+
+Noch zu prüfen, sobald der Nutzer pi beendet hat: `cargo test -p harness-cli --test terminal_vm -- --ignored` (startet pi mit `-e`-Guard über `harness run`, berührt pis gemeinsames Volume).
 
 Weitere Hinweise:
 - pis Basis-URLs stehen in `@earendil-works/pi-ai/dist/providers/data/*.json`: DeepSeek `https://api.deepseek.com`, OpenAI `…/v1`, Anthropic ohne `/v1`, Google `…/v1beta`.
@@ -72,7 +79,7 @@ Paket 6 (Gateway, 13.10.): eigener Rust-Proxy nur mit Standardbibliothek statt t
 
 ## Open questions for the user
 
-- Reihenfolge der nächsten Pakete (siehe Next step).
+- Welches Paket als Nächstes (siehe Next step)?
 
 ## Known issues / debt
 

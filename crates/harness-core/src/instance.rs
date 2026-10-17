@@ -220,6 +220,30 @@ pub fn install_harness(
         GatewayControl::new(provider, name).allow(&pattern, Scope::For(INSTALL_GRANT_SECS))?;
     }
 
+    let code = with_installer(provider, project, |installer| {
+        provider.exec(&ExecSpec {
+            container: installer.to_owned(),
+            command: vec!["sh".into(), "-c".into(), harness.install.clone()],
+            ..ExecSpec::default()
+        })
+    })?;
+    match code {
+        0 => Ok(()),
+        code => Err(Error::Unsupported(format!(
+            "Installation von {} fehlgeschlagen (Exit-Code {code})",
+            harness.name
+        ))),
+    }
+}
+
+/// Runs `work` with a short-lived container that is hardened like an
+/// instance but may write the tools volume, and removes it afterwards.
+fn with_installer<T>(
+    provider: &dyn Provider,
+    project: &Project,
+    work: impl FnOnce(&str) -> Result<T>,
+) -> Result<T> {
+    let name = &project.name;
     provider.ensure_volume(&VolumeSpec {
         name: TOOLS_VOLUME.to_owned(),
         ..VolumeSpec::default()
@@ -249,20 +273,73 @@ pub fn install_harness(
         workdir: Some("/tmp".to_owned()),
         ..ContainerSpec::default()
     })?;
-    let result = provider.start_container(&installer).and_then(|()| {
-        provider.exec(&ExecSpec {
-            container: installer.clone(),
-            command: vec!["sh".into(), "-c".into(), harness.install.clone()],
+    let result = provider
+        .start_container(&installer)
+        .and_then(|()| work(&installer));
+    let removed = provider.remove_container(&installer);
+    let value = result?;
+    removed.map(|()| value)
+}
+
+/// Whether a file exists in the tools volume, seen from the instance.
+pub fn tool_file_exists(provider: &dyn Provider, name: &ProjectName, path: &str) -> Result<bool> {
+    let output = provider.exec_output(&ExecSpec {
+        container: name.instance(),
+        command: vec![
+            "sh".into(),
+            "-c".into(),
+            r#"[ -f "$1" ]"#.into(),
+            "sh".into(),
+            path.to_owned(),
+        ],
+        ..ExecSpec::default()
+    })?;
+    Ok(output.code == 0)
+}
+
+/// Writes a file of harness into the tools volume, where instances can
+/// read but not change it. `path` must lie below [`TOOLS_DIR`].
+pub fn write_tool_file(
+    provider: &dyn Provider,
+    project: &Project,
+    path: &str,
+    contents: &str,
+) -> Result<()> {
+    let inside = path
+        .strip_prefix(TOOLS_DIR)
+        .is_some_and(|rest| rest.starts_with('/') && !rest.split('/').any(|p| p == ".."));
+    if !inside {
+        return Err(Error::invalid(
+            "Pfad im Tools-Volume",
+            path,
+            "muss unter /opt/harness-tools liegen",
+        ));
+    }
+    let script = r#"set -e
+mkdir -p "$(dirname "$1")"
+printf '%s' "$2" > "$1.partial"
+mv -f "$1.partial" "$1""#;
+    let output = with_installer(provider, project, |installer| {
+        provider.exec_output(&ExecSpec {
+            container: installer.to_owned(),
+            command: vec![
+                "sh".into(),
+                "-c".into(),
+                script.into(),
+                "sh".into(),
+                path.to_owned(),
+                contents.to_owned(),
+            ],
             ..ExecSpec::default()
         })
-    });
-    let removed = provider.remove_container(&installer);
-    match result? {
-        0 => removed,
-        code => Err(Error::Unsupported(format!(
-            "Installation von {} fehlgeschlagen (Exit-Code {code})",
-            harness.name
-        ))),
+    })?;
+    if output.code == 0 {
+        Ok(())
+    } else {
+        Err(Error::Unsupported(format!(
+            "{path} schreiben: {}",
+            crate::sync::sanitize(output.stderr.trim())
+        )))
     }
 }
 

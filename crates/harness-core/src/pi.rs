@@ -15,6 +15,33 @@ use crate::provider::{ExecOutput, ExecSpec, Provider};
 use crate::server::DeviceCredential;
 use crate::{Error, Result};
 
+/// pi's guard extension against prompt injection, see `pi/guard.ts`.
+pub const GUARD_SOURCE: &str = include_str!("../pi/guard.ts");
+
+/// Where `harness run` puts the guard: in the tools volume, which instances
+/// can only read. The name follows the contents, so each harness version
+/// brings its own copy and an old one is never mistaken for it.
+pub fn guard_path() -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in GUARD_SOURCE.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!(
+        "{}/harness/pi-guard-{hash:016x}.ts",
+        crate::instance::TOOLS_DIR
+    )
+}
+
+/// Puts the guard into the tools volume unless this version is there, and
+/// returns its path for `pi -e`.
+pub fn ensure_guard(provider: &dyn Provider, project: &crate::config::Project) -> Result<String> {
+    let path = guard_path();
+    if !crate::instance::tool_file_exists(provider, &project.name, &path)? {
+        crate::instance::write_tool_file(provider, project, &path, GUARD_SOURCE)?;
+    }
+    Ok(path)
+}
+
 /// Placeholder key; the gateway replaces it with the device token.
 pub const DUMMY_KEY: &str = "harness";
 
@@ -311,6 +338,25 @@ mod tests {
             base_url: base_url.map(Into::into),
             models: None,
         }
+    }
+
+    #[test]
+    fn guard_patterns() {
+        // pi/guard.test.ts, when Node is installed (it is for development).
+        let test = concat!(env!("CARGO_MANIFEST_DIR"), "/pi/guard.test.ts");
+        let Ok(output) = std::process::Command::new("node")
+            .args(["--test", test])
+            .output()
+        else {
+            eprintln!("node fehlt, {test} übersprungen");
+            return;
+        };
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(guard_path().starts_with("/opt/harness-tools/harness/pi-guard-"));
     }
 
     #[test]

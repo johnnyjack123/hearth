@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use anyhow::bail;
 use harness_core::briefing::briefing;
-use harness_core::config::{ConfigDir, HarnessConfig, LlmWiring, Project};
+use harness_core::config::{ConfigDir, GuardKind, HarnessConfig, LlmWiring, Project};
 use harness_core::gateway::{self, GatewayState};
 use harness_core::instance::{self, InstanceState};
 use harness_core::pi;
@@ -169,6 +169,13 @@ pub fn run(
         wire_pi(config, &prepared)?;
     }
     let mut command = harness.command.clone();
+    if harness.guard == Some(GuardKind::Pi) {
+        // A warning, not a stop: pi without the guard still beats no pi.
+        match pi::ensure_guard(&prepared.provider, &prepared.project) {
+            Ok(path) => command.extend(["-e".to_owned(), path]),
+            Err(error) => println!("Schutz gegen Prompt-Injection nicht geladen: {error}"),
+        }
+    }
     if let Some(flag) = &harness.prompt_flag {
         command.push(flag.clone());
         command.push(briefing(&prepared.project));
