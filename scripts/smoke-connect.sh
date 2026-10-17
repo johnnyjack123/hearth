@@ -101,21 +101,30 @@ git config user.email connect@example.com
 git config core.autocrlf false
 echo "# $NAME" > README.md && git add README.md && git commit -qm initial
 "$H" project add > /dev/null
-"$H" project remote on --no-confirm > "$WORK/remote.log" 2>&1
+"$H" project remote on > "$WORK/remote.log" 2>&1
 check "Projekt freigegeben" grep -q "freigegeben" "$WORK/remote.log"
 
 echo "== harness connect"
-"$H" connect > "$WORK/connect.log" 2>&1 &
+# stdin is no terminal here, so nobody can confirm a new chat.
+"$H" connect < /dev/null > "$WORK/connect.log" 2>&1 &
 CONNECT=$!
 check "verbunden" wait_for 30 grep -q "Verbunden" "$WORK/connect.log"
 DEVICES=$(api GET /api/devices)
 DEVICE=$(echo "$DEVICES" | json 'v[0].id')
 check "Gerät online mit Projekt" test "$(echo "$DEVICES" | json "v[0].online && v[0].projects[0].name")" = "$NAME"
 
-echo "== Chat verknüpfen und schreiben"
+echo "== Chat verknüpfen, ohne Bestätigung am Rechner"
 CONVERSATION=$(api POST /api/conversations '{}' | json v.id)
 LINK=$(api PUT "/api/conversations/$CONVERSATION/link" "{\"deviceId\":\"$DEVICE\",\"project\":\"$NAME\",\"harness\":\"pi\"}")
 check "Chat verknüpft" test "$(echo "$LINK" | json v.link.project)" = "$NAME"
+api POST "/api/conversations/$CONVERSATION/chat" \
+  "{\"message\":{\"id\":\"m0\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"Hallo\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\"}" \
+  > "$WORK/refused.log"
+check "neuer Chat ohne Bestätigung abgelehnt" grep -q "nicht bestätigt" "$WORK/refused.log"
+check "pi nicht gestartet" bash -c "! grep -q 'läuft im Projekt' '$WORK/connect.log'"
+"$H" project remote on --no-confirm > /dev/null
+
+echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
 # -N, or curl holds the stream back until its buffer is full.
 printf '%s' "{\"message\":{\"id\":\"m1\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"Leg agent.txt an und prüfe example.com\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\"}" \
@@ -134,8 +143,8 @@ check "example.com nach Freigabe erreicht" grep -q 'status=200' "$WORK/stream.lo
 check "Antwort des Modells gestreamt" grep -q '"delta":"fertig"' "$WORK/stream.log"
 REPLY=$(api GET "/api/conversations/$CONVERSATION")
 check "Antwort mit Werkzeugaufruf gespeichert" test \
-  "$(echo "$REPLY" | json "v.messages[1].parts.some(p => p.type === 'dynamic-tool' && p.output.text.includes('status=200'))")" = true
-check "Agent in den Metadaten" test "$(echo "$REPLY" | json v.messages[1].metadata.agent.harness)" = pi
+  "$(echo "$REPLY" | json "v.messages.at(-1).parts.some(p => p.type === 'dynamic-tool' && p.output.text.includes('status=200'))")" = true
+check "Agent in den Metadaten" test "$(echo "$REPLY" | json "v.messages.at(-1).metadata.agent.harness")" = pi
 
 echo "== harness sync"
 "$H" sync > "$WORK/sync.log" 2>&1
