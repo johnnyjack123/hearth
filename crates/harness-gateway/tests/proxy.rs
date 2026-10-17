@@ -50,6 +50,22 @@ fn echo_server() -> u16 {
     port
 }
 
+/// Reads the request body announced in `head`. A server that closes with
+/// unread data makes Linux send a reset, which can destroy the response the
+/// client has not read yet.
+fn drain_body(reader: &mut impl Read, head: &[String]) {
+    let length = head
+        .iter()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<u64>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    let _ = io::copy(&mut reader.take(length), &mut io::sink());
+}
+
 /// Answers every request with `hello` and reports the request head it saw.
 fn http_server() -> (u16, Receiver<Vec<String>>) {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
@@ -64,6 +80,7 @@ fn http_server() -> (u16, Receiver<Vec<String>>) {
                 .map_while(Result::ok)
                 .take_while(|line| !line.is_empty())
                 .collect();
+            drain_body(&mut reader, &head);
             let _ = tx.send(head);
             let _ = (&stream).write_all(
                 b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
@@ -465,6 +482,7 @@ mod tls {
                 if head.is_empty() {
                     continue;
                 }
+                drain_body(&mut reader, &head);
                 let _ = tx.send(head);
                 let tls = reader.get_mut();
                 let _ = tls.write_all(
