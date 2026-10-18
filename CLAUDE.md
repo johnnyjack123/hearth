@@ -29,11 +29,11 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
   - **Rückfragen des Gateways im selben Terminal** (Relay über eine Pseudo-Konsole, `harness-cli/src/terminal/`) und **Hinweise an den Agent** im System-Prompt (`briefing.rs`).
 
   Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`. Arbeitsbranch seit dem 17.10.: `feat/phase-4-chat-env`.
-- **Phase 4 (Web-Chat ↔ Umgebung) gebaut, 17.10.:**
-  - `harness connect` hält einen WebSocket zum Server (`/api/device/tunnel`).
-  - Ein Web-Chat lässt sich mit einem freigegebenen Projekt verknüpfen (`harness project remote on`).
-  - Nachrichten gehen dann an pi im RPC-Modus in der Instanz, Werkzeugaufrufe und Rückfragen des Gateways erscheinen im Chat.
-  - Siehe Stolpersteine „Web-Chat ↔ Gerät“.
+- **Phase 4 (Web-Chat ↔ Umgebung) gebaut, 17./18.10.:**
+  - Der Hintergrunddienst (`harness daemon`, gestartet von `harnessd.exe` bei der Anmeldung) hält einen WebSocket zum Server (`/api/device/tunnel`). `harness login` richtet ihn ein.
+  - `harness init` meldet das Projekt sofort beim Server; ein Web-Chat wählt es unter „Umgebung“.
+  - Nachrichten gehen dann an pi im RPC-Modus in der Instanz. Im Chat erscheinen jeder Vorbereitungsschritt, Werkzeugaufrufe, Rückfragen des Gateways sowie Kontext und Kosten.
+  - Siehe Stolpersteine „Web-Chat ↔ Gerät“ und „Hintergrunddienst“.
 - **TLS im Gateway, 17.10.:** `llm.harness` geht auch an einen `https://`-Server (rustls im Gateway, Feature `tls`). Server mit eigener CA über `[server] ca` in `config.toml`, Anleitung mit Caddy in `docs/deploy.md`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
 - Nächstes: siehe PROGRESS.md (Nutzer testet Phase 4 mit DeepSeek; danach Jev als Klassifikator und Stopp der VM im Leerlauf).
@@ -87,8 +87,10 @@ node --test crates/harness-core/pi/guard.test.ts   # Muster des pi-Schutzes gege
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
 bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync (~1 min)
 bash scripts/gateway-lock.sh          # images/gateway/Cargo.lock neu aus Cargo.lock (nach cargo update / neuen Gateway-Abhängigkeiten)
-target/debug/harness connect          # Rechner für verknüpfte Web-Chats bereitstellen (läuft bis Strg+C, bestätigt neue Chats)
-target/debug/harness project remote on|off [--no-confirm]   # Projekt für Web-Chats freigeben
+target/debug/harness init             # Ordner als Projekt anlegen (mit Git), beim Server melden, Dienst sicherstellen
+target/debug/harness daemon [status|start|stop|install|uninstall]   # Hintergrunddienst für Web-Chats (Protokoll: ~/.harness/daemon.log)
+target/debug/harness connect          # dasselbe im Terminal zum Zuschauen (nur ohne laufenden Dienst; bestätigt Chats bei confirm = true)
+target/debug/harness project remote on|off [--confirm|--no-confirm]   # Projekt für Web-Chats an- oder abmelden
 ```
 
 Postgres zum Testen (Git Bash, VM muss laufen): `spikes/phase-0/pm.sh run -d --name harness-pg -e POSTGRES_USER=harness -e POSTGRES_PASSWORD=harness -e POSTGRES_DB=harness_test -p 127.0.0.1:55432:5432 docker.io/library/postgres:17-alpine`, dann `TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/harness_test pnpm --filter @harness/server test`. Die Portweiterleitung über gvproxy funktioniert unter Hyper-V (14.10. geprüft). Danach `pm.sh rm -f harness-pg` und das anonyme Datenvolume löschen (`pm.sh volume ls`).
@@ -235,7 +237,10 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - **Der Hub lebt im Speicher** (`DeviceHub`). Ein Neustart des Servers trennt alle Geräte; `harness connect` verbindet sich mit Backoff neu. Sitzungs-ID = Conversation-ID. Ein Gerät darf nur Ereignisse zu Sitzungen schicken, die der Server bei ihm geöffnet hat. Ein zweiter Socket desselben Geräts ersetzt den ersten (4000), ein entferntes Gerät wird sofort getrennt (4003).
 - **Agent-Antworten sind normale AI-SDK-Nachrichten:** `ChunkMapper` macht aus Agent-Ereignissen UI-Chunks (`dynamic-tool`, `data-notice`, `data-approval` mit fester ID, damit die beantwortete Frage die offene ersetzt). Speichern, Laden und `useChat` bleiben dadurch unverändert. `AgentDataParts` muss ein `type`-Alias sein, kein `interface`: Die AI SDK verlangt einen Record-Typ, und mit Index-Signatur wären die Datenteile `unknown`.
 - **Fehler einer laufenden Antwort** kommen als Codes (`device_lost`, `chat_unlinked` …), die Web-App übersetzt sie (`streamErrorText`). Fehlertexte des Geräts sind schon Deutsch und werden unverändert gezeigt.
-- **Das Gerät entscheidet, was läuft:** Nur Projekte mit `[remote] enabled = true` und einer Harness mit `[adapter] kind = "pi-rpc"`. Ein neuer Chat wird im Fenster von `harness connect` bestätigt und in `remote.chats` gemerkt. Ohne Terminal (stdin kein TTY) wird abgelehnt, außer `confirm = false`. `[remote]` liest `connect` direkt aus der Projektdatei (`project_config`), `Project` hat das Feld absichtlich nicht.
+- **Das Gerät entscheidet, was läuft:** Nur Projekte mit `[remote] enabled = true` und einer Harness mit `[adapter] kind = "pi-rpc"`, bei jeder Nachricht frisch aus den Projektdateien gelesen. Seit dem 18.10. ist `enabled = true, confirm = false` Standard (Entscheidung des Nutzers: Umgebungen sollen nach `harness init` ohne weitere Schritte im Chat verfügbar sein). Mit `confirm = true` fragt nur `harness connect` im Terminal; der Hintergrunddienst lehnt dann ab. `[remote]` liest `connect` direkt aus der Projektdatei (`project_config`), `Project` hat das Feld absichtlich nicht.
+- **Gespeicherte Umgebungen:** Der Server merkt sich die gemeldeten Projekte (`deviceProject`, über Tunnel und `PUT /api/device/projects`). So kann ein Chat sie wählen, während der Rechner aus ist. Schreiben geht erst, wenn er online ist. Ob ein Projekt läuft, prüft nur das Gerät; der Server prüft nur, ob es verbunden ist.
+- **Fortschritt:** Jeder Schritt bis zur Antwort ist ein `progress`-Ereignis, im Chat ein Datenteil `data-progress` mit fester ID. Er wird an Ort und Stelle aktualisiert: angekommen, VM, Gateway, Instanz, Arbeitskopie, Installation, Harness-Start, „denkt nach“ bis zum ersten sichtbaren Ereignis. Neue Schritte gehen über `progress::Progress` (Terminal oder Chat), nie über `println!` allein.
+- **Kontext und Kosten:** Pro Antwort speichert `metadata.usage` Tokens, `contextTokens` (Eingabe und Ausgabe des letzten Modellaufrufs), `contextWindow` und `cost` in Dollar. Normale Chats rechnen mit dem Katalog von models.dev (`pricing.ts`, täglich geladen, nur die sechs genutzten Anbieter; Ollama zählt als kostenlos). Agents geben pis eigene Kosten weiter, das Kontextfenster kommt aus `get_state`/`set_model`. Ohne Katalog gibt es einfach keinen Preis, nie einen Fehler.
 - **pi im RPC-Modus:** `pi --mode rpc --session-id <conversation-id> [--name <Titel>]`, dazu Guard (`-e`) und Hinweise wie bei `harness run` (`run::ready_harness`). pi legt die Sitzung beim ersten Mal selbst an. Alle Projekte haben `/workspace` als cwd, pis Sitzungen liegen deshalb gemeinsam in `harness-cfg-pi`. Zeilen von pi nur an `\n` trennen (JSON darf U+2028 enthalten). Dialoge von pi-Erweiterungen (`select`, `confirm` …) lehnt harness sofort ab, sonst wartet pi bis zum Timeout.
 - **Modellwahl:** Der Chat schickt Zugang und Modell mit, `PiModels::by_credential` übersetzt den Zugang in pis Anbieter-ID (`set_model`). Den bisherigen Verlauf bekommt pi nur, wenn seine Sitzung leer ist (`get_state` → `messageCount`).
 - **Rückfragen des Gateways** laufen über einen eigenen `watch` pro Sitzung (`ApprovalBridge`). Die Antwort aus dem Chat nimmt denselben Weg wie in `harness net watch` (`net::decide`, „immer“ schreibt die allow-Liste). Im Terminal von `harness run` kann dieselbe Frage parallel beantwortet werden, die erste Antwort gilt.
@@ -243,6 +248,15 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - `tungstenite` mit native-tls; ein Lese-Timeout von 100 ms lässt ausgehende Nachrichten zum Zug kommen (`WouldBlock`/`TimedOut` sind dann kein Fehler). Pings des Servers beantwortet tungstenite beim nächsten Lesen selbst.
 - **Testen:** `scripts/smoke-connect.sh` (echte VM, Mock-LLM mit Werkzeugaufruf aus `scripts/mock-agent-llm.mjs`). Der Browser-E2E simuliert das Gerät mit dem `ws`-Paket des Servers (Nodes eigenes `WebSocket` kann keinen `Authorization`-Header). curl puffert Streams, die in eine Datei gehen: `-N`. Umlaute in curl-Argumenten gehen in Git Bash kaputt, Body deshalb aus einer Datei (`--data-binary @…`).
 - Bei knappem Commit-Limit scheitert der Browser-E2E mit `ERR_INSUFFICIENT_RESOURCES` oder Timeouts beim Start, auch in unveränderten Schritten. Dann erst Speicher freimachen (parallele Builds), nicht den Test ändern.
+
+### Hintergrunddienst (`harness-cli/src/daemon.rs`, `harnessd.rs`, `connect.rs`)
+
+- **`harnessd.exe`** ist ein zweites Binary im Paket `harness-cli` mit `windows_subsystem = "windows"`, also ohne Konsolenfenster. Es teilt keinen Code mit `harness`. Es startet `harness.exe daemon run` mit `CREATE_NO_WINDOW`; die Kinder (podman, ssh) erben diese fensterlose Konsole, deshalb öffnet sich nirgends ein Fenster. Ausgabe geht nach `<Konfiguration>/daemon.log` (ab 5 MB rotiert). Nach einem Absturz startet es neu, mit Backoff bis 2 Minuten. Exit 0 (gestoppt oder läuft schon) und 3 (nicht gekoppelt) beenden es.
+- **Autostart** über `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, Wert `llm-harness`, ohne Admin. `harness login` richtet ihn ein, aber nur ohne `HARNESS_HOME`: Testläufe dürfen keinen Dienst hinterlassen.
+- **Eine Verbindung pro Konfiguration:** benannter Mutex `Local\llm-harness-daemon-<hash der Konfiguration>`. Zwei Verbindungen desselben Geräts würden sich auf dem Server ständig gegenseitig ersetzen (4000). `harness connect` verweigert deshalb, solange der Dienst läuft. Gestoppt wird über ein benanntes Ereignis (`…-stop-<hash>`), das die Schleife alle 100 ms prüft.
+- Im Protokoll stehen Zeilen mit UTC-Zeit (`utc_stamp`, ohne Datums-Bibliothek). `println!` in `run.rs`/`login.rs` landet dort ohne Zeit, das ist gewollt.
+- **TLS:** Der Tunnel nutzt bei `[server] ca` einen eigenen `native_tls::TlsConnector` nur mit dieser CA, wie die HTTP-Anfragen. Ohne CA nimmt `tungstenite::connect` den Windows-Speicher.
+- Test des echten Dienstes: `scripts/smoke-connect.sh` mit `harness daemon start` unter `HARNESS_HOME` (eigener Mutex, eigenes Protokoll).
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 
