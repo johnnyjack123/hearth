@@ -40,6 +40,23 @@ export const WEB_FETCH_WARNINGS = [
 export type WebFetchWarning = (typeof WEB_FETCH_WARNINGS)[number];
 
 /**
+ * One place in fetched content where an injection pattern matched, so the
+ * user can judge it. The texts are as found, with runs of whitespace
+ * collapsed: invisible characters stay in them, and the web app has to make
+ * them visible before showing them.
+ */
+export interface InjectionFinding {
+  /** Which pattern matched. */
+  kind: WebFetchWarning;
+  /** Text before the match, starting with `…` when cut. */
+  before: string;
+  /** The match, shortened in the middle when long. */
+  match: string;
+  /** Text after the match, ending with `…` when cut. */
+  after: string;
+}
+
+/**
  * Why a web fetch failed. The error text of a failed `web_fetch` call starts
  * with `[code]` or `[code:detail]`, followed by an English explanation for
  * the model; see {@link parseWebFetchError}.
@@ -81,6 +98,11 @@ export interface WebFetchOutput {
   truncated: boolean;
   /** Possible prompt injection patterns in the content. */
   warnings: WebFetchWarning[];
+  /**
+   * Where the patterns of {@link warnings} matched; missing in replies
+   * stored before 2026-10-18.
+   */
+  findings?: InjectionFinding[];
 }
 
 const ERROR_PREFIX = /^\[([a-z_]+)(?::([^\]]{0,200}))?\]\s*/;

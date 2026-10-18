@@ -13,7 +13,7 @@ import type { FetchApprovals } from './approvals.ts';
 import { decodeBody, htmlTitle, htmlToMarkdown, tidy, truncate } from './convert.ts';
 import { WebFetchError } from './errors.ts';
 import { type FetchPolicy, fetchPage, systemResolve } from './fetch.ts';
-import { scanForInjection, WARNING_TEXT } from './injection.ts';
+import { findInjections, WARNING_TEXT, warningKinds } from './injection.ts';
 import { grantedHosts, hostKey, mentionedHosts, parseTarget } from './target.ts';
 
 /**
@@ -163,6 +163,8 @@ export function createWebFetchTool(context: WebFetchContext) {
     const raw = decodeBody(page.body, page.charset, isHtml);
     const readable = tidy(isHtml ? htmlToMarkdown(raw, page.url) : raw);
     const { text, truncated } = truncate(readable, config.maxChars);
+    // Readable text first: its excerpts are what the user can make sense of.
+    const findings = findInjections(readable, raw);
     return {
       url: page.url.href,
       status: page.status,
@@ -170,7 +172,8 @@ export function createWebFetchTool(context: WebFetchContext) {
       title: isHtml ? htmlTitle(raw) : null,
       text,
       truncated: truncated || page.truncated,
-      warnings: scanForInjection(raw, readable),
+      warnings: warningKinds(findings),
+      findings,
     };
   }
 
