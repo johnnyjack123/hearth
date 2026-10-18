@@ -232,7 +232,7 @@ try {
         sendEvent(s, { type: 'text.delta', id: 't2', delta: 'Fertig: zwei Einträge, example.com antwortet.' });
         sendEvent(s, { type: 'text.end', id: 't2' });
         sendEvent(s, { type: 'turn.end' });
-        sendEvent(s, { type: 'usage', inputTokens: 1200, outputTokens: 80 });
+        sendEvent(s, { type: 'usage', inputTokens: 1200, outputTokens: 80, cost: 0.0042, contextWindow: 128000 });
         sendEvent(s, { type: 'done', aborted: false });
       }
     });
@@ -276,6 +276,8 @@ try {
       await shot('17-agent-approval');
       await page.click(text('Einmal erlauben'));
       await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 15_000 });
+      // The composer shows how full the context is and what the chat cost.
+      await page.waitForSelector('button[aria-label*="Kosten dieses Chats: 0,0042"]', { timeout: 5_000 });
       const decision = received.find((message) => message.type === 'approval.decide');
       if (decision?.decision !== 'once' || decision.id !== 1) {
         throw new Error(`device got ${JSON.stringify(decision)}`);

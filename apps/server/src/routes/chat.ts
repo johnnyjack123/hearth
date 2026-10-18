@@ -5,6 +5,7 @@ import {
   createUIMessageStreamResponse,
   generateText,
   type LanguageModel,
+  type LanguageModelUsage,
   pruneMessages,
   streamText,
   toUIMessageStream,
@@ -15,6 +16,7 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
+import { type ModelPricing, usageMetadata } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 
 const INSTRUCTIONS = [
@@ -202,6 +204,8 @@ export interface StreamChatOptions {
   modelId: string;
   /** Credential id, stored in the reply's metadata. */
   credentialId: string;
+  /** Prices of the model, for cost and context window; null if unknown. */
+  pricing: ModelPricing | null;
   /** Aborts generation, e.g. when the client presses stop or disconnects. */
   abortSignal: AbortSignal;
 }
@@ -214,7 +218,7 @@ export interface StreamChatOptions {
  * @returns A streaming HTTP response.
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
-  const { db, conversationId, messages, model, modelId, credentialId, abortSignal } = options;
+  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal } = options;
 
   // Reasoning from earlier turns is display-only. Sending it back breaks when the
   // user switches providers mid-conversation (signatures are provider-specific).
@@ -226,6 +230,8 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   const result = streamText({ model, instructions: INSTRUCTIONS, messages: modelMessages, abortSignal });
   const startedAt = Date.now();
   const baseMetadata: MessageMetadata = { createdAt: startedAt, modelId, credentialId };
+  // The context after the reply is what the last model call saw.
+  let lastStep: LanguageModelUsage | undefined;
 
   const stream = toUIMessageStream<ToolSet, ChatMessage>({
     stream: result.stream,
@@ -235,11 +241,12 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       if (part.type === 'start') {
         return baseMetadata;
       }
+      if (part.type === 'finish-step') {
+        lastStep = part.usage;
+        return undefined;
+      }
       if (part.type === 'finish') {
-        return {
-          ...baseMetadata,
-          usage: { inputTokens: part.totalUsage.inputTokens, outputTokens: part.totalUsage.outputTokens },
-        };
+        return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing) };
       }
       return undefined;
     },

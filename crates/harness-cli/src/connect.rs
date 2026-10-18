@@ -807,7 +807,9 @@ fn start(
         let stdin = Arc::clone(&stdin);
         let thinking = Arc::clone(&thinking);
         let name = harness.name.clone();
-        thread::spawn(move || read_agent(stdout, &emit, &stdin, &responses_tx, &thinking, &name))
+        thread::spawn(move || {
+            read_agent(stdout, &emit, &stdin, &responses_tx, &thinking, &name);
+        })
     };
     let approvals = if prepared.project.ask {
         ApprovalBridge::start(&prepared.provider, &prepared.project, emit)
@@ -899,6 +901,8 @@ fn read_agent(
     name: &str,
 ) {
     let mut translator = Translator::new();
+    // From pi's model data; the chat shows how full the context is.
+    let mut context_window = None;
     let mut reader = io::BufReader::new(stdout);
     let mut line = Vec::new();
     // Split on LF only: pi's JSON strings may contain U+2028, which a
@@ -924,11 +928,37 @@ fn read_agent(
                             detail: None,
                         });
                     }
+                    let event = match event {
+                        AgentEvent::Usage {
+                            input_tokens,
+                            output_tokens,
+                            cached_input_tokens,
+                            cost,
+                            context_window: None,
+                        } => AgentEvent::Usage {
+                            input_tokens,
+                            output_tokens,
+                            cached_input_tokens,
+                            cost,
+                            context_window,
+                        },
+                        other => other,
+                    };
                     emit.event(event);
                 }
                 Output::Reply(reply) => write_line(stdin, &reply),
                 Output::Response(response) => {
                     if response.success {
+                        let window = match response.command.as_str() {
+                            "get_state" => response.data.get("model"),
+                            "set_model" => Some(&response.data),
+                            _ => None,
+                        }
+                        .and_then(|model| model.get("contextWindow"))
+                        .and_then(serde_json::Value::as_u64);
+                        if window.is_some() {
+                            context_window = window;
+                        }
                         let _ = responses.send(response);
                     } else if response.command == "prompt" {
                         emit.event(AgentEvent::error(format!(
@@ -995,8 +1025,11 @@ impl Agent {
         let mut text = prompt.text.clone();
         if self.first_prompt {
             self.first_prompt = false;
+            // Asked even without history: the answer also carries the
+            // model's context window.
+            let new_session = self.session_is_new();
             if let Some(history) = &prompt.history
-                && self.session_is_new()
+                && new_session
             {
                 text = pi_rpc::with_history(history, &text);
             }

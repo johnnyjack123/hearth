@@ -292,9 +292,18 @@ impl Translator {
         let mut outputs = Vec::new();
         if let Some(usage) = message.get("usage") {
             let tokens = |key| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+            let cached = tokens("cacheRead");
             outputs.push(Output::Event(AgentEvent::Usage {
-                input_tokens: tokens("input") + tokens("cacheRead") + tokens("cacheWrite"),
+                input_tokens: tokens("input") + cached + tokens("cacheWrite"),
                 output_tokens: tokens("output"),
+                cached_input_tokens: (cached > 0).then_some(cached),
+                // pi prices each call from its own model catalog.
+                cost: usage
+                    .get("cost")
+                    .and_then(|cost| cost.get("total"))
+                    .and_then(Value::as_f64)
+                    .filter(|cost| cost.is_finite() && *cost >= 0.0),
+                context_window: None,
             }));
         }
         if str_field(message, "stopReason") == Some("error") {
@@ -385,7 +394,7 @@ mod tests {
             json!({ "type": "message_update", "assistantMessageEvent": { "type": "text_start", "contentIndex": 1 } }),
             json!({ "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 1, "delta": "Ich schaue nach." } }),
             json!({ "type": "message_update", "assistantMessageEvent": { "type": "toolcall_start", "contentIndex": 2, "id": "c1", "toolName": "bash" } }),
-            json!({ "type": "message_end", "message": { "role": "assistant", "usage": { "input": 100, "output": 20, "cacheRead": 50, "cacheWrite": 0 }, "stopReason": "toolUse" } }),
+            json!({ "type": "message_end", "message": { "role": "assistant", "usage": { "input": 100, "output": 20, "cacheRead": 50, "cacheWrite": 0, "cost": { "total": 0.25 } }, "stopReason": "toolUse" } }),
             json!({ "type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": { "command": "ls" } }),
             json!({ "type": "tool_execution_update", "toolCallId": "c1", "partialResult": { "content": [{ "type": "text", "text": "REA" }] } }),
             json!({ "type": "tool_execution_update", "toolCallId": "c1", "partialResult": { "content": [{ "type": "text", "text": "README" }] } }),
@@ -410,7 +419,10 @@ mod tests {
                 },
                 AgentEvent::Usage {
                     input_tokens: 150,
-                    output_tokens: 20
+                    output_tokens: 20,
+                    cached_input_tokens: Some(50),
+                    cost: Some(0.25),
+                    context_window: None,
                 },
                 AgentEvent::ToolStart {
                     id: "c1".into(),

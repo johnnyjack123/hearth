@@ -13,6 +13,7 @@ import { createDatabase, type Database, type DatabaseKind } from '../src/db/inde
 import { migrateToLatest } from '../src/db/migrations.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { saveDeviceProjects } from '../src/services/devices.ts';
+import { PricingCatalog } from '../src/pricing.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
 
 /**
@@ -161,7 +162,11 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
 
   const llm = createMockLlm();
   const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
-  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub });
+  // A tiny catalog instead of models.dev: tests never go online.
+  const pricing = new PricingCatalog(async () => ({
+    openai: { models: { 'mock-1': { limit: { context: 1000 }, cost: { input: 2, output: 8 } } } },
+  }));
+  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub, pricing });
 
   const request: TestServer['request'] = (method, url, options = {}) => {
     const headers: Record<string, string> = { origin: ORIGIN };

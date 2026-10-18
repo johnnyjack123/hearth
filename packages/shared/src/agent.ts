@@ -91,6 +91,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       type: z.literal('usage'),
       inputTokens: z.number().int().nonnegative(),
       outputTokens: z.number().int().nonnegative(),
+      cachedInputTokens: z.number().int().nonnegative().optional(),
+      cost: z.number().nonnegative().optional(),
+      contextWindow: z.number().int().positive().optional(),
     })
     .strict(),
   z.object({ type: z.literal('error'), message: text(4_000) }).strict(),

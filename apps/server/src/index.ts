@@ -7,6 +7,7 @@ import { createDatabase, parseDatabaseUrl } from './db/index.ts';
 import { migrateToLatest } from './db/migrations.ts';
 import { createLlmGateway } from './llm.ts';
 import { saveDeviceProjects } from './services/devices.ts';
+import { PricingCatalog } from './pricing.ts';
 import { DeviceHub } from './tunnel/hub.ts';
 import { attachTunnel } from './tunnel/socket.ts';
 
@@ -18,8 +19,10 @@ async function main(): Promise<void> {
   const auth = createAuth(config, database);
   const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
 
+  const pricing = new PricingCatalog();
+  void pricing.refresh();
   const app = createApp(
-    { config, database, auth, secretBox: createSecretBox(config.secret), llm: createLlmGateway(), hub },
+    { config, database, auth, secretBox: createSecretBox(config.secret), llm: createLlmGateway(), hub, pricing },
     { logRequests: true },
   );
 
