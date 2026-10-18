@@ -37,7 +37,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 - **Web-Fetch in normalen Chats, 18.10.:** Ohne Umgebung lädt das Modell Seiten über das Werkzeug `web_fetch` direkt im Server. Nur öffentliche Adressen; Hosts, die der Nutzer nicht selbst genannt hat, braucht eine Freigabe im Chat. Admin-Schalter „Webseiten laden“.
 - **TLS im Gateway, 17.10.:** `llm.harness` geht auch an einen `https://`-Server (rustls im Gateway, Feature `tls`). Server mit eigener CA über `[server] ca` in `config.toml`, Anleitung mit Caddy in `docs/deploy.md`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: siehe PROGRESS.md (Nutzer testet Phase 4 mit DeepSeek; danach Jev als Klassifikator und Stopp der VM im Leerlauf).
+- Nächstes: siehe PROGRESS.md „Next step“ (Test des Nutzers, dann Block „Recherche“: Fundstellen von Prompt-Injection mit Erklärung, Hauptinhalt per Readability, Websuche mit Recherche-Schalter; danach Jev und Stopp der VM im Leerlauf).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
