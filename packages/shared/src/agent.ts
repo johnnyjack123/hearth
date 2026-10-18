@@ -242,7 +242,10 @@ export const approvalDecisionSchema = z
  * assignable to a record, which interfaces are not.
  */
 export type AgentDataParts = {
-  /** A message of harness or the harness itself (warnings, progress). */
+  /**
+   * A message of harness or the harness itself (warnings, progress). Lines
+   * after the first are details the web app shows on demand.
+   */
   notice: { level: 'info' | 'warning' | 'error'; text: string };
   /**
    * A question of the project's gateway, or of the server's web fetch in an

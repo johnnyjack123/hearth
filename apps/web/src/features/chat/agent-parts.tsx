@@ -169,13 +169,20 @@ export function AgentProgress({ progress }: { progress: AgentDataParts['progress
 }
 
 /**
- * A message of harness or the harness in an agent reply.
+ * A message of harness or the harness in an agent reply. The first line is
+ * the message; further lines are details shown on demand, such as where the
+ * pi guard found a possible prompt injection and why it matters.
  *
  * @param props - The notice.
  * @returns The notice row.
  */
 export function AgentNotice({ notice }: { notice: AgentDataParts['notice'] }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
   const Icon = notice.level === 'error' ? CircleAlert : notice.level === 'warning' ? TriangleAlert : Info;
+  const lineBreak = notice.text.indexOf('\n');
+  const summary = lineBreak >= 0 ? notice.text.slice(0, lineBreak) : notice.text;
+  const details = lineBreak >= 0 ? notice.text.slice(lineBreak + 1).trim() : '';
   return (
     <div
       role={notice.level === 'info' ? undefined : 'note'}
@@ -187,7 +194,38 @@ export function AgentNotice({ notice }: { notice: AgentDataParts['notice'] }) {
       )}
     >
       <Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 break-words">{notice.text}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="break-words">{summary}</span>
+        {details ? (
+          <>
+            <Button
+              variant="link"
+              size="sm"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+              className="h-auto gap-1 self-start px-0 py-1 text-current underline"
+            >
+              <ChevronRight
+                className={cn('size-3.5 transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}
+                aria-hidden="true"
+              />
+              {open ? t('agent.hideDetails') : t('agent.showDetails')}
+            </Button>
+            <AnimatePresence initial={false}>
+              {open ? (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: transitions.enter }}
+                  exit={{ opacity: 0, transition: transitions.exit }}
+                  className="wrap-anywhere whitespace-pre-wrap rounded-md bg-card px-2 py-1.5 font-mono text-xs text-card-foreground"
+                >
+                  {details}
+                </motion.p>
+              ) : null}
+            </AnimatePresence>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
