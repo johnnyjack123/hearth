@@ -97,7 +97,10 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
         />
       </button>
       {warnings.length > 0 ? (
-        <div role="note" className="flex items-start gap-2 border-t border-border bg-warning px-3 py-2 text-warning-foreground">
+        <div
+          role="note"
+          className="flex items-start gap-2 border-t border-border bg-warning px-3 py-2 text-warning-foreground last:rounded-b-lg"
+        >
           <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span className="min-w-0 break-words">
             {t('webFetch.injection', { found: warnings.map((warning) => t(`webFetch.warnings.${warning}`)).join(', ') })}
