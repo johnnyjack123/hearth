@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Smoke test of Phase 4 against the real VM, from Git Bash:
 #
-#   throwaway server + tool-calling mock LLM -> harness login
-#   -> harness project remote on -> harness connect (in the background)
-#   -> a web chat linked to the project over the API -> pi in RPC mode runs
-#   a command that commits and asks the gateway for example.com -> the
-#   question is answered over the chat API -> the reply with tool call and
-#   text is streamed and stored -> harness sync brings the commit home
+#   throwaway server + tool-calling mock LLM -> harness login -> project
+#   -> harness connect in the foreground refuses a chat the project wants
+#   confirmed -> the background service (harness daemon start) takes over
+#   -> a web chat linked to the project over the API -> progress steps,
+#   pi in RPC mode runs a command that commits and asks the gateway for
+#   example.com -> the question is answered over the chat API -> the reply
+#   with tool call and text is streamed and stored -> harness sync brings
+#   the commit home -> harness daemon stop
 #
 # Needs the running VM, both images, `cargo build` and `pnpm install`. Uses
 # ports 8095/8096 and a temporary HARNESS_HOME; pi's shared volume
@@ -59,8 +61,9 @@ json() { # json <expression> (reads stdin)
 }
 
 cleanup() {
-  [ -n "${KEEP_LOGS:-}" ] && mkdir -p "$KEEP_LOGS" && cp "$WORK"/*.log "$KEEP_LOGS"/ 2> /dev/null
+  [ -n "${KEEP_LOGS:-}" ] && mkdir -p "$KEEP_LOGS" && cp "$WORK"/*.log "$HARNESS_HOME"/daemon.log "$KEEP_LOGS"/ 2> /dev/null
   [ -n "$CONNECT" ] && kill "$CONNECT" 2> /dev/null
+  "$H" daemon stop > /dev/null 2>&1
   "$H" logout > /dev/null 2>&1
   (cd "$WORK/$NAME" 2> /dev/null && "$H" stop > /dev/null 2>&1)
   "$PM" rm -f "harness-$NAME" "harness-gw-$NAME" "harness-install-$NAME" > /dev/null 2>&1
@@ -93,18 +96,22 @@ CODE=$(grep -oE '[A-Z2-9]{4}-[A-Z2-9]{4}' "$WORK/login.log" | head -1)
 api POST "/api/devices/pairing/$CODE" '{"approve":true}' > /dev/null
 check "Rechner gekoppelt" wait "$LOGIN"
 
-echo "== Test-Repo $NAME, für Web-Chats freigegeben"
+echo "== harness init in einem Test-Repo $NAME"
 mkdir -p "$WORK/$NAME" && cd "$WORK/$NAME" || exit 1
 git init -q -b main
 git config user.name "Connect User"
 git config user.email connect@example.com
 git config core.autocrlf false
 echo "# $NAME" > README.md && git add README.md && git commit -qm initial
-"$H" project add > /dev/null
-"$H" project remote on > "$WORK/remote.log" 2>&1
-check "Projekt freigegeben" grep -q "freigegeben" "$WORK/remote.log"
+"$H" init > "$WORK/init.log" 2>&1
+check "Projekt angelegt und gemeldet" grep -q "steht in der Web-App zur Auswahl" "$WORK/init.log"
+check "Umgebung im Konto, Rechner offline" test \
+  "$(api GET /api/devices | json "!v[0].online && v[0].projects[0].name")" = "$NAME"
+# The project asks per chat; only a terminal could answer.
+"$H" project remote on --confirm > "$WORK/remote.log" 2>&1
+check "Bestätigung verlangt" grep -q "bestätigst du im Terminal" "$WORK/remote.log"
 
-echo "== harness connect"
+echo "== harness connect im Vordergrund"
 # stdin is no terminal here, so nobody can confirm a new chat.
 "$H" connect < /dev/null > "$WORK/connect.log" 2>&1 &
 CONNECT=$!
@@ -123,6 +130,17 @@ api POST "/api/conversations/$CONVERSATION/chat" \
 check "neuer Chat ohne Bestätigung abgelehnt" grep -q "nicht bestätigt" "$WORK/refused.log"
 check "pi nicht gestartet" bash -c "! grep -q 'läuft im Projekt' '$WORK/connect.log'"
 "$H" project remote on --no-confirm > /dev/null
+kill "$CONNECT" 2> /dev/null
+wait "$CONNECT" 2> /dev/null
+CONNECT=""
+
+echo "== Hintergrunddienst"
+"$H" daemon start > "$WORK/daemon-start.log" 2>&1
+check "Dienst läuft" grep -q "Hintergrunddienst läuft" "$WORK/daemon-start.log"
+check "Dienst verbunden" wait_for 30 grep -q "Verbunden" "$HARNESS_HOME/daemon.log"
+"$H" connect < /dev/null > "$WORK/second.log" 2>&1
+check "zweite Verbindung abgelehnt" grep -q "Hintergrunddienst hält die Verbindung" "$WORK/second.log"
+check "VM-Status gemeldet" test "$(api GET /api/devices | json "v[0].online && v[0].vm !== null")" = true
 
 echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
@@ -132,6 +150,7 @@ printf '%s' "{\"message\":{\"id\":\"m1\",\"role\":\"user\",\"parts\":[{\"type\":
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/chat.json" \
   "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/stream.log" &
 CHAT=$!
+check "sofort als angekommen gemeldet" wait_for 10 grep -q 'Auf dem Rechner angekommen' "$WORK/stream.log"
 check "Rückfrage des Gateways im Chat" wait_for 240 grep -q '"type":"data-approval"' "$WORK/stream.log"
 APPROVAL=$(grep -oE '"id":"approval-[0-9]+"' "$WORK/stream.log" | head -1 | grep -oE '[0-9]+')
 api POST "/api/conversations/$CONVERSATION/approvals/$APPROVAL" '{"decision":"once"}' > /dev/null
@@ -141,6 +160,8 @@ check "Frage als beantwortet markiert" grep -q '"state":"resolved"' "$WORK/strea
 check "Werkzeugaufruf gestreamt" grep -q '"type":"tool-input-available"' "$WORK/stream.log"
 check "example.com nach Freigabe erreicht" grep -q 'status=200' "$WORK/stream.log"
 check "Antwort des Modells gestreamt" grep -q '"delta":"fertig"' "$WORK/stream.log"
+check "Schritte im Chat (Instanz, pi denkt nach)" bash -c \
+  "grep -q '\"id\":\"progress-instance\"' '$WORK/stream.log' && grep -q 'pi denkt nach' '$WORK/stream.log'"
 REPLY=$(api GET "/api/conversations/$CONVERSATION")
 check "Antwort mit Werkzeugaufruf gespeichert" test \
   "$(echo "$REPLY" | json "v.messages.at(-1).parts.some(p => p.type === 'dynamic-tool' && p.output.text.includes('status=200'))")" = true
@@ -152,11 +173,15 @@ check "Commit des Agents auf agent/$NAME" test "$(git log -1 --format=%s "agent/
 
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null
-check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$WORK/connect.log"
+check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HARNESS_HOME/daemon.log"
+
+echo "== Hintergrunddienst beenden"
+"$H" daemon stop > "$WORK/daemon-stop.log" 2>&1
+check "Dienst beendet" grep -q "Hintergrunddienst beendet" "$WORK/daemon-stop.log"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures Prüfung(en) fehlgeschlagen. Protokolle:"
-  for log in "$WORK"/*.log; do
+  for log in "$WORK"/*.log "$HARNESS_HOME/daemon.log"; do
     echo "--- $(basename "$log")"
     tail -25 "$log"
   done
