@@ -5,6 +5,8 @@ import {
   createConversationSchema,
   linkConversationSchema,
   updateConversationSchema,
+  WEB_FETCH_DECISIONS,
+  type WebFetchDecision,
 } from '@harness/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
@@ -24,6 +26,9 @@ import {
 } from '../services/conversations.ts';
 import { findCredential, resolveCredential } from '../services/credentials.ts';
 import { findDevice, loadDeviceProjects } from '../services/devices.ts';
+import { getServerSettings } from '../services/settings.ts';
+import { FetchApprovals } from '../webfetch/approvals.ts';
+import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -37,6 +42,10 @@ import { assertEndpointAllowed } from './providers.ts';
 export function conversationRoutes(deps: AppDeps) {
   const { db } = deps.database;
   const { secretBox, llm, hub } = deps;
+  const webFetchConfig = { ...DEFAULT_WEB_FETCH_CONFIG, ...deps.webFetch };
+  // Questions of web fetches in ordinary chats, answered through the same
+  // route as the gateway's questions in linked chats.
+  const fetchApprovals = new FetchApprovals();
 
   /** Rejects a project the device does not offer (as far as it reported). */
   async function assertOffered(deviceId: string, project: string, harness: string): Promise<void> {
@@ -127,7 +136,7 @@ export function conversationRoutes(deps: AppDeps) {
     })
     .post('/:id/approvals/:approvalId', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
-      if (!conversation?.link) {
+      if (!conversation) {
         throw notFound('Conversation');
       }
       const id = Number(c.req.param('approvalId'));
@@ -135,6 +144,18 @@ export function conversationRoutes(deps: AppDeps) {
         throw notFound('Approval');
       }
       const { decision } = approvalDecisionSchema.parse(await c.req.json());
+      if (fetchApprovals.has(conversation.id, id)) {
+        // "Minutes" and "always" belong to the gateway; a web fetch only
+        // knows once, this chat and no.
+        if (!WEB_FETCH_DECISIONS.includes(decision as WebFetchDecision)) {
+          throw new HttpError(400, 'validation', 'A web fetch can be allowed once or for this chat, or denied');
+        }
+        fetchApprovals.decide(conversation.id, id, decision);
+        return c.body(null, 204);
+      }
+      if (!conversation.link) {
+        throw notFound('Approval');
+      }
       hub.decide(conversation.link.deviceId, conversation.id, id, decision);
       return c.body(null, 204);
     })
@@ -194,6 +215,7 @@ export function conversationRoutes(deps: AppDeps) {
         });
       }
 
+      const settings = await getServerSettings(db);
       return streamChat({
         db,
         conversationId: conversation.id,
@@ -203,6 +225,7 @@ export function conversationRoutes(deps: AppDeps) {
         credentialId: row.id,
         pricing: await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId),
         abortSignal: c.req.raw.signal,
+        webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
       });
     });
 }

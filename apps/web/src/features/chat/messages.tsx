@@ -1,4 +1,4 @@
-import type { ApprovalDecision } from '@harness/shared';
+import { type ApprovalDecision, WEB_FETCH_TOOL } from '@harness/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useState } from 'react';
@@ -11,6 +11,7 @@ import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { formatCost } from './context-meter.tsx';
+import { WebFetchCall } from './web-fetch.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -117,6 +118,9 @@ function AssistantMessage({
         }
         if (part.type === 'dynamic-tool') {
           return <ToolCall key={part.toolCallId} part={part} streaming={streaming} />;
+        }
+        if (part.type === `tool-${WEB_FETCH_TOOL}`) {
+          return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} />;
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;

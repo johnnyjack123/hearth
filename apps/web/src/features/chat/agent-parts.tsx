@@ -1,4 +1,4 @@
-import type { AgentDataParts, AgentToolOutput, ApprovalDecision } from '@harness/shared';
+import type { AgentDataParts, AgentToolOutput, ApprovalDecision, WebFetchDecision } from '@harness/shared';
 import type { DynamicToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, FilePen, FileText, Globe, Info, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -124,7 +124,13 @@ export function ToolCall({ part, streaming }: { part: DynamicToolUIPart; streami
   );
 }
 
-function ToolText({ label, text }: { label: string; text: string }) {
+/**
+ * A labelled block of tool input or output, scrolling when long.
+ *
+ * @param props - Label and text.
+ * @returns The block.
+ */
+export function ToolText({ label, text }: { label: string; text: string }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -186,7 +192,9 @@ export function AgentNotice({ notice }: { notice: AgentDataParts['notice'] }) {
   );
 }
 
-const DECISIONS: { decision: ApprovalDecision; variant: 'primary' | 'secondary' | 'outline' }[] = [
+type DecisionButton = { decision: ApprovalDecision; variant: 'primary' | 'secondary' | 'outline' };
+
+const DECISIONS: DecisionButton[] = [
   { decision: 'once', variant: 'primary' },
   { decision: 'minutes', variant: 'secondary' },
   { decision: 'session', variant: 'secondary' },
@@ -194,10 +202,17 @@ const DECISIONS: { decision: ApprovalDecision; variant: 'primary' | 'secondary' 
   { decision: 'deny', variant: 'outline' },
 ];
 
+const FETCH_DECISIONS: (DecisionButton & { decision: WebFetchDecision })[] = [
+  { decision: 'once', variant: 'primary' },
+  { decision: 'session', variant: 'secondary' },
+  { decision: 'deny', variant: 'outline' },
+];
+
 /**
  * A question of the project's gateway: a host the agent wants to reach.
  * Answers go to the computer, which applies them; the container never sees
- * them.
+ * them. With a `url`, it is a web fetch of the server in an ordinary chat:
+ * the card then shows the full URL, because that is what leaves the server.
  *
  * @param props - The question, whether its reply still runs, and how to answer.
  * @returns The approval card.
@@ -215,6 +230,11 @@ export function ApprovalCard({
   const [sending, setSending] = useState<ApprovalDecision | null>(null);
   const host = approval.port === 443 || approval.port === 80 ? approval.host : `${approval.host}:${approval.port}`;
   const open = approval.state === 'pending' && live && onDecide !== undefined;
+  const fetchUrl = approval.url;
+  const buttons = fetchUrl
+    ? FETCH_DECISIONS.map((button) => ({ ...button, label: t(`webFetch.approval.${button.decision}`) }))
+    : DECISIONS.map((button) => ({ ...button, label: t(`agent.approval.${button.decision}`) }));
+  const allowed = approval.answer === 'once' || approval.answer === 'session';
   const ref = useRef<HTMLDivElement>(null);
 
   // The agent waits for this answer: an open question must not hide below
@@ -244,13 +264,20 @@ export function ApprovalCard({
       <div className="flex items-start gap-3">
         <Globe className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
         <div className="flex min-w-0 flex-col gap-1">
-          <p className="break-words text-sm font-medium text-foreground">{t('agent.approval.title', { host })}</p>
-          <p className="text-sm text-muted-foreground">{t('agent.approval.body')}</p>
+          <p className="break-words text-sm font-medium text-foreground">
+            {fetchUrl ? t('webFetch.approval.title', { host: approval.host }) : t('agent.approval.title', { host })}
+          </p>
+          {fetchUrl ? (
+            <code className="max-h-32 overflow-y-auto break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs text-foreground">
+              {fetchUrl}
+            </code>
+          ) : null}
+          <p className="text-sm text-muted-foreground">{fetchUrl ? t('webFetch.approval.body') : t('agent.approval.body')}</p>
         </div>
       </div>
       {open ? (
         <div className="flex flex-wrap gap-2" aria-busy={sending !== null}>
-          {DECISIONS.map(({ decision, variant }) => (
+          {buttons.map(({ decision, variant, label }) => (
             <Button
               key={decision}
               size="sm"
@@ -259,14 +286,18 @@ export function ApprovalCard({
               loading={sending === decision}
               onClick={() => void decide(decision)}
             >
-              {t(`agent.approval.${decision}`)}
+              {label}
             </Button>
           ))}
         </div>
       ) : (
         <Badge className="w-fit">
-          {approval.state === 'resolved' ? <Check aria-hidden="true" /> : null}
-          {approval.state === 'resolved' ? t('agent.approval.answered') : t('agent.approval.expired')}
+          {approval.state === 'resolved' && (allowed || !approval.answer) ? <Check aria-hidden="true" /> : null}
+          {approval.answer
+            ? t(`webFetch.approval.answers.${approval.answer}`)
+            : approval.state === 'resolved'
+              ? t('agent.approval.answered')
+              : t('agent.approval.expired')}
         </Badge>
       )}
     </Card>

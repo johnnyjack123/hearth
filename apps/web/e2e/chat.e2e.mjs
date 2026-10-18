@@ -146,6 +146,41 @@ try {
     await page.waitForSelector(text('Und noch eine Frage'), { timeout: 10_000 });
   });
 
+  let fetchPath = '';
+  await step('web fetch in an ordinary chat asks, then answers from the page', async () => {
+    // The mock model calls web_fetch for a URL the user did not name, so the
+    // server asks in the chat before it loads anything.
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('textarea');
+    await page.waitForSelector(text('mock-model'), { timeout: 10_000 });
+    await page.type('textarea', 'Worum geht es auf der Testseite?');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    fetchPath = new URL(page.url()).pathname;
+    await page.waitForSelector(text('Das Modell möchte eine Seite von 127.0.0.1 laden'), { timeout: 15_000 });
+    await page.waitForSelector(text('http://127.0.0.1:8091/testseite'));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('21-web-fetch-approval');
+    await page.click(text('Einmal erlauben'));
+    await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'), { timeout: 15_000 });
+    await page.waitForSelector(text('Möglicher Prompt-Injection-Versuch'), { timeout: 5_000 });
+    await page.waitForSelector(text('Einmal erlaubt'));
+    await page.click('[aria-label="Inhalt zeigen"]');
+    await page.waitForSelector(text('Kaffeebohnen werden bei etwa 200 °C geröstet.'), { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('22-web-fetch-reply');
+
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'), { timeout: 10_000 });
+    await page.waitForSelector(text('Einmal erlaubt'), { timeout: 5_000 });
+
+    // Admins can switch it off.
+    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle0' });
+    await page.click('[role=tab]::-p-text(Server)');
+    await page.waitForSelector(text('Webseiten laden'), { timeout: 10_000 });
+    await shot('25-admin-web-fetch');
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };
@@ -321,6 +356,10 @@ try {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'));
     await shot('19-agent-dark');
+    await page.goto(`${BASE}${fetchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('23-web-fetch-dark');
     await page.goto(`${BASE}/settings?tab=appearance`, { waitUntil: 'networkidle0' });
     await shot('09-settings-dark');
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
@@ -331,6 +370,9 @@ try {
     await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'));
     await shot('20-agent-mobile-light');
+    await page.goto(`${BASE}${fetchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'));
+    await shot('24-web-fetch-mobile-light');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await shot('11-home-mobile-light');
   });
