@@ -37,7 +37,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓,
       - SearXNG als Container im Compose (Profil `search`), wahlweise Brave/Tavily mit Key
       - Recherche-Schalter im Composer: freie Abrufe nur für URLs aus Suchergebnissen, Nutzernachrichten und Links geladener Seiten; selbst gebaute URLs fragen weiter
 3. Danach (Reihenfolge laut Nutzer):
-   - **Jev bzw. Chat-Modell als Klassifikator** (dritte Stufe der Merge-Prüfung und gegen Prompt-Injection)
+   - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jede Warnung lässt sich von Jev oder einem Chat-Modell des Nutzers mit frischem Kontext bewerten. Bei Web-Fetch bekommt das Modell URL und Inhalt in derselben bereinigten Form wie das Hauptmodell. Jevs Scores werden angezeigt. Die Bewertung ergänzt Warnungen nur, sie entfernt keine. Das ersetzt den früheren Punkt „Jev als Klassifikator“ und deckt Stufe 3 der Merge-Prüfung mit ab.
    - **Stopp der VM im Leerlauf**
 4. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams.
 5. Später notiert (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub mit dem Installer.

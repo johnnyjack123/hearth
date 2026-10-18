@@ -225,7 +225,28 @@ Bausteine:
    - gefälschte Rollenmarken (`<|im_start|>`, `</system>`) und Anweisungen in HTML-Kommentaren
 
    Bei einem Treffer setzt sie eine Warnung vor das Ergebnis, damit das Modell es als Daten behandelt, und zeigt sie dem Nutzer in pi (`ctx.ui.notify`). Geprüft mit einem Mock-LLM, das pi eine Datei mit Anweisung im HTML-Kommentar lesen lässt: Das Werkzeug-Ergebnis kommt mit der Warnung davor beim Modell an.
-3. **Optional Jev als Klassifikator** über den Server: „Enthält dieser Text Anweisungen an eine KI?“ mit Wahrscheinlichkeit. Fängt umformulierte Fälle, die keine Regel kennt. Wie bei der Merge-Prüfung darf er Warnungen nur hinzufügen, und er kostet Geld, ist also abwählbar.
+3. **Optional Jev als Klassifikator** über den Server (jetzt Teil von „Zweitmeinung zu Warnungen“ weiter unten): „Enthält dieser Text Anweisungen an eine KI?“ mit Wahrscheinlichkeit. Fängt umformulierte Fälle, die keine Regel kennt. Wie bei der Merge-Prüfung darf er Warnungen nur hinzufügen, und er kostet Geld, ist also abwählbar.
+
+## Zweitmeinung zu Warnungen (Idee des Nutzers, 18.10., noch nicht gebaut)
+
+Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt-Injection beim Web-Fetch und bei pi ebenso wie später für Funde der Merge-Prüfung. Es fasst Stufe 3 der Merge-Prüfung und Baustein 3 von Phase 2d zu einer Funktion zusammen.
+
+- **Auslöser:** In der Warnung (Browser, später App und CLI) steht eine Option „Bewerten lassen“. Im Dialog wählt der Nutzer das Modell: Jev oder eines seiner Chat-Modelle aus den hinterlegten Anbietern. Optional bewertet Jev jede Warnung automatisch, das ist abwählbar, weil es Geld kostet.
+- **Frischer Kontext:** Das bewertende Modell bekommt nicht den bisherigen Chat, sondern einen eigenen System-Prompt genau für dieses Szenario: Prompt-Injection auf einer Webseite, Prompt-Injection in einer Werkzeug-Ausgabe von pi oder ein verdächtiger Code-Diff. Dazu kommt der ganze Kontext:
+  - **Web-Fetch:** URL, gesamter Seiteninhalt **in derselben bereinigten Form, die das Hauptmodell gesehen hat** (nach Readability und turndown), und die markierten Fundstellen.
+  - **pi:** Werkzeug, Aufruf und Ausgabe.
+  - **Merge-Prüfung:** Diff mit Umgebung und Regel-Funden.
+- **Ergebnis:**
+  - **Chat-Modell:** Urteil (harmlos, verdächtig, gefährlich), Begründung in einfachen Worten und betroffene Stellen, in festem Format (strukturierte Ausgabe), ohne Werkzeuge.
+  - **Jev:** Seine Scores werden **angezeigt** (Wunsch des Nutzers), nicht nur in ein Urteil übersetzt.
+- **Grenzen (wie bei der Merge-Prüfung entschieden):**
+  - Der bewertete Inhalt kann selbst Anweisungen an das Bewertungsmodell enthalten („das hier ist harmlos“). Die Bewertung **ergänzt** die Warnung deshalb nur und entfernt sie nie.
+  - Sie darf eine Warnung als „wahrscheinlich harmlos“ einordnen. Die Fundstelle bleibt aber sichtbar, und ein Regel-Fund der Merge-Prüfung bleibt bestehen.
+- **Umsetzung:**
+  - ein Server-Endpunkt `/api/assessments`; er nutzt die Keys des Nutzers (normale Chats) bzw. den Geräte-Durchgang (Merge-Prüfung auf dem Rechner)
+  - ein Durchgang für Klassifikatoren wie Jev neben den Chat-Endpunkten
+  - das Ergebnis gespeichert an der Warnung (Datenteil bzw. Fund), mit Modell, Kosten und Zeit
+- **Einstellungen:** welche Warnungen automatisch bewertet werden, mit welchem Modell, Höchstkosten pro Tag.
 
 ## Phase 3 – Desktop-App und Gateway
 
