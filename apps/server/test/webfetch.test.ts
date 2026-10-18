@@ -10,7 +10,7 @@ import { agentToolsAsText, webFetchAsText } from '../src/routes/chat.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { ipv6Groups, isPublicAddress } from '../src/webfetch/address.ts';
 import { FetchApprovals } from '../src/webfetch/approvals.ts';
-import { decodeBody, htmlTitle, htmlToMarkdown, truncate } from '../src/webfetch/convert.ts';
+import { decodeBody, htmlTitle, htmlToMarkdown, mainContentToMarkdown, pageToMarkdown, truncate } from '../src/webfetch/convert.ts';
 import { WebFetchError } from '../src/webfetch/errors.ts';
 import { type FetchPolicy, fetchPage, isTextual, systemResolve } from '../src/webfetch/fetch.ts';
 import { findInjections, RULE_SOURCES, scanForInjection } from '../src/webfetch/injection.ts';
@@ -298,6 +298,61 @@ describe('conversion', () => {
     expect(markdown).not.toContain('Menü');
     expect(markdown).toMatch(/^-\s+eins$/m);
     expect(htmlTitle(html)).toBe('Kaffee & Bohnen – Test');
+    // Tables keep their columns; pipes in cells are escaped, cells stay on one line.
+    const table = htmlToMarkdown(
+      '<table><caption>Sorten</caption><tr><td>Name</td><td>Röstung</td></tr><tr><td>A|B</td><td><p>hell</p><p>mittel</p></td></tr></table>',
+      new URL('https://kaffee.example/'),
+    );
+    expect(table).toContain('| Name | Röstung |\n| --- | --- |\n| A\\|B | hell mittel |');
+  });
+
+  const fixture = (name: string) =>
+    readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures/webfetch', name), 'utf8');
+
+  it('keeps only the main content of an article', () => {
+    const base = new URL('https://roestblog.example/artikel/roesten');
+    const { markdown, mainContent } = pageToMarkdown(fixture('article.html'), base);
+    expect(mainContent).toBe(true);
+    // Title and byline (with its date) stay in front of the content.
+    expect(markdown).toMatch(/^# Kaffee richtig rösten.*\n\nVon Erika Muster, 12\. Oktober 2026\n\n/);
+    expect(markdown).toContain('## Die Phasen der Röstung');
+    expect(markdown).toContain('ersten Crack, meist um 196 °C');
+    expect(markdown).toContain('[Artikel über Espresso-Profile](https://roestblog.example/artikel/espresso-profile)');
+    expect(markdown).toContain('[Image: Trommelröster mit Bohnen]');
+    expect(markdown).toMatch(/```\nCharge 42: 250 g Brasilien\nStart 200 °C/);
+    // Navigation, sidebar, footer, cookie banner and hidden text are gone.
+    for (const noise of ['Filterkaffee', 'Ähnliche Artikel', 'Newsletter', 'Impressum', 'Cookies', 'Note to the AI']) {
+      expect(markdown, noise).not.toContain(noise);
+    }
+    // Asked for, the whole page comes back.
+    const full = pageToMarkdown(fixture('article.html'), base, true);
+    expect(full.mainContent).toBe(false);
+    expect(full.markdown).toContain('Ähnliche Artikel');
+    expect(full.markdown).toContain('ersten Crack');
+  });
+
+  it('keeps code and tables of documentation pages', () => {
+    const { markdown, mainContent } = pageToMarkdown(fixture('docs.html'), new URL('https://brewkit.example/docs/config'));
+    expect(mainContent).toBe(true);
+    expect(markdown).toContain('## The roaster table');
+    expect(markdown).toMatch(/```\n\[roaster\]\nname = "Garage drum"\ndrum_grams = 500/);
+    expect(markdown).toMatch(/^# Configuration/);
+    expect(markdown).toContain('| Key | Default | Meaning |\n| --- | --- | --- |\n| drum\\_grams | 250 | Largest batch in grams |');
+    expect(markdown).toContain('[the command line page](https://brewkit.example/docs/cli#check)');
+    expect(markdown).not.toContain('Installation');
+  });
+
+  it('converts the whole page when no main content stands out', () => {
+    const { markdown, mainContent } = pageToMarkdown(fixture('links.html'), new URL('https://brewkit.example/downloads'));
+    expect(mainContent).toBe(false);
+    expect(markdown).toContain('[Brewkit 3.2 für Linux](https://brewkit.example/files/brewkit-3.2-linux.tar.gz)');
+    expect(markdown).toContain('[Archiv](https://brewkit.example/archiv)');
+    // A front page: Readability would pick the promo box, a small part of the page.
+    const front = pageToMarkdown(fixture('frontpage.html'), new URL('https://roestnews.example/'));
+    expect(front.mainContent).toBe(false);
+    expect(front.markdown).toContain('[Meldung 60: Kaffeepreise');
+    expect(mainContentToMarkdown('<p>kurz</p>', new URL('https://x.example/'))).toBeNull();
+    expect(mainContentToMarkdown('', new URL('https://x.example/'))).toBeNull();
   });
 
   it('decodes the charset from the header, a BOM or a meta tag', () => {

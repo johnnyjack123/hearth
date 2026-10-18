@@ -96,6 +96,12 @@ export interface WebFetchOutput {
   text: string;
   /** True if the download or the text was cut off at a limit. */
   truncated: boolean;
+  /**
+   * True if {@link text} is only the main content of an HTML page, without
+   * navigation, sidebars and footer; missing in replies stored before
+   * 2026-10-18.
+   */
+  mainContent?: boolean;
   /** Possible prompt injection patterns in the content. */
   warnings: WebFetchWarning[];
   /**

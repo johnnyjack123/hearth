@@ -169,6 +169,12 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
             <ToolText label={t('webFetch.source')} text={url} />
             {failure ? <ToolText label={t('webFetch.failed')} text={failure.text} /> : null}
             {output ? <ToolText label={t('webFetch.content')} text={output.text || t('webFetch.noContent')} /> : null}
+            {output?.mainContent ? (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                {t('webFetch.mainContent')}
+              </p>
+            ) : null}
             {output?.truncated ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

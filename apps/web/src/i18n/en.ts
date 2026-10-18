@@ -207,6 +207,7 @@ export const en: Messages = {
     source: 'Source',
     noContent: 'No text',
     truncated: 'Shortened: the page was longer than the model may read.',
+    mainContent: 'Main content only: the server left out navigation, sidebars and footer.',
     injection: 'Possible prompt injection ({found}). The model was told to read the content as data only.',
     showFindings: 'Show where',
     hideFindings: 'Hide where',
