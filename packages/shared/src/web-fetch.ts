@@ -1,0 +1,104 @@
+/**
+ * Name of the server-side tool that loads web pages in ordinary chats. Its
+ * parts are stored as `tool-web_fetch` in the chat history.
+ */
+export const WEB_FETCH_TOOL = 'web_fetch';
+
+/**
+ * Answers to a web fetch question in the chat: this URL once, this host for
+ * the rest of the chat, or no. A subset of the gateway's choices.
+ */
+export const WEB_FETCH_DECISIONS = ['once', 'session', 'deny'] as const;
+
+/** See {@link WEB_FETCH_DECISIONS}. */
+export type WebFetchDecision = (typeof WEB_FETCH_DECISIONS)[number];
+
+/**
+ * How a web fetch question ended: one of the user's answers, or `timeout`
+ * when nobody answered in time (counts as no).
+ */
+export type WebFetchAnswer = WebFetchDecision | 'timeout';
+
+/**
+ * Patterns of a possible prompt injection found in fetched content; the web
+ * app shows them as a warning, the model gets them as a note.
+ */
+export const WEB_FETCH_WARNINGS = [
+  'ignore_instructions',
+  'role_reassignment',
+  'injected_instructions',
+  'addressed_to_ai',
+  'role_markers',
+  'html_comment',
+  'hide_from_user',
+  'unicode_tags',
+  'bidi_controls',
+  'zero_width',
+] as const;
+
+/** See {@link WEB_FETCH_WARNINGS}. */
+export type WebFetchWarning = (typeof WEB_FETCH_WARNINGS)[number];
+
+/**
+ * Why a web fetch failed. The error text of a failed `web_fetch` call starts
+ * with `[code]` or `[code:detail]`, followed by an English explanation for
+ * the model; see {@link parseWebFetchError}.
+ */
+export const WEB_FETCH_ERRORS = [
+  'invalid_url',
+  'blocked_address',
+  'blocked_port',
+  'denied',
+  'no_answer',
+  'aborted',
+  'timeout',
+  'too_many_redirects',
+  'http_error',
+  'unsupported_type',
+  'unsupported_encoding',
+  'network',
+] as const;
+
+/** See {@link WEB_FETCH_ERRORS}. */
+export type WebFetchErrorCode = (typeof WEB_FETCH_ERRORS)[number];
+
+/**
+ * Result of a successful `web_fetch` call as stored in the chat. The model
+ * receives it wrapped as untrusted data, never as plain text.
+ */
+export interface WebFetchOutput {
+  /** URL the content came from, after redirects. */
+  url: string;
+  /** HTTP status of the final response. */
+  status: number;
+  /** Media type without parameters, e.g. `text/html`. */
+  contentType: string;
+  /** Title of an HTML page. */
+  title: string | null;
+  /** Readable text, Markdown for HTML, possibly shortened. */
+  text: string;
+  /** True if the download or the text was cut off at a limit. */
+  truncated: boolean;
+  /** Possible prompt injection patterns in the content. */
+  warnings: WebFetchWarning[];
+}
+
+const ERROR_PREFIX = /^\[([a-z_]+)(?::([^\]]{0,200}))?\]\s*/;
+
+/**
+ * Reads the code and detail from the error text of a failed `web_fetch` call.
+ *
+ * @param errorText - Error text of the tool part.
+ * @returns Code, optional detail (e.g. the HTTP status) and the rest of the
+ *   text, or null if the text has no known code.
+ */
+export function parseWebFetchError(
+  errorText: string,
+): { code: WebFetchErrorCode; detail: string | null; message: string } | null {
+  const match = ERROR_PREFIX.exec(errorText);
+  const code = match?.[1] as WebFetchErrorCode | undefined;
+  if (!match || !code || !WEB_FETCH_ERRORS.includes(code)) {
+    return null;
+  }
+  return { code, detail: match[2] ?? null, message: errorText.slice(match[0].length) };
+}

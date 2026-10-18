@@ -56,6 +56,8 @@ export interface ServerSettings {
   registration: RegistrationMode;
   /** Whether non-admin users may point credentials at custom endpoints. */
   allowCustomBaseUrls: boolean;
+  /** Whether models in ordinary chats may load web pages through the server. */
+  webFetch: boolean;
 }
 
 /**
@@ -65,6 +67,7 @@ export const updateServerSettingsSchema = z
   .object({
     registration: z.enum(['open', 'closed']),
     allowCustomBaseUrls: z.boolean(),
+    webFetch: z.boolean(),
   })
   .partial()
   .strict();

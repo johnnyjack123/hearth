@@ -13,6 +13,7 @@ import { createDatabase, type Database, type DatabaseKind } from '../src/db/inde
 import { migrateToLatest } from '../src/db/migrations.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
+import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 
 /**
  * Dialects to run integration tests against. Postgres is included when
@@ -134,9 +135,14 @@ async function resetPostgres(database: Database): Promise<void> {
  * Starts the app on a fresh database of the given dialect.
  *
  * @param kind - Database dialect.
+ * @param options - Another LLM gateway, and web fetch overrides (e.g. an
+ *   address filter that lets a local test server through).
  * @returns The running test server.
  */
-export async function createTestServer(kind: DatabaseKind): Promise<TestServer> {
+export async function createTestServer(
+  kind: DatabaseKind,
+  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig> } = {},
+): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
   const config: ServerConfig = {
@@ -158,9 +164,17 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
   await migrateToLatest(database.db);
   const auth = createAuth(config, database);
 
-  const llm = createMockLlm();
+  const llm = options.llm ?? createMockLlm();
   const hub = new DeviceHub();
-  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub });
+  const app = createApp({
+    config,
+    database,
+    auth,
+    secretBox: createSecretBox(config.secret),
+    llm,
+    hub,
+    ...(options.webFetch ? { webFetch: options.webFetch } : {}),
+  });
 
   const request: TestServer['request'] = (method, url, options = {}) => {
     const headers: Record<string, string> = { origin: ORIGIN };

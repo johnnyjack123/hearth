@@ -7,6 +7,7 @@ import type { Database } from '../db/index.ts';
 import type { DB } from '../db/schema.ts';
 import type { LlmGateway } from '../llm.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
+import type { WebFetchConfig } from '../webfetch/tool.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
 
@@ -27,6 +28,11 @@ export interface AppDeps {
   llm: LlmGateway;
   /** Connected devices and the agent replies running on them. */
   hub: DeviceHub;
+  /**
+   * Overrides of the web fetch limits and checks, for tests that fetch from
+   * a local server. The server itself never sets it.
+   */
+  webFetch?: Partial<WebFetchConfig>;
 }
 
 /**
