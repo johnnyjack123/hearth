@@ -314,6 +314,11 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - **Offen:**
     - echter Suchlauf gegen SearXNG auf dem Pi (Nutzer)
     - Suche für Agents in der VM
+    - **DeepSeek als weiterer Suchanbieter prüfen** (Hinweis des Nutzers vom 18.10.): DeepSeek bietet laut seiner Website neuerdings eine Websuche unter `https://api.deepseek.com/v1/tools/search` an, vermutlich auf Sprachmodelle zugeschnitten. Noch ungeprüft:
+      - Antwortformat und Preis
+      - ob der normale API-Key reicht
+
+      Passen würde es als weiteres `SearchBackend` neben Brave und Tavily. Offen ist auch, ob dafür der DeepSeek-Zugang eines Nutzers dienen soll. Die Sucheinstellungen gelten bisher serverweit und haben einen eigenen Key.
   - Ursprünglicher Plan:
   - **Hauptinhalt:** Mozilla Readability (`@mozilla/readability`) auf einem `linkedom`-DOM, danach turndown. Liefert Readability nichts Brauchbares (unter ~500 Zeichen oder `null`), wird die ganze Seite wie bisher umgewandelt. Defuddle ist die Alternative, falls Readability bei Dokumentationsseiten zu viel wegschneidet. Kein externer Dienst (Jina Reader o. Ä.), weil der jede abgerufene URL sähe.
   - **Websuche:** Werkzeug `web_search({ query })` in normalen Chats. Es liefert die ersten Treffer mit Titel, URL, Ausschnitt und Datum. Ob gesucht wird, entscheidet das Modell selbst über den Werkzeugaufruf, wie bei Perplexity. Der System-Prompt sagt: suchen, wenn Fakten unsicher, aktuell oder nach dem Wissensstand des Modells sind, und Quellen als Links nennen.
