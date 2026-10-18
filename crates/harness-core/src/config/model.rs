@@ -176,22 +176,26 @@ pub struct ProjectConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoteConfig {
-    /// Offered to web chats while `harness connect` runs.
-    #[serde(default)]
-    pub enabled: bool,
-    /// A chat needs a confirmation on this computer before its first use.
+    /// Offered to web chats of the account (through the background service).
     #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// A chat needs a confirmation on this computer before its first use;
+    /// only `harness connect` in a terminal can ask.
+    #[serde(default)]
     pub confirm: bool,
     /// Chats confirmed so far (conversation ids).
     #[serde(default)]
     pub chats: Vec<String>,
 }
 
+// Offered without confirmation by default: the user decided on 17.10. that
+// a project should be usable from the account's chats right after `harness
+// init`. The sandbox still applies; `harness project remote off` withdraws it.
 impl Default for RemoteConfig {
     fn default() -> Self {
         RemoteConfig {
-            enabled: false,
-            confirm: true,
+            enabled: true,
+            confirm: false,
             chats: Vec::new(),
         }
     }

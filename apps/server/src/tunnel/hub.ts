@@ -6,6 +6,7 @@ import {
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
+  type VmState,
 } from '@harness/shared';
 import { HttpError } from '../http/errors.ts';
 
@@ -24,8 +25,16 @@ export interface TunnelSocket {
 export interface DeviceStatus {
   /** Connected and greeted. */
   online: boolean;
-  /** Projects offered to web chats; empty while offline. */
+  /** Projects offered right now; empty while offline. */
   projects: RemoteProject[];
+  /** The device's VM while online. */
+  vm: VmState | null;
+}
+
+/** Hooks of the hub into the rest of the server. */
+export interface HubListener {
+  /** A device reported its projects; they are kept for while it is offline. */
+  projects?(deviceId: string, projects: RemoteProject[]): void | Promise<void>;
 }
 
 /** Callbacks for one socket, returned by {@link DeviceHub.attach}. */
@@ -123,6 +132,7 @@ interface Connection {
   userId: string;
   greeted: boolean;
   projects: RemoteProject[];
+  vm: VmState;
 }
 
 interface ActiveRun {
@@ -140,6 +150,11 @@ export class DeviceHub {
   readonly #runs = new Map<string, ActiveRun>();
 
   /**
+   * @param listener - Optional hooks, e.g. to store reported projects.
+   */
+  constructor(private readonly listener: HubListener = {}) {}
+
+  /**
    * Takes over a device's socket. A newer connection of the same device
    * replaces the older one.
    *
@@ -154,7 +169,7 @@ export class DeviceHub {
       this.#drop(deviceId, previous, 'device_replaced');
       previous.socket.close(CLOSE_REPLACED, 'replaced');
     }
-    const connection: Connection = { socket, userId, greeted: false, projects: [] };
+    const connection: Connection = { socket, userId, greeted: false, projects: [], vm: 'unknown' };
     this.#devices.set(deviceId, connection);
     this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION });
 
@@ -183,7 +198,9 @@ export class DeviceHub {
    */
   status(deviceId: string): DeviceStatus {
     const connection = this.#devices.get(deviceId);
-    return connection?.greeted ? { online: true, projects: connection.projects } : { online: false, projects: [] };
+    return connection?.greeted
+      ? { online: true, projects: connection.projects, vm: connection.vm }
+      : { online: false, projects: [], vm: null };
   }
 
   /**
@@ -192,17 +209,14 @@ export class DeviceHub {
    * @param deviceId - Device the session runs on.
    * @param prompt - The prompt.
    * @returns The run.
-   * @throws {HttpError} 409 if the device is offline, does not offer the
-   *   project, or the session is still answering.
+   * @throws {HttpError} 409 if the device is offline or the session is still
+   *   answering. Whether the project may run is the device's decision; it
+   *   refuses with a reason the chat shows.
    */
   startRun(deviceId: string, prompt: PromptMessage): AgentRun {
     const connection = this.#devices.get(deviceId);
     if (!connection?.greeted) {
       throw new HttpError(409, 'device_offline', 'The device is not connected');
-    }
-    const offered = connection.projects.find((project) => project.name === prompt.project);
-    if (!offered?.harnesses.includes(prompt.harness)) {
-      throw new HttpError(409, 'device_offline', 'The device does not offer this project or harness');
     }
     if (this.#runs.has(prompt.session)) {
       throw new HttpError(409, 'conflict', 'The agent is still answering');
@@ -273,9 +287,14 @@ export class DeviceHub {
         }
         connection.greeted = true;
         connection.projects = message.projects;
+        this.#store(deviceId, message.projects);
         return;
       case 'projects':
         connection.projects = message.projects;
+        this.#store(deviceId, message.projects);
+        return;
+      case 'status':
+        connection.vm = message.vm;
         return;
       case 'session.event': {
         // A device only reports on sessions the server opened with it.
@@ -302,6 +321,12 @@ export class DeviceHub {
         return;
       }
     }
+  }
+
+  #store(deviceId: string, projects: RemoteProject[]): void {
+    void Promise.resolve(this.listener.projects?.(deviceId, projects)).catch((error: unknown) => {
+      console.warn('[tunnel] storing projects failed:', error instanceof Error ? error.message : error);
+    });
   }
 
   #drop(deviceId: string, connection: Connection, reason: RunFailure): void {

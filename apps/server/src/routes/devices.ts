@@ -1,4 +1,10 @@
-import { type DeviceSelf, pairingDecisionSchema, pairingTokenSchema, startPairingSchema } from '@harness/shared';
+import {
+  type DeviceSelf,
+  deviceProjectsSchema,
+  pairingDecisionSchema,
+  pairingTokenSchema,
+  startPairingSchema,
+} from '@harness/shared';
 import { Hono } from 'hono';
 import { type AppDeps, type AppEnv, type DeviceEnv, requireDevice } from '../http/context.ts';
 import {
@@ -6,8 +12,10 @@ import {
   deleteDevice,
   deviceSummary,
   listDevices,
+  loadDeviceProjects,
   pairingInfo,
   pollPairing,
+  saveDeviceProjects,
   startPairing,
 } from '../services/devices.ts';
 
@@ -44,7 +52,16 @@ export function deviceRoutes(deps: AppDeps) {
   return new Hono<AppEnv>()
     .get('/', async (c) => {
       const devices = await listDevices(db, c.get('user').id);
-      return c.json(devices.map((device) => ({ ...device, ...deps.hub.status(device.id) })));
+      const projects = await loadDeviceProjects(
+        db,
+        devices.map((device) => device.id),
+      );
+      return c.json(
+        devices.map((device) => {
+          const live = deps.hub.status(device.id);
+          return { ...device, online: live.online, vm: live.vm, projects: projects.get(device.id) ?? [] };
+        }),
+      );
     })
     .delete('/:id', async (c) => {
       await deleteDevice(db, c.get('user').id, c.req.param('id'));
@@ -69,14 +86,23 @@ export function deviceSelfRoutes(deps: AppDeps) {
   const { db } = deps.database;
   return new Hono<DeviceEnv>()
     .use(requireDevice(db))
-    .get('/', (c) => {
+    .get('/', async (c) => {
       const owner = c.get('owner');
       const device = c.get('device');
+      const live = deps.hub.status(device.id);
+      const projects = (await loadDeviceProjects(db, [device.id])).get(device.id) ?? [];
       const body: DeviceSelf = {
-        device: { ...deviceSummary(device), ...deps.hub.status(device.id) },
+        device: { ...deviceSummary(device), online: live.online, vm: live.vm, projects },
         user: { email: owner.email, name: owner.name },
       };
       return c.json(body);
+    })
+    .put('/projects', async (c) => {
+      // `harness init` reports a new project right away, also when the
+      // background service is not connected.
+      const { projects } = deviceProjectsSchema.parse(await c.req.json());
+      await saveDeviceProjects(db, c.get('device').id, projects);
+      return c.body(null, 204);
     })
     .delete('/', async (c) => {
       // Logging out on the device revokes its token for good.

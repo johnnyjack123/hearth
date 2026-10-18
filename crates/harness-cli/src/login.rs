@@ -68,7 +68,37 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
         let _ = client.revoke(&old);
     }
     println!("Laufende Gateways übernehmen den Zugang mit `harness net start`.");
+    announce_projects(config);
+    // Web chats need this computer connected; the background service does
+    // that from now on, also after the next logon.
+    if crate::daemon::automatic() {
+        match crate::daemon::install(config) {
+            Ok(true) => println!(
+                "Hintergrunddienst läuft und startet bei jeder Anmeldung: Web-Chats deines Kontos \
+                 können die Projekte dieses Rechners nutzen (`harness daemon`)."
+            ),
+            Ok(false) => println!("Hintergrunddienst startet nicht, siehe `harness daemon`."),
+            Err(error) => println!("Hintergrunddienst nicht eingerichtet: {error:#}"),
+        }
+    }
     Ok(true)
+}
+
+/// Tells the server which projects this computer offers, so they appear in
+/// the account right away; problems are only a note.
+pub fn announce_projects(config: &ConfigDir) {
+    let paired = match paired(config) {
+        Ok(Some(paired)) => paired,
+        Ok(None) => return,
+        Err(error) => {
+            println!("Projekte nicht an den Server gemeldet: {error:#}");
+            return;
+        }
+    };
+    let (client, token) = paired;
+    if let Err(error) = client.set_projects(&token, &crate::connect::offered(config)) {
+        println!("Projekte nicht an den Server gemeldet: {error}");
+    }
 }
 
 /// Revokes this computer's token and forgets it.
@@ -78,6 +108,9 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
         println!("Nicht angemeldet.");
         return Ok(true);
     };
+    if crate::daemon::running(config) {
+        crate::daemon::stop(config);
+    }
     // Running gateways hold a copy of the token; only the server can make
     // it worthless right away.
     let mut revoked = true;

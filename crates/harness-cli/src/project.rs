@@ -44,6 +44,74 @@ pub fn add(config: &ConfigDir) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// `harness init`: makes the current folder a project (with a git
+/// repository, if it has none yet), offers it to the account's web chats
+/// and makes sure the background service runs.
+pub fn init(config: &ConfigDir) -> anyhow::Result<bool> {
+    let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
+    let repo = match find_repo_root(&cwd) {
+        Some(root) => root,
+        None => {
+            let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+            let question = format!(
+                "{} ist kein Git-Repository; der Agent tauscht Arbeit über Git aus. Jetzt eins \
+                 anlegen und alle Dateien als ersten Commit übernehmen?",
+                cwd.display()
+            );
+            if !interactive || !confirm(&question, true)? {
+                return Err(not_a_repository(&cwd));
+            }
+            init_repo(&cwd)?;
+            find_repo_root(&cwd).context("Repository nach git init nicht gefunden")?
+        }
+    };
+    for file in config.init()? {
+        println!("Angelegt: {}", file.display());
+    }
+    let project = match config.find_project(&repo)? {
+        Some(project) => {
+            println!("{} ist schon das Projekt {}.", repo.display(), project.name);
+            project
+        }
+        None => {
+            let project = config.create_project(&repo)?;
+            println!(
+                "Projekt {} angelegt (Netz: {}): {}",
+                project.name,
+                project.network,
+                project.file.display()
+            );
+            project
+        }
+    };
+    let remote = config.project_config(&project.name)?.remote;
+    let paired = crate::login::paired(config)?.is_some();
+    if !remote.enabled {
+        println!("Für Web-Chats nicht freigegeben (`harness project remote on` schaltet es ein).");
+    } else if !paired {
+        println!(
+            "Für Web-Chats bereit. Damit es in deinem Konto erscheint: `harness login <Server>`."
+        );
+    } else {
+        crate::login::announce_projects(config);
+        if crate::daemon::automatic() && !crate::daemon::running(config) {
+            let started = if crate::daemon::autostart().is_some() {
+                crate::daemon::start(config)?
+            } else {
+                crate::daemon::install(config)?
+            };
+            if !started {
+                println!("Hintergrunddienst startet nicht, siehe `harness daemon`.");
+            }
+        }
+        println!(
+            "{} steht in der Web-App zur Auswahl: im Chat unten auf „Umgebung“.",
+            project.name
+        );
+    }
+    Ok(true)
+}
+
 /// `harness project remote [on|off]`: offers the project of the current
 /// repository to web chats, or stops that.
 pub fn remote(
@@ -59,18 +127,21 @@ pub fn remote(
         );
     };
     let remote = if enabled.is_some() || confirm.is_some() {
-        config.set_remote(&project.name, enabled, confirm)?
+        let remote = config.set_remote(&project.name, enabled, confirm)?;
+        crate::login::announce_projects(config);
+        remote
     } else {
         config.project_config(&project.name)?.remote
     };
     if remote.enabled {
         println!(
-            "{} ist für Web-Chats freigegeben, solange `harness connect` läuft.",
+            "{} ist für die Web-Chats deines Kontos freigegeben (Hintergrunddienst: `harness daemon`).",
             project.name
         );
         if remote.confirm {
             println!(
-                "Neue Chats bestätigst du in dem Fenster mit `harness connect` ({} bisher bestätigt).",
+                "Neue Chats bestätigst du im Terminal mit `harness connect` ({} bisher bestätigt); \
+                 der Hintergrunddienst lehnt sie ab.",
                 remote.chats.len()
             );
         } else {

@@ -287,6 +287,24 @@ impl ServerClient {
         self.read(response)
     }
 
+    /// Tells the server which projects this computer offers to web chats,
+    /// so they show up in the account even while it is offline.
+    pub fn set_projects(
+        &self,
+        token: &str,
+        projects: &[crate::tunnel::RemoteProject],
+    ) -> Result<()> {
+        let response = self
+            .agent
+            .put(format!("{}/api/device/projects", self.url))
+            .header("authorization", format!("Bearer {token}"))
+            .send_json(serde_json::json!({ "projects": projects }));
+        match response {
+            Ok(response) if response.status().is_success() => Ok(()),
+            other => self.read::<serde_json::Value>(other).map(drop),
+        }
+    }
+
     /// Revokes the token on the server.
     pub fn revoke(&self, token: &str) -> Result<()> {
         let response = self

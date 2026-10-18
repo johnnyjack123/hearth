@@ -63,6 +63,15 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
+      type: z.literal('progress'),
+      id: partId,
+      label: text(200),
+      state: z.enum(['running', 'done', 'failed']),
+      detail: text(1_000).optional(),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('notice'),
       level: z.enum(['info', 'warning', 'error']),
       text: text(4_000),
@@ -93,6 +102,22 @@ export type AgentEvent = z.infer<typeof agentEventSchema>;
 
 const sessionId = z.string().min(1).max(100);
 
+/** State of a device's VM: it starts when an agent needs it. */
+export const VM_STATES = ['running', 'stopped', 'starting', 'unknown'] as const;
+
+/** See {@link VM_STATES}. */
+export type VmState = (typeof VM_STATES)[number];
+
+/**
+ * Validates the projects a device reports through the API (`harness init`),
+ * so they appear in the account even while it is offline.
+ */
+export const deviceProjectsSchema = z
+  .object({
+    projects: z.array(remoteProjectSchema).max(200),
+  })
+  .strict();
+
 /**
  * Messages a device sends through the tunnel. The server validates each one;
  * a device can only report on sessions the server opened with it.
@@ -106,6 +131,7 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('projects'), projects: z.array(remoteProjectSchema).max(200) }).strict(),
+  z.object({ type: z.literal('status'), vm: z.enum(VM_STATES) }).strict(),
   z.object({ type: z.literal('session.event'), session: sessionId, event: agentEventSchema }).strict(),
   z.object({ type: z.literal('session.closed'), session: sessionId, reason: text(1_000).optional() }).strict(),
 ]);
@@ -216,6 +242,8 @@ export type AgentDataParts = {
   notice: { level: 'info' | 'warning' | 'error'; text: string };
   /** A question of the project's gateway; updated in place when answered. */
   approval: { id: number; host: string; port: number; state: 'pending' | 'resolved' };
+  /** A step on the way to the answer; updated in place. */
+  progress: { id: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };
 };
 
 /**

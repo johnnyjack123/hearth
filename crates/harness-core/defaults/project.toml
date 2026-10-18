@@ -30,13 +30,13 @@ allow = []
 deny = []
 
 [remote]
-# Für Web-Chats freigeben: Solange `harness connect` läuft, können Chats in
-# der Web-App den Agent dieses Projekts steuern. Umschalten mit
-# `harness project remote on|off`.
-enabled = false
-# Einen neuen Chat erst hier am Rechner bestätigen. Ohne Bestätigung könnte
-# jeder, der dein Server-Konto nutzt, hier Agents starten.
-confirm = true
+# Für Web-Chats deines Kontos freigeben: Sie können den Agent dieses
+# Projekts in seiner Sandbox steuern, gestartet vom Hintergrunddienst
+# (harness daemon). Umschalten mit `harness project remote on|off`.
+enabled = true
+# Einen neuen Chat erst am Rechner bestätigen. Das geht nur, wenn
+# `harness connect` im Terminal läuft, nicht mit dem Hintergrunddienst.
+confirm = false
 # Bestätigte Chats; harness connect trägt sie ein.
 chats = []
 

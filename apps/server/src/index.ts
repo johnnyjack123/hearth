@@ -6,6 +6,7 @@ import { createSecretBox } from './crypto.ts';
 import { createDatabase, parseDatabaseUrl } from './db/index.ts';
 import { migrateToLatest } from './db/migrations.ts';
 import { createLlmGateway } from './llm.ts';
+import { saveDeviceProjects } from './services/devices.ts';
 import { DeviceHub } from './tunnel/hub.ts';
 import { attachTunnel } from './tunnel/socket.ts';
 
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
   await migrateAuth(config, database);
   await migrateToLatest(database.db);
   const auth = createAuth(config, database);
-  const hub = new DeviceHub();
+  const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
 
   const app = createApp(
     { config, database, auth, secretBox: createSecretBox(config.secret), llm: createLlmGateway(), hub },

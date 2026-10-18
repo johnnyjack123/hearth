@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { RemoteProject } from './agent.ts';
+import type { RemoteProject, VmState } from './agent.ts';
 import type { ModelInfo } from './api.ts';
 import type { ProviderKind } from './providers.ts';
 
@@ -16,10 +16,12 @@ export interface DeviceSummary {
   createdAt: number;
   /** Last LLM request, epoch milliseconds, or null if never used. */
   lastUsedAt: number | null;
-  /** Whether the device is connected right now (`harness connect`). */
+  /** Whether the device is connected right now (background service). */
   online: boolean;
-  /** Projects it offers to web chats while online. */
+  /** Projects it offers to web chats, also while offline. */
   projects: RemoteProject[];
+  /** Its VM while online, else null. */
+  vm: VmState | null;
 }
 
 /**

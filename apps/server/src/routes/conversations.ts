@@ -23,7 +23,7 @@ import {
   updateConversation,
 } from '../services/conversations.ts';
 import { findCredential, resolveCredential } from '../services/credentials.ts';
-import { findDevice } from '../services/devices.ts';
+import { findDevice, loadDeviceProjects } from '../services/devices.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -38,15 +38,20 @@ export function conversationRoutes(deps: AppDeps) {
   const { db } = deps.database;
   const { secretBox, llm, hub } = deps;
 
-  /** Rejects a link the device cannot serve right now. */
-  function assertOffered(deviceId: string, project: string, harness: string): void {
-    const status = hub.status(deviceId);
-    if (!status.online) {
-      throw new HttpError(409, 'device_offline', 'The device is not connected');
-    }
-    const offered = status.projects.find((candidate) => candidate.name === project);
+  /** Rejects a project the device does not offer (as far as it reported). */
+  async function assertOffered(deviceId: string, project: string, harness: string): Promise<void> {
+    // The live list counts too: the stored one follows a moment later.
+    const stored = (await loadDeviceProjects(db, [deviceId])).get(deviceId) ?? [];
+    const offered = [...hub.status(deviceId).projects, ...stored].find((candidate) => candidate.name === project);
     if (!offered?.harnesses.includes(harness)) {
       throw new HttpError(409, 'device_offline', 'The device does not offer this project or harness');
+    }
+  }
+
+  /** Rejects a message to a device that cannot answer now. */
+  function assertOnline(deviceId: string): void {
+    if (!hub.status(deviceId).online) {
+      throw new HttpError(409, 'device_offline', 'The device is not connected');
     }
   }
 
@@ -101,7 +106,7 @@ export function conversationRoutes(deps: AppDeps) {
       if (!(await findDevice(db, user.id, input.deviceId))) {
         throw notFound('Device');
       }
-      assertOffered(input.deviceId, input.project, input.harness);
+      await assertOffered(input.deviceId, input.project, input.harness);
       const old = conversation.link;
       if (old && (old.deviceId !== input.deviceId || old.project !== input.project || old.harness !== input.harness)) {
         hub.closeSession(old.deviceId, conversation.id);
@@ -151,7 +156,7 @@ export function conversationRoutes(deps: AppDeps) {
       if (link) {
         // Checked before anything is stored, so an offline device leaves no
         // unanswered message behind.
-        assertOffered(link.deviceId, link.project, link.harness);
+        assertOnline(link.deviceId);
       }
 
       // A known message id means "regenerate" or "edit": the old branch is replaced.

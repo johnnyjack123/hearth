@@ -95,6 +95,20 @@ export class ChunkMapper {
         return event.isError
           ? [{ type: 'tool-output-error', toolCallId: event.id, errorText: event.output || 'Error', dynamic: true }]
           : [{ type: 'tool-output-available', toolCallId: event.id, output: { text: event.output }, dynamic: true }];
+      case 'progress':
+        // Same id, so a finished step replaces the running one in place.
+        return [
+          {
+            type: 'data-progress',
+            id: `progress-${event.id}`,
+            data: {
+              id: event.id,
+              label: event.label,
+              state: event.state,
+              ...(event.detail === undefined ? {} : { detail: event.detail }),
+            },
+          },
+        ];
       case 'notice':
         return [{ type: 'data-notice', data: { level: event.level, text: event.text } }];
       case 'approval':

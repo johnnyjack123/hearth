@@ -136,6 +136,33 @@ function ToolText({ label, text }: { label: string; text: string }) {
 }
 
 /**
+ * A step on the way to an agent's answer (computer reached, VM, sandbox,
+ * agent thinking): a spinner while it runs, so a slow start never looks
+ * like silence.
+ *
+ * @param props - The step.
+ * @returns The step row.
+ */
+export function AgentProgress({ progress }: { progress: AgentDataParts['progress'] }) {
+  const t = useT();
+  return (
+    <div role="status" className="flex min-w-0 items-start gap-2 text-sm text-muted-foreground">
+      {progress.state === 'running' ? (
+        <Spinner className="mt-0.5 size-4 shrink-0" />
+      ) : progress.state === 'failed' ? (
+        <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" aria-label={t('agent.progressFailed')} />
+      ) : (
+        <Check className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      )}
+      <span className="min-w-0 break-words">
+        <span className={cn(progress.state === 'failed' && 'text-destructive')}>{progress.label}</span>
+        {progress.detail ? <span className="ms-2 text-xs">{progress.detail}</span> : null}
+      </span>
+    </div>
+  );
+}
+
+/**
  * A message of harness or the harness in an agent reply.
  *
  * @param props - The notice.

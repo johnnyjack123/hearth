@@ -12,6 +12,7 @@ import { createSecretBox } from '../src/crypto.ts';
 import { createDatabase, type Database, type DatabaseKind } from '../src/db/index.ts';
 import { migrateToLatest } from '../src/db/migrations.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
+import { saveDeviceProjects } from '../src/services/devices.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
 
 /**
@@ -159,7 +160,7 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
   const auth = createAuth(config, database);
 
   const llm = createMockLlm();
-  const hub = new DeviceHub();
+  const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
   const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

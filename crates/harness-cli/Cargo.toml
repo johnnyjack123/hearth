@@ -11,12 +11,18 @@ publish.workspace = true
 name = "harness"
 path = "src/main.rs"
 
+# Starts `harness daemon run` without a console window at logon.
+[[bin]]
+name = "harnessd"
+path = "src/harnessd.rs"
+
 [dependencies]
 harness-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true
+native-tls.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

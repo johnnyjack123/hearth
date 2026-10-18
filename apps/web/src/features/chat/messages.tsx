@@ -9,7 +9,7 @@ import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
-import { AgentNotice, ApprovalCard, ToolCall } from './agent-parts.tsx';
+import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -119,6 +119,9 @@ function AssistantMessage({
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;
+        }
+        if (part.type === 'data-progress') {
+          return <AgentProgress key={part.id ?? index} progress={part.data} />;
         }
         if (part.type === 'data-approval') {
           return <ApprovalCard key={part.id ?? index} approval={part.data} live={streaming} onDecide={onApprove} />;

@@ -4,7 +4,6 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::io::IsTerminal as _;
-use std::time::Instant;
 
 use anyhow::bail;
 use harness_core::briefing::briefing;
@@ -18,6 +17,7 @@ use harness_core::sync::{
     self, HostRepo, ImportOutcome, MergeOutcome, PullOutcome, WORKSPACE, WorkspaceState, sanitize,
 };
 
+use crate::progress::{Progress, Terminal, step};
 use crate::terminal::{self, Approvals};
 use crate::{login, project};
 
@@ -34,19 +34,6 @@ impl Prepared {
     }
 }
 
-/// Prints `label …` and finishes the line with the duration once `work` is done.
-fn step<T>(label: &str, work: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
-    print!("{label} … ");
-    let _ = std::io::Write::flush(&mut std::io::stdout());
-    let started = Instant::now();
-    let result = work();
-    match &result {
-        Ok(_) => println!("✓ ({:.1} s)", started.elapsed().as_secs_f32()),
-        Err(_) => println!("✗"),
-    }
-    result
-}
-
 /// Starts gateway and instance and brings the repository into the container.
 ///
 /// The instance always mounts the volumes of the project's default harness
@@ -54,34 +41,42 @@ fn step<T>(label: &str, work: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Res
 /// would recreate the container under it.
 fn prepare(config: &ConfigDir, machine: &str, extra: Option<&str>) -> anyhow::Result<Prepared> {
     let project = project::resolve_or_offer(config)?;
-    prepare_project(config, machine, project, extra)
+    prepare_project(config, machine, project, extra, &Terminal::default())
 }
 
-/// [`prepare`] for a given project (`harness connect` gets it by name).
+/// [`prepare`] for a given project (`harness connect` gets it by name),
+/// reporting its steps to `progress`.
 pub(crate) fn prepare_project(
     config: &ConfigDir,
     machine: &str,
     project: Project,
     extra: Option<&str>,
+    progress: &dyn Progress,
 ) -> anyhow::Result<Prepared> {
     let mut harnesses = vec![config.harness(&project.harness)?];
     if let Some(name) = extra.filter(|name| *name != project.harness) {
         harnesses.push(config.harness(name)?);
     }
-    let provider = crate::vm::provider(machine)?;
+    let provider = crate::vm::provider_with(machine, progress)?;
     let (llm, _) = login::gateway_llm(config, &provider)?;
-    step(&format!("Gateway {}", project.name.gateway()), || {
-        Ok(gateway::ensure_running(&provider, &project, llm.as_ref())?)
-    })?;
+    step(
+        progress,
+        "gateway",
+        &format!("Gateway {}", project.name.gateway()),
+        || Ok(gateway::ensure_running(&provider, &project, llm.as_ref())?),
+    )?;
     let refs: Vec<&HarnessConfig> = harnesses.iter().collect();
-    let created = step(&format!("Instanz {}", project.name.instance()), || {
-        Ok(instance::ensure_running(&provider, &project, &refs)?)
-    })?;
+    let created = step(
+        progress,
+        "instance",
+        &format!("Instanz {}", project.name.instance()),
+        || Ok(instance::ensure_running(&provider, &project, &refs)?),
+    )?;
     if created {
         println!("  (neu angelegt; Arbeitskopie und Home liegen in Volumes und bleiben erhalten)");
     }
     let repo = HostRepo::open(&project.path)?;
-    let state = step("Arbeitskopie", || {
+    let state = step(progress, "workspace", "Arbeitskopie", || {
         Ok(sync::push_to_workspace(
             &provider,
             &project.name.instance(),
@@ -169,7 +164,14 @@ pub fn run(
         .find(|h| name.is_none_or(|n| h.name == n))
         .expect("prepare loads the requested harness");
 
-    let mut command = ready_harness(config, &prepared, harness, harness.command.clone())?.command;
+    let mut command = ready_harness(
+        config,
+        &prepared,
+        harness,
+        harness.command.clone(),
+        &Terminal::default(),
+    )?
+    .command;
     command.extend(args);
     let code = attach(config, &prepared, command, &harness.env, false)?;
     println!();
@@ -195,12 +197,23 @@ pub(crate) fn ready_harness(
     prepared: &Prepared,
     harness: &HarnessConfig,
     base: Vec<String>,
+    progress: &dyn Progress,
 ) -> anyhow::Result<ReadyHarness> {
     let installed =
         instance::harness_installed(&prepared.provider, &prepared.project.name, harness)?;
     if !installed {
-        println!("Installiere {} in das Tools-Volume …", harness.name);
-        instance::install_harness(&prepared.provider, &prepared.project, harness)?;
+        step(
+            progress,
+            "install",
+            &format!("{} installieren (einmalig)", harness.name),
+            || {
+                Ok(instance::install_harness(
+                    &prepared.provider,
+                    &prepared.project,
+                    harness,
+                )?)
+            },
+        )?;
     }
     let models = if harness.llm == Some(LlmWiring::Pi) {
         wire_pi(config, prepared)?

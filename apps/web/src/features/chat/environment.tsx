@@ -38,11 +38,18 @@ function storeConversation(summary: ConversationSummary): void {
  * @returns True, false, or undefined while unknown.
  */
 export function useLinkOnline(link: ChatLink | null): boolean | undefined {
+  return useLinkDevice(link)?.online;
+}
+
+/**
+ * The device of a linked chat, refreshed while the chat is open.
+ *
+ * @param link - The chat's link, if any.
+ * @returns The device, or undefined while unknown.
+ */
+export function useLinkDevice(link: ChatLink | null): DeviceSummary | undefined {
   const devices = useLiveDevices(link !== null);
-  if (!link) {
-    return undefined;
-  }
-  return devices.data?.find((device) => device.id === link.deviceId)?.online;
+  return link ? devices.data?.find((device) => device.id === link.deviceId) : undefined;
 }
 
 /**
@@ -58,6 +65,7 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
   const [menuOpen, setMenuOpen] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const { link } = conversation;
+  const device = useLinkDevice(link);
 
   async function unlink() {
     setUnlinking(true);
@@ -112,6 +120,7 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
               </span>
               <span className="break-words text-xs text-muted-foreground">{t('agent.onDevice', { device: link.deviceName })}</span>
               <OnlineBadge online={online} />
+              {online ? <VmLine vm={device?.vm ?? null} /> : null}
               {online === false ? <span className="text-xs text-muted-foreground">{t('agent.offlineHint')}</span> : null}
             </div>
           </div>
@@ -165,6 +174,11 @@ function OnlineBadge({ online }: { online: boolean | undefined }) {
       {online ? t('agent.online') : t('agent.offline')}
     </Badge>
   );
+}
+
+function VmLine({ vm }: { vm: DeviceSummary['vm'] }) {
+  const t = useT();
+  return vm ? <span className="text-xs text-muted-foreground">{t(`agent.vm.${vm}`)}</span> : null;
 }
 
 function sameChoice(a: LinkConversationInput | null, b: LinkConversationInput | null): boolean {
@@ -275,9 +289,10 @@ function DeviceChoices({
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{device.name}</span>
         <OnlineBadge online={device.online} />
       </div>
-      {!device.online ? (
-        <p className="ps-6 text-sm text-muted-foreground">{t('agent.deviceOffline')}</p>
-      ) : options.length === 0 ? (
+      <div className="flex flex-col gap-0.5 ps-6">
+        {device.online ? <VmLine vm={device.vm} /> : <span className="text-xs text-muted-foreground">{t('agent.deviceOffline')}</span>}
+      </div>
+      {options.length === 0 ? (
         <p className="ps-6 text-sm text-muted-foreground">{t('agent.noProjects')}</p>
       ) : (
         <div className="flex flex-col gap-1 ps-6">

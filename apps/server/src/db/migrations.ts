@@ -131,6 +131,22 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('chatLink').execute();
     },
   },
+  // Projects a device offers, kept while it is offline.
+  '0004_device_projects': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('deviceProject')
+        .addColumn('deviceId', 'text', (col) => col.notNull().references('device.id').onDelete('cascade'))
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('harnesses', 'text', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('deviceProject_pk', ['deviceId', 'name'])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('deviceProject').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code
