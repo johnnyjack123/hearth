@@ -201,6 +201,7 @@ export function conversationRoutes(deps: AppDeps) {
         model,
         modelId: body.modelId,
         credentialId: row.id,
+        pricing: await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId),
         abortSignal: c.req.raw.signal,
       });
     });

@@ -13,6 +13,7 @@ import { api } from '@/lib/api.ts';
 import { useConversation } from '@/lib/queries.ts';
 import { getChat } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
+import { ContextMeter } from './context-meter.tsx';
 import { EnvironmentButton, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
@@ -135,6 +136,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
             placeholder={link ? t('agent.placeholder', { harness: link.harness, project: link.project }) : undefined}
+            status={<ContextMeter messages={messages} />}
             toolbar={
               <>
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />

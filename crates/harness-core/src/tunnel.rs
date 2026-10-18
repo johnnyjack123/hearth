@@ -195,12 +195,21 @@ pub enum AgentEvent {
     /// Tokens of one model call.
     #[serde(rename = "usage")]
     Usage {
-        /// Input tokens.
+        /// Input tokens, cached ones included.
         #[serde(rename = "inputTokens")]
         input_tokens: u64,
         /// Output tokens.
         #[serde(rename = "outputTokens")]
         output_tokens: u64,
+        /// Input tokens read from the provider's cache.
+        #[serde(rename = "cachedInputTokens", skip_serializing_if = "Option::is_none")]
+        cached_input_tokens: Option<u64>,
+        /// Cost in US dollars, as the harness computes it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cost: Option<f64>,
+        /// Context window of the model, if known.
+        #[serde(rename = "contextWindow", skip_serializing_if = "Option::is_none")]
+        context_window: Option<u64>,
     },
     /// The reply failed; ends it.
     #[serde(rename = "error")]
@@ -404,10 +413,13 @@ mod tests {
         let usage = AgentEvent::Usage {
             input_tokens: 1,
             output_tokens: 2,
+            cached_input_tokens: None,
+            cost: Some(0.5),
+            context_window: Some(1000),
         };
         assert_eq!(
             serde_json::to_value(&usage).unwrap(),
-            json!({ "type": "usage", "inputTokens": 1, "outputTokens": 2 })
+            json!({ "type": "usage", "inputTokens": 1, "outputTokens": 2, "cost": 0.5, "contextWindow": 1000 })
         );
         let closed = DeviceMessage::SessionClosed {
             session: "s".into(),

@@ -24,6 +24,8 @@ export interface ComposerProps {
   blockedReason?: string | null;
   /** Controls rendered in the bottom-left corner, e.g. the model picker. */
   toolbar?: ReactNode;
+  /** Status shown next to the send button, e.g. the context meter. */
+  status?: ReactNode;
   /** Focus the input on mount. */
   autoFocus?: boolean;
   /** Placeholder instead of the default one, e.g. for a linked agent. */
@@ -45,6 +47,7 @@ export function Composer({
   busy = false,
   blockedReason,
   toolbar,
+  status,
   autoFocus,
   placeholder,
 }: ComposerProps) {
@@ -116,6 +119,7 @@ export function Composer({
       />
       <div className="flex items-center gap-2 px-2 pb-2">
         <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
+        {status}
         {busy ? (
           <Button type="button" variant="secondary" size="icon-sm" className="rounded-full" aria-label={t('chat.stop')} onClick={onStop}>
             <Square className="size-3.5 fill-current" />

@@ -75,8 +75,8 @@ describe('ChunkMapper', () => {
       { type: 'tool.start', id: 'c1', name: 'bash', input: { command: 'ls' } },
       { type: 'tool.update', id: 'c1', output: 'a' },
       { type: 'tool.end', id: 'c1', output: 'a\nb', isError: false },
-      { type: 'usage', inputTokens: 10, outputTokens: 2 },
-      { type: 'usage', inputTokens: 5, outputTokens: 1 },
+      { type: 'usage', inputTokens: 10, outputTokens: 2, cost: 0.01, contextWindow: 1000 },
+      { type: 'usage', inputTokens: 5, outputTokens: 1, cost: 0.02, cachedInputTokens: 4 },
       { type: 'approval', id: 3, host: 'example.com', port: 443, state: 'pending' },
       { type: 'progress', id: 'vm', label: 'VM starten', state: 'done', detail: '21.0 s' },
       { type: 'turn.end' },
@@ -100,7 +100,15 @@ describe('ChunkMapper', () => {
     });
     expect(chunks[5]).toMatchObject({ preliminary: true, output: { text: 'a' } });
     expect(chunks[7]).toMatchObject({ id: 'approval-3', data: { host: 'example.com', state: 'pending' } });
-    expect(mapper.usage).toEqual({ inputTokens: 15, outputTokens: 3 });
+    // Tokens and cost add up; the context is what the last call saw.
+    expect(mapper.usage).toEqual({
+      inputTokens: 15,
+      outputTokens: 3,
+      cachedInputTokens: 4,
+      contextTokens: 6,
+      contextWindow: 1000,
+      cost: 0.03,
+    });
   });
 
   it('drops output for unknown tool calls and closes calls left open', () => {

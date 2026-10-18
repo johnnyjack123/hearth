@@ -184,10 +184,18 @@ export interface MessageMetadata {
   };
   /** Token usage reported by the provider, if any. */
   usage?: {
-    /** Prompt tokens. */
+    /** Prompt tokens, summed over all model calls of the reply. */
     inputTokens?: number;
-    /** Completion tokens. */
+    /** Completion tokens, summed over all model calls of the reply. */
     outputTokens?: number;
+    /** Part of the prompt tokens read from the provider's cache. */
+    cachedInputTokens?: number;
+    /** Size of the conversation after the reply: what the next message starts from. */
+    contextTokens?: number;
+    /** Context window of the model, if known. */
+    contextWindow?: number;
+    /** Cost of the reply in US dollars, if the model's prices are known. */
+    cost?: number;
   };
 }
 

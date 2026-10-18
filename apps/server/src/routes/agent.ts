@@ -42,10 +42,13 @@ export function transcript(messages: ChatMessage[]): string | null {
  */
 export class ChunkMapper {
   readonly #tools = new Set<string>();
-  #usage: { inputTokens: number; outputTokens: number } | undefined;
+  #usage: NonNullable<MessageMetadata['usage']> | undefined;
 
-  /** Token usage reported so far, summed over the agent's model calls. */
-  get usage(): { inputTokens: number; outputTokens: number } | undefined {
+  /**
+   * Usage reported so far: tokens and cost summed over the agent's model
+   * calls, the context as after the last one.
+   */
+  get usage(): NonNullable<MessageMetadata['usage']> | undefined {
     return this.#usage;
   }
 
@@ -120,12 +123,27 @@ export class ChunkMapper {
             data: { id: event.id, host: event.host, port: event.port, state: event.state },
           },
         ];
-      case 'usage':
-        this.#usage = {
-          inputTokens: (this.#usage?.inputTokens ?? 0) + event.inputTokens,
-          outputTokens: (this.#usage?.outputTokens ?? 0) + event.outputTokens,
+      case 'usage': {
+        const before = this.#usage;
+        const next: NonNullable<MessageMetadata['usage']> = {
+          inputTokens: (before?.inputTokens ?? 0) + event.inputTokens,
+          outputTokens: (before?.outputTokens ?? 0) + event.outputTokens,
+          contextTokens: event.inputTokens + event.outputTokens,
         };
+        const cached = (before?.cachedInputTokens ?? 0) + (event.cachedInputTokens ?? 0);
+        if (cached > 0) {
+          next.cachedInputTokens = cached;
+        }
+        const window = event.contextWindow ?? before?.contextWindow;
+        if (window !== undefined) {
+          next.contextWindow = window;
+        }
+        if (event.cost !== undefined || before?.cost !== undefined) {
+          next.cost = (before?.cost ?? 0) + (event.cost ?? 0);
+        }
+        this.#usage = next;
         return [];
+      }
       case 'error':
         return [{ type: 'error', errorText: event.message }];
       case 'done':

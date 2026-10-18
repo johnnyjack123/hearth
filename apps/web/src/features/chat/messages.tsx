@@ -7,9 +7,10 @@ import { Tooltip } from '@/components/ui/menu.tsx';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
-import { useT } from '@/lib/preferences.tsx';
+import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
+import { formatCost } from './context-meter.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -184,7 +185,7 @@ function MessageActions({
   canRegenerate: boolean;
   onRegenerate: () => void;
 }) {
-  const t = useT();
+  const { t, locale } = usePreferences();
   const [copied, setCopied] = useState(false);
   const usage = message.metadata?.usage;
 
@@ -220,6 +221,7 @@ function MessageActions({
           {usage?.inputTokens !== undefined && usage.outputTokens !== undefined
             ? ` · ${t('chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}`
             : null}
+          {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
         </span>
       ) : null}
     </div>
