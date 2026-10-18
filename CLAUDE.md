@@ -35,9 +35,15 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
   - Nachrichten gehen dann an pi im RPC-Modus in der Instanz. Im Chat erscheinen jeder Vorbereitungsschritt, Werkzeugaufrufe, Rückfragen des Gateways sowie Kontext und Kosten.
   - Siehe Stolpersteine „Web-Chat ↔ Gerät“ und „Hintergrunddienst“.
 - **Web-Fetch in normalen Chats, 18.10.:** Ohne Umgebung lädt das Modell Seiten über das Werkzeug `web_fetch` direkt im Server. Nur öffentliche Adressen; Hosts, die der Nutzer nicht selbst genannt hat, braucht eine Freigabe im Chat. Admin-Schalter „Webseiten laden“.
+- **Block „Recherche“, 18.10.:**
+  - Prompt-Injection-Funde mit Fundstelle und einem Satz, warum das gefährlich ist (Web und pi)
+  - nur der Hauptinhalt von Seiten (Readability)
+  - Websuche `web_search` mit Recherche-Schalter im Composer (SearXNG im Compose-Profil `search`, wahlweise Brave oder Tavily)
+
+  Der echte Suchlauf steht noch aus; der Nutzer testet auf dem Pi.
 - **TLS im Gateway, 17.10.:** `llm.harness` geht auch an einen `https://`-Server (rustls im Gateway, Feature `tls`). Server mit eigener CA über `[server] ca` in `config.toml`, Anleitung mit Caddy in `docs/deploy.md`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
-- Nächstes: siehe PROGRESS.md „Next step“ (Test des Nutzers, dann Block „Recherche“: Fundstellen von Prompt-Injection mit Erklärung, Hauptinhalt per Readability, Websuche mit Recherche-Schalter; danach Jev und Stopp der VM im Leerlauf).
+- Nächstes: siehe PROGRESS.md „Next step“ (Test des Nutzers mit Websuche auf dem Pi, dann Zweitmeinung zu Warnungen und Stopp der VM im Leerlauf).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -263,6 +269,17 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - HTML → Markdown mit turndown 7.2 (reines JS). Skripte und Styles werden vorher per Regex entfernt, damit die Umwandlung auf dem Raspberry Pi schnell bleibt. Tabellen werden Markdown-Tabellen (eigene Regeln in `convert.ts`, kein GFM-Plugin).
 - **Hauptinhalt:** `@mozilla/readability` auf einem `linkedom`-DOM, danach turndown (`pageToMarkdown`). Rückfall auf die ganze Seite, wenn Readability weniger als 500 Zeichen **oder weniger als 20 % des Seitentexts** liefert. Den Anteil braucht es für Startseiten: Bei heise und SPIEGEL griff Readability einen Werbekasten (Anteil 0,12 bzw. 0,07), Artikel und Doku lagen bei 0,27–0,96 (gemessen am 18.10.). Klassen wie `promo`, `sidebar`, `comment` wirft Readability vorab weg; Fixtures in `test/fixtures/webfetch/` deshalb mit neutralen Klassen bauen, wenn sie solche Fälle nachstellen. Das Modell kann mit `fullPage: true` die ganze Seite holen. Seiten von 1–2 MB brauchen hier ~1 s, auf dem Pi vermutlich mehr.
 - Offen: Ein gekapertes Modell könnte Markdown-Bilder mit Daten in der URL schreiben. In Produktion blockt die CSP (`img-src 'self' data: blob:`), der Vite-Dev-Server sendet keine CSP.
+
+### Websuche und Recherche-Modus (`apps/server/src/websearch/`, Composer `research-toggle.tsx`)
+
+- **Anbieter** hinter `SearchBackend` (`providers.ts`): SearXNG (`/search?format=json`), Brave, Tavily. Treffer werden vereinheitlicht: nur http(s), jede URL einmal, Titel und Ausschnitt als Text ohne Tags, begrenzt. Fehler sind `WebSearchError` mit Code wie bei Web-Fetch (`[rejected:403] …`), die Web-App übersetzt sie (`webSearch.errors`).
+- **Die SearXNG-Adresse darf privat sein** (Compose-Dienst `http://searxng:8080`), sie kommt vom Admin. Die Suche läuft deshalb nicht über den Adressfilter von Web-Fetch, die gefundenen Seiten dagegen immer.
+- **Keys** liegen in der Tabelle `setting` unter `searchKey.<anbieter>`, verschlüsselt mit der `SecretBox` (Kontext `setting:searchKey.<anbieter>`). `ServerSettings.search.keys` enthält nur Hinweise (`…abcd`). `PublicSettings.webSearch` sagt der Web-App, ob es den Schalter gibt.
+- **Recherche-Modus:** `research` im Chat-Request; der Server speichert es in `metadata.research` der Nutzernachricht, so öffnet der Chat mit dem Schalter wie zuletzt. Nur dann gibt es `web_search` und `researchInstructions` (mit Datum, bis zu 12 Schritte).
+- **`KnownUrls`** (`known-urls.ts`): Exakte URLs aus Suchtreffern und Links geladener Seiten laden ohne Rückfrage, auch ihre Weiterleitungen. Hosts gelten nie als bekannt: `…/a?b=1` ist frei, `…/a?b=1&x=geheim` fragt. Links nur aus dem Text, den das Modell bekam (nach `truncate`). Die Quellen sind Suchtreffer und alle gespeicherten Werkzeugteile des Chats.
+- Fehlt ein Werkzeug im Request (Recherche aus, Web-Fetch aus), werden alte Aufrufe zu Text (`serverToolsAsText`), sonst lehnen Anbieter die Historie ab.
+- **Tests:** `websearch.test.ts` mit Stand-ins für alle drei Anbieter und einem Modell nach Drehbuch (`createScriptedLlm`). Im Browser-E2E spielt `mock-llm.mjs` SearXNG und recherchiert bei „Recherchiere“.
+- **Compose:** Profil `search`, die SearXNG-Konfiguration steht inline unter `configs.content` (Compose ≥ 2.23). `docker compose --profile search config` prüft die Datei lokal; die Docker-CLI ist installiert, die Engine läuft nicht.
 
 ### Hintergrunddienst (`harness-cli/src/daemon.rs`, `harnessd.rs`, `connect.rs`)
 

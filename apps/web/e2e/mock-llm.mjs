@@ -2,6 +2,9 @@
 // streams a fixed Markdown reply and answers title requests non-streamed.
 // Asked about the "Testseite", it calls the server's web_fetch tool for
 // /testseite (served here too) and answers from what the tool returned.
+// It also stands in for SearXNG (/search?format=json); asked to
+// "Recherchiere" in research mode, it searches, reads the first hit and
+// answers.
 import http from 'node:http';
 
 const PORT = Number(process.env.MOCK_PORT ?? 8091);
@@ -24,8 +27,49 @@ let requestCount = 0;
 const textOf = (content) =>
   typeof content === 'string' ? content : Array.isArray(content) ? content.map((part) => part.text ?? '').join('') : '';
 
+// What SearXNG answers for /search?format=json: the test page and a second hit.
+const searchResults = () => ({
+  query: 'Kaffee rösten',
+  results: [
+    {
+      title: 'Kaffee-Testseite',
+      url: `http://127.0.0.1:${PORT}/testseite`,
+      content: 'Kaffeebohnen werden bei etwa 200 °C geröstet.',
+      publishedDate: '2026-10-01',
+    },
+    { title: 'Röstgrade im Überblick', url: 'https://example.com/roestgrade', content: 'Hell, mittel, dunkel.' },
+  ],
+});
+
+/**
+ * Research mode: search, read the first hit, answer. Counted by the tool
+ * results since the user's message.
+ */
+function researchStep(payload) {
+  if (!payload.tools?.some((tool) => tool.function?.name === 'web_search')) {
+    return null;
+  }
+  const messages = payload.messages ?? [];
+  const lastUser = messages.map((message) => message.role).lastIndexOf('user');
+  if (!textOf(messages[lastUser]?.content).includes('Recherchiere')) {
+    return null;
+  }
+  const done = messages.slice(lastUser).filter((message) => message.role === 'tool');
+  if (done.length === 0) {
+    return { call: { name: 'web_search', input: { query: 'Kaffee rösten' } } };
+  }
+  if (done.length === 1) {
+    return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/testseite` } } };
+  }
+  return { text: 'Laut der Recherche röstet man Kaffee bei etwa 200 °C ([Kaffee-Testseite](http://127.0.0.1:8091/testseite)).' };
+}
+
 /** The reply of a tool-using model, or null to answer as usual. */
 function webFetchStep(payload) {
+  const research = researchStep(payload);
+  if (research) {
+    return research;
+  }
   if (!payload.tools?.some((tool) => tool.function?.name === 'web_fetch')) {
     return null;
   }
@@ -39,7 +83,7 @@ function webFetchStep(payload) {
     return { text: 'Die Testseite konnte ich nicht lesen.' };
   }
   if (last?.role === 'user' && textOf(last.content).includes('Testseite')) {
-    return { call: { url: `http://127.0.0.1:${PORT}/testseite` } };
+    return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/testseite` } } };
   }
   return null;
 }
@@ -62,6 +106,12 @@ http
       if (req.method === 'GET' && req.url.endsWith('/models')) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ object: 'list', data: [{ id: 'mock-model', object: 'model' }] }));
+        return;
+      }
+      if (req.method === 'GET' && req.url.startsWith('/search?') && req.url.includes('format=json')) {
+        console.log('[mock] search');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(searchResults()));
         return;
       }
       if (req.method === 'GET' && req.url === '/testseite') {
@@ -91,9 +141,9 @@ http
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const step = webFetchStep(payload);
         if (step?.call) {
-          const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: 'web_fetch', arguments: '' } };
+          const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));
-          res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(step.call) } }] }));
+          res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(step.call.input) } }] }));
           res.write(chunk({}, 'tool_calls', { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 }));
           res.end('data: [DONE]\n\n');
           return;

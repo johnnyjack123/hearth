@@ -12,11 +12,12 @@ import type { MessageKey } from '@/i18n/index.ts';
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { durations, riseIn, transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
-import { queryKeys, useProviders, useSession } from '@/lib/queries.ts';
+import { queryKeys, useProviders, usePublicSettings, useSession } from '@/lib/queries.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
 import { getChat } from './chat-store.ts';
+import { ResearchToggle } from './research-toggle.tsx';
 
 const SUGGESTIONS: { icon: typeof Lightbulb; title: MessageKey; prompt: MessageKey }[] = [
   { icon: Lightbulb, title: 'chat.suggestions.explainTitle', prompt: 'chat.suggestions.explainPrompt' },
@@ -40,6 +41,8 @@ export function NewChatPage() {
   const { selection, select, models } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
+  const [research, setResearch] = useState(false);
+  const { data: publicSettings } = usePublicSettings();
 
   async function submit(text: string) {
     if (!selection) {
@@ -54,7 +57,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection).chat.sendMessage({ text });
+      void getChat(conversation.id, [], selection, research).chat.sendMessage({ text });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -125,7 +128,12 @@ export function NewChatPage() {
                 onSubmit={(text) => void submit(text)}
                 blockedReason={creating ? t('common.loading') : selection ? null : t('chat.modelRequired')}
                 autoFocus
-                toolbar={<ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />}
+                toolbar={
+                  <>
+                    <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
+                    {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
+                  </>
+                }
               />
               <ComposerHint />
             </div>

@@ -195,6 +195,46 @@ try {
     await shot('25-admin-web-fetch');
   });
 
+  let researchPath = '';
+  await step('research mode searches and reads found pages without asking', async () => {
+    // The admin sets up SearXNG; the mock LLM stands in for it.
+    await page.waitForSelector(text('Suchanbieter'), { timeout: 10_000 });
+    if (await page.$('[aria-label="Recherche"]')) {
+      throw new Error('research switch shown without a search provider');
+    }
+    await page.click(`[aria-label="Suchanbieter"] ${text('SearXNG')}`);
+    await page.type('input[type=url]', 'http://127.0.0.1:8091');
+    await page.click(text('Websuche speichern'));
+    await page.waitForSelector(text('Einstellung gespeichert'), { timeout: 5_000 });
+    await page.click(text('Suche testen'));
+    await page.waitForSelector(text('Die Suche funktioniert: 2 Treffer.'), { timeout: 10_000 });
+    await shot('26-admin-web-search');
+
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('mock-model'), { timeout: 10_000 });
+    await page.click('[aria-label="Recherche"]');
+    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]');
+    await page.type('textarea', 'Recherchiere, wie man Kaffee röstet');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    researchPath = new URL(page.url()).pathname;
+    await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 20_000 });
+    // The found page loaded without a question.
+    if (await page.$(text('Das Modell möchte eine Seite'))) {
+      throw new Error('a found page asked for approval');
+    }
+    await page.waitForSelector(text('Websuche: „Kaffee rösten“'));
+    await page.waitForSelector(`section[aria-label="Quellen"] ${text('Kaffee-Testseite')}`, { timeout: 5_000 });
+    await page.click('[aria-label="Treffer zeigen"]');
+    await page.waitForSelector(text('Röstgrade im Überblick'), { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('27-research-reply');
+
+    // The chat opens with the switch as last used.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };
@@ -403,6 +443,11 @@ try {
     await page.$eval(text('Fundstellen verbergen'), (element) => element.closest('[role=note]').scrollIntoView({ block: 'start' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('24-web-fetch-mobile-light');
+    await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'));
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('28-research-mobile-light');
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await shot('11-home-mobile-light');
   });

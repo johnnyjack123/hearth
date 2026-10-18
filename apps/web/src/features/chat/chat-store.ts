@@ -13,6 +13,8 @@ export interface ChatEntry {
   chat: Chat<ChatMessage>;
   /** Read at request time, so model changes apply to the next message. */
   selection: { current: ModelSelection | null };
+  /** Research mode of the next request, read at request time like the model. */
+  research: { current: boolean };
 }
 
 // Chats live outside React on purpose. If useChat owned them, it would stop
@@ -31,12 +33,15 @@ function refreshConversationList(): void {
  * @param conversationId - Conversation id; also the chat id.
  * @param initialMessages - Stored messages, used only when the session is created.
  * @param initialSelection - Model for the first request, used only when the session is created.
+ * @param initialResearch - Research mode for the first request; by default as
+ *   in the newest user message.
  * @returns The session entry.
  */
 export function getChat(
   conversationId: string,
   initialMessages: ChatMessage[],
   initialSelection: ModelSelection | null,
+  initialResearch = lastResearch(initialMessages),
 ): ChatEntry {
   const existing = entries.get(conversationId);
   if (existing) {
@@ -44,6 +49,7 @@ export function getChat(
   }
 
   const selection = { current: initialSelection };
+  const research = { current: initialResearch };
   const chat: Chat<ChatMessage> = new Chat<ChatMessage>({
     id: conversationId,
     messages: initialMessages,
@@ -55,6 +61,7 @@ export function getChat(
           message: messages.at(-1),
           credentialId: selection.current?.credentialId,
           modelId: selection.current?.modelId,
+          research: research.current,
         },
       }),
     }),
@@ -68,9 +75,20 @@ export function getChat(
     },
   });
 
-  const entry = { chat, selection };
+  const entry = { chat, selection, research };
   entries.set(conversationId, entry);
   return entry;
+}
+
+/**
+ * Whether the newest user message was sent in research mode; the server
+ * stores the flag with the message.
+ *
+ * @param messages - Stored messages.
+ * @returns True if research mode was on.
+ */
+export function lastResearch(messages: ChatMessage[]): boolean {
+  return messages.findLast((message) => message.role === 'user')?.metadata?.research === true;
 }
 
 /**

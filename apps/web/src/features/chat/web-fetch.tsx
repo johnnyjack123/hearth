@@ -1,15 +1,8 @@
-import {
-  type InjectionFinding,
-  parseWebFetchError,
-  WEB_FETCH_WARNINGS,
-  type WebFetchOutput,
-  type WebFetchWarning,
-} from '@harness/shared';
+import { parseWebFetchError, type WebFetchOutput } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
-import { Check, ChevronRight, CircleAlert, Globe, Info, TriangleAlert } from 'lucide-react';
+import { Check, ChevronRight, CircleAlert, Globe, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useState } from 'react';
-import { Button } from '@/components/ui/button.tsx';
 import { Badge } from '@/components/ui/display.tsx';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import type { TranslateFn } from '@/i18n/index.ts';
@@ -17,23 +10,7 @@ import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { ToolText } from './agent-parts.tsx';
-import { InjectionFindings } from './injection-findings.tsx';
-
-function isWarning(value: unknown): value is WebFetchWarning {
-  return WEB_FETCH_WARNINGS.includes(value as WebFetchWarning);
-}
-
-function isFinding(value: unknown): value is InjectionFinding {
-  const finding = value as Partial<InjectionFinding> | null;
-  return (
-    typeof finding === 'object' &&
-    finding !== null &&
-    isWarning(finding.kind) &&
-    typeof finding.before === 'string' &&
-    typeof finding.match === 'string' &&
-    typeof finding.after === 'string'
-  );
-}
+import { InjectionWarning, isFinding, isWarning } from './injection-findings.tsx';
 
 /** Reads the stored output defensively: it comes from the server's history. */
 function readOutput(output: unknown): WebFetchOutput | null {
@@ -74,7 +51,6 @@ function errorText(t: TranslateFn, raw: string): { code: string | null; text: st
 export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [showFindings, setShowFindings] = useState(false);
   const output = part.state === 'output-available' ? readOutput(part.output) : null;
   const failure = part.state === 'output-error' ? errorText(t, part.errorText) : null;
   const running = streaming && (part.state === 'input-streaming' || part.state === 'input-available');
@@ -122,41 +98,7 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
           aria-hidden="true"
         />
       </button>
-      {warnings.length > 0 ? (
-        <div role="note" className="flex flex-col gap-1 border-t border-border bg-warning px-3 py-2 text-warning-foreground last:rounded-b-lg">
-          <div className="flex items-start gap-2">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 break-words">
-              {t('webFetch.injection', { found: warnings.map((warning) => t(`webFetch.warnings.${warning}`)).join(', ') })}
-            </span>
-          </div>
-          <Button
-            variant="link"
-            size="sm"
-            aria-expanded={showFindings}
-            onClick={() => setShowFindings(!showFindings)}
-            className="ms-6 h-auto gap-1 self-start px-0 py-1 text-warning-foreground underline"
-          >
-            <ChevronRight
-              className={cn('size-3.5 transition-transform duration-(--duration-fast) ease-standard', showFindings && 'rotate-90')}
-              aria-hidden="true"
-            />
-            {showFindings ? t('webFetch.hideFindings') : t('webFetch.showFindings')}
-          </Button>
-          <AnimatePresence initial={false}>
-            {showFindings ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1, transition: transitions.enter }}
-                exit={{ opacity: 0, transition: transitions.exit }}
-                className="ms-6 pb-1"
-              >
-                <InjectionFindings warnings={warnings} findings={output?.findings} />
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </div>
-      ) : null}
+      {warnings.length > 0 ? <InjectionWarning warnings={warnings} findings={output?.findings} /> : null}
       {failure && !open ? <p className="border-t border-border px-3 py-2 text-muted-foreground">{failure.text}</p> : null}
       <AnimatePresence initial={false}>
         {open ? (

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ChatLink } from './agent.ts';
 import { PROVIDER_KINDS, type ProviderKind } from './providers.ts';
+import { type SearchSettings, updateSearchSettingsSchema } from './web-search.ts';
 
 /**
  * Machine-readable error codes returned by the API. The UI maps them to
@@ -46,6 +47,8 @@ export interface PublicSettings {
   hasUsers: boolean;
   /** Whether non-admin users may use custom endpoints (Ollama, OpenAI-compatible). */
   allowCustomBaseUrls: boolean;
+  /** Whether a search provider is set up, so chats can offer research mode. */
+  webSearch: boolean;
 }
 
 /**
@@ -58,6 +61,8 @@ export interface ServerSettings {
   allowCustomBaseUrls: boolean;
   /** Whether models in ordinary chats may load web pages through the server. */
   webFetch: boolean;
+  /** Web search for research mode. */
+  search: SearchSettings;
 }
 
 /**
@@ -68,9 +73,13 @@ export const updateServerSettingsSchema = z
     registration: z.enum(['open', 'closed']),
     allowCustomBaseUrls: z.boolean(),
     webFetch: z.boolean(),
+    search: updateSearchSettingsSchema,
   })
   .partial()
   .strict();
+
+/** See {@link updateServerSettingsSchema}. */
+export type UpdateServerSettings = z.infer<typeof updateServerSettingsSchema>;
 
 /**
  * A stored provider credential as returned to its owner. The API key itself is
@@ -178,6 +187,11 @@ export interface MessageMetadata {
   modelId?: string;
   /** Credential used for an assistant message. */
   credentialId?: string;
+  /**
+   * Set on user messages sent in research mode, so the chat opens with the
+   * switch as it was last used.
+   */
+  research?: boolean;
   /** Set on replies of an agent in a linked environment. */
   agent?: {
     /** Project the agent worked in. */
@@ -261,6 +275,11 @@ export const chatRequestSchema = z.object({
   message: z.record(z.string(), z.unknown()),
   credentialId: z.string().min(1).max(100),
   modelId: z.string().min(1).max(200),
+  /**
+   * Research mode: the model may search, and pages from search results,
+   * the user's messages and links on loaded pages load without asking.
+   */
+  research: z.boolean().optional(),
 });
 
 /**

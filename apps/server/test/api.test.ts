@@ -57,10 +57,10 @@ describe.each(DIALECTS)('API on %s', (kind) => {
 
     it('reports whether accounts exist on the public settings endpoint', async () => {
       const before = await (await server.request('GET', '/api/settings')).json();
-      expect(before).toEqual({ registration: 'open', hasUsers: false, allowCustomBaseUrls: false });
+      expect(before).toEqual({ registration: 'open', hasUsers: false, allowCustomBaseUrls: false, webSearch: false });
       await server.signUp('first@example.com');
       const after = await (await server.request('GET', '/api/settings')).json();
-      expect(after).toEqual({ registration: 'open', hasUsers: true, allowCustomBaseUrls: false });
+      expect(after).toEqual({ registration: 'open', hasUsers: true, allowCustomBaseUrls: false, webSearch: false });
     });
 
     it('rejects admin settings for regular users and anonymous requests', async () => {

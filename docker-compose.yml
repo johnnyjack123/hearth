@@ -6,6 +6,10 @@
 #   docker compose up -d                          mit SQLite in ./data
 #   docker compose --profile postgres up -d       zusätzlich Postgres (DATABASE_URL in .env;
 #                                                 oder COMPOSE_PROFILES=postgres in .env)
+#   docker compose --profile search up -d         zusätzlich SearXNG für die Websuche, dann in
+#                                                 der Web-App unter Administration → Server
+#                                                 → Websuche: SearXNG, http://searxng:8080
+#                                                 (beide Profile: COMPOSE_PROFILES=postgres,search)
 #
 # Das Image ist privat, solange das Repository privat ist: vorher einmal
 #   docker login ghcr.io -u <github-name>     (Token mit read:packages)
@@ -36,3 +40,35 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - ./postgres:/var/lib/postgresql/data
+
+  # Suchmaschine für den Recherche-Modus. Ohne veröffentlichten Port: Nur der
+  # Server erreicht sie, als http://searxng:8080. Die Suchanfragen gehen von
+  # hier an Google, Bing, DuckDuckGo usw.
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: llm-harness-searxng
+    profiles: [search]
+    restart: unless-stopped
+    environment:
+      # Eigenes Geheimnis in .env (openssl rand -hex 32). Ohne gilt dieses
+      # öffentliche; es schützt nur Einstellungs-Cookies und den Bild-Proxy,
+      # und beides nutzt hier niemand.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-llm-harness-searxng-change-me}
+    configs:
+      - source: searxng-settings
+        target: /etc/searxng/settings.yml
+
+configs:
+  # JSON-Ausgabe an (ohne sie antwortet SearXNG dem Server mit 403), Limiter
+  # und Bild-Proxy aus: Hier fragt nur der eigene Server.
+  searxng-settings:
+    content: |
+      use_default_settings: true
+      server:
+        limiter: false
+        image_proxy: false
+      search:
+        safe_search: 0
+        formats:
+          - html
+          - json
