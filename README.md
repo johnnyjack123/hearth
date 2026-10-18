@@ -82,12 +82,16 @@ Voraussetzungen:
 cargo build
 target\debug\harness.exe vmd install          # VM-Dienst einrichten (einmal, fragt per UAC)
 target\debug\harness.exe image build          # Base- und Gateway-Image in der VM bauen
-target\debug\harness.exe login http://<server>:8080   # Rechner mit dem eigenen Konto koppeln
-cd <dein-git-repo>
-<pfad>\harness.exe                           # Projekt anlegen und pi in der Sandbox starten
+target\debug\harness.exe login http://<server>:8080   # Rechner mit deinem Konto koppeln, richtet den Hintergrunddienst ein
+cd <dein-projektordner>
+<pfad>\harness.exe init                      # Projekt anlegen (mit Git, falls nötig); erscheint im Web-Chat
 ```
 
-Danach holen `harness sync` und `harness merge` die Commits des Agents ins eigene Repository. `merge` prüft sie vorher. Alle Befehle stehen in [`CLAUDE.md`](CLAUDE.md#befehle).
+- **Im Web-Chat:** unten im Eingabefeld „Umgebung“, dann Rechner und Projekt wählen. Der Hintergrunddienst startet VM und Sandbox bei der ersten Nachricht selbst, jeder Schritt erscheint im Chat.
+- **Im Terminal:** `harness` im Projektordner startet pi direkt.
+- **Commits übernehmen:** `harness sync` und `harness merge` holen die Commits des Agents ins eigene Repository, `merge` prüft sie vorher.
+
+Alle Befehle stehen in [`CLAUDE.md`](CLAUDE.md#befehle).
 
 ## Entwicklung
 

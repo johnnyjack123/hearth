@@ -272,12 +272,18 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - Server-Tests (Hub, Verknüpfung, Stream, WebSocket mit Token)
   - Browser-E2E mit simuliertem Gerät
   - `scripts/smoke-connect.sh` gegen die VM: Ablehnung ohne Bestätigung, pi per RPC, `bash` mit Commit, Rückfrage zu example.com im Chat beantwortet, Antwort gespeichert, `harness sync`
+- **18.10., nach dem ersten Test des Nutzers:**
+  - Hintergrunddienst statt `harness connect` im Terminal (`harness daemon`, `harnessd.exe`, Autostart bei der Anmeldung)
+  - `harness init` meldet das Projekt sofort; Umgebungen bleiben beim Server gespeichert und sind auch bei ausgeschaltetem Rechner wählbar
+  - keine Bestätigung pro Chat mehr als Standard
+  - Fortschritt jedes Schritts im Chat; VM-Status im Dialog
+  - Kontext-Füllstand und Kosten pro Chat (models.dev bzw. pi)
+  - Bugfixes: Knöpfe im Composer schickten die Nachricht ab; DeepSeek schrieb nach einer Agent-Runde Werkzeugaufrufe als Text
 - **Offen:**
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
   - Dialoge von pi-Erweiterungen im Web (heute abgelehnt)
   - fortsetzbare Streams: Neuladen während einer Antwort bricht sie ab
-  - `harnessd` statt `harness connect` im Vordergrund, Bestätigung später in der App
   - Verbrauch und Limits pro Gerät
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)

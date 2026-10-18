@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-17 · Phase 4 gebaut (Web-Chat steuert pi auf dem Rechner), TLS im Gateway; nächstes: Test des Nutzers mit DeepSeek, dann Jev und Stopp der VM im Leerlauf_
+_Last updated: 2026-10-18 · Phase 4 überarbeitet nach dem ersten Test des Nutzers: Hintergrunddienst, `harness init`, Fortschritt im Chat, Kontext und Kosten; Web-Fetch für normale Chats in Arbeit (Branch `feat/web-fetch`)_
 
 ## Where we are
 
@@ -8,11 +8,17 @@ Das Repo liegt auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harn
 
 **Terminal (Phase 2):** Im Ordner eines Git-Repos startet `harness` (oder `harness run pi`) Gateway und Instanz, klont das Repo, installiert pi und verbindet es über den Server mit dem Modell. Rückfragen des Gateways kommen im selben Terminal. `harness sync`/`merge` holen die Commits; `merge` prüft sie vorher (Regeln und OSV).
 
-**Web-Chat (Phase 4, neu):**
-1. Auf dem Rechner: `harness project remote on` im Projektordner, dann `harness connect` laufen lassen.
-2. Im Web-Chat (bestehender Chat) im Composer „Umgebung“ → Gerät → Projekt.
-3. Die erste Nachricht bestätigt man im Fenster von `harness connect`. Danach arbeitet pi in der Instanz. Der Chat zeigt Text, Werkzeugaufrufe (aufklappbar, mit Ausgabe) und Rückfragen des Gateways mit Knöpfen.
-4. Die Commits des Agents holt man wie bisher mit `harness sync`/`merge`.
+**Web-Chat (Phase 4):**
+1. Einmal `harness login <Server>`. Das koppelt den Rechner mit dem Konto und richtet den Hintergrunddienst ein (`harnessd.exe` bei jeder Anmeldung, `harness daemon`).
+2. Im Projektordner `harness init`. Das Projekt erscheint sofort im Konto, auch wenn der Rechner später aus ist.
+3. Im Web-Chat (bestehender Chat) im Composer „Umgebung“ → Gerät → Projekt.
+4. Bei der ersten Nachricht startet der Dienst VM, Gateway, Instanz und pi selbst. Der Chat zeigt:
+   - jeden Schritt mit Dauer
+   - den Text
+   - Werkzeugaufrufe (aufklappbar, mit Ausgabe)
+   - Rückfragen des Gateways mit Knöpfen
+   - im Composer Kontext-Füllstand und Kosten
+5. Die Commits des Agents holt man wie bisher mit `harness sync`/`merge`.
 
 **Server per HTTPS:** Das Gateway spricht jetzt TLS. Ein Server hinter Caddy (öffentliches Zertifikat oder `tls internal` mit `[server] ca`) geht als LLM-Ziel, Anleitung in `docs/deploy.md`.
 
@@ -20,7 +26,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓,
 
 ## Next step
 
-1. **Nutzer testet Phase 4 mit DeepSeek**: Server läuft, `harness project remote on`, `harness connect`, im Web einen Chat verknüpfen. Rückmeldung zu Darstellung und Ablauf einholen.
+1. **Web-Fetch für normale Chats** (Hilfsagent, Branch `feat/web-fetch`): prüfen, mergen, Doku. Dann testet der Nutzer den neuen Ablauf (`harness login` → `harness init` → Umgebung im Chat) mit DeepSeek.
 2. Danach (Reihenfolge laut Nutzer):
    - **Jev bzw. ein Chat-Modell** als dritte Stufe der Merge-Prüfung und als Klassifikator gegen Prompt-Injection. Dafür: Server-Durchgang für Klassifikatoren, Einstellungen (was läuft, mit welchem Modell).
    - **Stopp der VM im Leerlauf** (Leases von `harness run` und `harness connect`).
@@ -40,6 +46,11 @@ Weitere Hinweise:
 - Das echte `~/.harness` des Nutzers hat das Projekt `harness-test` in `$HOME\harness-test`. Eigene Probeläufe nur mit `HARNESS_HOME`.
 
 ## Decisions made this session
+
+Nach dem ersten Test (18.10., Nutzer: „eine environment immer unabhängig von Chats freigegeben … startet der Desktop client das dann automatisch … Statusmeldungen im Browser“):
+- **Hintergrunddienst als Benutzerprozess**, nicht als Windows-Dienst (SYSTEM): Er braucht das Token aus der Anmeldeinformationsverwaltung des Nutzers und dessen `~/.harness`. Autostart über den Run-Schlüssel, ohne Admin.
+- **Keine Bestätigung pro Chat mehr als Standard.** Grund: Wunsch des Nutzers. Der Schutz liegt in der Sandbox und darin, dass nur Chats des eigenen Kontos das Gerät erreichen. `confirm = true` bleibt möglich, dann nur mit `harness connect`.
+- **Kosten aus models.dev** statt aus Anbieter-APIs: Die meisten APIs liefern nur Tokens. OpenRouter-Kosten kommen ebenfalls aus dem Katalog. pi rechnet für Agents selbst.
 
 Phase 4 (17.10., Nutzer: „Mach als nächstes Phase 4 und parallel TLS im Gateway“):
 - **WebSocket mit `ws` (Server) und `tungstenite` (Gerät)**, ausgehend vom Gerät. Reverse-Proxies wie Caddy reichen WebSockets ohne Konfiguration durch.
@@ -81,6 +92,19 @@ Früher (Kurzfassung, Details in ROADMAP):
 - Rechner-Stabilität: Bluescreen `0xA0` beim Start der Windows Sandbox. Nutzer vor riskanten Virtualisierungs-Starts fragen. Bei knappem Commit-Limit (17.10.: 29,6 von 31,6 GB) scheitern Browser-Tests.
 
 ## Verification state
+
+Stand 18.10.:
+- **Rust:** fmt, clippy ohne Warnungen, `cargo test` grün.
+- **Server:** 58 Tests (SQLite), neu: Preisberechnung, gespeicherte Umgebungen, VM-Status, Fortschritt.
+- **E2E:** 10/10, 0 Konsolenprobleme. Neu geprüft:
+  - Entwurf bleibt beim Klick auf „Umgebung“ stehen
+  - VM-Status im Dialog
+  - Fortschrittsschritte
+  - Kosten im Composer
+- **VM:**
+  - `scripts/smoke-connect.sh` 30/30 mit `harness init` und dem echten Hintergrunddienst (`harness daemon start`/`stop` unter `HARNESS_HOME`)
+  - `terminal_vm` 3/3
+- **Nicht geprüft:** Autostart nach echter Windows-Anmeldung (Run-Schlüssel), echter Lauf mit DeepSeek.
 
 Stand 17.10. abends, nach dem Merge von TLS und Phase 4:
 - **Rust:** `cargo fmt --check`, `cargo clippy --all-targets` ohne Warnungen, `cargo test` grün (core 103 inkl. Tunnel-Protokoll, pi-Übersetzer und `[remote]`).
