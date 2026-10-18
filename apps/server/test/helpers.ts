@@ -15,6 +15,7 @@ import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { saveDeviceProjects } from '../src/services/devices.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
+import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 
 /**
  * Dialects to run integration tests against. Postgres is included when
@@ -136,9 +137,14 @@ async function resetPostgres(database: Database): Promise<void> {
  * Starts the app on a fresh database of the given dialect.
  *
  * @param kind - Database dialect.
+ * @param options - Another LLM gateway, and web fetch overrides (e.g. an
+ *   address filter that lets a local test server through).
  * @returns The running test server.
  */
-export async function createTestServer(kind: DatabaseKind): Promise<TestServer> {
+export async function createTestServer(
+  kind: DatabaseKind,
+  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig> } = {},
+): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
   const config: ServerConfig = {
@@ -160,13 +166,22 @@ export async function createTestServer(kind: DatabaseKind): Promise<TestServer> 
   await migrateToLatest(database.db);
   const auth = createAuth(config, database);
 
-  const llm = createMockLlm();
+  const llm = options.llm ?? createMockLlm();
   const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
   // A tiny catalog instead of models.dev: tests never go online.
   const pricing = new PricingCatalog(async () => ({
     openai: { models: { 'mock-1': { limit: { context: 1000 }, cost: { input: 2, output: 8 } } } },
   }));
-  const app = createApp({ config, database, auth, secretBox: createSecretBox(config.secret), llm, hub, pricing });
+  const app = createApp({
+    config,
+    database,
+    auth,
+    secretBox: createSecretBox(config.secret),
+    llm,
+    hub,
+    pricing,
+    ...(options.webFetch ? { webFetch: options.webFetch } : {}),
+  });
 
   const request: TestServer['request'] = (method, url, options = {}) => {
     const headers: Record<string, string> = { origin: ORIGIN };

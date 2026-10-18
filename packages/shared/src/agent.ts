@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { WebFetchAnswer } from './web-fetch.ts';
 
 /**
  * Version of the device tunnel protocol. Server and device refuse to talk if
@@ -243,8 +244,20 @@ export const approvalDecisionSchema = z
 export type AgentDataParts = {
   /** A message of harness or the harness itself (warnings, progress). */
   notice: { level: 'info' | 'warning' | 'error'; text: string };
-  /** A question of the project's gateway; updated in place when answered. */
-  approval: { id: number; host: string; port: number; state: 'pending' | 'resolved' };
+  /**
+   * A question of the project's gateway, or of the server's web fetch in an
+   * ordinary chat (then with `url`); updated in place when answered.
+   */
+  approval: {
+    id: number;
+    host: string;
+    port: number;
+    state: 'pending' | 'resolved';
+    /** Full URL a web fetch wants to load; only set for web fetch questions. */
+    url?: string;
+    /** How a web fetch question ended; set once it is resolved. */
+    answer?: WebFetchAnswer;
+  };
   /** A step on the way to the answer; updated in place. */
   progress: { id: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };
 };

@@ -5,6 +5,7 @@ import type { DB } from '../db/schema.ts';
 const DEFAULTS: ServerSettings = {
   registration: 'open',
   allowCustomBaseUrls: false,
+  webFetch: true,
 };
 
 type SettingKey = keyof ServerSettings;
