@@ -78,6 +78,7 @@ describe('ChunkMapper', () => {
       { type: 'usage', inputTokens: 10, outputTokens: 2 },
       { type: 'usage', inputTokens: 5, outputTokens: 1 },
       { type: 'approval', id: 3, host: 'example.com', port: 443, state: 'pending' },
+      { type: 'progress', id: 'vm', label: 'VM starten', state: 'done', detail: '21.0 s' },
       { type: 'turn.end' },
     ].flatMap((event) => mapper.map(event as AgentEvent));
     expect(chunks.map((chunk) => chunk.type)).toEqual([
@@ -89,8 +90,14 @@ describe('ChunkMapper', () => {
       'tool-output-available',
       'tool-output-available',
       'data-approval',
+      'data-progress',
       'finish-step',
     ]);
+    expect(chunks[8]).toEqual({
+      type: 'data-progress',
+      id: 'progress-vm',
+      data: { id: 'vm', label: 'VM starten', state: 'done', detail: '21.0 s' },
+    });
     expect(chunks[5]).toMatchObject({ preliminary: true, output: { text: 'a' } });
     expect(chunks[7]).toMatchObject({ id: 'approval-3', data: { host: 'example.com', state: 'pending' } });
     expect(mapper.usage).toEqual({ inputTokens: 15, outputTokens: 3 });
@@ -135,7 +142,9 @@ describe('DeviceHub', () => {
 
     const good = connect(hub, 'd3');
     good.hello();
-    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT] });
+    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT], vm: 'unknown' });
+    good.say({ type: 'status', vm: 'stopped' });
+    expect(hub.status('d3').vm).toBe('stopped');
     good.say({ type: 'session.event', session: 's', event: { type: 'nope' } });
     expect(good.closedWith).toBe(4002);
     expect(hub.status('d3').online).toBe(false);
@@ -158,7 +167,8 @@ describe('DeviceHub', () => {
       history: null,
       model: null,
     };
-    expect(() => hub.startRun('d1', { ...prompt, project: 'other' })).toThrow(/does not offer/);
+    // Whether a project may run is the device's call, not the hub's.
+    expect(() => hub.startRun('offline', prompt)).toThrow(/not connected/);
     const run = hub.startRun('d1', prompt);
     expect(() => hub.startRun('d1', prompt)).toThrow(/still answering/);
 
@@ -341,6 +351,33 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     });
     expect(answer.status).toBe(204);
     expect(device.received.at(-1)).toEqual({ type: 'approval.decide', session: conversation.id, id: 7, decision: 'session' });
+  });
+
+  it('keeps reported projects while the device is offline and links to them', async () => {
+    const { token, deviceId } = await pair();
+    // What `harness init` does without a running service.
+    const reported = await server.request('PUT', '/api/device/projects', {
+      headers: { ...CLI, authorization: `Bearer ${token}` },
+      body: { projects: [{ name: 'neu', harnesses: ['pi'] }] },
+    });
+    expect(reported.status).toBe(204);
+    const invalid = await server.request('PUT', '/api/device/projects', {
+      headers: { ...CLI, authorization: `Bearer ${token}` },
+      body: { projects: [{ name: '../etc', harnesses: ['pi'] }] },
+    });
+    expect(invalid.status).toBe(400);
+
+    const devices = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(devices[0]).toMatchObject({ online: false, vm: null, projects: [{ name: 'neu', harnesses: ['pi'] }] });
+
+    const conversation = await newConversation();
+    const linked = await server.request('PUT', `/api/conversations/${conversation.id}/link`, {
+      cookie,
+      body: { deviceId, project: 'neu', harness: 'pi' },
+    });
+    expect(linked.status).toBe(200);
+    const offline = await chat(conversation.id, 'Hallo?');
+    expect(offline.status).toBe(409);
   });
 
   it('refuses to chat while the device is offline and stores nothing', async () => {

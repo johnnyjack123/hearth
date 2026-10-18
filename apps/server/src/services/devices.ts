@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import type { DeviceSummary, PairingInfo, PairingPoll, PairingStart } from '@harness/shared';
+import type { DeviceSummary, PairingInfo, PairingPoll, PairingStart, RemoteProject } from '@harness/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { SecretBox } from '../crypto.ts';
@@ -83,7 +83,54 @@ function toSummary(row: DeviceRow): DeviceSummary {
     lastUsedAt: row.lastUsedAt,
     online: false,
     projects: [],
+    vm: null,
   };
+}
+
+/**
+ * Replaces the projects a device offers.
+ *
+ * @param db - Open database.
+ * @param deviceId - The device.
+ * @param projects - Its projects now.
+ */
+export async function saveDeviceProjects(db: Kysely<DB>, deviceId: string, projects: RemoteProject[]): Promise<void> {
+  const now = Date.now();
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('deviceProject').where('deviceId', '=', deviceId).execute();
+    if (projects.length > 0) {
+      await trx
+        .insertInto('deviceProject')
+        .values(projects.map((project) => ({ deviceId, name: project.name, harnesses: JSON.stringify(project.harnesses), updatedAt: now })))
+        .execute();
+    }
+  });
+}
+
+/**
+ * The projects devices offer, by device id.
+ *
+ * @param db - Open database.
+ * @param deviceIds - Devices to look up.
+ * @returns Projects per device; devices without any are missing.
+ */
+export async function loadDeviceProjects(db: Kysely<DB>, deviceIds: string[]): Promise<Map<string, RemoteProject[]>> {
+  const result = new Map<string, RemoteProject[]>();
+  if (deviceIds.length === 0) {
+    return result;
+  }
+  const rows = await db
+    .selectFrom('deviceProject')
+    .selectAll()
+    .where('deviceId', 'in', deviceIds)
+    .orderBy('name', 'asc')
+    .execute();
+  for (const row of rows) {
+    const list = result.get(row.deviceId) ?? [];
+    list.push({ name: row.name, harnesses: JSON.parse(row.harnesses) as string[] });
+    result.set(row.deviceId, list);
+  }
+  return result;
 }
 
 /**

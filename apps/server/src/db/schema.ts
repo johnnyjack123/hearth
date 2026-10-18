@@ -110,6 +110,18 @@ export interface ChatLinkTable {
 }
 
 /**
+ * Row of `deviceProject`: a project a device offers to web chats, kept so
+ * it shows up while the device is offline.
+ */
+export interface DeviceProjectTable {
+  deviceId: string;
+  name: string;
+  /** JSON array of harness names. */
+  harnesses: string;
+  updatedAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -121,4 +133,5 @@ export interface DB {
   device: DeviceTable;
   devicePairing: DevicePairingTable;
   chatLink: ChatLinkTable;
+  deviceProject: DeviceProjectTable;
 }
