@@ -257,6 +257,7 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - Im Protokoll stehen Zeilen mit UTC-Zeit (`utc_stamp`, ohne Datums-Bibliothek). `println!` in `run.rs`/`login.rs` landet dort ohne Zeit, das ist gewollt.
 - **TLS:** Der Tunnel nutzt bei `[server] ca` einen eigenen `native_tls::TlsConnector` nur mit dieser CA, wie die HTTP-Anfragen. Ohne CA nimmt `tungstenite::connect` den Windows-Speicher.
 - Test des echten Dienstes: `scripts/smoke-connect.sh` mit `harness daemon start` unter `HARNESS_HOME` (eigener Mutex, eigenes Protokoll).
+- **Der laufende Dienst sperrt `target\debug\harness.exe` und `harnessd.exe`**, der Autostart zeigt in der Entwicklung genau dorthin. `cargo build` scheitert dann mit „Zugriff verweigert“. Beide Dateien umbenennen (wie bei `harness run`), nicht den Dienst des Nutzers beenden. Der Nutzer holt die neue Version mit `harness daemon stop` und `harness daemon start`.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 
