@@ -58,7 +58,8 @@ async function waitFor(name, logOf, pattern, timeoutMs = 60_000) {
 let exitCode = 1;
 try {
   const mockLog = start('mock', [path.join(here, 'mock-llm.mjs')], { env: { ...process.env, MOCK_PORT: '8091' } });
-  const serverLog = start('server', ['--import', 'tsx', 'src/index.ts'], {
+  // The real server, except that web fetch may reach the mock's test page.
+  const serverLog = start('server', ['--import', 'tsx', 'test/e2e-server.ts'], {
     cwd: serverDir,
     env: {
       ...process.env,
