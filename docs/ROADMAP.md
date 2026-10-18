@@ -295,6 +295,14 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - Anzeige: ein Block mit der Trefferliste, darunter die Quellen als nummerierte Links. Keine Favicons von fremden Servern (CSP, Privatsphäre).
     - Später auch für Agents in der VM: Suche über den Server (eigener Pfad wie `/api/llm`), sonst bräuchte jedes Gateway den Suchanbieter freigegeben.
   - **Fundstellen von Prompt-Injection:** Treffer kommen mit Ausschnitt und Markierung, unsichtbare Zeichen sichtbar gemacht, Tag-Zeichen entschlüsselt. Im Browser lässt sich die Warnung aufklappen, in pi steht der Ausschnitt in der Meldung. So kann der Nutzer selbst einschätzen, ob es kritisch ist.
+    - **Zu jedem Fund ein Satz, warum er gefährlich ist** (Wunsch des Nutzers, für Laien verständlich). Beispiele:
+      - „ignore previous instructions“: Die Seite versucht, deine Anweisungen an das Modell zu ersetzen.
+      - Versteckter Text: Anweisungen, die du nicht siehst, das Modell aber liest.
+      - Anweisung im HTML-Kommentar: im Browser unsichtbar, für das Modell normaler Text.
+      - „sag es dem Nutzer nicht“: Das Modell soll etwas vor dir verbergen.
+      - Gefälschte Rollenmarken: Der Text tut so, als käme er vom System oder von dir.
+
+      Die Texte stehen in den i18n-Dateien. pi bekommt sie in der Meldung auf Deutsch.
   - **Windows-Builds auf GitHub** (Frage des Nutzers): Bisher baut GitHub nur das Server-Image und prüft das Gateway. `harness.exe`/`harnessd.exe` entstehen lokal mit `cargo build`. Ein Workflow auf `windows-11-arm` und `windows-latest` mit Artefakten bei Tags gehört zum Installer in Phase 3.
 - **Offen:**
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
@@ -325,6 +333,9 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - Projektdateien wie `.pi/` und `AGENTS.md` kämen nach einem Merge vom Agent; pis Projekt-Vertrauen müsste das abfangen.
     - Pfade müssen zwischen Windows und `/workspace` übersetzt werden, und jeder Werkzeugaufruf kostet ohne gehaltene Verbindung ~0,4 s.
   - Einschätzung: als zusätzlicher Modus machbar (ein Spike von 1–2 Tagen), aber nicht als Standard. Standard bleibt pi im Container, weil dort nichts, was das Modell auslöst, den Host erreicht, egal welche pi-Funktion es nutzt.
+- **Dateien im Chat** (Idee des Nutzers, 18.10.):
+  - **Dokumente** (Word, PowerPoint, Excel, PDF, HTML …) per [markitdown](https://github.com/microsoft/markitdown) von Microsoft in Markdown umwandeln und dem Modell geben. markitdown ist Python, der Server Node. Deshalb kommt es als eigener kleiner Container neben den Server, mit Größen- und Zeitlimit, ohne Netz. Datei-Parser sind Angriffsfläche und laufen deshalb nicht im Server-Prozess. In verknüpften Chats kann die Umwandlung auch in der Instanz laufen.
+  - **Bilder für Vision-Modelle:** Anhänge im Composer, an das Modell als AI-SDK-Dateiteil. Ob ein Modell Bilder versteht, steht im Katalog von models.dev (`modalities.input`); sonst Knopf ausgrauen. Bilder im Datenordner speichern, nicht als Base64 in der Datenbank, mit Größenlimit und Herunterskalieren. pi nimmt Bilder per RPC (`images` im `prompt`).
 - **Harnesses aktualisieren** (`harness update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.
 - Git-Worker mit Shim und Richtlinien wie in ARCHITECTURE.md §3.6, Checkpoints
 - weitere Harnesse (opencode, Claude Code, Codex) und Adapter
