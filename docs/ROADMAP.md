@@ -285,6 +285,17 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - Inhalte gehen als markierte, nicht vertrauenswürdige Daten ans Modell, mit Warnungen nach den Mustern des pi-Schutzes.
   - Admin-Schalter in den Server-Einstellungen (Standard an).
   - Offen: Hauptinhalt herauslösen (Readability), Suche statt nur Abruf, CSP auch im Vite-Dev-Server (Bild-Exfiltration per Markdown).
+- **Recherche, geplant am 18.10. (Wünsche des Nutzers):**
+  - **Hauptinhalt:** Mozilla Readability (`@mozilla/readability`) auf einem `linkedom`-DOM, danach turndown. Liefert Readability nichts Brauchbares (unter ~500 Zeichen oder `null`), wird die ganze Seite wie bisher umgewandelt. Defuddle ist die Alternative, falls Readability bei Dokumentationsseiten zu viel wegschneidet. Kein externer Dienst (Jina Reader o. Ä.), weil der jede abgerufene URL sähe.
+  - **Websuche:** Werkzeug `web_search({ query })` in normalen Chats. Es liefert die ersten Treffer mit Titel, URL, Ausschnitt und Datum. Ob gesucht wird, entscheidet das Modell selbst über den Werkzeugaufruf, wie bei Perplexity. Der System-Prompt sagt: suchen, wenn Fakten unsicher, aktuell oder nach dem Wissensstand des Modells sind, und Quellen als Links nennen.
+    - **Suchanbieter** in den Server-Einstellungen:
+      - SearXNG als selbst gehosteter Standard (eigener Dienst in `docker-compose.yml` hinter einem Profil, JSON-Ausgabe einschalten, kein Key, nichts verlässt den Pi außer den Suchanfragen)
+      - wahlweise Brave Search API oder Tavily mit Key, verschlüsselt gespeichert wie die Anbieter-Keys
+    - **Recherche-Schalter im Composer** (Vorschlag des Nutzers: eine Fähigkeit, die man wie eine Domain freigibt). Ist er an, darf das Modell suchen und ohne Rückfrage jede URL laden, die in Suchergebnissen, in Nachrichten des Nutzers oder als Link auf schon geladenen Seiten vorkam. Nur URLs, die das Modell selbst zusammensetzt, fragen weiter nach: Darüber ließen sich Chat-Inhalte in eine Adresse packen und hinausschicken. Die Muster gegen Prompt-Injection laufen immer.
+    - Anzeige: ein Block mit der Trefferliste, darunter die Quellen als nummerierte Links. Keine Favicons von fremden Servern (CSP, Privatsphäre).
+    - Später auch für Agents in der VM: Suche über den Server (eigener Pfad wie `/api/llm`), sonst bräuchte jedes Gateway den Suchanbieter freigegeben.
+  - **Fundstellen von Prompt-Injection:** Treffer kommen mit Ausschnitt und Markierung, unsichtbare Zeichen sichtbar gemacht, Tag-Zeichen entschlüsselt. Im Browser lässt sich die Warnung aufklappen, in pi steht der Ausschnitt in der Meldung. So kann der Nutzer selbst einschätzen, ob es kritisch ist.
+  - **Windows-Builds auf GitHub** (Frage des Nutzers): Bisher baut GitHub nur das Server-Image und prüft das Gateway. `harness.exe`/`harnessd.exe` entstehen lokal mit `cargo build`. Ein Workflow auf `windows-11-arm` und `windows-latest` mit Artefakten bei Tags gehört zum Installer in Phase 3.
 - **Offen:**
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
