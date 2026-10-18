@@ -16,6 +16,7 @@ import { saveDeviceProjects } from '../src/services/devices.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
+import type { SearchEndpoints } from '../src/websearch/providers.ts';
 
 /**
  * Dialects to run integration tests against. Postgres is included when
@@ -137,13 +138,14 @@ async function resetPostgres(database: Database): Promise<void> {
  * Starts the app on a fresh database of the given dialect.
  *
  * @param kind - Database dialect.
- * @param options - Another LLM gateway, and web fetch overrides (e.g. an
- *   address filter that lets a local test server through).
+ * @param options - Another LLM gateway, web fetch overrides (e.g. an
+ *   address filter that lets a local test server through) and search
+ *   endpoints (local stand-ins of Brave and Tavily).
  * @returns The running test server.
  */
 export async function createTestServer(
   kind: DatabaseKind,
-  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig> } = {},
+  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig>; webSearch?: Partial<SearchEndpoints> } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
@@ -181,6 +183,7 @@ export async function createTestServer(
     hub,
     pricing,
     ...(options.webFetch ? { webFetch: options.webFetch } : {}),
+    ...(options.webSearch ? { webSearch: options.webSearch } : {}),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

@@ -15,6 +15,7 @@ import { WebFetchError } from './errors.ts';
 import { type FetchPolicy, fetchPage, systemResolve } from './fetch.ts';
 import { findInjections, WARNING_TEXT, warningKinds } from './injection.ts';
 import { grantedHosts, hostKey, mentionedHosts, parseTarget } from './target.ts';
+import type { KnownUrls } from '../websearch/known-urls.ts';
 
 /**
  * Limits and checks of the web fetch. Tests replace parts of it through
@@ -60,6 +61,11 @@ export interface WebFetchContext {
   approvals: FetchApprovals;
   /** See {@link WebFetchConfig}. */
   config: WebFetchConfig;
+  /**
+   * In research mode: URLs from search results and loaded pages, which load
+   * without asking; null otherwise.
+   */
+  known: KnownUrls | null;
 }
 
 /**
@@ -115,7 +121,7 @@ const DESCRIPTION =
  * @returns The tool, to be passed to `streamText` as `web_fetch`.
  */
 export function createWebFetchTool(context: WebFetchContext) {
-  const { conversationId, approvals, config, write } = context;
+  const { conversationId, approvals, config, write, known } = context;
   const mentioned = mentionedHosts(context.messages);
   // Grows when the user answers "this host for the rest of the chat".
   const granted = grantedHosts(context.messages);
@@ -152,13 +158,18 @@ export function createWebFetchTool(context: WebFetchContext) {
 
   async function run(input: string, fullPage: boolean, signal: AbortSignal | undefined): Promise<WebFetchOutput> {
     const start = parseTarget(input.trim(), config);
-    await authorize(start, signal);
+    // A URL found in search results or on a page carries nothing of the
+    // chat, and neither can the redirects its server chooses.
+    const found = known?.has(start) ?? false;
+    if (!found) {
+      await authorize(start, signal);
+    }
     const page = await fetchPage(start, config, {
       ...(signal ? { signal } : {}),
       onRedirect: async (next, from) => {
         // A redirect within the host the user allowed belongs to the same
         // fetch; another host is a new target and goes through the policy.
-        if (hostKey(next.hostname) !== hostKey(from.hostname)) {
+        if (!found && hostKey(next.hostname) !== hostKey(from.hostname)) {
           await authorize(next, signal);
         }
       },
@@ -168,6 +179,8 @@ export function createWebFetchTool(context: WebFetchContext) {
     const converted = isHtml ? pageToMarkdown(raw, page.url, fullPage) : { markdown: raw, mainContent: false };
     const readable = tidy(converted.markdown);
     const { text, truncated } = truncate(readable, config.maxChars);
+    // Only links the model actually gets to see.
+    known?.addLinks(text);
     // Readable text first: its excerpts are what the user can make sense of.
     const findings = findInjections(readable, raw);
     return {

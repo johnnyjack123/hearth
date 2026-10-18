@@ -43,6 +43,20 @@ Postgres statt SQLite: `POSTGRES_PASSWORD`, `DATABASE_URL` und `COMPOSE_PROFILES
 - **`getaddrinfo ENOTFOUND postgres`:** Der Postgres-Container läuft nicht, meist fehlt `COMPOSE_PROFILES=postgres` in der `.env`. Ohne das Profil legt Compose auch den Ordner `postgres` nicht an.
 - **Anmelden klappt nicht, obwohl die Seite lädt:** `PUBLIC_URL` muss genau die Adresse sein, die im Browser steht, mit dem Port aus `HARNESS_PORT`.
 
+### Websuche (Recherche-Modus)
+
+Mit einem Suchanbieter zeigt der Composer den Schalter **Recherche**. Ist er an, darf das Modell im Web suchen und gefundene Seiten ohne Rückfrage laden. Adressen, die es selbst zusammensetzt, fragen weiter nach. Den Anbieter wählt ein Admin unter **Administration → Server → Websuche**; „Suche testen“ zeigt gleich, ob er antwortet.
+
+- **SearXNG** (selbst gehostet, kein Key): `docker compose --profile search up -d` startet den Container `llm-harness-searxng`. Ohne veröffentlichten Port erreicht ihn nur der Server, als `http://searxng:8080`; diese Adresse in der Web-App eintragen. Die Einstellungen (JSON-Ausgabe an, Limiter aus) stehen in `docker-compose.yml` unter `configs`, eine eigene `settings.yml` ist nicht nötig. Der Container braucht etwa 150–250 MB RAM, das Image ist rund 90 MB groß.
+- **Brave Search API** oder **Tavily**: Key in der Web-App eintragen. Er wird wie die Anbieter-Keys verschlüsselt gespeichert; Admins sehen danach nur die letzten vier Zeichen.
+
+Fehler beim Test:
+- **HTTP 403 von SearXNG:** Die JSON-Ausgabe ist aus. Bei einer eigenen Instanz `search.formats` um `json` ergänzen.
+- **„nicht erreichbar“:** Der Container läuft nicht (Profil `search` fehlt), oder die Adresse stimmt nicht.
+- **HTTP 429:** Das Kontingent des Anbieters ist aufgebraucht. Bei SearXNG blockieren die abgefragten Suchmaschinen gelegentlich; dann liefert es weniger Treffer.
+
+Was nach außen geht: die Suchanfragen selbst (an SearXNG und von dort an die Suchmaschinen, bzw. an Brave oder Tavily) und Abrufe der gefundenen Seiten. Das Modell soll keine privaten Details in Suchanfragen schreiben, verhindern lässt sich das aber nicht.
+
 ### Grenzen heute
 
 - Mit `http://` läuft das Geräte-Token unverschlüsselt durchs Netz. Im Heimnetz mag das gehen, für einen Server im Internet immer HTTPS nehmen (nächster Abschnitt).
@@ -151,6 +165,12 @@ TRUSTED_ORIGINS=
 POSTGRES_PASSWORD=
 # DATABASE_URL=postgres://harness:<POSTGRES_PASSWORD>@postgres:5432/harness
 # COMPOSE_PROFILES=postgres
+
+# Websuche mit SearXNG: Profil search dazunehmen (mit Postgres:
+# COMPOSE_PROFILES=postgres,search) und ein eigenes Geheimnis setzen
+# (openssl rand -hex 32).
+# COMPOSE_PROFILES=search
+SEARXNG_SECRET=
 ```
 
 ## Lokal bauen

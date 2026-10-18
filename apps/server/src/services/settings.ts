@@ -1,14 +1,36 @@
-import type { ServerSettings } from '@harness/shared';
+import {
+  KEYED_SEARCH_PROVIDERS,
+  type KeyedSearchProvider,
+  type SearchSettings,
+  type ServerSettings,
+  type UpdateSearchSettings,
+} from '@harness/shared';
 import type { Kysely } from 'kysely';
+import { keyHint, type SecretBox } from '../crypto.ts';
 import type { DB } from '../db/schema.ts';
+import { HttpError } from '../http/errors.ts';
+import {
+  braveBackend,
+  DEFAULT_SEARCH_ENDPOINTS,
+  type SearchBackend,
+  type SearchEndpoints,
+  searxngBackend,
+  tavilyBackend,
+} from '../websearch/providers.ts';
 
 const DEFAULTS: ServerSettings = {
   registration: 'open',
   allowCustomBaseUrls: false,
   webFetch: true,
+  search: { provider: 'off', searxngUrl: null, keys: { brave: null, tavily: null } },
 };
 
 type SettingKey = keyof ServerSettings;
+
+/** Setting rows of the encrypted search API keys; never part of {@link ServerSettings}. */
+function searchKeyRow(provider: KeyedSearchProvider): string {
+  return `searchKey.${provider}`;
+}
 
 /**
  * Reads the server settings, falling back to defaults for unset keys.
@@ -52,6 +74,102 @@ export async function updateServerSettings(
       .execute();
   }
   return getServerSettings(db);
+}
+
+/**
+ * Changes the web search settings. Keys are stored encrypted, bound to their
+ * row; the settings only keep a hint of them.
+ *
+ * @param db - Open database.
+ * @param secretBox - Encryption for the keys.
+ * @param patch - Validated change; a key of null deletes the stored one.
+ * @returns The effective settings after the update.
+ * @throws {HttpError} 400 if the chosen provider lacks its URL or key.
+ */
+export async function updateSearchSettings(
+  db: Kysely<DB>,
+  secretBox: SecretBox,
+  patch: UpdateSearchSettings,
+): Promise<ServerSettings> {
+  const current = (await getServerSettings(db)).search;
+  const next: SearchSettings = {
+    provider: patch.provider ?? current.provider,
+    searxngUrl: patch.searxngUrl === undefined ? current.searxngUrl : patch.searxngUrl,
+    keys: { ...current.keys },
+  };
+  const keys = { brave: patch.braveKey, tavily: patch.tavilyKey };
+  for (const provider of KEYED_SEARCH_PROVIDERS) {
+    const key = keys[provider];
+    if (key !== undefined) {
+      next.keys[provider] = key === null ? null : keyHint(key);
+    }
+  }
+  if (next.provider === 'searxng' && !next.searxngUrl) {
+    throw new HttpError(400, 'validation', 'SearXNG needs the URL of the instance');
+  }
+  if ((next.provider === 'brave' || next.provider === 'tavily') && !next.keys[next.provider]) {
+    throw new HttpError(400, 'validation', `${next.provider} needs an API key`);
+  }
+
+  await db.transaction().execute(async (trx) => {
+    for (const provider of KEYED_SEARCH_PROVIDERS) {
+      const key = keys[provider];
+      const row = searchKeyRow(provider);
+      if (key === null) {
+        await trx.deleteFrom('setting').where('key', '=', row).execute();
+      } else if (key !== undefined) {
+        const value = JSON.stringify(secretBox.encrypt(key, `setting:${row}`));
+        await trx
+          .insertInto('setting')
+          .values({ key: row, value })
+          .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
+          .execute();
+      }
+    }
+    const value = JSON.stringify(next);
+    await trx
+      .insertInto('setting')
+      .values({ key: 'search', value })
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
+      .execute();
+  });
+  return getServerSettings(db);
+}
+
+/**
+ * The search provider of the server settings, ready to search.
+ *
+ * @param db - Open database.
+ * @param secretBox - Decrypts the stored key.
+ * @param endpoints - Endpoints and time limit; tests replace them.
+ * @returns The backend, or null if search is off or its key unreadable
+ *   (e.g. after the server secret changed).
+ */
+export async function loadSearchBackend(
+  db: Kysely<DB>,
+  secretBox: SecretBox,
+  endpoints: SearchEndpoints = DEFAULT_SEARCH_ENDPOINTS,
+): Promise<SearchBackend | null> {
+  const { search } = await getServerSettings(db);
+  if (search.provider === 'off') {
+    return null;
+  }
+  if (search.provider === 'searxng') {
+    return search.searxngUrl ? searxngBackend(search.searxngUrl, endpoints) : null;
+  }
+  const provider = search.provider;
+  const row = await db.selectFrom('setting').select('value').where('key', '=', searchKeyRow(provider)).executeTakeFirst();
+  if (!row) {
+    return null;
+  }
+  let key: string;
+  try {
+    key = secretBox.decrypt(JSON.parse(row.value) as string, `setting:${searchKeyRow(provider)}`);
+  } catch {
+    console.warn(`[search] the stored ${provider} key cannot be decrypted; enter it again in the server settings`);
+    return null;
+  }
+  return provider === 'brave' ? braveBackend(key, endpoints) : tavilyBackend(key, endpoints);
 }
 
 /**

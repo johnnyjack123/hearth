@@ -10,7 +10,7 @@ import { ApiError, type ChatMessage } from '@/lib/api.ts';
 import { fade } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
-import { useConversation } from '@/lib/queries.ts';
+import { useConversation, usePublicSettings } from '@/lib/queries.ts';
 import { getChat } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
@@ -18,6 +18,7 @@ import { EnvironmentButton, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
+import { ResearchToggle } from './research-toggle.tsx';
 import { useStickToBottom } from './use-stick-to-bottom.ts';
 
 /**
@@ -73,8 +74,11 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const t = useT();
   const { selection, select, models } = useModelSelection(conversation);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
+  const [research, setResearch] = useState(entry.research.current);
+  const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
+  entry.research.current = research;
   const [draft, setDraft] = useState('');
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
@@ -141,6 +145,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
               <>
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
                 <EnvironmentButton conversation={conversation} online={online} />
+                {/* Agents in an environment have their own tools. */}
+                {!link && publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
               </>
             }
           />

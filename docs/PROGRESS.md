@@ -1,116 +1,99 @@
 # Progress
 
-_Last updated: 2026-10-18 · Phase 4 fertig und überarbeitet (Hintergrunddienst, `harness init`, Fortschritt, Kontext und Kosten, Web-Fetch in normalen Chats); nächstes: Test des Nutzers, dann Block „Recherche“_
+_Last updated: 2026-10-18 · Block „Recherche“ fertig (Fundstellen mit Erklärung, Hauptinhalt per Readability, Websuche mit Recherche-Schalter); nächstes: Test des Nutzers mit Websuche auf dem Pi_
 
 ## Where we are
 
-Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`), Arbeitsbranch `feat/phase-4-chat-env`. Nach jedem fertigen, geprüften Stück wird nach `main` gemergt und gepusht (Freigabe des Nutzers).
+Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf Feature-Branches (zuletzt `feat/research`), die nach jedem geprüften Stück per `--no-ff` in `main` gemergt und gepusht werden (Freigabe des Nutzers). `feat/phase-4-chat-env` ist seit dem 18.10. nicht mehr der Arbeitsbranch.
 
 **Terminal:** Im Projektordner startet `harness` (bzw. `harness run pi`) Gateway, Instanz und pi in der VM. Rückfragen des Gateways kommen im selben Terminal. `harness sync`/`merge` holen die Commits des Agents; `merge` prüft sie vorher (Regeln, OSV).
 
 **Web-Chat:**
-1. `harness login <Server>` koppelt den Rechner mit dem Konto und richtet den Hintergrunddienst ein (`harnessd.exe` bei jeder Anmeldung; bei schon gekoppeltem Rechner `harness daemon install`).
-2. `harness init` im Projektordner meldet das Projekt dem Konto.
-3. Im Chat „Umgebung“ → Gerät → Projekt. Die erste Nachricht startet VM, Gateway, Instanz und pi. Im Chat erscheinen:
-   - jeder Schritt mit Dauer
-   - Werkzeugaufrufe
-   - Rückfragen des Gateways mit Knöpfen
-   - Kontext-Füllstand und Kosten
-4. **Ohne Umgebung** lädt das Modell Webseiten über `web_fetch` im Server (nur öffentliche Adressen; fremde Hosts mit Freigabe im Chat).
+1. `harness login <Server>` koppelt den Rechner und richtet den Hintergrunddienst ein; `harness init` meldet ein Projekt.
+2. Im Chat „Umgebung“ → Gerät → Projekt: pi arbeitet in der VM. Schritte, Werkzeugaufrufe, Rückfragen, Kontext und Kosten erscheinen im Chat. Warnungen des pi-Schutzes zeigen aufklappbar Fundstelle und Grund.
+3. **Ohne Umgebung** lädt das Modell Seiten über `web_fetch` im Server, als Hauptinhalt (Readability). Fremde Hosts brauchen eine Freigabe. Bei Verdacht auf Prompt-Injection zeigt die Warnung aufklappbar jede Fundstelle mit Ausschnitt und einem Satz, warum das gefährlich ist.
+4. **Recherche-Schalter** im Composer (nur wenn ein Admin unter Administration → Server → Websuche einen Anbieter gespeichert hat): Das Modell sucht mit `web_search` und liest Treffer und Links geladener Seiten ohne Rückfrage. Unter der Antwort stehen die gelesenen Seiten als Quellen.
 
-**Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. noch mit dem lokalen Dev-Server `http://localhost:8080` gekoppelt.
+**Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
 
-Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓, solange die VM läuft), dann `bash scripts/smoke-connect.sh` (~1 min). Den Browser-E2E nur bei freiem Speicher laufen lassen (siehe Known issues).
+Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash scripts/smoke-connect.sh` (~1 min). Browser-E2E nur bei freiem Speicher (siehe Known issues).
 
 ## Next step
 
-1. **Test des Nutzers abwarten** (er hat den neuen Ablauf noch nicht ausprobiert): `harness daemon install`, `harness init`, verknüpfter Chat mit DeepSeek, Web-Fetch in einem normalen Chat. Seine Rückmeldung geht vor.
-2. **Block „Recherche“** (Wünsche des Nutzers vom 18.10., Plan in ROADMAP Phase 4 „Recherche“), in dieser Reihenfolge:
-   1. **Fundstellen von Prompt-Injection zeigen und erklären** (klein, sofort nützlich):
-      - `scan()` in `crates/harness-core/pi/guard.ts` und `apps/server/src/webfetch/injection.ts` liefert pro Treffer die Stelle mit Umgebung; unsichtbare Zeichen werden sichtbar, Tag-Zeichen entschlüsselt.
-      - Zu jeder Art von Fund kommt ein kurzer Satz, **warum** das gefährlich ist, für Laien verständlich (Wunsch des Nutzers).
-      - Web: aufklappbar in `web-fetch.tsx` und bei Agent-Hinweisen. pi: Ausschnitt in der Meldung.
-      - Beide Musterdateien gleich halten, ein Test vergleicht sie schon.
-   2. **Hauptinhalt statt ganzer Seite:** `@mozilla/readability` + `linkedom` in `apps/server/src/webfetch/convert.ts` vor turndown, mit Rückfall auf die ganze Seite. Testseiten als Fixtures.
-   3. **Websuche:**
-      - Werkzeug `web_search`
-      - SearXNG als Container im Compose (Profil `search`), wahlweise Brave/Tavily mit Key
-      - Recherche-Schalter im Composer: freie Abrufe nur für URLs aus Suchergebnissen, Nutzernachrichten und Links geladener Seiten; selbst gebaute URLs fragen weiter
-3. Danach (Reihenfolge laut Nutzer):
-   - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jede Warnung lässt sich von Jev oder einem Chat-Modell des Nutzers mit frischem Kontext bewerten. Bei Web-Fetch bekommt das Modell URL und Inhalt in derselben bereinigten Form wie das Hauptmodell. Jevs Scores werden angezeigt. Die Bewertung ergänzt Warnungen nur, sie entfernt keine. Das ersetzt den früheren Punkt „Jev als Klassifikator“ und deckt Stufe 3 der Merge-Prüfung mit ab.
+1. **Test des Nutzers auf dem Pi** (seine Wahl vom 18.10. für den echten Suchlauf):
+   - `docker compose pull`, dann mit Profil `search` starten (`COMPOSE_PROFILES=postgres,search` in `.env`, dazu `SEARXNG_SECRET`). Die neue `docker-compose.yml` muss auf den Pi; sie enthält die SearXNG-Konfiguration inline.
+   - In der Web-App: Administration → Server → Websuche → SearXNG, `http://searxng:8080`, speichern, „Suche testen“.
+   - Chat mit Recherche-Schalter und DeepSeek; dabei auf Antwortqualität, Dauer auf dem Pi (Readability bei großen Seiten) und Quellen achten.
+   - Seine Rückmeldung geht vor. Typische Fehler stehen in `docs/deploy.md` („Websuche“).
+2. Danach (Reihenfolge laut Nutzer):
+   - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
-4. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams.
-5. Später notiert (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub mit dem Installer.
+3. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams, Suche für Agents in der VM (über den Server).
+4. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
 
 ## In flight / half-finished
 
-Nichts. Alles ist committet, gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
+Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen. Offen ist nur der echte Suchlauf (siehe oben).
 
-## Decisions made this session (16.–18.10.)
+## Decisions made this session (18.10.)
 
-- **Hintergrunddienst als Benutzerprozess** mit Run-Schlüssel statt Windows-Dienst: Er braucht das Token des Nutzers (Anmeldeinformationsverwaltung) und `~/.harness`. Ein Mutex pro Konfiguration verhindert zwei Verbindungen.
-- **Projekte sind standardmäßig freigegeben, ohne Bestätigung pro Chat** (Nutzer, 18.10.). Schutz liegt in der Sandbox und darin, dass nur Chats des eigenen Kontos das Gerät erreichen. `confirm = true` geht noch, dann nur mit `harness connect`.
-- **Agent-Antworten als normale AI-SDK-Nachrichten** (`dynamic-tool`, Datenteile `notice`/`approval`/`progress`). Eine pi-Sitzung pro Chat (`--session-id`). Nur das Gerät kennt pis RPC-Format.
-- **Fortschritt jedes Schritts im Chat**, weil der Nutzer beim ersten Test nicht sah, ob etwas passiert.
-- **Kosten aus models.dev**, pi rechnet für Agents selbst. Ohne Katalog fehlt nur der Preis.
-- **Web-Fetch im Server, nicht in der VM.** Fremde Hosts brauchen eine Freigabe, damit ein gekapertes Modell keine Daten in URLs hinausschicken kann.
-- **TLS im Gateway** mit rustls hinter Feature `tls` (ring baut nicht auf Windows ARM64). `[server] ca` ersetzt die öffentlichen CAs.
-- **Merge-Prüfung:** KI-Stufen dürfen nur Funde hinzufügen, nie Regel-Funde wegerklären.
-- Früher: Keys nur im Server; Rückfragen nie in der Oberfläche der Harness; pi ohne eigene Netzzugriffe (`PI_OFFLINE=1`).
+- **Suchanbieter:** SearXNG (Compose-Profil `search`) plus wahlweise Brave oder Tavily mit Key, alle hinter `SearchBackend`. So hat der Nutzer es gewählt.
+- **Recherche erlaubt exakte URLs, nie Hosts.** Treffer und Links geladener Seiten hat ein Dritter geschrieben, ohne den Chat zu kennen. Eine selbst gebaute URL könnte Chat-Inhalte hinaustragen, auch auf einem bekannten Host. Weiterleitungen einer gefundenen URL sind frei, weil ihr Server sie wählt.
+- **Suchanfragen gehen ungefiltert an den Anbieter.** Das lässt sich nicht verhindern; der System-Prompt bittet das Modell, nichts Privates hineinzuschreiben (Hinweis in `docs/deploy.md`).
+- **Hauptinhalt mit Anteilsgrenze 20 %:** Auf den Startseiten von heise und SPIEGEL griff Readability einen Werbekasten (Anteil 0,12 bzw. 0,07). Dann lieber die ganze Seite als Information verlieren.
+- **Fundstellen werden roh gespeichert**, unsichtbare Zeichen eingeschlossen. Sichtbar machen sie die Oberflächen; im Terminal (pi) werden auch Steuerzeichen ersetzt, damit keine Escape-Folgen durchkommen.
+- **Hinweise vom Gerät bleiben Text:** Die erste Zeile ist die Meldung, weitere Zeilen sind aufklappbare Details. So bleibt das Tunnel-Protokoll unverändert (kein `TUNNEL_VERSION`-Sprung).
+- Der Test vergleicht pi-Schutz und Server jetzt im Verhalten: Er lädt `guard.ts` per dynamischem `import()` und prüft beide auf denselben Texten.
 
 ## Open questions for the user
 
-- Rückmeldung zum neuen Ablauf und zu Web-Fetch mit DeepSeek.
-- Suchanbieter: SearXNG auf dem Pi als Standard einverstanden?
+- Rückmeldung zur Websuche auf dem Pi (Qualität, Tempo) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 
 ## Known issues / debt
 
-- **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab. Abhilfe: fortsetzbare Streams.
+- **Mittel:** Echter Suchlauf (SearXNG, Brave, Tavily) noch nicht gegen echte Dienste geprüft, nur gegen Stand-ins. Die Antwortformate sind aus deren Doku.
+- **Mittel:** Readability braucht für 1–2-MB-Seiten hier ~1 s, auf dem Pi vermutlich mehrere Sekunden.
+- **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab (fortsetzbare Streams fehlen).
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
-- **Mittel:** pis Sitzungen aller Projekte liegen gemeinsam in `harness-cfg-pi` (cwd überall `/workspace`).
-- **Mittel:** Die VM bekommt nur RAM, den Windows frei hat (Start 1 GB; `doctor` zeigte am 17.10. 154 MiB frei). Bei mehreren Agents den Startspeicher anheben.
-- **Mittel:** ~350–500 ms pro podman-Aufruf; der erste Chat-Prompt braucht ~10 s Vorbereitung, mit VM-Start ~30 s.
+- **Mittel:** pis Sitzungen aller Projekte liegen gemeinsam in `harness-cfg-pi`.
+- **Mittel:** VM-RAM knapp (Start 1 GB; am 18.10. 183 MiB frei); ~350–500 ms pro podman-Aufruf.
 - **Mittel:** Kein Verbrauch oder Limit pro Gerät im LLM-Durchgang.
-- **Mittel:** Web-Fetch: Markdown-Bilder könnten Daten hinausschicken, nur die CSP der Produktion blockt das (Vite-Dev-Server hat keine).
-- **Mittel:** `in.bundle` enthält jedes Mal die ganze Historie. CLI-Texte nur Deutsch. Keine ESLint-Konfiguration.
-- **Niedrig:** `https://localhost` geht fürs Gateway nicht; `<none>`-Images in der VM; Host-Key der VM per Trust on first use.
-- **Rechner:** Wenig freier Speicher. Bei knappem Commit-Limit (17.10.: 29,6 von 31,6 GB) scheitert der Browser-E2E mit `ERR_INSUFFICIENT_RESOURCES` oder Timeouts, auch in unveränderten Schritten. Dann parallele Builds beenden und wiederholen. Windows Sandbox nie ungefragt starten (Bluescreen am 12.10.).
+- **Mittel:** Markdown-Bilder könnten Daten hinausschicken, nur die CSP der Produktion blockt das (Vite-Dev-Server hat keine).
+- **Niedrig:** Ob pis Oberfläche mehrzeilige Warnungen sauber umbricht, ist nur am Code geprüft (`showWarning` → `ThemedText`), nicht im Terminal gesehen.
+- **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
 
-Stand 18.10., nach dem Merge von Web-Fetch:
-- **Rust:** `cargo fmt --check`, `cargo clippy --all-targets` ohne Warnungen, `cargo test` grün (core 103).
-- **Server:** 89/89 (SQLite): Hub, Verknüpfung, Agent-Stream, Tunnel mit Token, gespeicherte Umgebungen, Preise, Web-Fetch (31). Postgres zuletzt am 14.10.
+Stand 18.10., nach dem Merge von Schritt 3:
+- **Server:** 103/103 (SQLite), darunter Websuche (Anbieter-Stand-ins, Einstellungen, Recherche mit Drehbuch-Modell), Readability-Fixtures, Vergleich pi-Schutz ↔ Server. Postgres zuletzt am 14.10.
+- **pi-Schutz:** `node --test crates/harness-core/pi/guard.test.ts` 6/6; `cargo test -p harness-core --lib` 103 grün (nach Schritt 1).
 - **Typecheck:** alle drei Pakete grün.
-- **Browser-E2E:** 11/11, 0 Konsolenprobleme. Geprüft:
-  - Web-Fetch mit Rückfrage
-  - Umgebung verknüpfen, ohne den Entwurf abzuschicken
-  - Fortschritt, Rückfrage des Gateways, Kosten, VM-Status
-  - Screenshots hell, dunkel und mobil angesehen
-- **VM:**
-  - `scripts/smoke-connect.sh` 30/30: `harness init`, Ablehnung mit `confirm = true`, echter Hintergrunddienst, pi per RPC, Rückfrage, `harness sync`, `daemon stop`
-  - `terminal_vm` 3/3, `gateway_vm` 2/2 (auch HTTPS)
-- **GitHub:** Server-Image und Gateway-Workflow grün.
-- **Nicht geprüft:**
-  - Autostart nach echter Windows-Anmeldung
-  - Lauf mit DeepSeek über den Web-Chat
-  - echter Caddy
-  - Postgres seit Phase 4
+- **Browser-E2E:** 12/12, 0 Konsolenprobleme:
+  - Fundstellen mit Tag-Zeichen
+  - Hauptinhalt
+  - Websuche einrichten und testen
+  - Recherche ohne Rückfrage, Quellen, Schalter nach Neuladen
+  - Screenshots angesehen (dunkel Desktop, hell mobil)
+- **Echte Läufe:**
+  - `scripts/smoke-connect.sh` 27/27: Die Warnung des pi-Schutzes kommt mit Fundstelle aus der VM in den Chat.
+  - Readability gegen echte Seiten: Wikipedia, MDN, Node-Doku, GitHub, heise und SPIEGEL (Start und Artikel), tagesschau, example.com
+  - `docker compose --profile search config` gültig
+- **Nicht geprüft:** echter Suchlauf; SearXNG-Container; Autostart nach echter Windows-Anmeldung; Lauf mit DeepSeek über den Web-Chat; echter Caddy.
 
 ---
 
 ## Log
 
+### 2026-10-18 (Block „Recherche“)
+- Fundstellen von Prompt-Injection mit Ausschnitt und Erklärung (`findInjections` in `guard.ts` und `injection.ts`, `injection-findings.tsx`, aufklappbare Agent-Hinweise).
+- Hauptinhalt per Readability + linkedom (`pageToMarkdown`), Tabellen als Markdown, `fullPage`.
+- Websuche: `apps/server/src/websearch/`, Admin-Einstellungen mit Testsuche, Recherche-Schalter, Trefferblock, Quellen, SearXNG im Compose.
+
 ### 2026-10-18 (Phase 4 nach dem ersten Test)
-- Bugfixes: Composer-Knöpfe schickten die Nachricht ab; DeepSeek schrieb nach einer Agent-Runde Werkzeugaufrufe als Text (`agentToolsAsText`).
-- Hintergrunddienst (`harness daemon`, `harnessd.exe`), `harness init`, gespeicherte Umgebungen, VM-Status, Fortschritt im Chat.
-- Kontext und Kosten (`pricing.ts`, models.dev; pi für Agents), Ring im Composer.
-- Web-Fetch in normalen Chats (Hilfsagent, `apps/server/src/webfetch/`).
-- Fehlerhinweise für den Pi-Server: ungültige `DATABASE_URL`, fehlendes Compose-Profil, nicht beschreibbarer Datenordner.
+- Hintergrunddienst, `harness init`, gespeicherte Umgebungen, Fortschritt, Kontext und Kosten, Web-Fetch in normalen Chats.
 
 ### 2026-10-17 (Phase 4, TLS, Server-Image)
-- Tunnel, Hub, `chatLink`, Agent-Stream; `harness connect`, pi im RPC-Modus; Umgebung-Knopf, Werkzeug-Blöcke, Rückfrage-Karten.
-- TLS im Gateway (Hilfsagent). Server-Image amd64/arm64, README, OSV-Abgleich, pi-Schutz gegen Prompt-Injection.
+- Tunnel, Hub, Agent-Stream, pi im RPC-Modus; TLS im Gateway; Server-Image amd64/arm64; pi-Schutz gegen Prompt-Injection.
 
 ### 2026-10-12 bis 2026-10-17 (Phase 2, 2b, 2c)
 - Workspace, Provider, Base-Image, Konfiguration, Git-Sync, Gateway, Kopplung, LLM-Durchgang, `run`/`shell`/`sync`/`merge`, Terminal-Relay, VM-Dienst, Merge-Prüfung Stufe 1.

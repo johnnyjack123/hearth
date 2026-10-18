@@ -1,4 +1,4 @@
-import { type MessageMetadata, parseWebFetchError, WEB_FETCH_TOOL } from '@harness/shared';
+import { type MessageMetadata, parseWebFetchError, parseWebSearchError, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import {
   APICallError,
   convertToModelMessages,
@@ -25,6 +25,9 @@ import { type ChatMessage, saveMessage, updateConversation } from '../services/c
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
 import { createWebFetchTool, type WebFetchConfig } from '../webfetch/tool.ts';
+import { KnownUrls } from '../websearch/known-urls.ts';
+import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
+import { createWebSearchTool } from '../websearch/tool.ts';
 
 const INSTRUCTIONS = [
   'You are a helpful assistant inside LLM Harness, a self-hosted chat application.',
@@ -39,8 +42,27 @@ const WEB_FETCH_INSTRUCTIONS = [
   'If the user declines a fetch, do not try again.',
 ].join(' ');
 
+/**
+ * Research mode, with the date: models do not know it, and "current"
+ * questions depend on it.
+ */
+function researchInstructions(now: Date, canFetch: boolean): string {
+  return [
+    `Research mode is on. Today is ${now.toISOString().slice(0, 10)}.`,
+    'Search the web with web_search whenever facts may be uncertain, recent or after your training data,',
+    'for example current events, prices, versions, people or anything the user asks you to look up.',
+    canFetch ? 'Read the most relevant results with web_fetch before you answer; URLs from search results and links on loaded pages load without asking.' : '',
+    'Never put private details from this conversation into search queries.',
+    'Cite the sources you used as Markdown links, and say when sources disagree or you found nothing reliable.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 /** Most model calls per reply when tools are offered (tool rounds plus the answer). */
 const MAX_STEPS = 6;
+/** Research takes several searches and pages before the answer. */
+const MAX_RESEARCH_STEPS = 12;
 
 const TITLE_INSTRUCTIONS =
   'Write a short title (at most six words) for a chat that starts with the message below. ' +
@@ -121,36 +143,68 @@ export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
 }
 
 const WEB_FETCH_PART = `tool-${WEB_FETCH_TOOL}`;
+const WEB_SEARCH_PART = `tool-${WEB_SEARCH_TOOL}`;
+
+function shorten(text: string): string {
+  return text.length > MAX_AGENT_OUTPUT_CHARS ? `${text.slice(0, MAX_AGENT_OUTPUT_CHARS)}…` : text;
+}
+
+/** One earlier `web_fetch` or `web_search` call as a line of text. */
+function serverToolText(part: ChatMessage['parts'][number]): string {
+  const { input = {}, output, state, errorText } = part as {
+    input?: Record<string, unknown>;
+    output?: Record<string, unknown>;
+    state?: string;
+    errorText?: string;
+  };
+  const error = state === 'output-error' ? (errorText ?? '') : null;
+  if (part.type === WEB_SEARCH_PART) {
+    const query = String(input.query ?? '');
+    const results = Array.isArray(output?.results) ? (output.results as { title?: unknown; url?: unknown }[]) : [];
+    const outcome = error
+      ? (parseWebSearchError(error)?.message ?? error)
+      : results.map((result, index) => `${index + 1}. ${String(result.title ?? '')} ${String(result.url ?? '')}`).join('; ');
+    return `[Earlier, web_search for ${JSON.stringify(query)}${outcome ? ` found: ${shorten(outcome)}` : ''}]`;
+  }
+  const url = String(input.url ?? '');
+  const outcome = error ? (parseWebFetchError(error)?.message ?? error) : String(output?.text ?? '');
+  return `[Earlier, web_fetch loaded ${url}${outcome ? `: ${shorten(outcome)}` : ''}]`;
+}
 
 /**
- * Turns earlier `web_fetch` calls into text, for a request without the tool
- * (an admin switched web fetch off). Providers reject tool calls in the
- * history when no tools are defined, and models would imitate them.
+ * Turns earlier calls of server tools into text, for a request without those
+ * tools (an admin switched web fetch off, research mode is off). Providers
+ * reject tool calls in the history when the tool is not defined, and models
+ * would imitate them.
+ *
+ * @param messages - Stored messages.
+ * @param tools - Names of the tools the request does not offer.
+ * @returns The same messages with those calls as text parts.
+ */
+export function serverToolsAsText(messages: ChatMessage[], tools: ReadonlySet<string>): ChatMessage[] {
+  const types = new Set([...tools].map((name) => `tool-${name}`));
+  if (types.size === 0) {
+    return messages;
+  }
+  return messages.map((message) => {
+    if (!message.parts.some((part) => types.has(part.type))) {
+      return message;
+    }
+    const parts = message.parts.flatMap((part): ChatMessage['parts'] =>
+      types.has(part.type) && 'state' in part ? [{ type: 'text', text: serverToolText(part) }] : [part],
+    );
+    return { ...message, parts };
+  });
+}
+
+/**
+ * Turns earlier `web_fetch` calls into text, see {@link serverToolsAsText}.
  *
  * @param messages - Stored messages.
  * @returns The same messages with web fetch calls as text parts.
  */
 export function webFetchAsText(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map((message) => {
-    if (!message.parts.some((part) => part.type === WEB_FETCH_PART)) {
-      return message;
-    }
-    const parts = message.parts.flatMap((part): ChatMessage['parts'] => {
-      if (part.type !== WEB_FETCH_PART || !('state' in part)) {
-        return [part];
-      }
-      const url = String((part.input as { url?: unknown } | undefined)?.url ?? '');
-      const outcome =
-        part.state === 'output-available'
-          ? String((part.output as { text?: unknown } | undefined)?.text ?? '')
-          : part.state === 'output-error'
-            ? (parseWebFetchError(part.errorText)?.message ?? part.errorText)
-            : '';
-      const shortened = outcome.length > MAX_AGENT_OUTPUT_CHARS ? `${outcome.slice(0, MAX_AGENT_OUTPUT_CHARS)}…` : outcome;
-      return [{ type: 'text', text: `[Earlier, web_fetch loaded ${url}${shortened ? `: ${shortened}` : ''}]` }];
-    });
-    return { ...message, parts };
-  });
+  return serverToolsAsText(messages, new Set([WEB_FETCH_TOOL]));
 }
 
 /**
@@ -232,7 +286,7 @@ export async function assignTitle(
 export function describeStreamError(error: unknown): string {
   // Tool errors become the tool's result for the model and the error text in
   // the chat; a web fetch error carries its own code and explanation.
-  if (error instanceof WebFetchError) {
+  if (error instanceof WebFetchError || error instanceof WebSearchError) {
     return error.message;
   }
   if (InvalidToolInputError.isInstance(error) || NoSuchToolError.isInstance(error)) {
@@ -268,6 +322,10 @@ export interface StreamChatOptions {
   abortSignal: AbortSignal;
   /** Web fetch for the model; null when an admin switched it off. */
   webFetch: { approvals: FetchApprovals; config: WebFetchConfig } | null;
+  /** Search provider in research mode; null when research mode is off or no provider is set up. */
+  search: SearchBackend | null;
+  /** Current time, for the date in research mode; tests fix it. */
+  now?: Date;
 }
 
 /**
@@ -278,30 +336,43 @@ export interface StreamChatOptions {
  * @returns A streaming HTTP response.
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
-  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch } = options;
+  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search } = options;
 
   // The tool writes its questions into the reply. The writer exists as soon
   // as the stream below is created, before the model can call the tool.
   let writer: UIMessageStreamWriter<ChatMessage> | undefined;
-  const tools = webFetch
-    ? {
-        [WEB_FETCH_TOOL]: createWebFetchTool({
-          conversationId,
-          messages,
-          write: (chunk) => writer?.write(chunk),
-          approvals: webFetch.approvals,
-          config: webFetch.config,
-        }),
-      }
-    : undefined;
+  // Shared by both tools: search hits and page links become free to load.
+  const known = search ? KnownUrls.fromMessages(messages) : null;
+  const tools = {
+    ...(webFetch
+      ? {
+          [WEB_FETCH_TOOL]: createWebFetchTool({
+            conversationId,
+            messages,
+            write: (chunk) => writer?.write(chunk),
+            approvals: webFetch.approvals,
+            config: webFetch.config,
+            known,
+          }),
+        }
+      : {}),
+    ...(search && known ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known) } : {}),
+  };
+  const hasTools = Object.keys(tools).length > 0;
+  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL].filter((name) => !(name in tools)));
+  const instructions = [
+    INSTRUCTIONS,
+    ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
+    ...(search ? [researchInstructions(options.now ?? new Date(), webFetch !== null)] : []),
+  ].join(' ');
 
   // Reasoning from earlier turns is display-only. Sending it back breaks when the
   // user switches providers mid-conversation (signatures are provider-specific).
-  // The tools turn stored web fetch results back into what the model saw; a
-  // call cut off by stop has no result and is left out.
+  // The tools turn stored results back into what the model saw; a call cut
+  // off by stop has no result and is left out.
   const modelMessages = pruneMessages({
-    messages: await convertToModelMessages(agentToolsAsText(tools ? messages : webFetchAsText(messages)), {
-      ...(tools ? { tools } : {}),
+    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(messages, missing)), {
+      ...(hasTools ? { tools } : {}),
       ignoreIncompleteToolCalls: true,
     }),
     reasoning: 'all',
@@ -319,9 +390,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       writer = streamWriter;
       const result = streamText({
         model,
-        instructions: tools ? `${INSTRUCTIONS} ${WEB_FETCH_INSTRUCTIONS}` : INSTRUCTIONS,
+        instructions,
         messages: modelMessages,
-        ...(tools ? { tools, stopWhen: isStepCount(MAX_STEPS) } : {}),
+        ...(hasTools ? { tools, stopWhen: isStepCount(search ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
         abortSignal,
       });
       streamWriter.merge(

@@ -13,8 +13,10 @@ import type {
   PairingInfo,
   ProviderCredential,
   PublicSettings,
+  SearchTestResult,
   ServerSettings,
   UpdateProviderCredentialInput,
+  UpdateServerSettings,
 } from '@harness/shared';
 import type { UIMessage } from 'ai';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
@@ -77,7 +79,8 @@ export const api = {
   settings: {
     public: () => request<PublicSettings>('GET', '/settings'),
     get: () => request<ServerSettings>('GET', '/admin/settings'),
-    update: (patch: Partial<ServerSettings>) => request<ServerSettings>('PATCH', '/admin/settings', patch),
+    update: (patch: UpdateServerSettings) => request<ServerSettings>('PATCH', '/admin/settings', patch),
+    testSearch: () => request<SearchTestResult>('POST', '/admin/settings/search/test'),
   },
   providers: {
     list: () => request<ProviderCredential[]>('GET', '/providers'),

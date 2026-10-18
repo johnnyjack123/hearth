@@ -9,6 +9,7 @@ import type { LlmGateway } from '../llm.ts';
 import type { PricingCatalog } from '../pricing.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
 import type { WebFetchConfig } from '../webfetch/tool.ts';
+import type { SearchEndpoints } from '../websearch/providers.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
 
@@ -36,6 +37,11 @@ export interface AppDeps {
    * a local server. The server itself never sets it.
    */
   webFetch?: Partial<WebFetchConfig>;
+  /**
+   * Overrides of the search endpoints, for tests with local stand-ins of
+   * Brave and Tavily. The server itself never sets it.
+   */
+  webSearch?: Partial<SearchEndpoints>;
 }
 
 /**
