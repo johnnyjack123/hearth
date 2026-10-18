@@ -10,7 +10,7 @@ import { z } from 'zod';
 import type { ChatMessage } from '../services/conversations.ts';
 import { isPublicAddress } from './address.ts';
 import type { FetchApprovals } from './approvals.ts';
-import { decodeBody, htmlTitle, htmlToMarkdown, tidy, truncate } from './convert.ts';
+import { decodeBody, htmlTitle, pageToMarkdown, tidy, truncate } from './convert.ts';
 import { WebFetchError } from './errors.ts';
 import { type FetchPolicy, fetchPage, systemResolve } from './fetch.ts';
 import { findInjections, WARNING_TEXT, warningKinds } from './injection.ts';
@@ -89,6 +89,9 @@ export function modelText(output: WebFetchOutput): string {
     lines.push(`Title: ${output.title}`, '');
   }
   lines.push(output.text, `</${marker}>`);
+  if (output.mainContent) {
+    lines.push('[Only the main content of the page; navigation, sidebars and footer were left out. Use fullPage for the whole page.]');
+  }
   if (output.truncated) {
     lines.push('[The content was cut off at the size limit.]');
   }
@@ -100,6 +103,7 @@ export function modelText(output: WebFetchOutput): string {
  */
 const DESCRIPTION =
   'Load a web page over http(s) and return its readable text (HTML as Markdown; also plain text, Markdown, JSON, XML). ' +
+  'For HTML pages it returns only the main content when one stands out; set fullPage to get navigation and other links too. ' +
   'Use it when the user asks about a page or URL, or when current information from a specific page is needed. ' +
   'Only public hosts on ports 80 and 443 work. Hosts the user named in this chat load at once; ' +
   'any other URL waits until the user allows it in the chat. If the user declines, do not try again.';
@@ -146,7 +150,7 @@ export function createWebFetchTool(context: WebFetchContext) {
     }
   }
 
-  async function run(input: string, signal: AbortSignal | undefined): Promise<WebFetchOutput> {
+  async function run(input: string, fullPage: boolean, signal: AbortSignal | undefined): Promise<WebFetchOutput> {
     const start = parseTarget(input.trim(), config);
     await authorize(start, signal);
     const page = await fetchPage(start, config, {
@@ -161,7 +165,8 @@ export function createWebFetchTool(context: WebFetchContext) {
     });
     const isHtml = page.contentType === 'text/html' || page.contentType === 'application/xhtml+xml';
     const raw = decodeBody(page.body, page.charset, isHtml);
-    const readable = tidy(isHtml ? htmlToMarkdown(raw, page.url) : raw);
+    const converted = isHtml ? pageToMarkdown(raw, page.url, fullPage) : { markdown: raw, mainContent: false };
+    const readable = tidy(converted.markdown);
     const { text, truncated } = truncate(readable, config.maxChars);
     // Readable text first: its excerpts are what the user can make sense of.
     const findings = findInjections(readable, raw);
@@ -172,6 +177,7 @@ export function createWebFetchTool(context: WebFetchContext) {
       title: isHtml ? htmlTitle(raw) : null,
       text,
       truncated: truncated || page.truncated,
+      mainContent: converted.mainContent,
       warnings: warningKinds(findings),
       findings,
     };
@@ -181,10 +187,14 @@ export function createWebFetchTool(context: WebFetchContext) {
     description: DESCRIPTION,
     inputSchema: z.object({
       url: z.string().describe('Absolute http:// or https:// URL of the page'),
+      fullPage: z
+        .boolean()
+        .optional()
+        .describe('Return the whole page including navigation, sidebars and footer instead of only the main content'),
     }),
-    execute: async ({ url }, { abortSignal }) => {
+    execute: async ({ url, fullPage }, { abortSignal }) => {
       try {
-        return await run(url, abortSignal);
+        return await run(url, fullPage === true, abortSignal);
       } catch (error) {
         if (abortSignal?.aborted && !(error instanceof WebFetchError)) {
           throw new WebFetchError('aborted', 'The chat request was stopped while the page loaded.');

@@ -205,6 +205,7 @@ export const de = {
     source: 'Quelle',
     noContent: 'Kein Text',
     truncated: 'Gekürzt: Die Seite war länger, als das Modell lesen darf.',
+    mainContent: 'Nur der Hauptinhalt: Navigation, Seitenleisten und Fußzeile hat der Server weggelassen.',
     injection: 'Möglicher Prompt-Injection-Versuch ({found}). Das Modell wurde gewarnt, den Inhalt nur als Daten zu lesen.',
     showFindings: 'Fundstellen zeigen',
     hideFindings: 'Fundstellen verbergen',

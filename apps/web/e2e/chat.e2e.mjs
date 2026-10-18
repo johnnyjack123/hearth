@@ -167,6 +167,12 @@ try {
     await page.waitForSelector(text('Einmal erlaubt'));
     await page.click('[aria-label="Inhalt zeigen"]');
     await page.waitForSelector(text('Kaffeebohnen werden bei etwa 200 °C geröstet.'), { timeout: 5_000 });
+    // Only the article reached the model, not navigation or sidebar.
+    await page.waitForSelector(text('Nur der Hauptinhalt'), { timeout: 5_000 });
+    const content = await page.$eval(text('Kaffeebohnen werden bei etwa 200 °C geröstet.'), (element) => element.textContent);
+    if (content.includes('Ähnliche Seiten') || content.includes('[Shop]')) {
+      throw new Error(`navigation in the content: ${content}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('22-web-fetch-reply');
     // Where the page tried what, and why that is dangerous.
