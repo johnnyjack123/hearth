@@ -9,7 +9,7 @@ import { queryKeys } from '@/lib/queries.ts';
 import { Section, SettingRow } from '../shell/page.tsx';
 
 /**
- * Server-wide settings: registration mode and custom endpoints.
+ * Server-wide settings: registration mode, custom endpoints and web fetch.
  *
  * @returns The server panel.
  */
@@ -65,9 +65,22 @@ export function ServerPanel() {
                 />
               }
             />
+            <Separator />
+            <SettingRow
+              label={t('admin.webFetch')}
+              description={t('admin.webFetchHint')}
+              control={
+                <Switch
+                  aria-label={t('admin.webFetch')}
+                  checked={settings.data.webFetch}
+                  onCheckedChange={(checked) => update.mutate({ webFetch: checked })}
+                />
+              }
+            />
           </>
         ) : (
           <div className="flex flex-col gap-4 p-4">
+            <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />
             <Skeleton className="h-12 w-full" />
           </div>
