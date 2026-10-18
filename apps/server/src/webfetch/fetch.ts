@@ -237,11 +237,16 @@ export interface FetchPageOptions {
  *   timeouts and network errors. Aborts via `signal` reject with the abort reason.
  */
 export async function fetchPage(start: URL, policy: FetchPolicy, options: FetchPageOptions = {}): Promise<FetchedPage> {
-  const deadline = AbortSignal.timeout(policy.timeoutMs);
-  const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  // The time limit covers the network only: while `onRedirect` waits for the
+  // user, the clock stops.
+  let remaining = policy.timeoutMs;
+  let deadline: AbortSignal | undefined;
   let url = start;
   try {
     for (let hop = 0; ; hop += 1) {
+      const hopStarted = Date.now();
+      deadline = AbortSignal.timeout(Math.max(remaining, 1));
+      const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
       let response: IncomingMessage;
       try {
         response = await get(url, policy, signal);
@@ -265,6 +270,7 @@ export async function fetchPage(start: URL, policy: FetchPolicy, options: FetchP
           throw new WebFetchError('invalid_url', 'The server redirected to an invalid URL.');
         }
         const target = parseTarget(next.href, policy);
+        remaining -= Date.now() - hopStarted;
         await options.onRedirect?.(target, url);
         url = target;
         continue;
@@ -295,7 +301,7 @@ export async function fetchPage(start: URL, policy: FetchPolicy, options: FetchP
       return { url, status, contentType: type, charset, body, truncated };
     }
   } catch (error) {
-    if (deadline.aborted && !options.signal?.aborted) {
+    if (deadline?.aborted && !options.signal?.aborted) {
       throw new WebFetchError('timeout', `The page did not load within ${Math.round(policy.timeoutMs / 1000)} seconds.`);
     }
     throw error;

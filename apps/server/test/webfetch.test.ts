@@ -531,6 +531,13 @@ describe('fetchPage', () => {
     );
     expect(stopped).toBe('denied');
     expect(seen).toEqual([`other.test:${port}`]);
+
+    // Waiting for the user does not count towards the time limit.
+    const quick = { ...policy, timeoutMs: 300 };
+    const allowed = await fetchPage(url('site.test', '/to-other'), quick, {
+      onRedirect: () => new Promise((resolve) => setTimeout(resolve, 500)),
+    });
+    expect(allowed.url.host).toBe(`other.test:${port}`);
   });
 
   it('enforces type, size, status and time limits', async () => {
