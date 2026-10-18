@@ -378,7 +378,7 @@ fn remote_access_is_switched_and_chats_remembered() {
         RemoteConfig::default()
     );
 
-    let remote = f.config.set_remote(&name, Some(true), None).unwrap();
+    let remote = f.config.set_remote(&name, Some(true), Some(true)).unwrap();
     assert!(remote.enabled && remote.confirm);
     f.config.remember_remote_chat(&name, "0199-abc").unwrap();
     f.config.remember_remote_chat(&name, "0199-abc").unwrap();
@@ -387,13 +387,14 @@ fn remote_access_is_switched_and_chats_remembered() {
     assert_eq!(remote.chats, ["0199-abc"]);
     assert!(!remote.confirm);
 
-    // A project file from before `[remote]` existed gets the table on demand.
+    // A project file from before `[remote]` existed gets the table on demand
+    // and is offered like a new one.
     let file = f.config.project_file(&name);
     let text = fs::read_to_string(&file).unwrap();
     let start = text.find("[remote]").unwrap();
     let end = text.find("[resources]").unwrap();
     fs::write(&file, format!("{}{}", &text[..start], &text[end..])).unwrap();
-    assert!(!f.config.project_config(&name).unwrap().remote.enabled);
+    assert!(f.config.project_config(&name).unwrap().remote.enabled);
     f.config.remember_remote_chat(&name, "c2").unwrap();
     assert_eq!(f.config.project_config(&name).unwrap().remote.chats, ["c2"]);
     let text = fs::read_to_string(&file).unwrap();

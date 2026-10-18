@@ -1,10 +1,13 @@
-//! `harness connect`: keeps this computer connected to the harness server,
-//! so web chats linked to a released project run their agent here.
+//! The connection of this computer to the harness server, so web chats can
+//! use its projects: `harness daemon` keeps it in the background, `harness
+//! connect` in a terminal (for watching or testing).
 //!
-//! The server can only ask for projects released with `harness project
-//! remote on`, and each new chat is confirmed here first unless the project
-//! says otherwise. Agents run exactly as with `harness run`: in the
-//! project's instance, behind its gateway, with the device's LLM access.
+//! The server can only ask for projects released in their project file
+//! (`[remote]`, on by default since `harness init`); a project may still
+//! demand a confirmation per chat, which only the terminal can give.
+//! Agents run exactly as with `harness run`: in the project's instance,
+//! behind its gateway, with the device's LLM access. Every step on the way
+//! is reported to the chat, so the user sees that something happens.
 //! Questions of the gateway go to the chat; answering them is the user's
 //! decision in the browser, never the container's.
 
@@ -15,7 +18,7 @@ use std::process::{Child, ChildStdin};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, bail};
 use harness_core::Provider;
@@ -24,17 +27,20 @@ use harness_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
 use harness_core::pi_rpc::{self, Output, Translator};
 use harness_core::project::ProjectName;
 use harness_core::provider::ExecSpec;
+use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
-    AgentEvent, ApprovalState, Decision, DeviceMessage, NoticeLevel, Prompt, RemoteProject,
-    ServerMessage, TUNNEL_PATH, TUNNEL_VERSION,
+    AgentEvent, ApprovalState, Decision, DeviceMessage, NoticeLevel, ProgressState, Prompt,
+    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
+use crate::daemon::{self, Instance};
 use crate::net::{self, Question};
+use crate::progress::Progress;
 use crate::{login, run};
 
 /// The only machine interface harness speaks so far.
@@ -44,46 +50,179 @@ const PI_RPC: &str = "pi-rpc";
 const POLL: Duration = Duration::from_millis(100);
 
 /// Released projects are looked up again this often, so `harness project
-/// remote on` takes effect without a restart.
+/// remote on|off` and new projects take effect without a restart.
 const RESCAN: Duration = Duration::from_secs(10);
+
+/// The VM's state is reported this often (the VM service answers fast).
+const VM_STATUS: Duration = Duration::from_secs(15);
 
 /// A question on this computer is refused after this long without answer.
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
-/// `harness connect`.
+/// Whether a person watches: only then can a chat be confirmed here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// `harness connect` in a terminal.
+    Foreground,
+    /// `harness daemon run`, started hidden by `harnessd`.
+    Background,
+}
+
+/// A log line; in the background with a time, because it goes to a file.
+fn say(mode: Mode, text: &str) {
+    match mode {
+        Mode::Foreground => println!("{text}"),
+        Mode::Background => println!("{} {text}", utc_stamp()),
+    }
+}
+
+/// `2026-10-18 12:34:56Z`, without a date library.
+fn utc_stamp() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let days = i64::try_from(secs / 86_400).unwrap_or(0);
+    let rest = secs % 86_400;
+    // Howard Hinnant's civil-from-days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// `harness connect`: the connection in this terminal, until Strg+C.
 pub fn connect(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
+    let Some(instance) = Instance::acquire(config)? else {
+        bail!(
+            "Der Hintergrunddienst hält die Verbindung schon (`harness daemon`). Zum Zuschauen \
+             im Terminal erst `harness daemon stop`."
+        );
+    };
     let Some((client, token)) = login::paired(config)? else {
         bail!("Dieser Rechner ist mit keinem harness-Server gekoppelt: zuerst `harness login`.");
     };
+    let ended = keep_connected(
+        config,
+        machine,
+        Mode::Foreground,
+        &instance,
+        &client,
+        &token,
+    )?;
+    Ok(ended == Ended::Stopped)
+}
+
+/// `harness daemon run`: the connection in the background. Returns the
+/// process exit code for the launcher (0: stopped, 3: not paired).
+pub fn serve_forever(config: &ConfigDir, machine: &str, mode: Mode) -> i32 {
+    let instance = match Instance::acquire(config) {
+        Ok(Some(instance)) => instance,
+        Ok(None) => {
+            say(mode, "Läuft schon (anderer Dienst oder harness connect).");
+            return 0;
+        }
+        Err(error) => {
+            say(mode, &format!("Start gescheitert: {error:#}"));
+            return 1;
+        }
+    };
+    let paired = match login::paired(config) {
+        Ok(paired) => paired,
+        Err(error) => {
+            say(mode, &format!("Kopplung nicht lesbar: {error:#}"));
+            return 1;
+        }
+    };
+    let Some((client, token)) = paired else {
+        say(
+            mode,
+            "Nicht gekoppelt (`harness login`); der Dienst beendet sich.",
+        );
+        return daemon::EXIT_UNPAIRED;
+    };
+    match keep_connected(config, machine, mode, &instance, &client, &token) {
+        Ok(Ended::Stopped) => {
+            say(mode, "Beendet.");
+            0
+        }
+        Ok(_) => daemon::EXIT_UNPAIRED,
+        Err(error) => {
+            say(mode, &format!("Beendet mit Fehler: {error:#}"));
+            1
+        }
+    }
+}
+
+/// Connects and reconnects until the device is revoked or a stop is asked for.
+fn keep_connected(
+    config: &ConfigDir,
+    machine: &str,
+    mode: Mode,
+    instance: &Instance,
+    client: &harness_core::server::ServerClient,
+    token: &str,
+) -> anyhow::Result<Ended> {
     let url = tunnel_url(client.url())?;
+    let ca = ServerCa::from_config(&config.global()?.server)?;
     let shared = Arc::new(Shared {
         config: config.clone(),
         machine: machine.to_owned(),
-        console: Console::new(),
+        mode,
+        console: match mode {
+            Mode::Foreground => Console::new(),
+            Mode::Background => Console::none(),
+        },
     });
     let projects = offered(config);
-    print_offer(&projects);
+    print_offer(mode, &projects);
+    // Also through the API, so the projects show up while the tunnel is
+    // still being built (or cannot be).
+    if let Err(error) = client.set_projects(token, &projects) {
+        say(mode, &format!("Projekte nicht gemeldet: {error}"));
+    }
 
     let mut wait = Duration::from_secs(1);
     loop {
-        match serve(&shared, &url, &token) {
+        match serve(&shared, instance, &url, ca.as_ref(), token) {
             Ok(Ended::Revoked) => {
-                println!(
-                    "Der Server kennt dieses Gerät nicht mehr (in der Web-App entfernt?). \
-                     Neu koppeln mit `harness login`."
+                say(
+                    mode,
+                    "Der Server kennt dieses Gerät nicht mehr (in der Web-App entfernt?). Neu \
+                     koppeln mit `harness login`.",
                 );
-                return Ok(false);
+                return Ok(Ended::Revoked);
             }
+            Ok(Ended::Stopped) => return Ok(Ended::Stopped),
             Ok(Ended::Closed) => {
-                println!("Der Server hat die Verbindung beendet.");
+                say(mode, "Der Server hat die Verbindung beendet.");
                 wait = Duration::from_secs(1);
             }
-            Err(error) => println!("Verbindung zu {} unterbrochen: {error:#}", client.url()),
+            Err(error) => say(
+                mode,
+                &format!("Verbindung zu {} unterbrochen: {error:#}", client.url()),
+            ),
         }
-        println!("Neuer Versuch in {} s …", wait.as_secs());
-        thread::sleep(wait);
+        say(mode, &format!("Neuer Versuch in {} s …", wait.as_secs()));
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            if instance.stop_requested() {
+                return Ok(Ended::Stopped);
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
         wait = (wait * 2).min(Duration::from_secs(30));
     }
 }
@@ -101,8 +240,8 @@ fn tunnel_url(base: &str) -> anyhow::Result<String> {
 }
 
 /// Released projects and their harnesses with a machine interface. Broken
-/// project files are skipped with a note instead of stopping everything.
-fn offered(config: &ConfigDir) -> Vec<RemoteProject> {
+/// project files are skipped instead of stopping everything.
+pub fn offered(config: &ConfigDir) -> Vec<RemoteProject> {
     let mut projects = Vec::new();
     let Ok(names) = config.project_names() else {
         return projects;
@@ -134,38 +273,51 @@ fn offered(config: &ConfigDir) -> Vec<RemoteProject> {
     projects
 }
 
-fn print_offer(projects: &[RemoteProject]) {
+fn print_offer(mode: Mode, projects: &[RemoteProject]) {
     if projects.is_empty() {
-        println!(
-            "Noch kein Projekt für Web-Chats freigegeben. Im Projektordner: \
-             `harness project remote on`."
+        say(
+            mode,
+            "Noch kein Projekt für Web-Chats. Im Projektordner: `harness init`.",
         );
     } else {
         let names: Vec<String> = projects
             .iter()
             .map(|p| format!("{} ({})", p.name, p.harnesses.join(", ")))
             .collect();
-        println!("Für Web-Chats freigegeben: {}", names.join(", "));
+        say(
+            mode,
+            &format!("Für Web-Chats freigegeben: {}", names.join(", ")),
+        );
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ended {
     /// The server closed the connection; reconnect.
     Closed,
     /// The token is no longer valid; reconnecting is pointless.
     Revoked,
+    /// `harness daemon stop` (or the end of `harness connect`).
+    Stopped,
 }
 
 /// What every session thread needs.
 struct Shared {
     config: ConfigDir,
     machine: String,
+    mode: Mode,
     console: Console,
 }
 
 /// Runs one connection until it ends.
-fn serve(shared: &Arc<Shared>, url: &str, token: &str) -> anyhow::Result<Ended> {
-    let mut socket = match open(url, token) {
+fn serve(
+    shared: &Arc<Shared>,
+    instance: &Instance,
+    url: &str,
+    ca: Option<&ServerCa>,
+    token: &str,
+) -> anyhow::Result<Ended> {
+    let mut socket = match open(url, ca, token) {
         Ok(socket) => socket,
         Err(tungstenite::Error::Http(response))
             if response.status() == StatusCode::UNAUTHORIZED =>
@@ -182,18 +334,36 @@ fn serve(shared: &Arc<Shared>, url: &str, token: &str) -> anyhow::Result<Ended> 
             projects: projects.clone(),
         },
     )?;
-    println!("Verbunden. Warte auf Nachrichten aus verknüpften Chats (Beenden: Strg+C).");
+    let mut vm = crate::vm::status();
+    send(&mut socket, &DeviceMessage::Status { vm })?;
+    say(
+        shared.mode,
+        match shared.mode {
+            Mode::Foreground => {
+                "Verbunden. Warte auf Nachrichten aus verknüpften Chats (Beenden: Strg+C)."
+            }
+            Mode::Background => "Verbunden.",
+        },
+    );
 
     let (out, outgoing) = mpsc::channel::<DeviceMessage>();
     let mut sessions: HashMap<String, SessionHandle> = HashMap::new();
     let mut rescanned = Instant::now();
+    let mut vm_checked = Instant::now();
     let result = loop {
+        if instance.stop_requested() {
+            let _ = socket.close(None);
+            break Ok(Ended::Stopped);
+        }
         match socket.read() {
             Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(&text) {
                 Ok(message) => {
-                    dispatch(shared, &projects, &mut sessions, &out, message);
+                    dispatch(shared, &mut sessions, &out, message);
                 }
-                Err(error) => println!("Unverständliche Nachricht vom Server: {error}"),
+                Err(error) => say(
+                    shared.mode,
+                    &format!("Unverständliche Nachricht vom Server: {error}"),
+                ),
             },
             Ok(Message::Close(frame)) => {
                 if frame.is_some_and(|f| u16::from(f.code) == 4003) {
@@ -225,7 +395,7 @@ fn serve(shared: &Arc<Shared>, url: &str, token: &str) -> anyhow::Result<Ended> 
             rescanned = Instant::now();
             let now = offered(&shared.config);
             if now != projects {
-                print_offer(&now);
+                print_offer(shared.mode, &now);
                 projects = now;
                 send(
                     &mut socket,
@@ -233,6 +403,14 @@ fn serve(shared: &Arc<Shared>, url: &str, token: &str) -> anyhow::Result<Ended> 
                         projects: projects.clone(),
                     },
                 )?;
+            }
+        }
+        if vm_checked.elapsed() >= VM_STATUS {
+            vm_checked = Instant::now();
+            let now = crate::vm::status();
+            if now != vm {
+                vm = now;
+                send(&mut socket, &DeviceMessage::Status { vm })?;
             }
         }
     };
@@ -247,12 +425,48 @@ fn serve(shared: &Arc<Shared>, url: &str, token: &str) -> anyhow::Result<Ended> 
     result
 }
 
-fn open(url: &str, token: &str) -> Result<Socket, tungstenite::Error> {
+/// Opens the tunnel. With `[server] ca` only that CA counts for an
+/// `https://` server, as for every other request of harness.
+fn open(url: &str, ca: Option<&ServerCa>, token: &str) -> Result<Socket, tungstenite::Error> {
     let mut request = url.into_client_request()?;
     let header = tungstenite::http::HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|e| tungstenite::Error::HttpFormat(e.into()))?;
     request.headers_mut().insert("authorization", header);
-    let (mut socket, _) = tungstenite::connect(request)?;
+    let mut socket = match ca.filter(|_| url.starts_with("wss://")) {
+        None => tungstenite::connect(request)?.0,
+        Some(ca) => {
+            let host = request.uri().host().unwrap_or_default().to_owned();
+            let port = request.uri().port_u16().unwrap_or(443);
+            let host = host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .to_owned();
+            let stream = TcpStream::connect((host.as_str(), port))?;
+            let mut builder = native_tls::TlsConnector::builder();
+            builder.disable_built_in_roots(true);
+            for der in ca.certificates() {
+                let certificate = native_tls::Certificate::from_der(der)
+                    .map_err(|e| tungstenite::Error::Tls(e.into()))?;
+                builder.add_root_certificate(certificate);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| tungstenite::Error::Tls(e.into()))?;
+            tungstenite::client_tls_with_config(
+                request,
+                stream,
+                None,
+                Some(tungstenite::Connector::NativeTls(connector)),
+            )
+            .map_err(|e| match e {
+                tungstenite::HandshakeError::Failure(error) => error,
+                tungstenite::HandshakeError::Interrupted(_) => tungstenite::Error::Io(
+                    io::Error::new(io::ErrorKind::WouldBlock, "TLS-Handshake unterbrochen"),
+                ),
+            })?
+            .0
+        }
+    };
     let stream = match socket.get_mut() {
         MaybeTlsStream::Plain(stream) => Some(&*stream),
         MaybeTlsStream::NativeTls(stream) => Some(stream.get_ref()),
@@ -287,20 +501,33 @@ struct SessionHandle {
 
 fn dispatch(
     shared: &Arc<Shared>,
-    projects: &[RemoteProject],
     sessions: &mut HashMap<String, SessionHandle>,
     out: &Sender<DeviceMessage>,
     message: ServerMessage,
 ) {
     match message {
-        ServerMessage::Welcome { version } if version != TUNNEL_VERSION => println!(
-            "Der Server spricht Protokoll {version}, dieses harness {TUNNEL_VERSION}. \
-             Bitte harness oder den Server aktualisieren."
+        ServerMessage::Welcome { version } if version != TUNNEL_VERSION => say(
+            shared.mode,
+            &format!(
+                "Der Server spricht Protokoll {version}, dieses harness {TUNNEL_VERSION}. Bitte \
+                 harness oder den Server aktualisieren."
+            ),
         ),
         ServerMessage::Welcome { .. } | ServerMessage::Unknown => {}
         ServerMessage::Prompt(prompt) => {
-            // The device decides what runs here, whatever the server says.
-            let released = projects
+            // First sign of life in the chat: the computer has the message.
+            let _ = out.send(DeviceMessage::SessionEvent {
+                session: prompt.session.clone(),
+                event: AgentEvent::Progress {
+                    id: "received".to_owned(),
+                    label: "Auf dem Rechner angekommen".to_owned(),
+                    state: ProgressState::Done,
+                    detail: None,
+                },
+            });
+            // The device decides what runs here, whatever the server says;
+            // read fresh, so a project from `harness init` works at once.
+            let released = offered(&shared.config)
                 .iter()
                 .any(|p| p.name == prompt.project && p.harnesses.contains(&prompt.harness));
             if !released {
@@ -387,8 +614,62 @@ impl Emitter {
     }
 }
 
-/// A session: confirmation, environment, pi in RPC mode, until the chat
-/// is unlinked, pi exits or the connection ends.
+/// Reports the steps of preparing a session to its chat (and the log).
+struct ChatProgress<'a> {
+    emit: &'a Emitter,
+    mode: Mode,
+    title: String,
+    steps: Mutex<HashMap<String, (String, Instant)>>,
+}
+
+impl ChatProgress<'_> {
+    fn event(&self, id: &str, label: &str, state: ProgressState, detail: Option<String>) {
+        self.emit.event(AgentEvent::Progress {
+            id: id.to_owned(),
+            label: label.to_owned(),
+            state,
+            detail,
+        });
+    }
+}
+
+impl Progress for ChatProgress<'_> {
+    fn start(&self, id: &str, label: &str) {
+        lock(&self.steps).insert(id.to_owned(), (label.to_owned(), Instant::now()));
+        self.event(id, label, ProgressState::Running, None);
+    }
+
+    fn done(&self, id: &str) {
+        let Some((label, started)) = lock(&self.steps).remove(id) else {
+            return;
+        };
+        let took = format!("{:.1} s", started.elapsed().as_secs_f32());
+        say(
+            self.mode,
+            &format!("Chat „{}“: {label} ✓ ({took})", self.title),
+        );
+        self.event(id, &label, ProgressState::Done, Some(took));
+    }
+
+    fn failed(&self, id: &str, error: &str) {
+        let label = lock(&self.steps)
+            .remove(id)
+            .map_or_else(|| id.to_owned(), |(label, _)| label);
+        say(
+            self.mode,
+            &format!("Chat „{}“: {label} ✗ {error}", self.title),
+        );
+        self.event(
+            id,
+            &label,
+            ProgressState::Failed,
+            Some(truncate(error, 500)),
+        );
+    }
+}
+
+/// A session: environment, pi in RPC mode, until the chat is unlinked, pi
+/// exits or the connection ends.
 fn session(
     shared: &Shared,
     first: Prompt,
@@ -404,22 +685,31 @@ fn session(
         .title
         .clone()
         .unwrap_or_else(|| "ohne Titel".to_owned());
-    match start(shared, &first, &emit) {
+    match start(shared, &first, &emit, &sanitize(&title)) {
         Ok(Some(mut agent)) => {
-            println!(
-                "Chat „{}“: {} läuft im Projekt {}.",
-                sanitize(&title),
-                agent.harness.name,
-                agent.project.name
+            say(
+                shared.mode,
+                &format!(
+                    "Chat „{}“: {} läuft im Projekt {}.",
+                    sanitize(&title),
+                    agent.harness.name,
+                    agent.project.name
+                ),
             );
             agent.prompt(&first);
             agent.serve(shared, commands);
             agent.stop();
-            println!("Chat „{}“: Sitzung beendet.", sanitize(&title));
+            say(
+                shared.mode,
+                &format!("Chat „{}“: Sitzung beendet.", sanitize(&title)),
+            );
         }
         Ok(None) => {}
         Err(error) => {
-            println!("Chat „{}“: {error:#}", sanitize(&title));
+            say(
+                shared.mode,
+                &format!("Chat „{}“: {error:#}", sanitize(&title)),
+            );
             emit.closed(Some(format!(
                 "Start auf dem Rechner gescheitert: {error:#}"
             )));
@@ -442,24 +732,34 @@ struct Agent {
     first_prompt: bool,
     next_id: u64,
     approvals: Option<ApprovalBridge>,
+    /// Set while the harness has the message but has not answered yet.
+    thinking: Arc<Mutex<bool>>,
 }
 
-fn start(shared: &Shared, prompt: &Prompt, emit: &Emitter) -> anyhow::Result<Option<Agent>> {
+fn start(
+    shared: &Shared,
+    prompt: &Prompt,
+    emit: &Emitter,
+    title: &str,
+) -> anyhow::Result<Option<Agent>> {
     let name = ProjectName::new(&prompt.project)?;
-    if !confirmed(shared, &name, prompt)? {
-        emit.closed(Some("Auf dem Rechner nicht bestätigt.".to_owned()));
+    if let Some(refusal) = refused(shared, &name, prompt)? {
+        emit.closed(Some(refusal));
         return Ok(None);
     }
-    emit.event(AgentEvent::notice(
-        NoticeLevel::Info,
-        format!("Umgebung für {} wird vorbereitet …", prompt.project),
-    ));
+    let progress = ChatProgress {
+        emit,
+        mode: shared.mode,
+        title: title.to_owned(),
+        steps: Mutex::new(HashMap::new()),
+    };
     let project = shared.config.project(&name)?;
     let prepared = run::prepare_project(
         &shared.config,
         &shared.machine,
         project,
         Some(&prompt.harness),
+        &progress,
     )?;
     let harness = prepared
         .harnesses
@@ -475,7 +775,7 @@ fn start(shared: &Shared, prompt: &Prompt, emit: &Emitter) -> anyhow::Result<Opt
         &prompt.session,
         prompt.conversation.title.as_deref(),
     ));
-    let ready = run::ready_harness(&shared.config, &prepared, &harness, base)?;
+    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress)?;
     let providers = ready
         .models
         .map(|m| m.by_credential.into_iter().collect())
@@ -489,17 +789,25 @@ fn start(shared: &Shared, prompt: &Prompt, emit: &Emitter) -> anyhow::Result<Opt
         interactive: true,
         tty: false,
     };
-    let mut child = prepared.provider.exec_piped(&spec)?;
+    let mut child = crate::progress::step(
+        &progress,
+        "harness",
+        &format!("{} starten", harness.name),
+        || Ok(prepared.provider.exec_piped(&spec)?),
+    )?;
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
         let _ = child.kill();
         bail!("keine Verbindung zu {}", harness.name);
     };
     let stdin = Arc::new(Mutex::new(stdin));
     let (responses_tx, responses) = mpsc::channel();
+    let thinking = Arc::new(Mutex::new(false));
     let reader = {
         let emit = emit.clone();
         let stdin = Arc::clone(&stdin);
-        thread::spawn(move || read_agent(stdout, &emit, &stdin, &responses_tx))
+        let thinking = Arc::clone(&thinking);
+        let name = harness.name.clone();
+        thread::spawn(move || read_agent(stdout, &emit, &stdin, &responses_tx, &thinking, &name))
     };
     let approvals = if prepared.project.ask {
         ApprovalBridge::start(&prepared.provider, &prepared.project, emit)
@@ -519,19 +827,36 @@ fn start(shared: &Shared, prompt: &Prompt, emit: &Emitter) -> anyhow::Result<Opt
         first_prompt: true,
         next_id: 0,
         approvals,
+        thinking,
     }))
 }
 
-/// Whether the chat may use the project: released, and confirmed here
-/// (now or earlier) unless the project waives that.
-fn confirmed(shared: &Shared, name: &ProjectName, prompt: &Prompt) -> anyhow::Result<bool> {
+/// Why the chat may not use the project, if it may not: not released, or
+/// the project wants a confirmation that is missing (only a terminal can
+/// give it).
+fn refused(shared: &Shared, name: &ProjectName, prompt: &Prompt) -> anyhow::Result<Option<String>> {
     let remote = shared.config.project_config(name)?.remote;
     if !remote.enabled {
-        return Ok(false);
+        return Ok(Some(format!(
+            "Projekt {name} ist auf diesem Rechner nicht für Web-Chats freigegeben \
+             (`harness project remote on`)."
+        )));
     }
     if !remote.confirm || remote.chats.contains(&prompt.conversation.id) {
-        return Ok(true);
+        return Ok(None);
     }
+    if shared.mode == Mode::Background {
+        return Ok(Some(format!(
+            "Projekt {name} verlangt eine Bestätigung pro Chat (confirm = true). Die geht nur mit \
+             `harness connect` im Terminal, nicht mit dem Hintergrunddienst."
+        )));
+    }
+    Ok((!confirmed_here(shared, name, prompt)?)
+        .then(|| "Auf dem Rechner nicht bestätigt.".to_owned()))
+}
+
+/// Asks in the terminal of `harness connect`; a yes is remembered.
+fn confirmed_here(shared: &Shared, name: &ProjectName, prompt: &Prompt) -> anyhow::Result<bool> {
     let title = prompt
         .conversation
         .title
@@ -570,6 +895,8 @@ fn read_agent(
     emit: &Emitter,
     stdin: &Mutex<ChildStdin>,
     responses: &Sender<pi_rpc::Response>,
+    thinking: &Mutex<bool>,
+    name: &str,
 ) {
     let mut translator = Translator::new();
     let mut reader = io::BufReader::new(stdout);
@@ -583,7 +910,22 @@ fn read_agent(
         let text = String::from_utf8_lossy(&line);
         for output in translator.feed(&text) {
             match output {
-                Output::Event(event) => emit.event(event),
+                Output::Event(event) => {
+                    // The first visible sign of an answer ends "thinking".
+                    let answers = !matches!(
+                        event,
+                        AgentEvent::Usage { .. } | AgentEvent::TurnStart | AgentEvent::TurnEnd
+                    );
+                    if answers && std::mem::take(&mut *lock(thinking)) {
+                        emit.event(AgentEvent::Progress {
+                            id: "thinking".to_owned(),
+                            label: format!("{name} denkt nach"),
+                            state: ProgressState::Done,
+                            detail: None,
+                        });
+                    }
+                    emit.event(event);
+                }
                 Output::Reply(reply) => write_line(stdin, &reply),
                 Output::Response(response) => {
                     if response.success {
@@ -660,6 +1002,13 @@ impl Agent {
             }
         }
         let id = self.id("prompt");
+        *lock(&self.thinking) = true;
+        self.emit.event(AgentEvent::Progress {
+            id: "thinking".to_owned(),
+            label: format!("{} denkt nach", self.harness.name),
+            state: ProgressState::Running,
+            detail: None,
+        });
         self.send(&pi_rpc::prompt(&id, &text, false));
     }
 
@@ -855,6 +1204,14 @@ struct Console {
 }
 
 impl Console {
+    /// No questions at all, for the background service.
+    fn none() -> Self {
+        Console {
+            asking: Mutex::new(()),
+            lines: Mutex::new(None),
+        }
+    }
+
     fn new() -> Self {
         let lines = io::stdin().is_terminal().then(|| {
             let (tx, rx) = mpsc::channel();

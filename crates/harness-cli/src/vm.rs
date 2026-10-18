@@ -2,15 +2,22 @@
 //! VM service when it is installed, so the user never needs an admin
 //! window for it.
 
-use std::io::Write as _;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::bail;
 use harness_core::podman::PodmanProvider;
-use harness_core::vmd::{self, Request};
+use harness_core::tunnel::VmStatus;
+use harness_core::vmd::{self, Request, VmState};
+
+use crate::progress::{Progress, Terminal, step};
 
 /// A provider for `machine`, starting the VM first if SSH does not answer.
 pub fn provider(machine: &str) -> anyhow::Result<PodmanProvider> {
+    provider_with(machine, &Terminal::default())
+}
+
+/// [`provider`], reporting a VM start to `progress`.
+pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<PodmanProvider> {
     let provider = PodmanProvider::for_machine(machine)?;
     let port = provider.machine().ssh_port;
     if vmd::ssh_answers(port, Duration::from_secs(3)) {
@@ -22,14 +29,33 @@ pub fn provider(machine: &str) -> anyhow::Result<PodmanProvider> {
              harness sie selbst. Sonst in einer Admin-PowerShell: podman machine start {machine}"
         );
     }
-    print!("VM {machine} startet … ");
-    let _ = std::io::stdout().flush();
-    let started = Instant::now();
-    let answer = vmd::request(Request::Start)?;
-    if !answer.ok {
-        println!("✗");
-        bail!("VM-Start über den Dienst: {}", answer.message);
-    }
-    println!("✓ ({:.0} s)", started.elapsed().as_secs_f32());
+    step(
+        progress,
+        "vm",
+        &format!("VM {machine} starten (bis zu einer Minute)"),
+        || {
+            let answer = vmd::request(Request::Start)?;
+            if !answer.ok {
+                bail!("VM-Start über den Dienst: {}", answer.message);
+            }
+            Ok(())
+        },
+    )?;
     Ok(provider)
+}
+
+/// The VM's state for the web app; asks the VM service, which is fast and
+/// starts nothing.
+pub fn status() -> VmStatus {
+    if !vmd::available() {
+        return VmStatus::Unknown;
+    }
+    match vmd::request(Request::Status) {
+        Ok(answer) => match answer.state {
+            VmState::Running => VmStatus::Running,
+            VmState::Stopped => VmStatus::Stopped,
+            VmState::Unresponsive | VmState::Unknown => VmStatus::Unknown,
+        },
+        Err(_) => VmStatus::Unknown,
+    }
 }

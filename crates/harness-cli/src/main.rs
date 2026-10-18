@@ -6,9 +6,11 @@
 //! with the server (docs/ROADMAP.md, Phase 2).
 
 mod connect;
+mod daemon;
 mod doctor;
 mod login;
 mod net;
+mod progress;
 mod project;
 mod review;
 mod run;
@@ -93,8 +95,14 @@ enum Command {
     },
     /// Entfernt die Kopplung mit dem Server
     Logout,
-    /// Verbindet diesen Rechner mit dem Server, damit verknüpfte Web-Chats
-    /// Agents in freigegebenen Projekten starten können (läuft bis Strg+C)
+    /// Macht den aktuellen Ordner zum Projekt (mit Git, falls nötig) und bietet ihn den Web-Chats deines Kontos an
+    Init,
+    /// Hintergrunddienst für Web-Chats: Status, Start, Stopp, Autostart
+    Daemon {
+        #[command(subcommand)]
+        command: Option<daemon::DaemonCommand>,
+    },
+    /// Verbindung für Web-Chats in diesem Terminal statt im Hintergrunddienst (zum Zuschauen, bis Strg+C)
     Connect,
     /// VM-Dienst: startet die VM ohne Admin-Fenster (einmalig: harness vmd install)
     Vmd {
@@ -229,6 +237,10 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
         Command::Connect => connect::connect(&config, &machine_name(&config, cli.machine)?),
+        Command::Init => project::init(&config),
+        Command::Daemon { command } => {
+            daemon::run(&config, &machine_name(&config, cli.machine)?, command)
+        }
         Command::Vmd { command } => vmd::run(&machine_name(&config, cli.machine)?, command),
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;

@@ -43,6 +43,32 @@ pub enum NoticeLevel {
     Error,
 }
 
+/// State of a step in [`AgentEvent::Progress`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProgressState {
+    /// Under way.
+    Running,
+    /// Finished.
+    Done,
+    /// Failed; the reply usually ends with an error.
+    Failed,
+}
+
+/// State of the device's VM, as the web app shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VmStatus {
+    /// Running and reachable.
+    Running,
+    /// Not running; starts when an agent needs it.
+    Stopped,
+    /// Being started.
+    Starting,
+    /// Not known (no VM service).
+    Unknown,
+}
+
 /// State of a gateway question in [`AgentEvent::Approval`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -132,6 +158,20 @@ pub enum AgentEvent {
         #[serde(rename = "isError")]
         is_error: bool,
     },
+    /// A step on the way to an answer (environment, VM, agent), so the user
+    /// sees that something happens; the same id updates the step.
+    #[serde(rename = "progress")]
+    Progress {
+        /// Step id, unique within the reply.
+        id: String,
+        /// What happens, in German.
+        label: String,
+        /// Its state.
+        state: ProgressState,
+        /// Duration or reason, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
     /// A message of harness or the harness itself.
     #[serde(rename = "notice")]
     Notice {
@@ -210,6 +250,12 @@ pub enum DeviceMessage {
     Projects {
         /// Projects offered to web chats.
         projects: Vec<RemoteProject>,
+    },
+    /// State of the computer's environment.
+    #[serde(rename = "status")]
+    Status {
+        /// The VM.
+        vm: VmStatus,
     },
     /// An event of a session's current reply.
     #[serde(rename = "session.event")]
@@ -370,6 +416,23 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&closed).unwrap(),
             json!({ "type": "session.closed", "session": "s" })
+        );
+        let progress = AgentEvent::Progress {
+            id: "vm".into(),
+            label: "VM starten".into(),
+            state: ProgressState::Done,
+            detail: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&progress).unwrap(),
+            json!({ "type": "progress", "id": "vm", "label": "VM starten", "state": "done" })
+        );
+        let status = DeviceMessage::Status {
+            vm: VmStatus::Stopped,
+        };
+        assert_eq!(
+            serde_json::to_value(&status).unwrap(),
+            json!({ "type": "status", "vm": "stopped" })
         );
         let approval = AgentEvent::Approval {
             id: 3,
