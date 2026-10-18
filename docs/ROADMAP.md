@@ -279,6 +279,12 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - Fortschritt jedes Schritts im Chat; VM-Status im Dialog
   - Kontext-Füllstand und Kosten pro Chat (models.dev bzw. pi)
   - Bugfixes: Knöpfe im Composer schickten die Nachricht ab; DeepSeek schrieb nach einer Agent-Runde Werkzeugaufrufe als Text
+- **Web-Fetch in normalen Chats (18.10., gebaut von einem Hilfsagenten):** Das Modell eines Chats ohne Umgebung kann über das Werkzeug `web_fetch` Seiten laden, serverseitig.
+  - Schutz: nur öffentliche Adressen (DNS geprüft und festgehalten, jeder Redirect neu), Ports 80/443, 20 s, 2 MiB, nur Text-Inhaltstypen. HTML wird als Markdown umgewandelt (turndown).
+  - Freigabe: Hosts aus den Nachrichten des Nutzers laden ohne Frage. Sonst erscheint eine Karte mit voller URL (einmal / Host für diesen Chat / ablehnen).
+  - Inhalte gehen als markierte, nicht vertrauenswürdige Daten ans Modell, mit Warnungen nach den Mustern des pi-Schutzes.
+  - Admin-Schalter in den Server-Einstellungen (Standard an).
+  - Offen: Hauptinhalt herauslösen (Readability), Suche statt nur Abruf, CSP auch im Vite-Dev-Server (Bild-Exfiltration per Markdown).
 - **Offen:**
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)

@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-18 · Phase 4 überarbeitet nach dem ersten Test des Nutzers: Hintergrunddienst, `harness init`, Fortschritt im Chat, Kontext und Kosten; Web-Fetch für normale Chats in Arbeit (Branch `feat/web-fetch`)_
+_Last updated: 2026-10-18 · Phase 4 überarbeitet nach dem ersten Test des Nutzers: Hintergrunddienst, `harness init`, Fortschritt im Chat, Kontext und Kosten, Web-Fetch in normalen Chats; nächstes: Test des Nutzers mit DeepSeek_
 
 ## Where we are
 
@@ -26,7 +26,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓,
 
 ## Next step
 
-1. **Web-Fetch für normale Chats** (Hilfsagent, Branch `feat/web-fetch`): prüfen, mergen, Doku. Dann testet der Nutzer den neuen Ablauf (`harness login` → `harness init` → Umgebung im Chat) mit DeepSeek.
+1. **Nutzer testet** den neuen Ablauf (`harness daemon install` bzw. `harness login` → `harness init` → Umgebung im Chat) und Web-Fetch in einem normalen Chat mit DeepSeek.
 2. Danach (Reihenfolge laut Nutzer):
    - **Jev bzw. ein Chat-Modell** als dritte Stufe der Merge-Prüfung und als Klassifikator gegen Prompt-Injection. Dafür: Server-Durchgang für Klassifikatoren, Einstellungen (was läuft, mit welchem Modell).
    - **Stopp der VM im Leerlauf** (Leases von `harness run` und `harness connect`).
@@ -104,7 +104,11 @@ Stand 18.10.:
 - **VM:**
   - `scripts/smoke-connect.sh` 30/30 mit `harness init` und dem echten Hintergrunddienst (`harness daemon start`/`stop` unter `HARNESS_HOME`)
   - `terminal_vm` 3/3
-- **Nicht geprüft:** Autostart nach echter Windows-Anmeldung (Run-Schlüssel), echter Lauf mit DeepSeek.
+- **Web-Fetch:**
+  - Server 89/89 nach dem Merge, davon 31 für Web-Fetch: Adressfilter, URL-Tricks, DNS mit privaten Antworten, Redirects, Limits, Rückfrage Ende-zu-Ende mit Mock-Modell.
+  - E2E 11/11, Screenshots 21/22 angesehen.
+  - Der Hilfsagent hat echte Abrufe mit Produktionsregeln gemacht: example.com und tasks.org (Redirect http→https) gingen, localhost und 169.254.169.254 wurden blockiert.
+- **Nicht geprüft:** Autostart nach echter Windows-Anmeldung (Run-Schlüssel), echter Lauf mit DeepSeek, Postgres.
 
 Stand 17.10. abends, nach dem Merge von TLS und Phase 4:
 - **Rust:** `cargo fmt --check`, `cargo clippy --all-targets` ohne Warnungen, `cargo test` grün (core 103 inkl. Tunnel-Protokoll, pi-Übersetzer und `[remote]`).
