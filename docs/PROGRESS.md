@@ -27,7 +27,11 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor` (alles ✓,
 ## Next step
 
 1. **Nutzer testet** den neuen Ablauf (`harness daemon install` bzw. `harness login` → `harness init` → Umgebung im Chat) und Web-Fetch in einem normalen Chat mit DeepSeek.
-2. Danach (Reihenfolge laut Nutzer):
+2. **Nächster Block, Wunsch des Nutzers vom 18.10. (in einer neuen Sitzung beginnen):** Plan in ROADMAP Phase 4 „Recherche“. Kurzfassung:
+   1. **Hauptinhalt statt ganzer Seite:** `@mozilla/readability` mit `linkedom` in `webfetch/convert.ts` vor turndown. Ist das Ergebnis leer oder sehr kurz (Startseiten, Dokumentations-Indizes), Rückfall auf die ganze Seite. Tracking-Parameter aus Links entfernen. Testdaten: gespeicherte HTML-Seiten (Artikel, Doku, GitHub-README).
+   2. **Fundstellen von Prompt-Injection zeigen:** `scan()` (pi-Schutz und `webfetch/injection.ts`) liefert die Stelle mit etwa 150 Zeichen Umgebung. Unsichtbare Zeichen werden sichtbar gemacht (`<U+202E>`), Unicode-Tag-Zeichen als versteckter Text entschlüsselt. Im Web lässt sich die Warnung aufklappen und zeigt die Stelle markiert; sie wird mit der Antwort gespeichert. pi zeigt sie in der Meldung im Terminal, `connect`/Dienst reichen sie als Hinweis in den Chat.
+   3. **Websuche wie bei Perplexity:** Werkzeug `web_search` in normalen Chats; Suchanbieter, Recherche-Schalter und Freigaben siehe ROADMAP.
+3. Danach (Reihenfolge laut Nutzer):
    - **Jev bzw. ein Chat-Modell** als dritte Stufe der Merge-Prüfung und als Klassifikator gegen Prompt-Injection. Dafür: Server-Durchgang für Klassifikatoren, Einstellungen (was läuft, mit welchem Modell).
    - **Stopp der VM im Leerlauf** (Leases von `harness run` und `harness connect`).
 3. Phase-4-Reste (ROADMAP Phase 4 „Offen“), am wichtigsten:
