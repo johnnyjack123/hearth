@@ -305,8 +305,16 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - Freigabe: Hosts aus den Nachrichten des Nutzers laden ohne Frage. Sonst erscheint eine Karte mit voller URL (einmal / Host für diesen Chat / ablehnen).
   - Inhalte gehen als markierte, nicht vertrauenswürdige Daten ans Modell, mit Warnungen nach den Mustern des pi-Schutzes.
   - Admin-Schalter in den Server-Einstellungen (Standard an).
-  - Offen: Hauptinhalt herauslösen (Readability), Suche statt nur Abruf, CSP auch im Vite-Dev-Server (Bild-Exfiltration per Markdown).
-- **Recherche, geplant am 18.10. (Wünsche des Nutzers):**
+  - Offen: CSP auch im Vite-Dev-Server (Bild-Exfiltration per Markdown). Hauptinhalt und Suche siehe „Recherche“.
+- **Recherche, Wünsche des Nutzers vom 18.10., am selben Tag gebaut:**
+  - **Umgesetzt** (Details in CLAUDE.md, „Websuche und Recherche-Modus“ und „Web-Fetch“):
+    - Fundstellen mit Ausschnitt und Satz zur Gefahr (Web aufklappbar, pi in der Meldung)
+    - Hauptinhalt per Readability; Rückfall auf die ganze Seite unter 500 Zeichen oder 20 % des Seitentexts (Startseiten). Tabellen als Markdown, `fullPage` für die ganze Seite.
+    - `web_search` mit SearXNG, Brave oder Tavily, Schalter im Composer, Trefferblock und Quellen unter der Antwort
+  - **Offen:**
+    - echter Suchlauf gegen SearXNG auf dem Pi (Nutzer)
+    - Suche für Agents in der VM
+  - Ursprünglicher Plan:
   - **Hauptinhalt:** Mozilla Readability (`@mozilla/readability`) auf einem `linkedom`-DOM, danach turndown. Liefert Readability nichts Brauchbares (unter ~500 Zeichen oder `null`), wird die ganze Seite wie bisher umgewandelt. Defuddle ist die Alternative, falls Readability bei Dokumentationsseiten zu viel wegschneidet. Kein externer Dienst (Jina Reader o. Ä.), weil der jede abgerufene URL sähe.
   - **Websuche:** Werkzeug `web_search({ query })` in normalen Chats. Es liefert die ersten Treffer mit Titel, URL, Ausschnitt und Datum. Ob gesucht wird, entscheidet das Modell selbst über den Werkzeugaufruf, wie bei Perplexity. Der System-Prompt sagt: suchen, wenn Fakten unsicher, aktuell oder nach dem Wissensstand des Modells sind, und Quellen als Links nennen.
     - **Suchanbieter** in den Server-Einstellungen:

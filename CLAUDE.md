@@ -28,7 +28,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 
   - **Rückfragen des Gateways im selben Terminal** (Relay über eine Pseudo-Konsole, `harness-cli/src/terminal/`) und **Hinweise an den Agent** im System-Prompt (`briefing.rs`).
 
-  Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`. Arbeitsbranch seit dem 17.10.: `feat/phase-4-chat-env`.
+  Offen in Phase 2: Rückmeldung des Nutzers zum Relay in Windows Terminal. Remote `origin` = GitHub `johnnyjack123/llm-harness`. Seit dem 18.10. ein Feature-Branch pro Block (zuletzt `feat/research`), jeweils nach `main` gemergt.
 - **Phase 4 (Web-Chat ↔ Umgebung) gebaut, 17./18.10.:**
   - Der Hintergrunddienst (`harness daemon`, gestartet von `harnessd.exe` bei der Anmeldung) hält einen WebSocket zum Server (`/api/device/tunnel`). `harness login` richtet ihn ein.
   - `harness init` meldet das Projekt sofort beim Server; ein Web-Chat wählt es unter „Umgebung“.
