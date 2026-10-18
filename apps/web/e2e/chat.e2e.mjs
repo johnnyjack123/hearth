@@ -206,9 +206,15 @@ try {
       received.push(message);
       if (message.type === 'welcome') {
         device.send(JSON.stringify({ type: 'hello', version: 1, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
+        device.send(JSON.stringify({ type: 'status', vm: 'stopped' }));
       }
       if (message.type === 'session.prompt') {
         const s = message.session;
+        sendEvent(s, { type: 'progress', id: 'received', label: 'Auf dem Rechner angekommen', state: 'done' });
+        sendEvent(s, { type: 'progress', id: 'vm', label: 'VM harness starten (bis zu einer Minute)', state: 'done', detail: '21.4 s' });
+        sendEvent(s, { type: 'progress', id: 'instance', label: 'Instanz harness-demo', state: 'done', detail: '2.8 s' });
+        sendEvent(s, { type: 'progress', id: 'thinking', label: 'pi denkt nach', state: 'running' });
+        sendEvent(s, { type: 'progress', id: 'thinking', label: 'pi denkt nach', state: 'done' });
         sendEvent(s, { type: 'turn.start' });
         sendEvent(s, { type: 'text.start', id: 't1' });
         sendEvent(s, { type: 'text.delta', id: 't1', delta: 'Ich schaue mir das Projekt an.' });
@@ -243,6 +249,7 @@ try {
       await page.type('textarea', 'Noch nicht senden');
       await page.click('[aria-label="Mit Umgebung verbinden"]');
       await page.waitForSelector(`[role=dialog] ${text('demo')}`, { timeout: 10_000 });
+      await page.waitForSelector(`[role=dialog] ${text('VM aus, startet bei Bedarf')}`, { timeout: 10_000 });
       const draft = await page.$eval('textarea', (element) => element.value);
       if (draft !== 'Noch nicht senden' || received.some((message) => message.type === 'session.prompt')) {
         throw new Error(`the environment button sent the draft (textarea: "${draft}")`);
@@ -252,11 +259,19 @@ try {
       await page.click(`[role=dialog] ${text('Verbinden')}`);
       await page.waitForSelector(text('pi in demo'), { timeout: 10_000 });
 
-      await page.click('textarea', { clickCount: 3 });
+      await page.focus('textarea');
+      await page.keyboard.down('Control');
+      await page.keyboard.press('KeyA');
+      await page.keyboard.up('Control');
       await page.keyboard.press('Backspace');
       await page.type('textarea', 'Schau dir das Projekt an');
       await page.keyboard.press('Enter');
       await page.waitForSelector(text('Der Agent möchte example.com erreichen'), { timeout: 15_000 });
+      const sent = received.find((message) => message.type === 'session.prompt')?.text;
+      if (sent !== 'Schau dir das Projekt an') {
+        throw new Error(`device got "${sent}"`);
+      }
+      await page.waitForSelector(text('VM harness starten (bis zu einer Minute)'), { timeout: 5_000 });
       await new Promise((resolve) => setTimeout(resolve, 500));
       await shot('17-agent-approval');
       await page.click(text('Einmal erlauben'));
