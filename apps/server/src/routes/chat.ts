@@ -49,9 +49,14 @@ const WEB_FETCH_INSTRUCTIONS = [
 function researchInstructions(now: Date, canFetch: boolean): string {
   return [
     `Research mode is on. Today is ${now.toISOString().slice(0, 10)}.`,
-    'Search the web with web_search whenever facts may be uncertain, recent or after your training data,',
-    'for example current events, prices, versions, people or anything the user asks you to look up.',
-    canFetch ? 'Read the most relevant results with web_fetch before you answer; URLs from search results and links on loaded pages load without asking.' : '',
+    'Use web_search when the answer depends on facts you cannot reliably know: recent events, current prices,',
+    'versions or schedules, specific people, organizations, products or statistics, or anything the user asks you to look up or check.',
+    'If you are not sure a fact is correct and current, search instead of guessing.',
+    'Do not search for small talk, writing, translation, coding or math help, or well-established general knowledge; answer those directly.',
+    canFetch
+      ? 'Snippets often answer simple facts. Read pages with web_fetch only when the snippets are not enough, usually the one to three most promising; ' +
+        'URLs from search results and links on loaded pages load without asking.'
+      : '',
     'Never put private details from this conversation into search queries.',
     'Cite the sources you used as Markdown links, and say when sources disagree or you found nothing reliable.',
   ]
