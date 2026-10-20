@@ -20,9 +20,14 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Entscheidung des Nutzers** zu seinen Ideen vom 20.10. (ROADMAP Phase 4, „Recherche“ → „Verbessern“). Vorgeschlagen ist jeweils erst die Stufe ohne Modell:
-   - Quellen gewichten per Domain-Liste, danach Jev
-   - `web_fetch` mit `focus` und BM25-Auswahl statt ganzer Seite, danach ein Teilagent mit wörtlichen Zitaten
+1. **Plan mit dem Nutzer fertig abstimmen** (ROADMAP Phase 4, „Recherche“ → „Planung mit dem Nutzer, 20.10.“). Er will noch nicht, dass gebaut wird. Offen sind:
+   - Domain-Listen nach Art der Frage
+   - Jev über OpenRouter für Treffer und Abschnitte
+   - hybride Auswahl (BM25 und Embeddings über OpenRouter)
+   - ob ein Teilagent zusammenfasst oder das Hauptmodell die Abschnitte liest
+   - Verlauf eindampfen
+
+   Seine Zahlen aus dem Entwicklermodus (Cache-Anteil, Reasoning) helfen dabei.
 2. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
@@ -89,6 +94,9 @@ Stand 18.10., nach dem Merge von Schritt 3:
 - Gelesene Treffer im Suchblock markiert; Rückfragen im Recherche-Modus mit Grund und ähnlichster gefundener URL; aufgeräumte Varianten gefundener URLs laden ohne Frage.
 - Rohe unsichtbare Zeichen aus Quelltexten entfernt (kamen über Werkzeug-Eingaben herein), `source.test.ts` verhindert neue.
 - Ideen des Nutzers zu Quellen-Gewichtung und Teilagent bewertet (ROADMAP).
+- Recherche-Prompt: suchen, wenn Fakten unsicher oder aktuell sind, nicht für Smalltalk, Schreiben, Code, Mathe; erst Ausschnitte, Seiten nur bei Bedarf (1–3).
+- Entwicklermodus (Einstellungen → Darstellung): Tokens und Kosten je Modellaufruf unter jeder Antwort; Tooltip des Kontext-Rings mit genauen Zahlen und Summen.
+- Planung mit Preisen aus OpenRouter und models.dev, Jev-API und Embeddings recherchiert (ROADMAP).
 
 ### 2026-10-18 (Block „Recherche“)
 - Fundstellen von Prompt-Injection mit Ausschnitt und Erklärung (`findInjections` in `guard.ts` und `injection.ts`, `injection-findings.tsx`, aufklappbare Agent-Hinweise).
