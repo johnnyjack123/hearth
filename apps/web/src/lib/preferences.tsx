@@ -19,11 +19,16 @@ interface PreferencesValue {
   setTheme: (theme: ThemePreference) => void;
   setDensity: (density: Density) => void;
   setLocale: (locale: Locale) => void;
+  /** Extra views for developers, such as tokens and cost of each model call. */
+  devMode: boolean;
+  setDevMode: (on: boolean) => void;
   t: TranslateFn;
 }
 
 // Keys and values must match public/theme-init.js, which applies them before first paint.
 const STORAGE = { theme: 'harness.theme', density: 'harness.density', locale: 'harness.locale' } as const;
+// Not needed before the first paint, so not in theme-init.js.
+const DEV_MODE_KEY = 'harness.devMode';
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
 
@@ -49,7 +54,8 @@ function systemPrefersDark(): boolean {
 }
 
 /**
- * Provides per-browser preferences (theme, density, language) and the
+ * Provides per-browser preferences (theme, density, language, developer
+ * mode) and the
  * translation function, and keeps the `<html>` element in sync with them.
  *
  * @param props - Children to render.
@@ -62,6 +68,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   );
   const [locale, setLocaleState] = useState<Locale>(() => read(STORAGE.locale, ['de', 'en'], detectLocale()));
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
+  const [devMode, setDevModeState] = useState(() => read(DEV_MODE_KEY, ['on', 'off'], 'off') === 'on');
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-color-scheme: dark)');
@@ -101,6 +108,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.locale, next);
     setLocaleState(next);
   }, []);
+  const setDevMode = useCallback((on: boolean) => {
+    write(DEV_MODE_KEY, on ? 'on' : 'off');
+    setDevModeState(on);
+  }, []);
 
   const value = useMemo<PreferencesValue>(
     () => ({
@@ -111,9 +122,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setTheme,
       setDensity,
       setLocale,
+      devMode,
+      setDevMode,
       t: (key, params) => translate(locale, key, params),
     }),
-    [theme, resolvedTheme, density, locale, setTheme, setDensity, setLocale],
+    [theme, resolvedTheme, density, locale, setTheme, setDensity, setLocale, devMode, setDevMode],
   );
 
   return <PreferencesContext value={value}>{children}</PreferencesContext>;

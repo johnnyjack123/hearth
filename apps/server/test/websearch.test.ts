@@ -513,6 +513,14 @@ describe('research mode', () => {
     await eventually(async () => (await load(conversationId)).messages.length === 2);
     const [question, reply] = (await load(conversationId)).messages;
     expect(question?.metadata?.research).toBe(true);
+    // Each model call of the reply, with the tool it asked for.
+    expect(reply?.metadata?.usage?.calls?.map((call) => call.tools)).toEqual([
+      ['web_search'],
+      ['web_fetch'],
+      ['web_fetch'],
+      ['web_fetch'],
+      [],
+    ]);
     expect(reply?.parts.filter((part) => part.type.startsWith('tool-')).map((part) => part.type)).toEqual([
       'tool-web_search',
       'tool-web_fetch',

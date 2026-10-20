@@ -245,6 +245,27 @@ try {
     // The chat opens with the switch as last used.
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+
+    // Developer mode: tokens and cost of every model call of the reply.
+    await page.goto(`${BASE}/settings?tab=appearance`, { waitUntil: 'networkidle0' });
+    await page.click('[aria-label="Entwicklermodus"]');
+    await page.waitForSelector('[aria-label="Entwicklermodus"][aria-checked="true"]', { timeout: 5_000 });
+    await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
+    await page.click('[aria-label="Token-Details zeigen"]');
+    await page.waitForSelector(text('Tokens je Modellaufruf'), { timeout: 5_000 });
+    const results = await page.$$eval('table td', (cells) => cells.map((cell) => cell.textContent));
+    for (const expected of ['web_search', 'web_fetch', 'Antwort']) {
+      if (!results.includes(expected)) {
+        throw new Error(`no call with "${expected}" in the token table: ${results.join(' | ')}`);
+      }
+    }
+    // The context ring lists the chat's totals.
+    await page.hover('button[aria-label*="Kontext:"]');
+    await page.waitForSelector(text('Gesamt:'), { timeout: 5_000 });
+    await page.$eval(text('Tokens je Modellaufruf'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('29-dev-usage');
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {

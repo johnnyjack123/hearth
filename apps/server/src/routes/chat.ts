@@ -1,4 +1,11 @@
-import { type MessageMetadata, parseWebFetchError, parseWebSearchError, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import {
+  type MessageMetadata,
+  type ModelCallUsage,
+  parseWebFetchError,
+  parseWebSearchError,
+  WEB_FETCH_TOOL,
+  WEB_SEARCH_TOOL,
+} from '@harness/shared';
 import {
   APICallError,
   convertToModelMessages,
@@ -20,7 +27,7 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
-import { type ModelPricing, usageMetadata } from '../pricing.ts';
+import { callUsage, type ModelPricing, usageMetadata } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -387,6 +394,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   const baseMetadata: MessageMetadata = { createdAt: startedAt, modelId, credentialId };
   // The context after the reply is what the last model call saw.
   let lastStep: LanguageModelUsage | undefined;
+  // Every call of the reply with the tools it asked for, for the developer view.
+  const calls: ModelCallUsage[] = [];
+  let stepTools: string[] = [];
 
   const stream = createUIMessageStream<ChatMessage>({
     originalMessages: messages,
@@ -407,12 +417,18 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             if (part.type === 'start') {
               return baseMetadata;
             }
+            if (part.type === 'tool-call') {
+              stepTools.push(part.toolName);
+              return undefined;
+            }
             if (part.type === 'finish-step') {
               lastStep = part.usage;
+              calls.push(callUsage(part.usage, pricing, stepTools));
+              stepTools = [];
               return undefined;
             }
             if (part.type === 'finish') {
-              return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing) };
+              return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing, calls) };
             }
             return undefined;
           },

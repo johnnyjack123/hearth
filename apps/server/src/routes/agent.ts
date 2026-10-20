@@ -141,6 +141,19 @@ export class ChunkMapper {
         if (event.cost !== undefined || before?.cost !== undefined) {
           next.cost = (before?.cost ?? 0) + (event.cost ?? 0);
         }
+        // pi reports each model call with its own total; tool names stay
+        // unknown here, the tool blocks of the reply show them.
+        next.calls = [
+          ...(before?.calls ?? []),
+          {
+            input: event.inputTokens,
+            cacheRead: event.cachedInputTokens ?? 0,
+            cacheWrite: 0,
+            output: event.outputTokens,
+            tools: [],
+            ...(event.cost !== undefined ? { cost: { total: event.cost } } : {}),
+          },
+        ];
         this.#usage = next;
         return [];
       }

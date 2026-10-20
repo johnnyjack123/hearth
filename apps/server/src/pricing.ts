@@ -1,4 +1,4 @@
-import type { MessageMetadata, ProviderKind } from '@harness/shared';
+import type { MessageMetadata, ModelCallUsage, ProviderKind } from '@harness/shared';
 import type { LanguageModelUsage } from 'ai';
 
 /**
@@ -194,12 +194,14 @@ export class PricingCatalog {
  * @param total - Summed usage of all model calls of the reply.
  * @param lastStep - Usage of the last model call.
  * @param pricing - Prices of the model, if known.
+ * @param calls - Each model call of the reply, see {@link callUsage}.
  * @returns The `usage` field of the message metadata.
  */
 export function usageMetadata(
   total: LanguageModelUsage,
   lastStep: LanguageModelUsage | undefined,
   pricing: ModelPricing | null,
+  calls: ModelCallUsage[] = [],
 ): NonNullable<MessageMetadata['usage']> {
   const input = total.inputTokens ?? 0;
   const output = total.outputTokens ?? 0;
@@ -226,6 +228,50 @@ export function usageMetadata(
         cacheWrite * (pricing.cacheWrite ?? pricing.input) +
         output * pricing.output) /
       1_000_000;
+    usage.rates = {
+      input: pricing.input,
+      output: pricing.output,
+      ...(pricing.cacheRead !== undefined ? { cacheRead: pricing.cacheRead } : {}),
+      ...(pricing.cacheWrite !== undefined ? { cacheWrite: pricing.cacheWrite } : {}),
+    };
+  }
+  const reasoning = total.outputTokenDetails.reasoningTokens;
+  if (reasoning) {
+    usage.reasoningTokens = reasoning;
+  }
+  if (calls.length > 0) {
+    usage.calls = calls;
   }
   return usage;
+}
+
+/**
+ * Tokens and cost of one model call, for the developer view.
+ *
+ * @param step - Usage of the call.
+ * @param pricing - Prices of the model, if known.
+ * @param tools - Tools the call asked for.
+ * @returns The call's entry in `usage.calls`.
+ */
+export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null, tools: string[]): ModelCallUsage {
+  const input = step.inputTokens ?? 0;
+  const cacheRead = step.inputTokenDetails.cacheReadTokens ?? 0;
+  const cacheWrite = step.inputTokenDetails.cacheWriteTokens ?? 0;
+  const output = step.outputTokens ?? 0;
+  const call: ModelCallUsage = { input, cacheRead, cacheWrite, output, tools };
+  const reasoning = step.outputTokenDetails.reasoningTokens;
+  if (reasoning !== undefined) {
+    call.reasoning = reasoning;
+  }
+  if (pricing?.input !== undefined && pricing.output !== undefined) {
+    const uncached = step.inputTokenDetails.noCacheTokens ?? Math.max(0, input - cacheRead - cacheWrite);
+    const cost = {
+      input: (uncached * pricing.input) / 1_000_000,
+      cacheRead: (cacheRead * (pricing.cacheRead ?? pricing.input)) / 1_000_000,
+      cacheWrite: (cacheWrite * (pricing.cacheWrite ?? pricing.input)) / 1_000_000,
+      output: (output * pricing.output) / 1_000_000,
+    };
+    call.cost = { total: cost.input + cost.cacheRead + cost.cacheWrite + cost.output, ...cost };
+  }
+  return call;
 }

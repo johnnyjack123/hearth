@@ -213,7 +213,40 @@ export interface MessageMetadata {
     contextWindow?: number;
     /** Cost of the reply in US dollars, if the model's prices are known. */
     cost?: number;
+    /** Part of the completion tokens spent on reasoning, if the provider says. */
+    reasoningTokens?: number;
+    /**
+     * Each model call of the reply in order, for the developer view; missing
+     * in replies stored before 2026-10-20.
+     */
+    calls?: ModelCallUsage[];
+    /** Prices the cost was computed with, US dollars per million tokens. */
+    rates?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   };
+}
+
+/**
+ * Tokens and cost of one model call within a reply. A reply with tools
+ * makes several calls, each sending the whole conversation so far again.
+ */
+export interface ModelCallUsage {
+  /** Prompt tokens, cached ones included. */
+  input: number;
+  /** Part of {@link input} read from the provider's cache. */
+  cacheRead: number;
+  /** Part of {@link input} written to the provider's cache. */
+  cacheWrite: number;
+  /** Completion tokens, reasoning included. */
+  output: number;
+  /** Part of {@link output} spent on reasoning, if the provider says. */
+  reasoning?: number;
+  /** Tools the call asked for; empty when it ended with the answer. */
+  tools: string[];
+  /**
+   * Cost in US dollars, split by kind where the prices are known; agents
+   * report only the total.
+   */
+  cost?: { total: number; input?: number; cacheRead?: number; cacheWrite?: number; output?: number };
 }
 
 /**

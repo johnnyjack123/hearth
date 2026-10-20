@@ -1,7 +1,7 @@
 import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
 import type { LanguageModelUsage } from 'ai';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { catalogProvider, parseCatalog, PricingCatalog, usageMetadata } from '../src/pricing.ts';
+import { callUsage, catalogProvider, parseCatalog, PricingCatalog, usageMetadata } from '../src/pricing.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { createTestServer, DIALECTS, eventually, type TestServer } from './helpers.ts';
 
@@ -54,8 +54,36 @@ describe('pricing', () => {
       contextTokens: 230,
       contextWindow: 1000,
       cost: (200 * 2 + 100 * 0.5 + 50 * 8) / 1_000_000,
+      rates: { input: 2, output: 8, cacheRead: 0.5 },
     });
     expect(usageMetadata(usage(10, 5), undefined, null)).toEqual({ inputTokens: 10, outputTokens: 5, contextTokens: 15 });
+  });
+
+  it('splits each model call into tokens and cost by kind', () => {
+    const pricing = { input: 2, output: 8, cacheRead: 0.5 };
+    const step = { ...usage(300, 50, 100), outputTokenDetails: { textTokens: 20, reasoningTokens: 30 } } as LanguageModelUsage;
+    const call = callUsage(step, pricing, ['web_search']);
+    expect(call).toEqual({
+      input: 300,
+      cacheRead: 100,
+      cacheWrite: 0,
+      output: 50,
+      reasoning: 30,
+      tools: ['web_search'],
+      cost: {
+        total: expect.closeTo((200 * 2 + 100 * 0.5 + 50 * 8) / 1_000_000, 12),
+        input: (200 * 2) / 1_000_000,
+        cacheRead: (100 * 0.5) / 1_000_000,
+        cacheWrite: 0,
+        output: (50 * 8) / 1_000_000,
+      },
+    });
+    // The calls add up to the reply.
+    const reply = usageMetadata(step, step, pricing, [call]);
+    expect(reply.cost).toBeCloseTo(call.cost?.total ?? 0, 12);
+    expect(reply.reasoningTokens).toBe(30);
+    // Without prices only the tokens.
+    expect(callUsage(step, null, []).cost).toBeUndefined();
   });
 
   it('answers without the catalog and does not retry at once', async () => {
@@ -106,12 +134,24 @@ describe.each(DIALECTS)('usage in chats on %s', (kind) => {
     await eventually(async () => (await load()).messages.length === 2);
     // The mock model reports 5 input and 7 output tokens; the test catalog
     // prices mock-1 at 2 and 8 dollars per million.
+    const cost = (5 * 2 + 7 * 8) / 1_000_000;
     expect((await load()).messages[1]?.metadata?.usage).toEqual({
       inputTokens: 5,
       outputTokens: 7,
       contextTokens: 12,
       contextWindow: 1000,
-      cost: (5 * 2 + 7 * 8) / 1_000_000,
+      cost,
+      rates: { input: 2, output: 8 },
+      calls: [
+        {
+          input: 5,
+          cacheRead: 0,
+          cacheWrite: 0,
+          output: 7,
+          tools: [],
+          cost: { total: cost, input: (5 * 2) / 1_000_000, cacheRead: 0, cacheWrite: 0, output: (7 * 8) / 1_000_000 },
+        },
+      ],
     });
   });
 });

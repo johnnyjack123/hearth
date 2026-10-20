@@ -41,11 +41,17 @@ export function conversationUsage(messages: ChatMessage[]) {
     return null;
   }
   const priced = replies.flatMap((message) => (message.metadata?.usage?.cost === undefined ? [] : [message.metadata.usage.cost]));
+  const total = (pick: (usage: NonNullable<NonNullable<ChatMessage['metadata']>['usage']>) => number | undefined) =>
+    replies.reduce((sum, message) => sum + (message.metadata?.usage ? (pick(message.metadata.usage) ?? 0) : 0), 0);
   return {
     contextTokens: last.contextTokens ?? (last.inputTokens ?? 0) + (last.outputTokens ?? 0),
     contextWindow: last.contextWindow,
     cost: priced.length > 0 ? priced.reduce((sum, cost) => sum + cost, 0) : undefined,
     unpriced: replies.length - priced.length,
+    inputTokens: total((usage) => usage.inputTokens),
+    cachedInputTokens: total((usage) => usage.cachedInputTokens),
+    outputTokens: total((usage) => usage.outputTokens),
+    reasoningTokens: total((usage) => usage.reasoningTokens),
   };
 }
 
@@ -57,7 +63,7 @@ export function conversationUsage(messages: ChatMessage[]) {
  * @returns The meter, or nothing before the first reply.
  */
 export function ContextMeter({ messages }: { messages: ChatMessage[] }) {
-  const { t, locale } = usePreferences();
+  const { t, locale, devMode } = usePreferences();
   const usage = conversationUsage(messages);
   if (!usage) {
     return null;
@@ -65,12 +71,24 @@ export function ContextMeter({ messages }: { messages: ChatMessage[] }) {
   const { contextTokens, contextWindow, cost, unpriced } = usage;
   const percent = contextWindow ? Math.min(100, Math.round((contextTokens / contextWindow) * 100)) : null;
   const used = formatTokens(locale, contextTokens);
+  // The tooltip has room for exact numbers; the button shows the short form.
+  const exact = new Intl.NumberFormat(locale);
   const details = [
     percent === null
-      ? t('chat.contextTokens', { used })
-      : t('chat.contextDetails', { used, window: formatTokens(locale, contextWindow ?? 0), percent }),
+      ? t('chat.contextTokens', { used: exact.format(contextTokens) })
+      : t('chat.contextDetails', { used: exact.format(contextTokens), window: exact.format(contextWindow ?? 0), percent }),
     cost === undefined ? t('chat.costUnknown') : t('chat.costTotal', { cost: formatCost(locale, cost) }),
     ...(cost !== undefined && unpriced > 0 ? [t('chat.costPartial', { count: unpriced })] : []),
+    ...(devMode
+      ? [
+          t('chat.devTotals', {
+            input: exact.format(usage.inputTokens),
+            cached: exact.format(usage.cachedInputTokens),
+            output: exact.format(usage.outputTokens),
+            reasoning: exact.format(usage.reasoningTokens),
+          }),
+        ]
+      : []),
     t('chat.costSource'),
   ];
   const warn = percent !== null && percent >= WARN_PERCENT;
