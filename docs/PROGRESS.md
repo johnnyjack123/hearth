@@ -20,14 +20,12 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Plan mit dem Nutzer fertig abstimmen** (ROADMAP Phase 4, „Recherche“ → „Planung mit dem Nutzer, 20.10.“). Er will noch nicht, dass gebaut wird. Offen sind:
-   - Domain-Listen nach Art der Frage
-   - Jev über OpenRouter für Treffer und Abschnitte
-   - hybride Auswahl (BM25 und Embeddings über OpenRouter)
-   - ob ein Teilagent zusammenfasst oder das Hauptmodell die Abschnitte liest
-   - Verlauf eindampfen
-
-   Seine Zahlen aus dem Entwicklermodus (Cache-Anteil, Reasoning) helfen dabei.
+1. **Recherche verbessern**, Reihenfolge abgestimmt (ROADMAP Phase 4, „Recherche“ → „Abgestimmt mit dem Nutzer, 20.10. (abends)“). Vor dem Start wartet noch sein Go:
+   1. cache-fester Prompt (Datum und Recherche als Hinweis statt im System-Prompt)
+   2. Domain-Listen
+   3. Jev über OpenRouter für die Reihung, Kosten je Modell im Entwicklermodus
+   4. Abschnittsauswahl mit `focus`
+   5. Eindampfen mit Schwelle
 2. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
