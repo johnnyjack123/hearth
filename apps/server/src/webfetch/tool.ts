@@ -137,7 +137,7 @@ export function createWebFetchTool(context: WebFetchContext) {
       ...(signal ? { signal } : {}),
     });
     const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80;
-    const data = { id, host: url.hostname, port, url: url.href };
+    const data = { id, host: url.hostname, port, url: url.href, ...(known ? { research: { similar: known.similar(url) } } : {}) };
     // Same id, so the answered question replaces the open one in place.
     write({ type: 'data-approval', id: `fetch-approval-${id}`, data: { ...data, state: 'pending' } });
     const answer = await outcome;

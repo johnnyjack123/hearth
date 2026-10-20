@@ -225,7 +225,8 @@ export const de = {
       hide_from_user: 'Das Modell soll etwas vor dir verbergen.',
       unicode_tags: 'Diese Zeichen bilden Text, den du nicht siehst, den das Modell aber liest.',
       bidi_controls: 'Sie drehen die Leserichtung um: Du siehst etwas anderes, als das Modell liest.',
-      zero_width: 'Sie können Wörter tarnen oder versteckte Nachrichten tragen, ohne dass du sie siehst.',
+      zero_width:
+        'Sie stecken in einer verdächtigen Wendung und verstecken sie vor Filtern, oder sie bilden eine lange Kette, die eine Nachricht kodieren kann.',
     },
     warnings: {
       ignore_instructions: '„ignore previous instructions“',
@@ -237,7 +238,7 @@ export const de = {
       hide_from_user: '„sag es dem Nutzer nicht“',
       unicode_tags: 'unsichtbare Unicode-Tag-Zeichen',
       bidi_controls: 'unsichtbare Richtungszeichen',
-      zero_width: 'unsichtbare Nullbreitenzeichen',
+      zero_width: 'unsichtbare Zeichen',
     },
     errors: {
       invalid_url: 'Diese Adresse lädt der Server nicht. Erlaubt sind nur http- und https-Adressen ohne Zugangsdaten.',
@@ -256,6 +257,9 @@ export const de = {
     approval: {
       title: 'Das Modell möchte eine Seite von {host} laden',
       body: 'Du hast diese Adresse im Chat nicht genannt. Prüfe sie: In einer Adresse können Inhalte aus dem Chat stecken, und eine Seite kann versuchen, dem Modell Anweisungen zu geben.',
+      researchBody:
+        'Diese Adresse stand in keinem Suchergebnis und auf keiner gelesenen Seite. Das Modell hat sie selbst gebildet oder aus seinem Wissen. Prüfe sie: In einer selbst gebauten Adresse können Inhalte aus dem Chat stecken.',
+      similar: 'Ähnlichste gefundene Adresse',
       once: 'Einmal erlauben',
       session: 'Host für diesen Chat erlauben',
       deny: 'Ablehnen',
@@ -273,6 +277,8 @@ export const de = {
     interrupted: 'abgebrochen',
     title: 'Websuche: „{query}“',
     count: '{count} Treffer',
+    readCount: '{count} gelesen',
+    readAs: 'gelesen, Quelle {number}',
     noResults: 'Keine Treffer',
     showResults: 'Treffer zeigen',
     hideResults: 'Treffer verbergen',

@@ -310,7 +310,17 @@ export function ApprovalCard({
               {fetchUrl}
             </code>
           ) : null}
-          <p className="text-sm text-muted-foreground">{fetchUrl ? t('webFetch.approval.body') : t('agent.approval.body')}</p>
+          <p className="text-sm text-muted-foreground">
+            {fetchUrl ? (approval.research ? t('webFetch.approval.researchBody') : t('webFetch.approval.body')) : t('agent.approval.body')}
+          </p>
+          {fetchUrl && approval.research?.similar ? (
+            <>
+              <span className="text-xs font-medium text-muted-foreground">{t('webFetch.approval.similar')}</span>
+              <code className="max-h-32 overflow-y-auto break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs text-muted-foreground">
+                {approval.research.similar}
+              </code>
+            </>
+          ) : null}
         </div>
       </div>
       {open ? (

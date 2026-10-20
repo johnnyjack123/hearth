@@ -227,7 +227,7 @@ export const en: Messages = {
       hide_from_user: 'The model is told to keep something from you.',
       unicode_tags: 'These characters spell out text that you cannot see but the model reads.',
       bidi_controls: 'They reverse the reading direction: what you see differs from what the model reads.',
-      zero_width: 'They can disguise words or carry hidden messages without you noticing.',
+      zero_width: 'They sit inside a suspicious phrase and hide it from filters, or they form a long run that can encode a message.',
     },
     warnings: {
       ignore_instructions: '“ignore previous instructions”',
@@ -239,7 +239,7 @@ export const en: Messages = {
       hide_from_user: '“do not tell the user”',
       unicode_tags: 'invisible Unicode tag characters',
       bidi_controls: 'invisible direction characters',
-      zero_width: 'invisible zero-width characters',
+      zero_width: 'invisible characters',
     },
     errors: {
       invalid_url: 'The server does not load this address. Only http and https addresses without credentials work.',
@@ -258,6 +258,9 @@ export const en: Messages = {
     approval: {
       title: 'The model wants to load a page from {host}',
       body: 'You did not name this address in the chat. Check it: an address can carry content from the chat, and a page can try to give the model instructions.',
+      researchBody:
+        'This address was in no search result and on no page read. The model built it itself or took it from its knowledge. Check it: an address the model builds can carry content from the chat.',
+      similar: 'Closest found address',
       once: 'Allow once',
       session: 'Allow host for this chat',
       deny: 'Deny',
@@ -275,6 +278,8 @@ export const en: Messages = {
     interrupted: 'interrupted',
     title: 'Web search: “{query}”',
     count: 'Results: {count}',
+    readCount: 'read: {count}',
+    readAs: 'read, source {number}',
     noResults: 'No results',
     showResults: 'Show results',
     hideResults: 'Hide results',

@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { formatCost } from './context-meter.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
-import { Sources, WebSearchCall } from './web-search.tsx';
+import { readPages, Sources, WebSearchCall } from './web-search.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -111,6 +111,8 @@ function AssistantMessage({
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
 }) {
+  // The search blocks mark these hits, the sources list them.
+  const pages = readPages(message);
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
       {message.parts.map((part, index) => {
@@ -124,7 +126,7 @@ function AssistantMessage({
           return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} />;
         }
         if (part.type === `tool-${WEB_SEARCH_TOOL}`) {
-          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} />;
+          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} />;
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;
@@ -144,7 +146,7 @@ function AssistantMessage({
         }
         return null;
       })}
-      {!streaming ? <Sources message={message} /> : null}
+      {!streaming ? <Sources pages={pages} /> : null}
       {!streaming ? <MessageActions message={message} canRegenerate={canRegenerate} onRegenerate={onRegenerate} /> : null}
     </motion.div>
   );

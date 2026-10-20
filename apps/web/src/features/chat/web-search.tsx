@@ -1,6 +1,6 @@
 import { parseWebSearchError, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
-import { ChevronRight, CircleAlert, Search } from 'lucide-react';
+import { BookOpenCheck, ChevronRight, CircleAlert, Search } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useState } from 'react';
 import { Badge } from '@/components/ui/display.tsx';
@@ -47,6 +47,53 @@ function hostOf(url: string): string {
 }
 
 /**
+ * Host and path of a URL, without scheme, `www.`, query and trailing slash:
+ * models often fetch a hit as a tidied-up variant.
+ */
+function pageKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host.toLowerCase().replace(/^www\./, '')}${parsed.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return null;
+  }
+}
+
+/** A page the model read for a reply, numbered as in its sources. */
+export interface ReadPage {
+  /** Address after redirects. */
+  url: string;
+  /** Page title, or the address. */
+  title: string;
+  /** Page keys of the requested and the final address. */
+  keys: string[];
+}
+
+/**
+ * The pages a reply read with `web_fetch`, each once, in reading order.
+ * Only pages that loaded count.
+ *
+ * @param message - The assistant message.
+ * @returns The pages.
+ */
+export function readPages(message: ChatMessage): ReadPage[] {
+  const pages: ReadPage[] = [];
+  for (const part of message.parts) {
+    if (part.type !== `tool-${WEB_FETCH_TOOL}` || !('state' in part) || part.state !== 'output-available') {
+      continue;
+    }
+    const output = part.output as { url?: unknown; title?: unknown } | undefined;
+    const requested = (part.input as { url?: unknown } | undefined)?.url;
+    if (typeof output?.url !== 'string' || !/^https?:\/\//i.test(output.url) || pages.some((page) => page.url === output.url)) {
+      continue;
+    }
+    const keys = [output.url, typeof requested === 'string' ? requested : ''].map(pageKey).filter((key): key is string => key !== null);
+    pages.push({ url: output.url, title: typeof output.title === 'string' && output.title ? output.title : output.url, keys });
+  }
+  return pages;
+}
+
+/**
  * A link to a page found on the web. It shows the host next to the title,
  * because the title comes from the page and can claim anything.
  *
@@ -74,14 +121,21 @@ function ExternalLink({ url, title, children }: { url: string; title: string; ch
 
 /**
  * A web search of the model in research mode: the query, how many hits
- * came back and, on demand, the numbered hits with links. Injection
- * warnings stay visible while the block is closed.
+ * came back and how many the model read, and on demand the numbered hits
+ * with links. Hits the model read carry their number among the sources.
+ * Injection warnings stay visible while the block is closed.
  *
- * @param props - The `tool-web_search` part and whether its message is still streaming.
+ * @param props - The `tool-web_search` part, whether its message is still
+ *   streaming, and the pages the reply read (see {@link readPages}).
  * @returns The search block.
  */
-export function WebSearchCall({ part, streaming }: { part: ToolUIPart; streaming: boolean }) {
+export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; streaming: boolean; read: ReadPage[] }) {
   const t = useT();
+  /** Number of a hit among the sources, or 0 if the model did not read it. */
+  const sourceNumber = (url: string) => {
+    const key = pageKey(url);
+    return key ? read.findIndex((page) => page.keys.includes(key)) + 1 : 0;
+  };
   const [open, setOpen] = useState(false);
   const output = part.state === 'output-available' ? readOutput(part.output) : null;
   const failure = part.state === 'output-error' ? parseWebSearchError(part.errorText) : null;
@@ -110,9 +164,11 @@ export function WebSearchCall({ part, streaming }: { part: ToolUIPart; streaming
   } else if (interrupted) {
     status = <Badge className="shrink-0">{t('webSearch.interrupted')}</Badge>;
   } else {
+    const readCount = output?.results.filter((result) => sourceNumber(result.url) > 0).length ?? 0;
     status = (
       <span className="shrink-0 text-xs text-muted-foreground">
         {output && output.results.length > 0 ? t('webSearch.count', { count: output.results.length }) : t('webSearch.noResults')}
+        {readCount > 0 ? ` · ${t('webSearch.readCount', { count: readCount })}` : null}
       </span>
     );
   }
@@ -144,21 +200,30 @@ export function WebSearchCall({ part, streaming }: { part: ToolUIPart; streaming
             exit={{ opacity: 0, transition: transitions.exit }}
             className="flex flex-col gap-3 border-t border-border px-3 py-3"
           >
-            {output.results.map((result, index) => (
-              <li key={result.url} className="flex min-w-0 gap-2">
-                <span className="w-5 shrink-0 text-end text-xs leading-5 text-muted-foreground tabular-nums">{index + 1}.</span>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <ExternalLink url={result.url} title={result.title}>
-                    {result.published ? ` · ${result.published}` : null}
-                  </ExternalLink>
-                  {result.snippet ? (
-                    <p className="line-clamp-3 break-words text-muted-foreground">
-                      <RevealedText text={result.snippet} />
-                    </p>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+            {output.results.map((result, index) => {
+              const source = sourceNumber(result.url);
+              return (
+                <li key={result.url} className="flex min-w-0 gap-2">
+                  <span className="w-5 shrink-0 text-end text-xs leading-5 text-muted-foreground tabular-nums">{index + 1}.</span>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    {source > 0 ? (
+                      <Badge variant="success" className="w-fit">
+                        <BookOpenCheck aria-hidden="true" />
+                        {t('webSearch.readAs', { number: source })}
+                      </Badge>
+                    ) : null}
+                    <ExternalLink url={result.url} title={result.title}>
+                      {result.published ? ` · ${result.published}` : null}
+                    </ExternalLink>
+                    {result.snippet ? (
+                      <p className="line-clamp-3 break-words text-muted-foreground">
+                        <RevealedText text={result.snippet} />
+                      </p>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
           </motion.ol>
         ) : null}
       </AnimatePresence>
@@ -170,32 +235,22 @@ export function WebSearchCall({ part, streaming }: { part: ToolUIPart; streaming
  * The pages the model read for a reply, numbered, below its text. Only
  * pages that loaded count; search hits alone are no sources.
  *
- * @param props - The assistant message.
+ * @param props - The pages of {@link readPages}.
  * @returns The list, or nothing without loaded pages.
  */
-export function Sources({ message }: { message: ChatMessage }) {
+export function Sources({ pages }: { pages: ReadPage[] }) {
   const t = useT();
-  const pages = new Map<string, string>();
-  for (const part of message.parts) {
-    if (part.type !== `tool-${WEB_FETCH_TOOL}` || !('state' in part) || part.state !== 'output-available') {
-      continue;
-    }
-    const output = part.output as { url?: unknown; title?: unknown } | undefined;
-    if (typeof output?.url === 'string' && /^https?:\/\//i.test(output.url) && !pages.has(output.url)) {
-      pages.set(output.url, typeof output.title === 'string' && output.title ? output.title : output.url);
-    }
-  }
-  if (pages.size === 0) {
+  if (pages.length === 0) {
     return null;
   }
   return (
     <section aria-label={t('webSearch.sources')} className="flex flex-col gap-2 border-t border-border pt-3 text-sm">
       <h3 className="text-xs font-medium text-muted-foreground">{t('webSearch.sources')}</h3>
       <ol className="flex flex-col gap-2">
-        {[...pages].map(([url, title], index) => (
-          <li key={url} className="flex min-w-0 gap-2">
+        {pages.map((page, index) => (
+          <li key={page.url} className="flex min-w-0 gap-2">
             <span className="w-5 shrink-0 text-end text-xs leading-5 text-muted-foreground tabular-nums">{index + 1}.</span>
-            <ExternalLink url={url} title={title} />
+            <ExternalLink url={page.url} title={page.title} />
           </li>
         ))}
       </ol>

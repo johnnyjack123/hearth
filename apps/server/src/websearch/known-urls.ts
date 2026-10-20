@@ -3,8 +3,11 @@
  * provider or from a page the model read, not from the model. A URL the
  * model writes itself could carry parts of the chat to whoever runs the
  * host; one it found was written by a third party who never saw the chat.
- * That only holds for the exact URL, so the set compares whole URLs, never
- * hosts.
+ *
+ * That only holds for the URL as found. Variants that add nothing count as
+ * found too, because models tidy URLs up: http or https, with or without
+ * `www.` and a trailing slash, fewer query parameters. Anything added (a
+ * parameter, a longer path, another value) makes it a new URL.
  */
 import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import type { ChatMessage } from '../services/conversations.ts';
@@ -16,28 +19,30 @@ const BARE_URL = /\bhttps?:\/\/[^\s<>"'`()[\]{}]+/giu;
 /** Links taken from one text, so a page of millions of links stays cheap. */
 const MAX_LINKS_PER_TEXT = 2_000;
 
-/**
- * The comparison key of a URL: parsed, without fragment.
- *
- * @param raw - URL as found or as requested.
- * @returns The key, or null for anything but http(s).
- */
-export function urlKey(raw: string | URL): string | null {
+function parse(raw: string | URL): URL | null {
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return null;
-    }
-    url.hash = '';
-    return url.href;
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
   } catch {
     return null;
   }
 }
 
+/** Host, port and path, without scheme, `www.` and trailing slash. */
+function pageKey(url: URL): string {
+  const host = url.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '');
+  const port = url.port && url.port !== (url.protocol === 'https:' ? '443' : '80') ? `:${url.port}` : '';
+  return `${host}${port}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+function parameters(url: URL): string[] {
+  return [...url.searchParams].map(([name, value]) => `${name}=${value}`);
+}
+
 /** See the module comment. */
 export class KnownUrls {
-  readonly #urls = new Set<string>();
+  /** Per page key: the URLs found for it, with their query parameters. */
+  readonly #pages = new Map<string, { href: string; parameters: Set<string> }[]>();
 
   /**
    * Remembers a URL from a search result or a page.
@@ -45,9 +50,16 @@ export class KnownUrls {
    * @param raw - The URL.
    */
   add(raw: string): void {
-    const key = urlKey(raw);
-    if (key) {
-      this.#urls.add(key);
+    const url = parse(raw);
+    if (!url) {
+      return;
+    }
+    url.hash = '';
+    const key = pageKey(url);
+    const found = this.#pages.get(key) ?? [];
+    if (!found.some((entry) => entry.href === url.href)) {
+      found.push({ href: url.href, parameters: new Set(parameters(url)) });
+      this.#pages.set(key, found);
     }
   }
 
@@ -73,11 +85,45 @@ export class KnownUrls {
 
   /**
    * @param url - URL the model wants to load.
-   * @returns True if exactly this URL was found before.
+   * @returns True if it is a found URL or a variant of one that adds nothing.
    */
   has(url: URL): boolean {
-    const key = urlKey(url);
-    return key !== null && this.#urls.has(key);
+    const wanted = parameters(url);
+    return (this.#pages.get(pageKey(url)) ?? []).some((entry) => wanted.every((parameter) => entry.parameters.has(parameter)));
+  }
+
+  /**
+   * A found URL that looks like the requested one, so the user can compare
+   * them: same page with other parameters, else the same host with the
+   * longest common path.
+   *
+   * @param url - URL the model wants to load.
+   * @returns The URL, or null if nothing on that host was found.
+   */
+  similar(url: URL): string | null {
+    const key = pageKey(url);
+    const wanted = parameters(url);
+    const samePage = this.#pages.get(key) ?? [];
+    if (samePage.length > 0) {
+      const shared = (entry: { parameters: Set<string> }) => wanted.filter((parameter) => entry.parameters.has(parameter)).length;
+      return samePage.reduce((best, entry) => (shared(entry) > shared(best) ? entry : best)).href;
+    }
+    const host = key.split('/')[0] ?? '';
+    let best: { href: string; score: number } | null = null;
+    for (const [page, entries] of this.#pages) {
+      if (page.split('/')[0] !== host) {
+        continue;
+      }
+      let score = 0;
+      while (score < Math.min(page.length, key.length) && page[score] === key[score]) {
+        score += 1;
+      }
+      const entry = entries[0];
+      if (entry && (!best || score > best.score)) {
+        best = { href: entry.href, score };
+      }
+    }
+    return best?.href ?? null;
   }
 
   /**

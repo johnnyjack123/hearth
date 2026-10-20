@@ -189,6 +189,17 @@ describe('known URLs', () => {
     // The same host with something added is a new URL.
     expect(known.has(new URL('https://example.com/a?b=1&secret=x'))).toBe(false);
     expect(known.has(new URL('https://example.com/'))).toBe(false);
+
+    // Tidied-up variants add nothing: other scheme, www, trailing slash, fewer parameters.
+    known.add('https://news.example/item?id=5&ref=feed');
+    expect(known.has(new URL('http://www.news.example/item/?id=5'))).toBe(true);
+    expect(known.has(new URL('https://news.example/item?ref=feed&id=5'))).toBe(true);
+    expect(known.has(new URL('https://news.example/item?id=6'))).toBe(false);
+    expect(known.has(new URL('https://news.example/item/more'))).toBe(false);
+    expect(known.has(new URL('https://news.example:8443/item?id=5'))).toBe(false);
+    // The closest found URL helps the user compare.
+    expect(known.similar(new URL('https://news.example/item?id=5&leak=x'))).toBe('https://news.example/item?id=5&ref=feed');
+    expect(known.similar(new URL('https://elsewhere.example/item'))).toBeNull();
   });
 
   it('come from earlier searches and fetches of the chat', () => {
@@ -478,7 +489,10 @@ describe('research mode', () => {
     const approvals: string[] = [];
     const chunks = await readChunks(await chat(conversationId, 'Wie röstet man Kaffee?', true), (chunk) => {
       if (chunk.type === 'data-approval') {
-        approvals.push((chunk.data as { url: string; state: string }).url);
+        const data = chunk.data as { url: string; state: string; research?: { similar: string | null } };
+        approvals.push(data.url);
+        // The card says why it asks, and which found URL comes closest.
+        expect(data.research).toEqual({ similar: article });
       }
     });
 
