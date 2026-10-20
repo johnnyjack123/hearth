@@ -334,6 +334,33 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
        - *Kosten:* Mit DeepSeek als Hauptmodell spart es wenig Geld, weil DeepSeek selbst billig ist und Präfixe cacht; die Zusammenfassungen lesen die Seiten ja trotzdem einmal. Deutlich lohnt es sich bei teuren Hauptmodellen (Claude, GPT) und für die Qualität.
        - *Schwächen:* Informationsverlust (der Teilagent entscheidet mit engerem Blick, was wichtig ist, und das Hauptmodell sieht nicht, was fehlt), eine zusätzliche Stelle für Halluzinationen, Wartezeit pro Seite (ein weiterer Modellaufruf), die Frage muss präzise mitgegeben werden, und Zitate werden ungenauer. Gegen eingeschleuste Anweisungen hilft es kaum, auch der Teilagent liest die Seite.
        - *Vorschlag:* erst **ohne Modell**: `web_fetch` bekommt einen Parameter `focus` (was das Modell sucht), der Server teilt die Seite in Abschnitte, wählt per BM25 die passenden aus und schickt sie mit Gliederung und dem Hinweis, wie es mehr bekommt. Kostet keine Token und läuft auf dem Pi. Dann Token pro Recherche-Antwort messen (`metadata.usage`). Erst wenn das nicht reicht, ein Teilagent, der **wörtliche Zitate** samt Abschnitt zurückgibt statt freier Zusammenfassung; Modell wählbar, Abschalter.
+  - **Planung mit dem Nutzer, 20.10. (Fakten und Rechnung; noch nichts entschieden):**
+    - *Alles über einen OpenRouter-Key* ist möglich: DeepSeek-Modelle, Jev und Embeddings. Kosten, Cache und Reasoning werden für OpenRouter genauso erfasst wie für DeepSeek direkt. OpenRouter verteilt ein Modell auf mehrere Hoster mit je eigenem Cache; ob Treffer ankommen, zeigt der Entwicklermodus.
+    - *Preise (Katalog vom 20.10., je Mio. Token):*
+
+      | Modell | Eingabe | Cache-Treffer | Ausgabe |
+      |---|---|---|---|
+      | `deepseek-v4-flash` direkt | 0,15 $ | 0,003 $ | 0,60 $ |
+      | `deepseek/deepseek-v4-flash` über OpenRouter | 0,091 $ | 0,0182 $ | 0,182 $ |
+      | `deepseek-v4-pro` direkt | 0,66 $ | 0,022 $ | 1,98 $ |
+      | Jev (`typesafe/jev-1.13`, `~typesafe/jev-latest`) | 0,042 $ | – | kostenlos |
+      | Embeddings über OpenRouter (`pplx-embed-v1-0.6b`, `qwen3-embedding-8b`, `bge-m3`, `text-embedding-3-small`) | 0,004–0,02 $ | – | – |
+
+      Einige Embeddings gibt es auch kostenlos mit Limit. Das Kontextfenster der DeepSeek-V4-Modelle ist 1 Mio. Token.
+    - *Jev:* eigener Endpunkt `POST /api/alpha/decisions` (Alpha), kein Chat-Modell. Er bekommt einen Zustand und benannte Fragen und gibt Wahrscheinlichkeiten zurück, aber keinen Text: `Choice` (Option), `Noul` (ja/nein), `Score` (Stufe). Mehrere Fragen gehen in einen Aufruf. Das Kontextfenster hat 262 144 Token, über etwa 32 KB Text schaltet Jev aber in einen langsameren und ungenaueren Modus; Anfragen also unter ~8 000 Token halten. Der Server braucht dafür einen eigenen kleinen Client; für Funde der Merge-Prüfung auf dem Rechner zusätzlich einen erlaubten Pfad im LLM-Durchgang.
+    - *Seitengrößen* nach Readability (gemessen am 18.10.): Nachrichtenartikel etwa 1 000–2 000 Token, Wikipedia und Doku bis zur Grenze von 40 000 Zeichen (rund 10 000 Token).
+    - *Rechnung mit `deepseek-v4-flash` direkt*, eine Recherche-Antwort mit Suche und zwei Seiten à 5 000 Token:
+      - Seiten neu 0,15 Cent, Treffer 0,015 Cent
+      - Wiederholungen innerhalb der Antwort aus dem Cache unter 0,01 Cent
+      - Ausgabe samt Reasoning um 0,15 Cent
+      - Zusammen rund 0,3 Cent. Beim Programmieren ist fast alles Cache-Treffer (1/50 des Preises), deshalb ist Code dort so billig.
+    - *Varianten:*
+      - Jev sortiert 8 Treffer anhand ganzer Seiten: rund 0,17 Cent, so teuer wie das Lesen, das es sparen soll, dazu Abrufzeit für 8 Seiten. **Lohnt nicht.**
+      - Jev sortiert nach Titel, URL und Ausschnitt: ein Aufruf, rund 0,003 Cent. **Lohnt.**
+      - Jev wählt Abschnitte einer Seite (5 000 Token): rund 0,02 Cent. Liest das Hauptmodell dann 1 500 statt 5 000 Token, spart es rund 0,05 Cent pro Seite, also netto etwa die Hälfte; bei 10 000-Token-Seiten mehr.
+      - Embeddings statt Jev für dieselbe Auswahl: rund 0,005 Cent, gröber im Urteil. Sinnvoll gemischt: BM25 und Embeddings wählen vor (zusammengeführt per Reciprocal Rank Fusion), Jev bewertet nur die besten Kandidaten.
+      - Teilagent fasst zusammen: kostet mit DeepSeek als Hauptmodell rund 0,03 Cent pro Seite **mehr**, als er spart, und bringt 2–5 s Wartezeit. Lohnt nur bei teurem Hauptmodell (Pro, Claude, GPT) oder wenn spätere Wiederholungen teuer sind (OpenRouter-Cache nur 1/5). Kostenlose Alternative fürs Kontext-Schonen: nach der Antwort Seiteninhalte im Verlauf durch die verwendeten Abschnitte ersetzen.
+    - *Domain-Listen nach Art der Frage* (Idee des Nutzers): z. B. Wissenschaft und Fakten (Wikipedia, Fachportale, Behörden), Erklären und Lernen (Studyflix, simpleclub …), Erfahrungen (Reddit, große Foren), Technik und Doku (offizielle Doku, GitHub, Stack Overflow), Nachrichten. `web_search` bekommt einen Parameter für die Art; das Hauptmodell wählt sie (kostet nichts), Jev wäre später möglich. Die Listen gewichten nur: Der Server holt mehr Treffer (etwa 20), sortiert passende nach oben und gibt 8–10 weiter, nichts wird entfernt.
   - Ursprünglicher Plan:
   - **Hauptinhalt:** Mozilla Readability (`@mozilla/readability`) auf einem `linkedom`-DOM, danach turndown. Liefert Readability nichts Brauchbares (unter ~500 Zeichen oder `null`), wird die ganze Seite wie bisher umgewandelt. Defuddle ist die Alternative, falls Readability bei Dokumentationsseiten zu viel wegschneidet. Kein externer Dienst (Jina Reader o. Ä.), weil der jede abgerufene URL sähe.
   - **Websuche:** Werkzeug `web_search({ query })` in normalen Chats. Es liefert die ersten Treffer mit Titel, URL, Ausschnitt und Datum. Ob gesucht wird, entscheidet das Modell selbst über den Werkzeugaufruf, wie bei Perplexity. Der System-Prompt sagt: suchen, wenn Fakten unsicher, aktuell oder nach dem Wissensstand des Modells sind, und Quellen als Links nennen.

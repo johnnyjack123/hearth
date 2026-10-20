@@ -1,4 +1,11 @@
-import { type MessageMetadata, parseWebFetchError, parseWebSearchError, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import {
+  type MessageMetadata,
+  type ModelCallUsage,
+  parseWebFetchError,
+  parseWebSearchError,
+  WEB_FETCH_TOOL,
+  WEB_SEARCH_TOOL,
+} from '@harness/shared';
 import {
   APICallError,
   convertToModelMessages,
@@ -20,7 +27,7 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
-import { type ModelPricing, usageMetadata } from '../pricing.ts';
+import { callUsage, type ModelPricing, usageMetadata } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -49,9 +56,14 @@ const WEB_FETCH_INSTRUCTIONS = [
 function researchInstructions(now: Date, canFetch: boolean): string {
   return [
     `Research mode is on. Today is ${now.toISOString().slice(0, 10)}.`,
-    'Search the web with web_search whenever facts may be uncertain, recent or after your training data,',
-    'for example current events, prices, versions, people or anything the user asks you to look up.',
-    canFetch ? 'Read the most relevant results with web_fetch before you answer; URLs from search results and links on loaded pages load without asking.' : '',
+    'Use web_search when the answer depends on facts you cannot reliably know: recent events, current prices,',
+    'versions or schedules, specific people, organizations, products or statistics, or anything the user asks you to look up or check.',
+    'If you are not sure a fact is correct and current, search instead of guessing.',
+    'Do not search for small talk, writing, translation, coding or math help, or well-established general knowledge; answer those directly.',
+    canFetch
+      ? 'Snippets often answer simple facts. Read pages with web_fetch only when the snippets are not enough, usually the one to three most promising; ' +
+        'URLs from search results and links on loaded pages load without asking.'
+      : '',
     'Never put private details from this conversation into search queries.',
     'Cite the sources you used as Markdown links, and say when sources disagree or you found nothing reliable.',
   ]
@@ -382,6 +394,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   const baseMetadata: MessageMetadata = { createdAt: startedAt, modelId, credentialId };
   // The context after the reply is what the last model call saw.
   let lastStep: LanguageModelUsage | undefined;
+  // Every call of the reply with the tools it asked for, for the developer view.
+  const calls: ModelCallUsage[] = [];
+  let stepTools: string[] = [];
 
   const stream = createUIMessageStream<ChatMessage>({
     originalMessages: messages,
@@ -402,12 +417,18 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             if (part.type === 'start') {
               return baseMetadata;
             }
+            if (part.type === 'tool-call') {
+              stepTools.push(part.toolName);
+              return undefined;
+            }
             if (part.type === 'finish-step') {
               lastStep = part.usage;
+              calls.push(callUsage(part.usage, pricing, stepTools));
+              stepTools = [];
               return undefined;
             }
             if (part.type === 'finish') {
-              return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing) };
+              return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing, calls) };
             }
             return undefined;
           },

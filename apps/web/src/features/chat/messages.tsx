@@ -1,5 +1,5 @@
 import { type ApprovalDecision, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
-import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, RefreshCw } from 'lucide-react';
+import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
@@ -11,6 +11,7 @@ import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { formatCost } from './context-meter.tsx';
+import { UsageDetails } from './usage-details.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
 import { readPages, Sources, WebSearchCall } from './web-search.tsx';
 
@@ -196,8 +197,9 @@ function MessageActions({
   canRegenerate: boolean;
   onRegenerate: () => void;
 }) {
-  const { t, locale } = usePreferences();
+  const { t, locale, devMode } = usePreferences();
   const [copied, setCopied] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
   const usage = message.metadata?.usage;
 
   async function copy() {
@@ -207,35 +209,61 @@ function MessageActions({
   }
 
   return (
-    <div className="flex items-center gap-1 text-muted-foreground opacity-100 transition-opacity duration-(--duration-fast) md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 md:group-last:opacity-100">
-      <Tooltip content={copied ? t('common.copied') : t('chat.copyMessage')}>
-        <Button variant="ghost" size="icon-sm" aria-label={t('chat.copyMessage')} onClick={() => void copy()}>
-          {copied ? <Check className="text-success" /> : <Copy />}
-        </Button>
-      </Tooltip>
-      {canRegenerate ? (
-        <Tooltip content={t('chat.regenerate')}>
-          <Button variant="ghost" size="icon-sm" aria-label={t('chat.regenerate')} onClick={onRegenerate}>
-            <RefreshCw />
+    <>
+      <div className="flex items-center gap-1 text-muted-foreground opacity-100 transition-opacity duration-(--duration-fast) md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 md:group-last:opacity-100">
+        <Tooltip content={copied ? t('common.copied') : t('chat.copyMessage')}>
+          <Button variant="ghost" size="icon-sm" aria-label={t('chat.copyMessage')} onClick={() => void copy()}>
+            {copied ? <Check className="text-success" /> : <Copy />}
           </Button>
         </Tooltip>
-      ) : null}
-      {message.metadata?.agent ? (
-        <span className="ms-1 inline-flex min-w-0 items-center gap-1 truncate text-xs">
-          <Container className="size-3.5 shrink-0" aria-hidden="true" />
-          {t('agent.linkedTo', { harness: message.metadata.agent.harness, project: message.metadata.agent.project })}
-        </span>
-      ) : null}
-      {message.metadata?.modelId ? (
-        <span className="ms-1 truncate text-xs">
-          {message.metadata.modelId}
-          {usage?.inputTokens !== undefined && usage.outputTokens !== undefined
-            ? ` · ${t('chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}`
-            : null}
-          {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
-        </span>
-      ) : null}
-    </div>
+        {canRegenerate ? (
+          <Tooltip content={t('chat.regenerate')}>
+            <Button variant="ghost" size="icon-sm" aria-label={t('chat.regenerate')} onClick={onRegenerate}>
+              <RefreshCw />
+            </Button>
+          </Tooltip>
+        ) : null}
+        {message.metadata?.agent ? (
+          <span className="ms-1 inline-flex min-w-0 items-center gap-1 truncate text-xs">
+            <Container className="size-3.5 shrink-0" aria-hidden="true" />
+            {t('agent.linkedTo', { harness: message.metadata.agent.harness, project: message.metadata.agent.project })}
+          </span>
+        ) : null}
+        {message.metadata?.modelId ? (
+          <span className="ms-1 truncate text-xs">
+            {message.metadata.modelId}
+            {usage?.inputTokens !== undefined && usage.outputTokens !== undefined
+              ? ` · ${t('chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}`
+              : null}
+            {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
+          </span>
+        ) : null}
+        {devMode && usage ? (
+          <Tooltip content={showUsage ? t('chat.usageDetails.hide') : t('chat.usageDetails.show')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={showUsage ? t('chat.usageDetails.hide') : t('chat.usageDetails.show')}
+              aria-expanded={showUsage}
+              onClick={() => setShowUsage(!showUsage)}
+            >
+              <Receipt />
+            </Button>
+          </Tooltip>
+        ) : null}
+      </div>
+      <AnimatePresence initial={false}>
+        {devMode && usage && showUsage ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: transitions.enter }}
+            exit={{ opacity: 0, transition: transitions.exit }}
+          >
+            <UsageDetails usage={usage} agent={message.metadata?.agent !== undefined} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 

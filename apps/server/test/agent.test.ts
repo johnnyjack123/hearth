@@ -108,6 +108,11 @@ describe('ChunkMapper', () => {
       contextTokens: 6,
       contextWindow: 1000,
       cost: 0.03,
+      // Each call of pi on its own, for the developer view.
+      calls: [
+        { input: 10, cacheRead: 0, cacheWrite: 0, output: 2, tools: [], cost: { total: 0.01 } },
+        { input: 5, cacheRead: 4, cacheWrite: 0, output: 1, tools: [], cost: { total: 0.02 } },
+      ],
     });
   });
 

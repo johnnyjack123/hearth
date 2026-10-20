@@ -46,7 +46,7 @@ export function searchModelText(output: WebSearchOutput): string {
   lines.push(`<${marker}>`, body || '(no results)', `</${marker}>`);
   lines.push(
     output.results.length > 0
-      ? 'Snippets are short and can be outdated: read the relevant pages with web_fetch before relying on them.'
+      ? 'Snippets are short and can be outdated. If they do not answer the question reliably, read the most relevant page or two with web_fetch.'
       : 'Try other search terms, or answer from what you know and say that the search found nothing.',
   );
   return lines.join('\n');
@@ -56,7 +56,7 @@ const DESCRIPTION =
   'Search the web. Returns the titles, URLs and short snippets of the top results. ' +
   'Use it for facts that may be recent, uncertain or after your training data, and to find pages to read. ' +
   'Write focused queries like you would type into a search engine; search again with other terms if the results do not fit. ' +
-  'Then read promising results with web_fetch: URLs from search results load without asking the user.';
+  'When the snippets are not enough, read the most promising results with web_fetch: URLs from search results load without asking the user.';
 
 /**
  * Builds the `web_search` tool for one chat request.
