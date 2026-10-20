@@ -9,7 +9,7 @@ import { Field } from '@/components/ui/field.tsx';
 import { Input } from '@/components/ui/input.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { SegmentedControl } from '@/components/ui/tabs.tsx';
-import type { MessageKey } from '@/i18n/index.ts';
+import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import { api, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryKeys } from '@/lib/queries.ts';
@@ -110,6 +110,20 @@ const PROVIDER_HINTS = {
   brave: 'admin.search.braveHint',
   tavily: 'admin.search.tavilyHint',
 } as const satisfies Record<SearchProvider, MessageKey>;
+
+/** What an unreachable provider most likely means, from the server's error code. */
+function causeHint(t: TranslateFn, detail: string): string {
+  if (detail === 'ENOTFOUND' || detail === 'EAI_AGAIN') {
+    return t('admin.search.causes.notFound');
+  }
+  if (detail === 'ECONNREFUSED') {
+    return t('admin.search.causes.refused');
+  }
+  if (detail === 'redirect') {
+    return t('admin.search.causes.redirect');
+  }
+  return t('admin.search.causes.other', { detail });
+}
 
 /**
  * Provider, SearXNG address or API key of the web search, with a test
@@ -252,10 +266,13 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
             ) : (
               <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             )}
-            <span className="min-w-0 break-words">
-              {result.ok
-                ? t('admin.search.testOk', { count: result.count })
-                : t('admin.search.testFailed', { reason: t(`webSearch.errors.${result.code}`, { detail: result.detail ?? '' }) })}
+            <span className="flex min-w-0 flex-col gap-1 break-words">
+              <span>
+                {result.ok
+                  ? t('admin.search.testOk', { count: result.count })
+                  : t('admin.search.testFailed', { reason: t(`webSearch.errors.${result.code}`, { detail: result.detail ?? '' }) })}
+              </span>
+              {!result.ok && result.code === 'network' && result.detail ? <span>{causeHint(t, result.detail)}</span> : null}
             </span>
           </p>
         ) : null}

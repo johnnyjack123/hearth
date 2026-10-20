@@ -456,6 +456,13 @@ export const de = {
       testOk: 'Die Suche funktioniert: {count} Treffer.',
       testFailed: 'Die Suche ist fehlgeschlagen. {reason}',
       notConfigured: 'Erst einen Anbieter speichern.',
+      causes: {
+        notFound:
+          'Der Server kennt diesen Namen nicht. Läuft der SearXNG-Container im selben Compose-Projekt? Ohne das Profil „search“ legt Compose ihn gar nicht an.',
+        refused: 'Unter dieser Adresse nimmt niemand Verbindungen an. Startet SearXNG noch, oder ist der Container abgestürzt? Das zeigt „docker compose logs searxng“.',
+        redirect: 'SearXNG antwortet mit einer Weiterleitung. Stimmt die Adresse (nur Schema, Host und Port, ohne „/search“)?',
+        other: 'Technischer Grund: {detail}',
+      },
     },
   },
   design: {

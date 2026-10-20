@@ -52,7 +52,9 @@ Mit einem Suchanbieter zeigt der Composer den Schalter **Recherche**. Ist er an,
 
 Fehler beim Test:
 - **HTTP 403 von SearXNG:** Die JSON-Ausgabe ist aus. Bei einer eigenen Instanz `search.formats` um `json` ergänzen.
-- **„nicht erreichbar“:** Der Container läuft nicht (Profil `search` fehlt), oder die Adresse stimmt nicht.
+- **„nicht erreichbar“, Name unbekannt (`ENOTFOUND`):** Den Container gibt es nicht. Compose legt Dienste mit Profil nur an, wenn das Profil aktiv ist: `COMPOSE_PROFILES=postgres,search` in der `.env` (ohne Leerzeichen) oder `docker compose --profile search up -d`. `--force-recreate` ist nicht nötig, `up -d` legt fehlende Container von selbst an. Prüfen mit `docker compose ps -a`. `configs` mit `content` braucht Compose ≥ 2.23 (`docker compose version`).
+- **„nicht erreichbar“, Verbindung abgelehnt (`ECONNREFUSED`):** Der Container läuft nicht oder startet noch. `docker compose logs --tail 50 searxng` zeigt den Grund.
+- Direkt aus dem Server-Container prüfen: `docker compose exec server node -e "fetch('http://searxng:8080/search?q=test&format=json').then(r => console.log(r.status), e => console.log(e.cause))"`. Antwort `200` heißt: Die Verbindung steht.
 - **HTTP 429:** Das Kontingent des Anbieters ist aufgebraucht. Bei SearXNG blockieren die abgefragten Suchmaschinen gelegentlich; dann liefert es weniger Treffer.
 
 Was nach außen geht: die Suchanfragen selbst (an SearXNG und von dort an die Suchmaschinen, bzw. an Brave oder Tavily) und Abrufe der gefundenen Seiten. Das Modell soll keine privaten Details in Suchanfragen schreiben, verhindern lässt sich das aber nicht.
