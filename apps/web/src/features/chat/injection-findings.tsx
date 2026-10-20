@@ -41,7 +41,7 @@ export type RevealedPart = { type: 'text'; text: string } | { type: 'char'; code
 // Control, zero-width, direction and tag characters. Shown as they are,
 // they would hide text or reorder what the user reads.
 const HIDDEN =
-  /([\u{E0000}-\u{E007F}]+)|([\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁤⁦-⁩﻿])/gu;
+  /([\u{E0000}-\u{E007F}]+)|([\u{0}-\u{1F}\u{7F}-\u{9F}\u{AD}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{2069}\u{FEFF}])/gu;
 
 /**
  * Splits text so invisible characters can be shown: each one as its code

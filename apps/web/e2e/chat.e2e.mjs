@@ -234,8 +234,11 @@ try {
     }
     await page.waitForSelector(text('Websuche: „Kaffee rösten“'));
     await page.waitForSelector(`section[aria-label="Quellen"] ${text('Kaffee-Testseite')}`, { timeout: 5_000 });
+    // The block says which hit the model read, numbered as among the sources.
+    await page.waitForSelector(text('2 Treffer · 1 gelesen'), { timeout: 5_000 });
     await page.click('[aria-label="Treffer zeigen"]');
     await page.waitForSelector(text('Röstgrade im Überblick'), { timeout: 5_000 });
+    await page.waitForSelector(text('gelesen, Quelle 1'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 

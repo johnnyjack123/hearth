@@ -260,6 +260,11 @@ export type AgentDataParts = {
     url?: string;
     /** How a web fetch question ended; set once it is resolved. */
     answer?: WebFetchAnswer;
+    /**
+     * Set in research mode, where only URLs the model did not find ask: the
+     * card then says so, and shows the closest found URL if there is one.
+     */
+    research?: { similar: string | null };
   };
   /** A step on the way to the answer; updated in place. */
   progress: { id: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };

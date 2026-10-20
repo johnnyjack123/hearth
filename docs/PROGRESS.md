@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-18 · Block „Recherche“ fertig (Fundstellen mit Erklärung, Hauptinhalt per Readability, Websuche mit Recherche-Schalter); nächstes: Test des Nutzers mit Websuche auf dem Pi_
+_Last updated: 2026-10-20 · Websuche läuft beim Nutzer auf dem Pi; Fehlalarme und Nachvollziehbarkeit nach seinem Test verbessert; nächstes: seine Entscheidung zu „Quellen gewichten“ und „Teilagent liest“_
 
 ## Where we are
 
@@ -20,11 +20,9 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Test des Nutzers auf dem Pi** (seine Wahl vom 18.10. für den echten Suchlauf):
-   - `docker compose pull`, dann mit Profil `search` starten (`COMPOSE_PROFILES=postgres,search` in `.env`, dazu `SEARXNG_SECRET`). Die neue `docker-compose.yml` muss auf den Pi; sie enthält die SearXNG-Konfiguration inline.
-   - In der Web-App: Administration → Server → Websuche → SearXNG, `http://searxng:8080`, speichern, „Suche testen“.
-   - Chat mit Recherche-Schalter und DeepSeek; dabei auf Antwortqualität, Dauer auf dem Pi (Readability bei großen Seiten) und Quellen achten.
-   - Seine Rückmeldung geht vor. Typische Fehler stehen in `docs/deploy.md` („Websuche“).
+1. **Entscheidung des Nutzers** zu seinen Ideen vom 20.10. (ROADMAP Phase 4, „Recherche“ → „Verbessern“). Vorgeschlagen ist jeweils erst die Stufe ohne Modell:
+   - Quellen gewichten per Domain-Liste, danach Jev
+   - `web_fetch` mit `focus` und BM25-Auswahl statt ganzer Seite, danach ein Teilagent mit wörtlichen Zitaten
 2. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
@@ -34,7 +32,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## In flight / half-finished
 
-Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen. Offen ist nur der echte Suchlauf (siehe oben).
+Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen. Die Websuche mit SearXNG läuft beim Nutzer auf dem Pi (20.10.; der Fehler war ein fehlendes Compose-Profil).
 
 ## Decisions made this session (18.10.)
 
@@ -52,7 +50,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Known issues / debt
 
-- **Mittel:** Echter Suchlauf (SearXNG, Brave, Tavily) noch nicht gegen echte Dienste geprüft, nur gegen Stand-ins. Die Antwortformate sind aus deren Doku.
+- **Mittel:** Brave und Tavily nur gegen Stand-ins geprüft (Formate aus deren Doku); SearXNG läuft beim Nutzer.
 - **Mittel:** Readability braucht für 1–2-MB-Seiten hier ~1 s, auf dem Pi vermutlich mehrere Sekunden.
 - **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab (fortsetzbare Streams fehlen).
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
@@ -84,6 +82,13 @@ Stand 18.10., nach dem Merge von Schritt 3:
 ---
 
 ## Log
+
+### 2026-10-20 (nach dem Test der Websuche auf dem Pi)
+- Fehlerhinweise bei unerreichbarem Suchanbieter (`ENOTFOUND` → Profil fehlt, `ECONNREFUSED` → Container abgestürzt).
+- Fehlalarme behoben: `html_comment` über leere Svelte-Marken hinweg, Nullbreitenzeichen als Umbruchstellen (jetzt nur noch Fund, wenn sie eine Wendung tarnen oder eine Kette bilden). Geprüft an echten Hugging-Face-Seiten.
+- Gelesene Treffer im Suchblock markiert; Rückfragen im Recherche-Modus mit Grund und ähnlichster gefundener URL; aufgeräumte Varianten gefundener URLs laden ohne Frage.
+- Rohe unsichtbare Zeichen aus Quelltexten entfernt (kamen über Werkzeug-Eingaben herein), `source.test.ts` verhindert neue.
+- Ideen des Nutzers zu Quellen-Gewichtung und Teilagent bewertet (ROADMAP).
 
 ### 2026-10-18 (Block „Recherche“)
 - Fundstellen von Prompt-Injection mit Ausschnitt und Erklärung (`findInjections` in `guard.ts` und `injection.ts`, `injection-findings.tsx`, aufklappbare Agent-Hinweise).
