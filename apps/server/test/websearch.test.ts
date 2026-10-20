@@ -19,6 +19,7 @@ import { KnownUrls } from '../src/websearch/known-urls.ts';
 import {
   braveBackend,
   DEFAULT_SEARCH_ENDPOINTS,
+  networkCause,
   normalizeResults,
   type SearchEndpoints,
   searxngBackend,
@@ -138,8 +139,21 @@ describe('search providers', () => {
     expect(await code()).toBe('provider_error:');
     provider.answer = () => ({ status: 200, body: '{}', delayMs: 1_000 });
     expect(await code()).toBe('timeout:');
-    const unreachable = searxngBackend('http://127.0.0.1:9', endpoints);
-    await expect(unreachable.search({ query: 'x', count: 3 })).rejects.toMatchObject({ code: 'network' });
+    // The cause says whether the container is missing or does not listen.
+    // A port that was just free; fetch itself blocks some low ports such as 9.
+    const closed = http.createServer();
+    await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
+    const closedPort = (closed.address() as AddressInfo).port;
+    await new Promise((resolve) => closed.close(resolve));
+    const unreachable = searxngBackend(`http://127.0.0.1:${closedPort}`, endpoints);
+    await expect(unreachable.search({ query: 'x', count: 3 })).rejects.toMatchObject({ code: 'network', detail: 'ECONNREFUSED' });
+    const unknown = searxngBackend('http://no-such-searxng.invalid:8080', endpoints);
+    await expect(unknown.search({ query: 'x', count: 3 })).rejects.toMatchObject({
+      code: 'network',
+      detail: expect.stringMatching(/^(ENOTFOUND|EAI_AGAIN)$/),
+    });
+    expect(networkCause(new TypeError('fetch failed', { cause: new Error('unexpected redirect') }))).toBe('redirect');
+    expect(networkCause(new Error('no cause'))).toBeNull();
     const controller = new AbortController();
     controller.abort();
     await expect(searx.search({ query: 'x', count: 3, signal: controller.signal })).rejects.toMatchObject({ code: 'aborted' });

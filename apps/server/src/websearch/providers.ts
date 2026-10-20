@@ -181,8 +181,27 @@ async function requestJson(
     if (error instanceof SyntaxError) {
       throw new WebSearchError('provider_error', `${provider} did not answer with JSON.`);
     }
-    throw new WebSearchError('network', `${provider} could not be reached.`);
+    // fetch only says "fetch failed"; the cause tells a missing container
+    // (ENOTFOUND) from one that does not listen (ECONNREFUSED).
+    const cause = networkCause(error);
+    console.warn(`[search] ${provider} could not be reached: ${cause ?? String(error)}`);
+    throw new WebSearchError('network', `${provider} could not be reached${cause ? ` (${cause})` : ''}.`, cause ?? undefined);
   }
+}
+
+/**
+ * The reason behind a failed `fetch`: a system error code such as
+ * `ENOTFOUND`, or `redirect` for a redirect the request refused.
+ *
+ * @param error - What `fetch` threw.
+ * @returns The code, or null if there is none.
+ */
+export function networkCause(error: unknown): string | null {
+  const cause = (error as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+  if (typeof cause?.code === 'string' && /^[A-Z_]{2,40}$/.test(cause.code)) {
+    return cause.code;
+  }
+  return /redirect/i.test(String(cause?.message ?? '')) ? 'redirect' : null;
 }
 
 async function readLimited(response: Response): Promise<string> {

@@ -458,6 +458,13 @@ export const en: Messages = {
       testOk: 'Search works: {count} results.',
       testFailed: 'The search failed. {reason}',
       notConfigured: 'Save a provider first.',
+      causes: {
+        notFound:
+          'The server does not know this name. Does the SearXNG container run in the same compose project? Without the profile “search”, compose does not create it at all.',
+        refused: 'Nothing accepts connections at this address. Is SearXNG still starting, or did the container crash? “docker compose logs searxng” shows it.',
+        redirect: 'SearXNG answers with a redirect. Is the address right (only scheme, host and port, without “/search”)?',
+        other: 'Technical reason: {detail}',
+      },
     },
   },
   design: {

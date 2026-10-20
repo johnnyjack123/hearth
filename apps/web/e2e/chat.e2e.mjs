@@ -203,9 +203,18 @@ try {
       throw new Error('research switch shown without a search provider');
     }
     await page.click(`[aria-label="Suchanbieter"] ${text('SearXNG')}`);
-    await page.type('input[type=url]', 'http://127.0.0.1:8091');
+    // A wrong port first: the test names the likely cause.
+    await page.type('input[type=url]', 'http://127.0.0.1:8099');
     await page.click(text('Websuche speichern'));
     await page.waitForSelector(text('Einstellung gespeichert'), { timeout: 5_000 });
+    await page.click(text('Suche testen'));
+    await page.waitForSelector(text('Unter dieser Adresse nimmt niemand Verbindungen an.'), { timeout: 10_000 });
+    await shot('26-admin-web-search-refused');
+    await page.click('input[type=url]', { count: 3 });
+    await page.type('input[type=url]', 'http://127.0.0.1:8091');
+    await page.click(text('Websuche speichern'));
+    await page.waitForSelector(text('Websuche speichern'));
+    await page.waitForFunction(() => !document.querySelector('[role=status]')?.textContent?.includes('Verbindungen'), { timeout: 5_000 });
     await page.click(text('Suche testen'));
     await page.waitForSelector(text('Die Suche funktioniert: 2 Treffer.'), { timeout: 10_000 });
     await shot('26-admin-web-search');
