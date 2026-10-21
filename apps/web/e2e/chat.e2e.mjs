@@ -219,6 +219,19 @@ try {
     await page.waitForSelector(text('Die Suche funktioniert: 3 Treffer.'), { timeout: 10_000 });
     await shot('26-admin-web-search');
 
+    // With an OpenRouter key, Jev (the mock) ranks the hits.
+    const created = await page.evaluate(async () => {
+      const response = await fetch('/api/providers', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-e2e-0123456789abcdef' }),
+      });
+      return response.status;
+    });
+    if (created !== 201 && created !== 200) {
+      throw new Error(`could not add the OpenRouter key: HTTP ${created}`);
+    }
+
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('mock-model'), { timeout: 10_000 });
     await page.click('[aria-label="Recherche"]');
@@ -241,6 +254,7 @@ try {
     await page.waitForSelector(text('Röstgrade im Überblick'), { timeout: 5_000 });
     await page.waitForSelector(text('gelesen, Quelle 1'), { timeout: 5_000 });
     await page.waitForSelector(text('bevorzugte Quelle'), { timeout: 5_000 });
+    await page.waitForSelector(text('Relevanz 100 %'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
@@ -257,7 +271,7 @@ try {
     await page.click('[aria-label="Token-Details zeigen"]');
     await page.waitForSelector(text('Tokens je Modellaufruf'), { timeout: 5_000 });
     const results = await page.$$eval('table td', (cells) => cells.map((cell) => cell.textContent));
-    for (const expected of ['web_search', 'web_fetch', 'Antwort']) {
+    for (const expected of ['web_search', 'web_fetch', 'Antwort', 'typesafe/jev-1.13', 'Treffer reihen', 'Titel']) {
       if (!results.includes(expected)) {
         throw new Error(`no call with "${expected}" in the token table: ${results.join(' | ')}`);
       }

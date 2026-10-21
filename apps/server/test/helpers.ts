@@ -17,6 +17,7 @@ import { PricingCatalog } from '../src/pricing.ts';
 import { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import type { SearchEndpoints } from '../src/websearch/providers.ts';
+import type { HelperOptions } from '../src/helpers/load.ts';
 
 /**
  * Dialects to run integration tests against. Postgres is included when
@@ -145,7 +146,7 @@ async function resetPostgres(database: Database): Promise<void> {
  */
 export async function createTestServer(
   kind: DatabaseKind,
-  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig>; webSearch?: Partial<SearchEndpoints> } = {},
+  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig>; webSearch?: Partial<SearchEndpoints>; helpers?: HelperOptions } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
@@ -184,6 +185,7 @@ export async function createTestServer(
     pricing,
     ...(options.webFetch ? { webFetch: options.webFetch } : {}),
     ...(options.webSearch ? { webSearch: options.webSearch } : {}),
+    ...(options.helpers ? { helpers: options.helpers } : {}),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

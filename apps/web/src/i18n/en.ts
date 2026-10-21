@@ -139,6 +139,16 @@ export const en: Messages = {
       repeat: 'Each call sends the conversation so far again; what was there before comes from the cache at best.',
       noCalls: 'No single calls are stored for this reply (replies before 20 Oct).',
       agent: 'For agents, pi reports only the total cost per call; the blocks above show which tool followed.',
+      byModel: 'Cost per model',
+      model: 'Model',
+      purpose: 'For',
+      calls: 'Calls',
+      purposes: {
+        answer: 'Answer',
+        rank: 'Ranking hits',
+        sections: 'Picking sections',
+        title: 'Title',
+      },
       unknown: 'unknown',
     },
     contextDetails: 'Context: {used} of {window} tokens ({percent} %)',
@@ -305,6 +315,7 @@ export const en: Messages = {
     readCount: 'read: {count}',
     readAs: 'read, source {number}',
     preferred: 'preferred source',
+    relevance: 'relevance {percent} %',
     kinds: {
       facts: 'facts',
       learning: 'explanations',
@@ -498,6 +509,14 @@ export const en: Messages = {
       testOk: 'Search works: {count} results.',
       testFailed: 'The search failed. {reason}',
       notConfigured: 'Save a provider first.',
+      helpers: 'Helper models via OpenRouter',
+      helpersHint:
+        'Jev ranks the search hits, the embedding model picks the matching sections of a page. They use the OpenRouter key of each user; without one, research works as before. The query, the latest message and page texts then go to OpenRouter.',
+      jevModel: 'Jev model',
+      jevModelHint: 'OpenRouter id, e.g. typesafe/jev-1.13',
+      embeddingModel: 'Embedding model',
+      embeddingModelHint: 'OpenRouter id, e.g. qwen/qwen3-embedding-8b',
+      modelInvalid: 'An OpenRouter id looks like provider/model.',
       causes: {
         notFound:
           'The server does not know this name. Does the SearXNG container run in the same compose project? Without the profile “search”, compose does not create it at all.',

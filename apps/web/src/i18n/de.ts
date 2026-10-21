@@ -137,6 +137,16 @@ export const de = {
       repeat: 'Jeder Aufruf schickt den bisherigen Verlauf erneut mit; was schon da war, kommt im besten Fall aus dem Cache.',
       noCalls: 'Für diese Antwort sind keine Einzelaufrufe gespeichert (Antworten vor dem 20.10.).',
       agent: 'Bei Agents meldet pi pro Aufruf nur die Gesamtkosten; welches Werkzeug folgte, zeigen die Blöcke oben.',
+      byModel: 'Kosten je Modell',
+      model: 'Modell',
+      purpose: 'Wofür',
+      calls: 'Aufrufe',
+      purposes: {
+        answer: 'Antwort',
+        rank: 'Treffer reihen',
+        sections: 'Abschnitte wählen',
+        title: 'Titel',
+      },
       unknown: 'unbekannt',
     },
     contextDetails: 'Kontext: {used} von {window} Tokens ({percent} %)',
@@ -304,6 +314,7 @@ export const de = {
     readCount: '{count} gelesen',
     readAs: 'gelesen, Quelle {number}',
     preferred: 'bevorzugte Quelle',
+    relevance: 'Relevanz {percent} %',
     kinds: {
       facts: 'Fakten',
       learning: 'Erklären',
@@ -498,6 +509,14 @@ export const de = {
       testOk: 'Die Suche funktioniert: {count} Treffer.',
       testFailed: 'Die Suche ist fehlgeschlagen. {reason}',
       notConfigured: 'Erst einen Anbieter speichern.',
+      helpers: 'Hilfsmodelle über OpenRouter',
+      helpersHint:
+        'Jev reiht die Suchtreffer, das Embedding-Modell wählt die passenden Abschnitte einer Seite. Genutzt wird der OpenRouter-Key des jeweiligen Nutzers; ohne diesen Key läuft die Recherche wie bisher. Suchanfrage, letzte Nachricht und Seitentexte gehen dann an OpenRouter.',
+      jevModel: 'Jev-Modell',
+      jevModelHint: 'OpenRouter-ID, z. B. typesafe/jev-1.13',
+      embeddingModel: 'Embedding-Modell',
+      embeddingModelHint: 'OpenRouter-ID, z. B. qwen/qwen3-embedding-8b',
+      modelInvalid: 'Eine OpenRouter-ID hat die Form anbieter/modell.',
       causes: {
         notFound:
           'Der Server kennt diesen Namen nicht. Läuft der SearXNG-Container im selben Compose-Projekt? Ohne das Profil „search“ legt Compose ihn gar nicht an.',

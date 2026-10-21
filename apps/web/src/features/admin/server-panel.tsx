@@ -138,6 +138,7 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
   const [provider, setProvider] = useState<SearchProvider>(search.provider);
   const [url, setUrl] = useState(search.searxngUrl ?? '');
   const [key, setKey] = useState('');
+  const [helpers, setHelpers] = useState(search.helpers);
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState<SearchTestResult | null>(null);
   const keyed = provider === 'brave' || provider === 'tavily' ? provider : null;
@@ -145,7 +146,14 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
   const urlError =
     provider === 'searxng' && !/^https?:\/\/\S+$/i.test(url.trim()) ? t('admin.search.urlInvalid') : undefined;
   const keyError = keyed && !storedHint && !key.trim() ? t('admin.search.keyMissing') : undefined;
-  const dirty = provider !== search.provider || url.trim() !== (search.searxngUrl ?? '') || key.trim() !== '';
+  const modelError = (id: string) => (/^~?[\w.-]+\/[\w.:-]+$/.test(id.trim()) ? undefined : t('admin.search.modelInvalid'));
+  const jevError = helpers.enabled ? modelError(helpers.jevModel) : undefined;
+  const embeddingError = helpers.enabled ? modelError(helpers.embeddingModel) : undefined;
+  const helpersChanged =
+    helpers.enabled !== search.helpers.enabled ||
+    helpers.jevModel.trim() !== search.helpers.jevModel ||
+    helpers.embeddingModel.trim() !== search.helpers.embeddingModel;
+  const dirty = provider !== search.provider || url.trim() !== (search.searxngUrl ?? '') || key.trim() !== '' || helpersChanged;
 
   const save = useMutation({
     mutationFn: () =>
@@ -154,6 +162,9 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
           provider,
           ...(provider === 'searxng' ? { searxngUrl: url.trim() } : {}),
           ...(keyed && key.trim() ? { [`${keyed}Key`]: key.trim() } : {}),
+          ...(helpersChanged
+            ? { helpers: { enabled: helpers.enabled, jevModel: helpers.jevModel.trim(), embeddingModel: helpers.embeddingModel.trim() } }
+            : {}),
         },
       }),
     onSuccess: (next) => {
@@ -175,7 +186,7 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
   function submit(event: FormEvent) {
     event.preventDefault();
     setSubmitted(true);
-    if (!urlError && !keyError) {
+    if (!urlError && !keyError && !jevError && !embeddingError) {
       save.mutate();
     }
   }
@@ -236,6 +247,50 @@ function SearchSettingsCard({ search }: { search: SearchSettings }) {
             )}
           </Field>
         ) : null}
+        <Separator />
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="text-sm font-medium text-foreground">{t('admin.search.helpers')}</span>
+              <span className="text-sm text-muted-foreground">{t('admin.search.helpersHint')}</span>
+            </div>
+            <Switch
+              aria-label={t('admin.search.helpers')}
+              checked={helpers.enabled}
+              onCheckedChange={(enabled) => setHelpers({ ...helpers, enabled })}
+            />
+          </div>
+          {helpers.enabled ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t('admin.search.jevModel')} hint={t('admin.search.jevModelHint')} error={submitted ? jevError : undefined}>
+                {(control) => (
+                  <Input
+                    {...control}
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={helpers.jevModel}
+                    onChange={(event) => setHelpers({ ...helpers, jevModel: event.target.value })}
+                  />
+                )}
+              </Field>
+              <Field
+                label={t('admin.search.embeddingModel')}
+                hint={t('admin.search.embeddingModelHint')}
+                error={submitted ? embeddingError : undefined}
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={helpers.embeddingModel}
+                    onChange={(event) => setHelpers({ ...helpers, embeddingModel: event.target.value })}
+                  />
+                )}
+              </Field>
+            </div>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" variant="primary" loading={save.isPending} disabled={!dirty}>
             {t('admin.search.save')}

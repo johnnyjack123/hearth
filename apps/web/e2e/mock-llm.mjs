@@ -110,6 +110,17 @@ http
         res.end(JSON.stringify({ object: 'list', data: [{ id: 'mock-model', object: 'model' }] }));
         return;
       }
+      // Stand-in for Jev on OpenRouter: the test page fits best, the
+      // lexicon second, the overview least.
+      if (req.method === 'POST' && req.url === '/api/alpha/decisions') {
+        const { questions = {} } = JSON.parse(body || '{}');
+        const levels = [3, 1, 2];
+        const answers = Object.fromEntries(Object.keys(questions).map((name, index) => [name, { type: 'score', score: levels[index] ?? 1 }]));
+        console.log(`[mock] jev, ${Object.keys(questions).length} questions`);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ model: 'typesafe/jev-1.13', answers, usage: { input_tokens: 420, output_tokens: 0, cost: 0.0000176 } }));
+        return;
+      }
       if (req.method === 'GET' && req.url.startsWith('/search?') && req.url.includes('format=json')) {
         console.log('[mock] search');
         res.writeHead(200, { 'content-type': 'application/json' });

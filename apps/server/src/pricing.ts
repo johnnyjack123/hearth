@@ -246,6 +246,26 @@ export function usageMetadata(
 }
 
 /**
+ * Adds calls of helper models (Jev, embeddings, the title) to a reply's
+ * usage; their cost joins the reply's cost when that is known.
+ *
+ * @param usage - The reply's usage.
+ * @param helpers - The calls to add.
+ * @returns The usage with the calls.
+ */
+export function withHelpers(usage: NonNullable<MessageMetadata['usage']>, helpers: ModelCallUsage[]): NonNullable<MessageMetadata['usage']> {
+  if (helpers.length === 0) {
+    return usage;
+  }
+  const extra = helpers.reduce((sum, call) => sum + (call.cost?.total ?? 0), 0);
+  return {
+    ...usage,
+    helpers: [...(usage.helpers ?? []), ...helpers],
+    ...(usage.cost !== undefined ? { cost: usage.cost + extra } : {}),
+  };
+}
+
+/**
  * Tokens and cost of one model call, for the developer view.
  *
  * @param step - Usage of the call.

@@ -19,6 +19,8 @@ import { attachTunnel } from './tunnel/socket.ts';
 export interface StartServerOptions {
   /** See `AppDeps.webFetch`. */
   webFetch?: AppDeps['webFetch'];
+  /** See `AppDeps.helpers`. */
+  helpers?: AppDeps['helpers'];
 }
 
 /**
@@ -48,6 +50,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
       hub,
       pricing,
       ...(options.webFetch ? { webFetch: options.webFetch } : {}),
+      ...(options.helpers ? { helpers: options.helpers } : {}),
     },
     { logRequests: true },
   );

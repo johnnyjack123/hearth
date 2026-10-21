@@ -135,23 +135,17 @@ describe.each(DIALECTS)('usage in chats on %s', (kind) => {
     // The mock model reports 5 input and 7 output tokens; the test catalog
     // prices mock-1 at 2 and 8 dollars per million.
     const cost = (5 * 2 + 7 * 8) / 1_000_000;
+    const callCost = { total: cost, input: (5 * 2) / 1_000_000, cacheRead: 0, cacheWrite: 0, output: (7 * 8) / 1_000_000 };
     expect((await load()).messages[1]?.metadata?.usage).toEqual({
       inputTokens: 5,
       outputTokens: 7,
       contextTokens: 12,
       contextWindow: 1000,
-      cost,
+      // The title of the new chat (another 5 → 7 call) costs as much again.
+      cost: 2 * cost,
       rates: { input: 2, output: 8 },
-      calls: [
-        {
-          input: 5,
-          cacheRead: 0,
-          cacheWrite: 0,
-          output: 7,
-          tools: [],
-          cost: { total: cost, input: (5 * 2) / 1_000_000, cacheRead: 0, cacheWrite: 0, output: (7 * 8) / 1_000_000 },
-        },
-      ],
+      calls: [{ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], cost: callCost }],
+      helpers: [{ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], model: 'mock-1', purpose: 'title', cost: callCost }],
     });
   });
 });

@@ -40,18 +40,50 @@ function Cell({ children, head, start }: { children: ReactNode; head?: boolean; 
   );
 }
 
+type Purpose = NonNullable<ModelCallUsage['purpose']> | 'answer';
+
+/**
+ * The reply's own calls and its helper calls (Jev, embeddings, title),
+ * summed per model and purpose.
+ *
+ * @param usage - The reply's usage.
+ * @param modelId - The chat's model.
+ * @returns One row per model and purpose, the reply's own calls first.
+ */
+export function costByModel(usage: Usage, modelId: string | undefined) {
+  const rows = new Map<string, { model: string; purpose: Purpose; calls: number; input: number; output: number; cost: number | undefined }>();
+  const add = (call: ModelCallUsage, model: string, purpose: Purpose) => {
+    const key = `${model}|${purpose}`;
+    const row = rows.get(key) ?? { model, purpose, calls: 0, input: 0, output: 0, cost: 0 };
+    row.calls += 1;
+    row.input += call.input;
+    row.output += call.output;
+    row.cost = row.cost === undefined || call.cost === undefined ? undefined : row.cost + call.cost.total;
+    rows.set(key, row);
+  };
+  for (const call of usage.calls ?? []) {
+    add(call, modelId ?? '–', 'answer');
+  }
+  for (const call of usage.helpers ?? []) {
+    add(call, call.model ?? '–', call.purpose ?? 'answer');
+  }
+  return [...rows.values()];
+}
+
 /**
  * Tokens and cost of every model call of a reply, for the developer mode:
  * how much each call sent anew, how much came from the provider's cache,
- * how much it wrote and reasoned, and what each part cost.
+ * how much it wrote and reasoned, and what each part cost; with helper
+ * models, also the cost per model.
  *
- * @param props - The reply's usage and whether an agent produced it.
+ * @param props - The reply's usage, its model and whether an agent produced it.
  * @returns The tables.
  */
-export function UsageDetails({ usage, agent }: { usage: Usage; agent: boolean }) {
+export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: boolean; modelId?: string }) {
   const { t, locale } = usePreferences();
   const tokens = new Intl.NumberFormat(locale);
   const calls = usage.calls ?? [];
+  const byModel = costByModel(usage, modelId);
   const input = sum(calls, (call) => call.input);
   const cached = sum(calls, (call) => call.cacheRead);
   const withCacheWrite = calls.some((call) => call.cacheWrite > 0);
@@ -164,6 +196,50 @@ export function UsageDetails({ usage, agent }: { usage: Usage; agent: boolean })
           </tfoot>
         </table>
       </div>
+
+      {byModel.length > 1 ? (
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+          <table className={table}>
+            <caption className="px-2 pt-2 text-start font-medium text-muted-foreground">{t('chat.usageDetails.byModel')}</caption>
+            <thead>
+              <tr>
+                <Cell head start>
+                  {t('chat.usageDetails.model')}
+                </Cell>
+                <Cell head start>
+                  {t('chat.usageDetails.purpose')}
+                </Cell>
+                <Cell head>{t('chat.usageDetails.calls')}</Cell>
+                <Cell head>{t('chat.usageDetails.input')}</Cell>
+                <Cell head>{t('chat.usageDetails.output')}</Cell>
+                <Cell head>{t('chat.usageDetails.total')}</Cell>
+              </tr>
+            </thead>
+            <tbody>
+              {byModel.map((row) => (
+                <tr key={`${row.model}|${row.purpose}`}>
+                  <Cell start>{row.model}</Cell>
+                  <Cell start>{t(`chat.usageDetails.purposes.${row.purpose}`)}</Cell>
+                  <Cell>{tokens.format(row.calls)}</Cell>
+                  <Cell>{tokens.format(row.input)}</Cell>
+                  <Cell>{tokens.format(row.output)}</Cell>
+                  <Cell>{dollars(row.cost)}</Cell>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="font-medium">
+                <Cell start>{t('chat.usageDetails.sum')}</Cell>
+                <Cell start>{''}</Cell>
+                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.calls, 0))}</Cell>
+                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.input, 0))}</Cell>
+                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.output, 0))}</Cell>
+                <Cell>{dollars(usage.cost)}</Cell>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-1 text-muted-foreground">
         {input > 0 ? <p>{t('chat.usageDetails.cacheShare', { percent: Math.round((cached / input) * 100) })}</p> : null}

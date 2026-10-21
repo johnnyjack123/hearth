@@ -228,6 +228,9 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
                     ) : null}
                     <ExternalLink url={result.url} title={result.title}>
                       {result.published ? ` · ${result.published}` : null}
+                      {typeof result.relevance === 'number'
+                        ? ` · ${t('webSearch.relevance', { percent: Math.round(result.relevance * 100) })}`
+                        : null}
                     </ExternalLink>
                     {result.snippet ? (
                       <p className="line-clamp-3 break-words text-muted-foreground">
