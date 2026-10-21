@@ -195,7 +195,7 @@ export function conversationRoutes(deps: AppDeps) {
       // Linked chats talk to an agent with its own prompt and get no notes.
       const note = link ? null : chatNote(previous, { date, research: search ? research : null });
       // Decided once and stored, so later requests condense at the same place.
-      const condensed = !link && shouldCondense(previous);
+      const condensed = !link && shouldCondense(previous, (await getServerSettings(db)).condense);
       const stored: ChatMessage = {
         ...userMessage,
         metadata: {

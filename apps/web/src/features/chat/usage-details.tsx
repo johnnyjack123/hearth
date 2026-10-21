@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils.ts';
 type Usage = NonNullable<MessageMetadata['usage']>;
 
 /**
- * Formats dollars for the developer view: tiny amounts keep three
+ * Formats dollars for the usage details: tiny amounts keep three
  * significant digits, so a call for a hundredth of a cent does not read as 0.
  *
  * @param locale - UI language.
@@ -71,7 +71,7 @@ export function costByModel(usage: Usage, modelId: string | undefined) {
 }
 
 /**
- * Tokens and cost of every model call of a reply, for the developer mode:
+ * Tokens and cost of every model call of a reply, behind a button below it:
  * how much each call sent anew, how much came from the provider's cache,
  * how much it wrote and reasoned, and what each part cost; with helper
  * models, also the cost per model.

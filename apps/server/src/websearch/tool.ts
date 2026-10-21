@@ -17,6 +17,8 @@ import { type SearchBackend, WebSearchError } from './providers.ts';
 const FETCH_COUNT = 20;
 /** Hits the model gets; enough to choose from, few enough to keep the context small. */
 const RESULT_COUNT = 10;
+/** Below this best relevance by Jev the model is told to search again. */
+const WEAK_RESULTS = 0.3;
 
 /**
  * The text the model gets for a search: numbered hits between markers, as
@@ -54,13 +56,21 @@ export function searchModelText(output: WebSearchOutput & { condensed?: boolean 
     );
   }
   lines.push(`<${marker}>`, body || '(no results)', `</${marker}>`);
-  lines.push(
-    output.condensed
-      ? 'An earlier search; its snippets were left out because the chat grew long.'
-      : output.results.length > 0
-      ? 'Snippets are short and can be outdated. If they do not answer the question reliably, read the most relevant page or two with web_fetch.'
-      : 'Try other search terms, or answer from what you know and say that the search found nothing.',
-  );
+  // Jev scores whole result lists of shopping pages or dictionary entries
+  // near 0 when the search engine misread the query (seen on 21.10.2026).
+  const best = Math.max(...output.results.map((result) => result.relevance ?? Number.NaN));
+  if (output.condensed) {
+    lines.push('An earlier search; its snippets were left out because the chat grew long.');
+  } else if (output.results.length === 0) {
+    lines.push('Try other search terms, or answer from what you know and say that the search found nothing.');
+  } else if (best < WEAK_RESULTS) {
+    lines.push(
+      `None of the results looks like it answers the question (best relevance ${Math.round(best * 100)} %). ` +
+        'Search again with other terms before reading any of them.',
+    );
+  } else {
+    lines.push('Snippets are short and can be outdated. If they do not answer the question reliably, read the most relevant page or two with web_fetch.');
+  }
   return lines.join('\n');
 }
 

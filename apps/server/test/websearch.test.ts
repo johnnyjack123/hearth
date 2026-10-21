@@ -321,6 +321,17 @@ describe('search results for the model', () => {
     expect(text).toContain('text addressed to an AI');
     expect(searchModelText({ ...output, results: [], warnings: [] })).toContain('(no results)');
   });
+
+  it('tell the model to search again when Jev finds nothing useful', () => {
+    const hit = (relevance: number) => ({ title: 'Fleecejacke', url: `https://shop.example/${relevance}`, snippet: 'Jetzt kaufen', published: null, relevance });
+    const base: WebSearchOutput = { query: 'DeepSeek Preis', provider: 'searxng', results: [], warnings: [], findings: [] };
+    expect(searchModelText({ ...base, results: [hit(0.02), hit(0.1)] })).toContain(
+      'None of the results looks like it answers the question (best relevance 10 %). Search again with other terms',
+    );
+    expect(searchModelText({ ...base, results: [hit(0.02), hit(0.8)] })).not.toContain('Search again');
+    // Without Jev there is no relevance and no such hint.
+    expect(searchModelText({ ...base, results: [{ ...hit(0), relevance: undefined }] })).not.toContain('Search again');
+  });
 });
 
 const usage = {
@@ -543,6 +554,10 @@ describe('research mode', () => {
       body: { search: { helpers: { jevModel: 'not a model' } } },
     });
     expect(invalid.status).toBe(400);
+    // Thresholds for condensing long chats; a partial change keeps the rest.
+    const condense = await server.request('PATCH', '/api/admin/settings', { cookie, body: { condense: { atTokens: 300_000 } } });
+    expect(((await condense.json()) as ServerSettings).condense).toEqual({ enabled: true, atTokens: 300_000, atWindowShare: 0.5, afterIdleHours: 6 });
+    expect((await server.request('PATCH', '/api/admin/settings', { cookie, body: { condense: { atWindowShare: 2 } } })).status).toBe(400);
     const everything = await (await server.request('GET', '/api/admin/settings', { cookie })).text();
     expect(everything).not.toContain('BSA-secret');
     expect(((await (await server.request('GET', '/api/settings')).json()) as PublicSettings).webSearch).toBe(true);
@@ -831,7 +846,7 @@ describe('research mode', () => {
   it('condenses earlier pages once the chat is long, at a fixed place, and loads them again without asking', async () => {
     const long = `http://other.test:${pagePort}/long.md`;
     // A page the user allows once; the reply leaves a long conversation.
-    script = [{ tool: 'web_fetch', input: { url: long } }, { text: 'Gelesen.', inputTokens: 60_000 }];
+    script = [{ tool: 'web_fetch', input: { url: long } }, { text: 'Gelesen.', inputTokens: 210_000 }];
     const conversationId = await newConversation();
     const first = await readChunks(await chat(conversationId, 'Lies bitte das Handbuch', false), (chunk) => {
       const data = chunk.data as { id: number; state: string } | undefined;

@@ -18,7 +18,8 @@ import { grantedHosts, hostKey, mentionedHosts, parseTarget } from './target.ts'
 import { condensedPages } from '../condense.ts';
 import type { Helpers } from '../helpers/openrouter.ts';
 import type { KnownUrls } from '../websearch/known-urls.ts';
-import { selectSections } from './sections.ts';
+import { grepMatcher, grepPage } from './grep.ts';
+import { SHORT_PAGE_CHARS, selectSections } from './sections.ts';
 
 /**
  * Limits and checks of the web fetch. Tests replace parts of it through
@@ -133,9 +134,18 @@ export function modelText(output: WebFetchOutput & { condensed?: boolean }): str
         ? `[${which}, chosen for "${output.focus}".`
         : `[Nothing on the page matched "${output.focus}"; these are its first sections.`;
     lines.push(
-      `${why} Call web_fetch again with sections: [numbers] for others, or without focus for the whole text, which you need for exact figures, tables and quotes.]`,
+      `${why} Call web_fetch again with sections: [numbers] for others, with grep for exact figures, or without focus for the whole text.]`,
     );
-  } else if (output.focus) {
+  } else if (output.grep && output.grep.lines !== null) {
+    const { pattern, lines: count, truncated } = output.grep;
+    lines.push(
+      count === 0
+        ? `[Nothing on the page matched "${pattern}". Try other words, a focus, or load the page without grep.]`
+        : `[Only the ${count} line${count === 1 ? '' : 's'} with "${pattern}"${truncated ? ', cut at the size limit' : ''}, ` +
+            'with the headings above them and the header of each table. If they do not hold what you need, ' +
+            'call web_fetch again with other words, with focus, or without grep for the whole page.]',
+    );
+  } else if (output.focus || output.grep) {
     lines.push('[The page is short, so this is all of it.]');
   }
   if (output.mainContent) {
@@ -156,7 +166,9 @@ const DESCRIPTION =
   'Use it when the user asks about a page or URL, or when current information from a specific page is needed. ' +
   'To save tokens on long pages, set focus to what you look for when you need information on a topic: ' +
   'you then get only the matching sections plus an outline, and can ask for other sections by number. ' +
-  'Leave focus out when you need exact figures, prices, dates, tables, code or quotes, or the page as a whole. ' +
+  'For exact figures (prices, dates, specifications, versions) set grep instead, to words that stand next to the figure, ' +
+  'such as "Preis|€|pro Monat": you get only the lines with them, with their headings and table headers. ' +
+  'If grep does not find what you need, or you do not know which words to look for, load the page without grep and focus. ' +
   'Only public hosts on ports 80 and 443 work. Hosts the user named in this chat load at once; ' +
   'any other URL waits until the user allows it in the chat. If the user declines, do not try again.';
 
@@ -171,6 +183,11 @@ const inputSchema = z.object({
     .max(300)
     .optional()
     .describe('What you look for on the page, as a short question or a few words; returns only the matching sections'),
+  grep: z
+    .string()
+    .max(300)
+    .optional()
+    .describe('Words or phrases to find on the page, separated by |; returns only the lines that contain them. Case is ignored, no regular expressions'),
   sections: z
     .array(z.number().int().min(1).max(100_000))
     .max(30)
@@ -248,11 +265,18 @@ export function createWebFetchTool(context: WebFetchContext) {
     const converted = isHtml ? pageToMarkdown(raw, page.url, input.fullPage === true) : { markdown: raw, mainContent: false };
     const readable = tidy(converted.markdown);
     const focus = input.focus?.trim() || null;
+    const pattern = input.grep && grepMatcher(input.grep) ? input.grep.trim() : null;
+    // Sections asked for by number come first, then grep, then focus.
+    const grepped = pattern && !input.sections?.length && readable.length > SHORT_PAGE_CHARS ? grepPage(readable, pattern) : null;
     const selection =
-      focus || input.sections?.length
+      !grepped && (focus || input.sections?.length)
         ? await selectSections(readable, { focus, sections: input.sections ?? null, maxChars: config.maxChars }, helpers, signal)
         : null;
-    const { text, truncated } = selection ? { text: selection.text, truncated: false } : truncate(readable, config.maxChars);
+    const { text, truncated } = grepped
+      ? { text: grepped.text, truncated: false }
+      : selection
+        ? { text: selection.text, truncated: false }
+        : truncate(readable, config.maxChars);
     // Only links the model actually gets to see.
     known?.addLinks(text);
     // Readable text first: its excerpts are what the user can make sense of.
@@ -267,7 +291,8 @@ export function createWebFetchTool(context: WebFetchContext) {
       mainContent: converted.mainContent,
       warnings: warningKinds(findings),
       findings,
-      ...(focus ? { focus } : {}),
+      ...(focus && !grepped ? { focus } : {}),
+      ...(pattern && !input.sections?.length ? { grep: { pattern, lines: grepped?.lines ?? null, truncated: grepped?.truncated ?? false } } : {}),
       ...(selection ? { sections: { total: selection.total, shown: selection.shown, outline: selection.outline, matched: selection.matched } } : {}),
     };
   }

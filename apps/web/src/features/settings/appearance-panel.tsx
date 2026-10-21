@@ -1,19 +1,17 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 import { Card, Separator } from '@/components/ui/display.tsx';
-import { Switch } from '@/components/ui/switch.tsx';
 import { SegmentedControl } from '@/components/ui/tabs.tsx';
 import type { Locale } from '@/i18n/index.ts';
 import { type Density, type ThemePreference, usePreferences } from '@/lib/preferences.tsx';
 import { Section, SettingRow } from '../shell/page.tsx';
 
 /**
- * Per-browser appearance settings: color scheme, density, language and the
- * developer mode with its extra views.
+ * Per-browser appearance settings: color scheme, density and language.
  *
  * @returns The appearance panel.
  */
 export function AppearancePanel() {
-  const { t, theme, setTheme, density, setDensity, locale, setLocale, devMode, setDevMode } = usePreferences();
+  const { t, theme, setTheme, density, setDensity, locale, setLocale } = usePreferences();
 
   return (
     <Section title={t('appearance.title')} description={t('appearance.description')}>
@@ -64,12 +62,6 @@ export function AppearancePanel() {
               ]}
             />
           }
-        />
-        <Separator />
-        <SettingRow
-          label={t('appearance.devMode')}
-          description={t('appearance.devModeHint')}
-          control={<Switch aria-label={t('appearance.devMode')} checked={devMode} onCheckedChange={setDevMode} />}
         />
       </Card>
     </Section>

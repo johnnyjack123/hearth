@@ -119,7 +119,7 @@ export const en: Messages = {
     notFoundBody: 'It was deleted or belongs to another account.',
     backHome: 'Start a new chat',
     usage: '{input} → {output} tokens',
-    devTotals: 'Total: {input} input ({cached} from the cache), {output} output ({reasoning} reasoning)',
+    tokenTotals: 'Total: {input} input ({cached} from the cache), {output} output ({reasoning} reasoning)',
     usageDetails: {
       show: 'Show token details',
       hide: 'Hide token details',
@@ -253,6 +253,11 @@ export const en: Messages = {
     sectionsAsked: 'Sections {list} of {total}, asked for by the model.',
     sectionsNoMatch: 'Nothing on the page matched what the model looked for; it got the beginning (sections {list} of {total}).',
     shortPage: 'The page is short, so the model got all of it.',
+    grepLabel: 'Words looked for',
+    grepBadge: 'Matches: {count}',
+    grepShown: 'Only the lines with "{pattern}" ({count}), plus headings and table headers. This saves tokens for exact figures.',
+    grepCut: 'The first lines with "{pattern}" ({count} in all), plus headings and table headers; the rest did not fit.',
+    grepNone: 'Nothing on the page contained "{pattern}".',
     injection: 'Possible prompt injection ({found}). The model was told to read the content as data only.',
     showFindings: 'Show where',
     hideFindings: 'Hide where',
@@ -447,8 +452,6 @@ export const en: Messages = {
     densityNormal: 'Normal',
     densityComfortable: 'Comfortable',
     language: 'Language',
-    devMode: 'Developer mode',
-    devModeHint: 'Shows below each reply how many tokens each model call used (new, from the cache, output, reasoning) and what it cost.',
   },
   account: {
     title: 'Account',
@@ -497,6 +500,23 @@ export const en: Messages = {
     webFetchHint:
       'Models in ordinary chats may fetch web pages through this server, from public addresses only. Hosts the user did not name themselves load only after a question in the chat.',
     saved: 'Setting saved',
+    condense: {
+      title: 'Condense long chats',
+      description:
+        'From a threshold on, the model gets older pages only with address and title and older searches without snippets. This saves tokens but costs the cache hits from the first shortened page on, once.',
+      enabled: 'Condense',
+      enabledHint: 'Off: the model gets the whole history until its context window is full.',
+      atTokens: 'From context (tokens)',
+      atTokensHint: 'Size of the chat after the last reply.',
+      atTokensInvalid: 'A number from 10,000 to 10,000,000',
+      atShare: 'Or from % of the window',
+      atShareHint: 'For models with a small context window; the lower value applies.',
+      atShareInvalid: 'A number from 10 to 100',
+      afterHours: 'Or after a pause (hours)',
+      afterHoursHint: 'The cache has usually gone cold by then. 0 = never.',
+      afterHoursInvalid: 'A number from 0 to 720',
+      save: 'Save thresholds',
+    },
     search: {
       title: 'Web search',
       description: 'For research mode in chats. The server sends the queries to the chosen provider.',

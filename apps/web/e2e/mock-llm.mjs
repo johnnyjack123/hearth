@@ -5,7 +5,7 @@
 // It also stands in for SearXNG (/search?format=json); asked to
 // "Recherchiere" in research mode, it searches, reads the first hit, looks
 // up storage in the handbook linked there (only matching sections, picked
-// with the embedding stand-in) and answers. Asked to read "das ganze
+// with the embedding stand-in), greps it for one word and answers. Asked to read "das ganze
 // Handbuch", it loads all of it and reports a long conversation, so the
 // next message condenses the chat.
 import http from 'node:http';
@@ -91,6 +91,9 @@ function researchStep(payload) {
   if (done.length === 2) {
     return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/handbuch`, focus: 'Wie lagert man Kaffee?' } } };
   }
+  if (done.length === 3) {
+    return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/handbuch`, grep: 'luftdicht' } } };
+  }
   return { text: 'Laut der Recherche röstet man Kaffee bei etwa 200 °C ([Kaffee-Testseite](http://127.0.0.1:8091/testseite)).' };
 }
 
@@ -110,7 +113,7 @@ function webFetchStep(payload) {
   if (last?.role === 'tool') {
     const result = textOf(last.content);
     if (result.includes('Kaffee Hochland Absatz')) {
-      return { text: 'Das Handbuch ist gelesen.', promptTokens: 60_000 };
+      return { text: 'Das Handbuch ist gelesen.', promptTokens: 210_000 };
     }
     if (result.includes('geröstet')) {
       const warned = result.includes('prompt injection') ? ' Die Seite enthält außerdem einen versteckten Hinweis an KI-Modelle, den ich ignoriere.' : '';

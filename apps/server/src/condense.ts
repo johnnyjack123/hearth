@@ -6,23 +6,8 @@
  * later request builds exactly the same prompt and the provider's cache
  * keeps working until the chat grows past the threshold again.
  */
-import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { type CondenseSettings, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import type { ChatMessage } from './services/conversations.ts';
-
-/**
- * Size of the conversation after the last reply, in tokens, from which
- * older tool results are condensed. Below it, sending them again costs
- * little with a prompt cache; above it, every call of every reply pays for
- * pages the model has long answered from.
- */
-export const CONDENSE_AT_TOKENS = 50_000;
-
-/**
- * Pause after which providers have usually dropped the cached prompt
- * (minutes at OpenAI and Anthropic, hours at DeepSeek). The next request
- * pays full price anyway, so condensing then costs nothing extra.
- */
-export const CONDENSE_AFTER_IDLE_MS = 60 * 60_000;
 
 /** Less text than this (~2,000 tokens) is not worth voiding the provider's cache for. */
 const MIN_CONDENSABLE_CHARS = 8_000;
@@ -60,20 +45,27 @@ function lastMark(messages: ChatMessage[]): number {
 
 /**
  * Whether a new user message should condense the chat before it: the last
- * reply left a long conversation or is an hour old, and enough tool results
- * since the last condensing would shrink.
+ * reply left a long conversation (see {@link CondenseSettings}) or is old
+ * enough for the provider's cache to have gone cold, and enough tool
+ * results since the last condensing would shrink.
  *
  * @param previous - The conversation before the new message.
+ * @param settings - The thresholds of the server.
  * @param now - The current time, epoch milliseconds.
  * @returns True if the new message gets the mark.
  */
-export function shouldCondense(previous: ChatMessage[], now = Date.now()): boolean {
+export function shouldCondense(previous: ChatMessage[], settings: CondenseSettings, now = Date.now()): boolean {
+  if (!settings.enabled) {
+    return false;
+  }
   const reply = previous.findLast((message) => message.role === 'assistant');
+  const usage = reply?.metadata?.usage;
   // Replies without usage (stopped early, old) are estimated at ~4 characters per token.
-  const size = reply?.metadata?.usage?.contextTokens ?? JSON.stringify(previous).length / 4;
+  const size = usage?.contextTokens ?? JSON.stringify(previous).length / 4;
+  const limit = Math.min(settings.atTokens, usage?.contextWindow ? usage.contextWindow * settings.atWindowShare : Number.POSITIVE_INFINITY);
   const startedAt = reply?.metadata?.createdAt;
-  const idle = startedAt !== undefined && now - startedAt >= CONDENSE_AFTER_IDLE_MS;
-  if (size < CONDENSE_AT_TOKENS && !idle) {
+  const idle = settings.afterIdleHours > 0 && startedAt !== undefined && now - startedAt >= settings.afterIdleHours * 3_600_000;
+  if (size < limit && !idle) {
     return false;
   }
   const since = previous.slice(lastMark(previous) + 1);

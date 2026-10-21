@@ -1,6 +1,6 @@
-import type { WebFetchOutput, WebSearchOutput } from '@harness/shared';
+import type { CondenseSettings, WebFetchOutput, WebSearchOutput } from '@harness/shared';
 import { describe, expect, it } from 'vitest';
-import { CONDENSE_AFTER_IDLE_MS, CONDENSE_AT_TOKENS, condensedPages, condenseHistory, shouldCondense } from '../src/condense.ts';
+import { condensedPages, condenseHistory, shouldCondense } from '../src/condense.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { modelText } from '../src/webfetch/tool.ts';
 import { searchModelText } from '../src/websearch/tool.ts';
@@ -51,30 +51,44 @@ function reply(id: string, contextTokens: number, outputs: { url?: string; text?
 
 const longText = 'x'.repeat(10_000);
 
+const settings: CondenseSettings = { enabled: true, atTokens: 200_000, atWindowShare: 0.5, afterIdleHours: 6 };
+const HOUR = 3_600_000;
+
 describe('when to condense', () => {
   it('waits for a long chat with enough to shrink', () => {
-    expect(shouldCondense([user('a'), reply('b', CONDENSE_AT_TOKENS - 1, [{ url: 'https://a.example/', text: longText }])])).toBe(false);
-    expect(shouldCondense([user('a'), reply('b', CONDENSE_AT_TOKENS, [{ url: 'https://a.example/', text: longText }])])).toBe(true);
+    expect(shouldCondense([user('a'), reply('b', 199_999, [{ url: 'https://a.example/', text: longText }])], settings)).toBe(false);
+    expect(shouldCondense([user('a'), reply('b', 200_000, [{ url: 'https://a.example/', text: longText }])], settings)).toBe(true);
     // Long, but from talking, not from pages.
-    expect(shouldCondense([user('a'), reply('b', 60_000, [{ url: 'https://a.example/', text: 'kurz' }])])).toBe(false);
+    expect(shouldCondense([user('a'), reply('b', 300_000, [{ url: 'https://a.example/', text: 'kurz' }])], settings)).toBe(false);
+    expect(shouldCondense([user('a'), reply('b', 300_000, [{ url: 'https://a.example/', text: longText }])], { ...settings, enabled: false })).toBe(
+      false,
+    );
+  });
+
+  it('condenses earlier for a model with a small context window', () => {
+    const small = { ...reply('b', 70_000, [{ url: 'https://a.example/', text: longText }]), metadata: { usage: { contextTokens: 70_000, contextWindow: 128_000 } } };
+    expect(shouldCondense([user('a'), small], settings)).toBe(true);
+    expect(shouldCondense([user('a'), small], { ...settings, atWindowShare: 0.6 })).toBe(false);
   });
 
   it('counts only what came after the last mark', () => {
-    const history = [user('a'), reply('b', 60_000, [{ url: 'https://a.example/', text: longText }]), user('c', true), reply('d', 60_000, [])];
-    expect(shouldCondense(history)).toBe(false);
-    expect(shouldCondense([...history, user('e'), reply('f', 60_000, [{ url: 'https://b.example/', text: longText }])])).toBe(true);
+    const history = [user('a'), reply('b', 250_000, [{ url: 'https://a.example/', text: longText }]), user('c', true), reply('d', 250_000, [])];
+    expect(shouldCondense(history, settings)).toBe(false);
+    expect(shouldCondense([...history, user('e'), reply('f', 250_000, [{ url: 'https://b.example/', text: longText }])], settings)).toBe(true);
   });
 
-  it('also condenses a short chat after an hour, when the cache has gone cold anyway', () => {
+  it('also condenses a short chat after a long pause, when the cache has gone cold anyway', () => {
     const at = Date.parse('2026-10-21T10:00:00Z');
     const old = { ...reply('b', 5_000, [{ url: 'https://a.example/', text: longText }]), metadata: { createdAt: at, usage: { contextTokens: 5_000 } } };
-    expect(shouldCondense([user('a'), old], at + CONDENSE_AFTER_IDLE_MS - 1)).toBe(false);
-    expect(shouldCondense([user('a'), old], at + CONDENSE_AFTER_IDLE_MS)).toBe(true);
+    expect(shouldCondense([user('a'), old], settings, at + 6 * HOUR - 1)).toBe(false);
+    expect(shouldCondense([user('a'), old], settings, at + 6 * HOUR)).toBe(true);
+    // 0 hours: never after a pause.
+    expect(shouldCondense([user('a'), old], { ...settings, afterIdleHours: 0 }, at + 1_000 * HOUR)).toBe(false);
   });
 
   it('estimates replies without usage from their size', () => {
-    const stopped = { ...reply('b', 0, [{ url: 'https://a.example/', text: 'y'.repeat(220_000) }]), metadata: {} };
-    expect(shouldCondense([user('a'), stopped])).toBe(true);
+    const stopped = { ...reply('b', 0, [{ url: 'https://a.example/', text: 'y'.repeat(820_000) }]), metadata: {} };
+    expect(shouldCondense([user('a'), stopped], settings)).toBe(true);
   });
 });
 

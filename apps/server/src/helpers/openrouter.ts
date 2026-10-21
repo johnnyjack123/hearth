@@ -33,7 +33,7 @@ export interface ScoreRequest {
   instructions: string[];
   /** The levels of the scale, worst first. */
   criteria: string[];
-  /** For the developer view. */
+  /** For the usage details below the reply. */
   purpose: NonNullable<ModelCallUsage['purpose']>;
 }
 
@@ -94,46 +94,102 @@ async function embeddingPrice(helpers: Helpers, signal: AbortSignal | undefined)
   return price;
 }
 
+/** Texts per embedding call; the calls of one page run side by side. */
+const EMBED_BATCH = 32;
+
 /**
- * Embeds texts with the embedding model, all in one call.
- *
- * @param helpers - See {@link Helpers}.
- * @param inputs - Texts; the first is usually the query.
- * @param signal - Ends the call with the chat request.
- * @returns One vector per input in the same order, or null if the call failed.
+ * Models that can return shorter vectors (Matryoshka). 1,024 of Qwen3's
+ * 4,096 dimensions barely change the ranking, but the answer shrinks to a
+ * quarter: for a Wikipedia article (167 sections) from 14.7 MB to 3.6 MB,
+ * from 8–15 s to 3–4 s (measured on 21.10.2026).
  */
-export async function embed(helpers: Helpers, inputs: string[], signal?: AbortSignal): Promise<number[][] | null> {
-  if (inputs.length === 0) {
-    return [];
+const SHORTER_VECTORS = /^(qwen\/qwen3-embedding|openai\/text-embedding-3)/;
+
+/** Reads a vector sent as JSON numbers or as base64 of little-endian float32. */
+function vectorOf(value: unknown): Float32Array | null {
+  if (typeof value === 'string') {
+    const bytes = Buffer.from(value, 'base64');
+    if (bytes.length === 0 || bytes.length % 4 !== 0) {
+      return null;
+    }
+    const vector = new Float32Array(bytes.length / 4);
+    for (let index = 0; index < vector.length; index += 1) {
+      vector[index] = bytes.readFloatLE(index * 4);
+    }
+    return vector;
   }
+  return Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'number') ? Float32Array.from(value as number[]) : null;
+}
+
+/** One embedding call; null if it failed. */
+async function embedBatch(
+  helpers: Helpers,
+  inputs: string[],
+  signal: AbortSignal | undefined,
+): Promise<{ vectors: (Float32Array | null)[]; tokens: number; cost: number | null } | null> {
   try {
     const body = await post(
       helpers,
       new URL('embeddings', `${helpers.apiUrl.replace(/\/+$/, '')}/`).href,
-      { model: helpers.embeddingModel, input: inputs },
+      {
+        model: helpers.embeddingModel,
+        input: inputs,
+        // Base64 is a quarter of the size of numbers written out as JSON.
+        encoding_format: 'base64',
+        ...(SHORTER_VECTORS.test(helpers.embeddingModel) ? { dimensions: 1024 } : {}),
+      },
       signal,
     );
     const usage = (body.usage ?? {}) as { prompt_tokens?: unknown; total_tokens?: unknown; cost?: unknown };
     const tokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : typeof usage.total_tokens === 'number' ? usage.total_tokens : 0;
-    let cost = typeof usage.cost === 'number' ? usage.cost : null;
-    if (cost === null) {
-      const price = await embeddingPrice(helpers, signal);
-      cost = price === null ? null : tokens * price;
-    }
-    record(helpers, helpers.embeddingModel, 'sections', { input_tokens: tokens, output_tokens: 0, ...(cost === null ? {} : { cost }) });
-    const vectors: number[][] = [];
+    const vectors: (Float32Array | null)[] = inputs.map(() => null);
     for (const item of Array.isArray(body.data) ? (body.data as { index?: unknown; embedding?: unknown }[]) : []) {
-      if (typeof item.index === 'number' && Array.isArray(item.embedding)) {
-        vectors[item.index] = item.embedding.filter((value): value is number => typeof value === 'number');
+      if (typeof item.index === 'number' && item.index >= 0 && item.index < inputs.length) {
+        vectors[item.index] = vectorOf(item.embedding);
       }
     }
-    return vectors.length === inputs.length && vectors.every(Boolean) ? vectors : null;
+    return { vectors, tokens, cost: typeof usage.cost === 'number' ? usage.cost : null };
   } catch (error) {
     if (!signal?.aborted) {
       console.warn(`[helpers] ${helpers.embeddingModel} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     return null;
   }
+}
+
+/**
+ * Embeds texts with the embedding model, in batches that run side by side.
+ * A failed batch leaves its texts without a vector; the rest still counts.
+ *
+ * @param helpers - See {@link Helpers}.
+ * @param inputs - Texts; the first is usually the query.
+ * @param signal - Ends the calls with the chat request.
+ * @returns One vector (or null) per input in the same order, or null if
+ *   every batch failed.
+ */
+export async function embed(helpers: Helpers, inputs: string[], signal?: AbortSignal): Promise<(Float32Array | null)[] | null> {
+  if (inputs.length === 0) {
+    return [];
+  }
+  const batches: string[][] = [];
+  for (let start = 0; start < inputs.length; start += EMBED_BATCH) {
+    batches.push(inputs.slice(start, start + EMBED_BATCH));
+  }
+  const results = await Promise.all(batches.map((batch) => embedBatch(helpers, batch, signal)));
+  if (results.every((result) => result === null)) {
+    return null;
+  }
+  // One entry in the usage details, whatever the number of batches.
+  const tokens = results.reduce((sum, result) => sum + (result?.tokens ?? 0), 0);
+  let cost: number | null = results.every((result) => result === null || result.cost !== null)
+    ? results.reduce((sum, result) => sum + (result?.cost ?? 0), 0)
+    : null;
+  if (cost === null) {
+    const price = await embeddingPrice(helpers, signal);
+    cost = price === null ? null : tokens * price;
+  }
+  record(helpers, helpers.embeddingModel, 'sections', { input_tokens: tokens, output_tokens: 0, ...(cost === null ? {} : { cost }) });
+  return results.flatMap((result, index) => result?.vectors ?? (batches[index] ?? []).map(() => null));
 }
 
 /**

@@ -219,6 +219,17 @@ try {
     await page.waitForSelector(text('Die Suche funktioniert: 3 Treffer.'), { timeout: 10_000 });
     await shot('26-admin-web-search');
 
+    // Thresholds for condensing long chats.
+    await page.$eval(text('Lange Chats eindampfen'), (element) => element.scrollIntoView({ block: 'center' }));
+    await page.click('input[inputmode="decimal"]', { count: 3 });
+    await page.type('input[inputmode="decimal"]', '4');
+    await page.click(text('Schwellen speichern'));
+    await page.waitForFunction(
+      async () => (await (await fetch('/api/admin/settings')).json()).condense?.afterIdleHours === 4,
+      { timeout: 5_000, polling: 250 },
+    );
+    await shot('26b-admin-condense');
+
     // With an OpenRouter key, Jev (the mock) ranks the hits.
     const created = await page.evaluate(async () => {
       const response = await fetch('/api/providers', {
@@ -264,6 +275,8 @@ try {
     await page.waitForSelector(text('Der Server hat ausgewählt'), { timeout: 5_000 });
     await page.waitForSelector(text('Wie lagert man Kaffee?'), { timeout: 5_000 });
     await page.waitForSelector(text('Bohnen luftdicht'), { timeout: 5_000 });
+    // Then only the line with one word.
+    await page.waitForSelector(text('Treffer: 1'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
@@ -271,11 +284,7 @@ try {
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
 
-    // Developer mode: tokens and cost of every model call of the reply.
-    await page.goto(`${BASE}/settings?tab=appearance`, { waitUntil: 'networkidle0' });
-    await page.click('[aria-label="Entwicklermodus"]');
-    await page.waitForSelector('[aria-label="Entwicklermodus"][aria-checked="true"]', { timeout: 5_000 });
-    await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
+    // Tokens and cost of every model call of the reply, without any setting.
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
     await page.click('[aria-label="Token-Details zeigen"]');
     await page.waitForSelector(text('Tokens je Modellaufruf'), { timeout: 5_000 });
@@ -313,7 +322,7 @@ try {
       throw new Error('condensed before the chat was long');
     }
     // Enter does not send while the reply is still streaming.
-    await page.waitForSelector(text('60020 → 40 Tokens'), { timeout: 10_000 });
+    await page.waitForSelector(text('210020 → 40 Tokens'), { timeout: 10_000 });
     await page.type('textarea', 'Danke');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => document.querySelector('textarea')?.value === '', { timeout: 5_000 });

@@ -1,4 +1,5 @@
 import {
+  type CondenseSettings,
   KEYED_SEARCH_PROVIDERS,
   type KeyedSearchProvider,
   type SearchSettings,
@@ -28,6 +29,10 @@ const DEFAULTS: ServerSettings = {
     keys: { brave: null, tavily: null },
     helpers: { enabled: true, jevModel: 'typesafe/jev-1.13', embeddingModel: 'qwen/qwen3-embedding-8b' },
   },
+  // 200,000 cached tokens cost DeepSeek users ~0.06 cents per model call;
+  // half the window guards models with 128k. Six hours: DeepSeek keeps its
+  // cache for hours, OpenAI and Anthropic for minutes.
+  condense: { enabled: true, atTokens: 200_000, atWindowShare: 0.5, afterIdleHours: 6 },
 };
 
 type SettingKey = keyof ServerSettings;
@@ -54,6 +59,7 @@ export async function getServerSettings(db: Kysely<DB>): Promise<ServerSettings>
   }
   // Stored before a field existed: the defaults fill it in.
   settings.search = { ...DEFAULTS.search, ...settings.search, helpers: { ...DEFAULTS.search.helpers, ...settings.search.helpers } };
+  settings.condense = { ...DEFAULTS.condense, ...settings.condense };
   return settings;
 }
 
@@ -66,9 +72,11 @@ export async function getServerSettings(db: Kysely<DB>): Promise<ServerSettings>
  */
 export async function updateServerSettings(
   db: Kysely<DB>,
-  patch: Partial<ServerSettings>,
+  patch: Omit<Partial<ServerSettings>, 'condense'> & { condense?: Partial<CondenseSettings> },
 ): Promise<ServerSettings> {
-  const entries = Object.entries(patch) as [SettingKey, ServerSettings[SettingKey]][];
+  // A partial change keeps the other thresholds.
+  const merged = patch.condense ? { ...patch, condense: { ...(await getServerSettings(db)).condense, ...patch.condense } } : patch;
+  const entries = Object.entries(merged) as [SettingKey, ServerSettings[SettingKey]][];
   for (const [key, value] of entries) {
     if (value === undefined) {
       continue;

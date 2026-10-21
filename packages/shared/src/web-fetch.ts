@@ -111,11 +111,23 @@ export interface WebFetchOutput {
   findings?: InjectionFinding[];
   /** What the model looked for, when it asked for matching sections only. */
   focus?: string;
+  /** Set when the model asked for the lines with certain words only. */
+  grep?: WebFetchGrep;
   /**
    * Set when {@link text} holds only some sections of a long page; the
    * model can ask for others by number.
    */
   sections?: WebFetchSections;
+}
+
+/** What a `web_fetch` call with `grep` returned. */
+export interface WebFetchGrep {
+  /** The words, separated by `|`, as the model wrote them. */
+  pattern: string;
+  /** How many lines matched; null when the page was short and came whole. */
+  lines: number | null;
+  /** True if more lines matched than fit. */
+  truncated: boolean;
 }
 
 /**

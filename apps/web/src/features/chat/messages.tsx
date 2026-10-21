@@ -209,7 +209,7 @@ function MessageActions({
   canRegenerate: boolean;
   onRegenerate: () => void;
 }) {
-  const { t, locale, devMode } = usePreferences();
+  const { t, locale } = usePreferences();
   const [copied, setCopied] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const usage = message.metadata?.usage;
@@ -250,7 +250,7 @@ function MessageActions({
             {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
           </span>
         ) : null}
-        {devMode && usage ? (
+        {usage ? (
           <Tooltip content={showUsage ? t('chat.usageDetails.hide') : t('chat.usageDetails.show')}>
             <Button
               variant="ghost"
@@ -265,7 +265,7 @@ function MessageActions({
         ) : null}
       </div>
       <AnimatePresence initial={false}>
-        {devMode && usage && showUsage ? (
+        {usage && showUsage ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1, transition: transitions.enter }}
