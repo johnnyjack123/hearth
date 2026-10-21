@@ -216,7 +216,7 @@ try {
     await page.waitForSelector(text('Websuche speichern'));
     await page.waitForFunction(() => !document.querySelector('[role=status]')?.textContent?.includes('Verbindungen'), { timeout: 5_000 });
     await page.click(text('Suche testen'));
-    await page.waitForSelector(text('Die Suche funktioniert: 2 Treffer.'), { timeout: 10_000 });
+    await page.waitForSelector(text('Die Suche funktioniert: 3 Treffer.'), { timeout: 10_000 });
     await shot('26-admin-web-search');
 
     await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -235,10 +235,12 @@ try {
     await page.waitForSelector(text('Websuche: „Kaffee rösten“'));
     await page.waitForSelector(`section[aria-label="Quellen"] ${text('Kaffee-Testseite')}`, { timeout: 5_000 });
     // The block says which hit the model read, numbered as among the sources.
-    await page.waitForSelector(text('2 Treffer · 1 gelesen'), { timeout: 5_000 });
+    await page.waitForSelector(text('3 Treffer · 1 gelesen'), { timeout: 5_000 });
+    await page.waitForSelector(text('· Fakten'), { timeout: 5_000 });
     await page.click('[aria-label="Treffer zeigen"]');
     await page.waitForSelector(text('Röstgrade im Überblick'), { timeout: 5_000 });
     await page.waitForSelector(text('gelesen, Quelle 1'), { timeout: 5_000 });
+    await page.waitForSelector(text('bevorzugte Quelle'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
