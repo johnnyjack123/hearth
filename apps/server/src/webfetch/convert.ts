@@ -245,6 +245,30 @@ function textLength(text: string | null | undefined): number {
   return (text ?? '').replace(/\s+/g, ' ').trim().length;
 }
 
+/** Characters besides the heading and links that a heading's wrapper may hold, such as "[ | ]". */
+const MAX_WRAPPER_TEXT = 10;
+
+/**
+ * Takes headings out of wrappers that hold nothing else but links.
+ * MediaWiki (Wikipedia) wraps every heading in a div with "edit" links;
+ * Readability drops such link-heavy blocks, the heading with them, and
+ * without headings there is no outline for picking sections (measured on
+ * 21.10.2026: 0 of 37 headings of de.wikipedia.org/wiki/Kaffee were left).
+ */
+function liftHeadings(document: ReturnType<typeof parseHTML>['document']): void {
+  for (const heading of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+    const wrapper = heading.parentElement;
+    if (!wrapper || wrapper.tagName !== 'DIV') {
+      continue;
+    }
+    const links = [...wrapper.querySelectorAll('a')].filter((link) => !heading.contains(link));
+    const rest = textLength(wrapper.textContent) - textLength(heading.textContent) - links.reduce((sum, link) => sum + textLength(link.textContent), 0);
+    if (rest <= MAX_WRAPPER_TEXT) {
+      wrapper.replaceWith(heading);
+    }
+  }
+}
+
 /**
  * Converts the main content of an HTML page to Markdown: the article as
  * Mozilla Readability finds it, without navigation, sidebars, footers and
@@ -262,6 +286,7 @@ export function mainContentToMarkdown(html: string, base: URL): string | null {
     const { document } = parseHTML(html.replace(HEAVY_BLOCKS, ''));
     // Measured before Readability, which takes the document apart.
     const pageChars = textLength(document.body?.textContent);
+    liftHeadings(document);
     const article = new Readability(document, { maxElemsToParse: MAX_ELEMENTS, charThreshold: MIN_MAIN_CHARS }).parse();
     const mainChars = textLength(article?.textContent);
     if (!article?.content || mainChars < MIN_MAIN_CHARS || mainChars < pageChars * MIN_MAIN_SHARE) {

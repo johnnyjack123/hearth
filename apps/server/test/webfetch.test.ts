@@ -334,6 +334,25 @@ describe('conversion', () => {
     expect(full.markdown).toContain('ersten Crack');
   });
 
+  it('keeps headings that MediaWiki wraps together with edit links', () => {
+    const text = (topic: string) => `<p>${`${topic} ist ein Thema mit vielen Einzelheiten, die hier ausführlich beschrieben werden. `.repeat(8)}</p>`;
+    const heading = (title: string, extra = '') =>
+      `<div class="mw-heading mw-heading2"><h2 id="${title}">${title}</h2>${extra}` +
+      '<span class="mw-editsection"><span>[</span><a href="/edit?section=1">Bearbeiten</a><span> | </span><a href="/edit?source=1">Quelltext bearbeiten</a><span>]</span></span></div>';
+    const html =
+      '<html><head><title>Kaffee – Wikipedia</title></head><body><div id="content"><h1>Kaffee</h1>' +
+      `${text('Kaffee')}${heading('Geschichte')}${text('Geschichte')}${heading('Anbau')}${text('Anbau')}` +
+      // Text besides the links is not a heading wrapper; it stays as it is.
+      `<div><h3>Sorten</h3><p>Arabica und Robusta im Überblick, mit Anbaugebieten.</p></div>${text('Sorten')}` +
+      '</div></body></html>';
+    const { markdown, mainContent } = pageToMarkdown(html, new URL('https://de.wikipedia.org/wiki/Kaffee'));
+    expect(mainContent).toBe(true);
+    expect(markdown).toContain('## Geschichte');
+    expect(markdown).toContain('## Anbau');
+    expect(markdown).not.toContain('Quelltext bearbeiten');
+    expect(markdown).toContain('Arabica und Robusta im Überblick');
+  });
+
   it('keeps code and tables of documentation pages', () => {
     const { markdown, mainContent } = pageToMarkdown(fixture('docs.html'), new URL('https://brewkit.example/docs/config'));
     expect(mainContent).toBe(true);
