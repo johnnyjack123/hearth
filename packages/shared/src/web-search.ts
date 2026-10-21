@@ -89,7 +89,16 @@ export interface WebSearchOutput {
  * Why a web search failed. The error text of a failed `web_search` call
  * starts with `[code]` or `[code:detail]`, like a failed web fetch.
  */
-export const WEB_SEARCH_ERRORS = ['not_configured', 'rejected', 'rate_limited', 'provider_error', 'timeout', 'network', 'aborted'] as const;
+export const WEB_SEARCH_ERRORS = [
+  'not_configured',
+  'research_off',
+  'rejected',
+  'rate_limited',
+  'provider_error',
+  'timeout',
+  'network',
+  'aborted',
+] as const;
 
 /** See {@link WEB_SEARCH_ERRORS}. */
 export type WebSearchErrorCode = (typeof WEB_SEARCH_ERRORS)[number];

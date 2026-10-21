@@ -309,6 +309,7 @@ export const de = {
     sources: 'Quellen',
     errors: {
       not_configured: 'Auf diesem Server ist keine Websuche eingerichtet.',
+      research_off: 'Die Recherche ist aus, deshalb hat das Modell nicht gesucht.',
       rejected: 'Der Suchanbieter hat die Anfrage abgelehnt (HTTP {detail}). Ein Admin sollte Key bzw. JSON-Ausgabe von SearXNG prüfen.',
       rate_limited: 'Der Suchanbieter nimmt gerade keine Anfragen an (Limit erreicht).',
       provider_error: 'Der Suchanbieter hat nicht wie erwartet geantwortet.',
