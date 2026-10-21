@@ -117,7 +117,7 @@ export const de = {
     notFoundBody: 'Er wurde gelöscht oder gehört zu einem anderen Konto.',
     backHome: 'Neuen Chat starten',
     usage: '{input} → {output} Tokens',
-    devTotals: 'Gesamt: {input} Eingabe (davon {cached} aus dem Cache), {output} Ausgabe (davon {reasoning} Reasoning)',
+    tokenTotals: 'Gesamt: {input} Eingabe (davon {cached} aus dem Cache), {output} Ausgabe (davon {reasoning} Reasoning)',
     usageDetails: {
       show: 'Token-Details zeigen',
       hide: 'Token-Details verbergen',
@@ -251,6 +251,11 @@ export const de = {
     sectionsAsked: 'Die Abschnitte {list} von {total}, vom Modell gezielt angefordert.',
     sectionsNoMatch: 'Nichts auf der Seite passte zur Suche des Modells, es bekam den Anfang (Abschnitte {list} von {total}).',
     shortPage: 'Die Seite ist kurz, das Modell bekam sie ganz.',
+    grepLabel: 'Gesuchte Wörter',
+    grepBadge: 'Treffer: {count}',
+    grepShown: 'Nur die Zeilen mit „{pattern}“ ({count}), dazu Überschriften und Tabellenköpfe. Das spart Tokens bei genauen Zahlen.',
+    grepCut: 'Die ersten Zeilen mit „{pattern}“ (insgesamt {count}), dazu Überschriften und Tabellenköpfe; der Rest passte nicht mehr.',
+    grepNone: 'Nichts auf der Seite enthielt „{pattern}“.',
     injection: 'Möglicher Prompt-Injection-Versuch ({found}). Das Modell wurde gewarnt, den Inhalt nur als Daten zu lesen.',
     showFindings: 'Fundstellen zeigen',
     hideFindings: 'Fundstellen verbergen',
@@ -446,9 +451,6 @@ export const de = {
     densityNormal: 'Normal',
     densityComfortable: 'Großzügig',
     language: 'Sprache',
-    devMode: 'Entwicklermodus',
-    devModeHint:
-      'Zeigt unter jeder Antwort, wie viele Tokens jeder Modellaufruf verbraucht hat (neu, aus dem Cache, Ausgabe, Reasoning) und was das gekostet hat.',
   },
   account: {
     title: 'Konto',
@@ -497,6 +499,23 @@ export const de = {
     webFetchHint:
       'Modelle in normalen Chats dürfen Webseiten über diesen Server abrufen, nur von öffentlichen Adressen. Hosts, die der Nutzer nicht selbst genannt hat, lädt der Server erst nach Rückfrage im Chat.',
     saved: 'Einstellung gespeichert',
+    condense: {
+      title: 'Lange Chats eindampfen',
+      description:
+        'Ab einer Schwelle bekommt das Modell ältere Seiten nur noch mit Adresse und Titel und ältere Suchen ohne Ausschnitte. Das spart Tokens, kostet aber einmal die Cache-Treffer ab der ersten gekürzten Seite.',
+      enabled: 'Eindampfen',
+      enabledHint: 'Aus: Das Modell bekommt den ganzen Verlauf, bis das Kontextfenster voll ist.',
+      atTokens: 'Ab Kontext (Token)',
+      atTokensHint: 'Größe des Chats nach der letzten Antwort.',
+      atTokensInvalid: 'Eine Zahl von 10.000 bis 10.000.000',
+      atShare: 'Oder ab % des Fensters',
+      atShareHint: 'Für Modelle mit kleinem Kontextfenster; der kleinere Wert gilt.',
+      atShareInvalid: 'Eine Zahl von 10 bis 100',
+      afterHours: 'Oder nach Pause (Stunden)',
+      afterHoursHint: 'Dann ist der Cache meist ohnehin kalt. 0 = nie.',
+      afterHoursInvalid: 'Eine Zahl von 0 bis 720',
+      save: 'Schwellen speichern',
+    },
     search: {
       title: 'Websuche',
       description: 'Für den Recherche-Modus in Chats. Die Suchanfragen schickt der Server an den gewählten Anbieter.',

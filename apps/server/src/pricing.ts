@@ -266,7 +266,7 @@ export function withHelpers(usage: NonNullable<MessageMetadata['usage']>, helper
 }
 
 /**
- * Tokens and cost of one model call, for the developer view.
+ * Tokens and cost of one model call, for the usage details below the reply.
  *
  * @param step - Usage of the call.
  * @param pricing - Prices of the model, if known.

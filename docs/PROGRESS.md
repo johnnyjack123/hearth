@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-21 · Recherche verbessert (alle fünf abgestimmten Schritte gebaut, gemergt, gepusht); nächstes: Test des Nutzers mit OpenRouter-Key, dann Zweitmeinung zu Warnungen_
+_Last updated: 2026-10-21 (abends) · Jev und Embeddings mit dem OpenRouter-Key des Nutzers echt getestet und beschleunigt; grep, rekursives Teilen, Schwellen in der Web-App; nächstes: Test des Nutzers, Entscheidung zu Stemming/Thesaurus_
 
 ## Where we are
 
@@ -16,8 +16,9 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - Treffer werden nach Art der Frage gewichtet (Domain-Listen) und mit OpenRouter-Key von Jev gereiht (Relevanz in Prozent).
    - `web_fetch` kann mit `focus` nur passende Abschnitte holen (BM25, mit OpenRouter-Key plus Embeddings), für genaue Zahlen holt das Modell die ganze Seite.
    - System-Prompt und Werkzeuge bleiben für den Cache fest, Datum und Schalter kommen als Hinweis vor der Nachricht.
-   - Lange Chats (ab 50 000 Token oder nach einer Stunde Pause) bekommen ältere Seiten und Suchen nur noch gekürzt; der Chat sagt das an.
-   - Entwicklermodus: Tokens und Kosten je Modellaufruf und je Modell (Hauptmodell, Jev, Embeddings, Titel).
+   - `grep` holt für genaue Zahlen nur die Zeilen mit bestimmten Wörtern (mit Überschriften und Tabellenköpfen).
+   - Lange Chats (ab 200 000 Token, 50 % des Kontextfensters oder nach 6 h Pause; in der Web-App einstellbar) bekommen ältere Seiten und Suchen nur noch gekürzt; der Chat sagt das an.
+   - Tokens und Kosten je Modellaufruf und je Modell (Hauptmodell, Jev, Embeddings, Titel) stehen immer hinter dem Beleg-Knopf, Summen im Tooltip des Kontext-Rings. Den Entwicklermodus gibt es nicht mehr.
 
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
 
@@ -25,13 +26,14 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Test des Nutzers auf dem Pi** nach dem Update des Images: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ bei langen Seiten, im Entwicklermodus die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und die Embeddings sind bisher nur gegen Stand-ins geprüft.
-2. Danach (Reihenfolge laut Nutzer):
+1. **Test des Nutzers auf dem Pi** nach dem Update des Images: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
+2. **Entscheidung des Nutzers:** BM25 mit Stammformen (Snowball) und Teilwörtern („Kaffeebohnen“ ↔ „Bohnen“) verbessern; Thesaurus (OpenThesaurus, WordNet, ConceptNet) erst, wenn Tests das nahelegen.
+3. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
-3. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams, Suche für Agents in der VM (über den Server).
-4. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
-5. Vorgemerkt: DeepSeeks Websuche (`api.deepseek.com/v1/tools/search`) als weiteren Suchanbieter prüfen (ROADMAP, Phase 4 „Recherche“ → Offen).
+4. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams, Suche für Agents in der VM (über den Server).
+5. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
+6. Vorgemerkt: DeepSeeks Websuche (`api.deepseek.com/v1/tools/search`) als weiteren Suchanbieter prüfen (ROADMAP, Phase 4 „Recherche“ → Offen).
 
 ## In flight / half-finished
 
@@ -42,7 +44,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Abschnitte ohne Jev:** BM25 plus Embeddings (`qwen/qwen3-embedding-8b`, in den Sucheinstellungen änderbar), zusammengeführt per RRF. Jev bleibt fürs Reihen der Treffer.
 - **Das Hauptmodell wählt selbst** zwischen ganzer Seite und `focus` (Wunsch des Nutzers): `focus` für Informationen zu einem Thema, ganze Seite für genaue Zahlen, Tabellen, Code und Zitate. Seiten bis 6000 Zeichen kommen immer ganz.
 - **Hilfsmodelle zahlt der Nutzer selbst:** Sein OpenRouter-Zugang (der des Chats oder sein ältester). Ohne Zugang läuft alles wie vorher, nur mit Domain-Listen und BM25.
-- **Eindampfen** ab 50 000 Token Kontext oder nach einer Stunde Pause, nur wenn mindestens 8000 Zeichen schrumpfen. Die Stelle wird an der Nutzernachricht gespeichert, damit Folgeanfragen denselben Anfang haben (Cache). Gekürzte Seiten laden ohne Rückfrage neu: Dieselbe URL trägt nichts Neues hinaus.
+- **Eindampfen** ab 200 000 Token Kontext (oder 50 % des Fensters) oder nach 6 h Pause, nur wenn mindestens 8000 Zeichen schrumpfen; einstellbar in Administration → Server (Wunsch des Nutzers: Cache-Treffer nicht zu früh verschenken). Die Stelle wird an der Nutzernachricht gespeichert, damit Folgeanfragen denselben Anfang haben (Cache). Gekürzte Seiten laden ohne Rückfrage neu: Dieselbe URL trägt nichts Neues hinaus.
 - **Hinweise statt wechselndem System-Prompt** (Idee des Nutzers): Datum und Recherche-Schalter stehen als `[LLM Harness: …]` vor der Nutzernachricht und werden gespeichert.
 
 ## Decisions made earlier (18.10.)
@@ -58,7 +60,8 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 ## Open questions for the user
 
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
-- Sollen die Schwellen fürs Eindampfen (50 000 Token, 1 h) und die Domain-Listen in der Web-App einstellbar werden? Bisher Konstanten im Code.
+- Stemming und Teilwörter für BM25 umsetzen? Thesaurus?
+- Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
 ## Known issues / debt
 
@@ -76,6 +79,11 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 21.10. (abends):
+- **Server:** 142/142 (SQLite), dazu grep, rekursives Halbieren, Anhänge, Schwellen-Einstellung, Hinweis bei schwachen Treffern.
+- **Browser-E2E:** 13/13, 0 Konsolenprobleme; Recherche mit Fokus und grep („Treffer: 1“), Token-Tabelle ohne Schalter, Admin-Karte „Lange Chats eindampfen“ speichert. Screenshots 26b, 27, 29, 30 angesehen.
+- **Echt mit dem OpenRouter-Key des Nutzers:** Jev auf 8 Suchen (Bing/DuckDuckGo-Treffer, nur im Testskript); Embeddings auf 9 Fragen und 7 Modellen; Produktionspfad `selectSections` mit Qwen3 (1,6–3,2 s, 0,04 Cent je Wikipedia-Artikel); `grep` auf Wikipedia Dresden, Node-Releases.
 
 Stand 21.10., nach Schritt 5 der Recherche:
 - **Server:** 132/132 (SQLite), neu: Prompt bleibt über Anfragen gleich, Gewichtung nach Art, Jev-Reihung mit Kosten und Rückfall, Abschnitte (BM25, Embeddings, Gliederung, Nummern), Eindampfen (Schwelle, Pause, gleicher Prompt-Anfang danach, Neuladen ohne Rückfrage). Postgres zuletzt am 14.10.
@@ -101,6 +109,13 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-21 (abends, nach Rückmeldung des Nutzers)
+- `grep` für `web_fetch` und Hinweis im System-Prompt (focus fürs Thema, grep für Zahlen, sonst ganze Seite).
+- Abschnitte rekursiv halbiert (bis 2000 Zeichen), Anhänge wie Einzelnachweise ausgenommen.
+- Embeddings 3–5× schneller: base64, 1024 Dimensionen, parallele Teilaufrufe.
+- Jev: Hinweis „neu suchen“, wenn kein Treffer taugt.
+- Schwellen fürs Eindampfen höher und in der Web-App einstellbar; Entwicklermodus entfernt (alles immer sichtbar); Technik-Liste um Hersteller ergänzt.
 
 ### 2026-10-21 (Recherche verbessern, Schritte 1–5)
 - Cache-fester Prompt: Datum und Recherche-Schalter als gespeicherter Hinweis vor der Nutzernachricht, `web_search` immer definiert (lehnt bei ausgeschalteter Recherche ab).

@@ -28,10 +28,29 @@ describe('splitting', () => {
     ]);
   });
 
-  it('cuts long parts at blank lines, and very long paragraphs hard', () => {
+  it('halves long parts until they fit, at blank lines first, and very long words hard', () => {
     const sections = splitSections(['## Lang', paragraph('eins', 1_000), '', paragraph('zwei', 1_000), '', 'x'.repeat(3_500)].join('\n'));
-    expect(sections.every((section) => section.heading === 'Lang' && section.text.length <= 1_600)).toBe(true);
-    expect(sections.map((section) => section.text.slice(0, 4))).toEqual(['## L', 'zwei', 'xxxx', 'xxxx', 'xxxx']);
+    expect(sections.every((section) => section.heading === 'Lang' && section.text.length <= 2_000)).toBe(true);
+    expect(sections.map((section) => section.text.slice(0, 4))).toEqual(['## L', 'zwei', 'xxxx', 'xxxx']);
+  });
+
+  it('halves text without headings or blank lines after sentences, into parts of about equal size', () => {
+    const text = Array.from({ length: 200 }, (_, index) => `Satz ${index} erzählt etwas über Kaffee.`).join(' ');
+    const parts = splitSections(text);
+    expect(parts).toHaveLength(4);
+    for (const part of parts) {
+      expect(part.text.length).toBeGreaterThan(1_200);
+      expect(part.text.length).toBeLessThanOrEqual(2_000);
+      expect(part.text.endsWith('Kaffee.')).toBe(true);
+    }
+    expect(parts.map((part) => part.text).join(' ')).toBe(text);
+  });
+
+  it('cuts around code blocks rather than through them', () => {
+    const code = ['```js', ...Array.from({ length: 80 }, (_, index) => (index % 5 === 4 ? '' : `const value${index} = ${index};`)), '```'].join('\n');
+    const parts = splitSections([paragraph('vorher', 1_200), code, paragraph('nachher', 1_200)].join('\n\n'));
+    expect(parts.map((part) => part.text.slice(0, 6))).toEqual(['vorher', '```js\n', 'nachhe']);
+    expect(parts[1]?.text.endsWith('```')).toBe(true);
   });
 });
 
@@ -73,6 +92,15 @@ describe('selectSections', () => {
   const page = ['Anbau', 'Röstung', 'Lagerung', 'Mahlen', 'Brühen', 'Geschichte', 'Sorten']
     .map((topic) => `## ${topic}\n\n${paragraph(topic.toLowerCase(), 1_200)}`)
     .join('\n\n');
+
+  it('leaves lists of sources out unless the focus asks for them', async () => {
+    const withSources = `${page}\n\n## Einzelnachweise\n\n${paragraph('Lagerung von Bohnen Quelle', 1_200)}`;
+    const selection = await selectSections(withSources, { focus: 'Lagerung von Bohnen', sections: null, maxChars: 40_000 }, null);
+    expect(selection?.shown).toEqual([3]);
+    expect(selection?.outline.at(-1)).toEqual({ from: 8, to: 8, heading: 'Einzelnachweise' });
+    const sources = await selectSections(withSources, { focus: 'Quellen zur Lagerung von Bohnen', sections: null, maxChars: 40_000 }, null);
+    expect(sources?.shown).toContain(8);
+  });
 
   it('leaves short pages whole', async () => {
     expect(await selectSections('kurz', { focus: 'x', sections: null, maxChars: 40_000 }, null)).toBeNull();

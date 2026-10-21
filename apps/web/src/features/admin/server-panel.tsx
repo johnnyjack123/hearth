@@ -1,4 +1,4 @@
-import type { SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
+import type { CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -27,7 +27,7 @@ export function ServerPanel() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: queryKeys.serverSettings, queryFn: api.settings.get });
   const update = useMutation({
-    mutationFn: (patch: Omit<UpdateServerSettings, 'search'>) => api.settings.update(patch),
+    mutationFn: (patch: Omit<UpdateServerSettings, 'search' | 'condense'>) => api.settings.update(patch),
     onMutate: async (patch) => {
       // Optimistic: switches react instantly and roll back on failure.
       await queryClient.cancelQueries({ queryKey: queryKeys.serverSettings });
@@ -100,7 +100,104 @@ export function ServerPanel() {
       <Section title={t('admin.search.title')} description={t('admin.search.description')}>
         {settings.data ? <SearchSettingsCard search={settings.data.search} /> : <Skeleton className="h-40 w-full rounded-xl" />}
       </Section>
+      <Section title={t('admin.condense.title')} description={t('admin.condense.description')}>
+        {settings.data ? <CondenseSettingsCard condense={settings.data.condense} /> : <Skeleton className="h-40 w-full rounded-xl" />}
+      </Section>
     </div>
+  );
+}
+
+/** A whole number from an input, or null if it is none in the range. */
+function numberIn(value: string, min: number, max: number): number | null {
+  const number = Number(value.trim());
+  return value.trim() !== '' && Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
+/**
+ * Thresholds for condensing long chats: context size, share of the model's
+ * window and pause.
+ *
+ * @param props - The stored thresholds.
+ * @returns The card.
+ */
+function CondenseSettingsCard({ condense }: { condense: CondenseSettings }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [enabled, setEnabled] = useState(condense.enabled);
+  const [tokens, setTokens] = useState(String(condense.atTokens));
+  const [share, setShare] = useState(String(Math.round(condense.atWindowShare * 100)));
+  const [hours, setHours] = useState(String(condense.afterIdleHours));
+  const [submitted, setSubmitted] = useState(false);
+  const atTokens = numberIn(tokens, 10_000, 10_000_000);
+  const atShare = numberIn(share, 10, 100);
+  const afterHours = numberIn(hours, 0, 720);
+  const next = { enabled, atTokens: atTokens ?? 0, atWindowShare: (atShare ?? 0) / 100, afterIdleHours: afterHours ?? 0 };
+  const dirty =
+    enabled !== condense.enabled ||
+    next.atTokens !== condense.atTokens ||
+    next.atWindowShare !== condense.atWindowShare ||
+    next.afterIdleHours !== condense.afterIdleHours;
+
+  const save = useMutation({
+    mutationFn: () => api.settings.update({ condense: next }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(queryKeys.serverSettings, settings);
+      setSubmitted(false);
+      toast.success(t('admin.saved'));
+    },
+    onError: (error) => toast.error(errorMessage(t, error)),
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitted(true);
+    if (atTokens !== null && atShare !== null && afterHours !== null) {
+      save.mutate();
+    }
+  }
+
+  return (
+    <Card>
+      <form onSubmit={submit} className="flex flex-col gap-4 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-sm font-medium text-foreground">{t('admin.condense.enabled')}</span>
+            <span className="text-sm text-muted-foreground">{t('admin.condense.enabledHint')}</span>
+          </div>
+          <Switch aria-label={t('admin.condense.enabled')} checked={enabled} onCheckedChange={setEnabled} />
+        </div>
+        {enabled ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field
+              label={t('admin.condense.atTokens')}
+              hint={t('admin.condense.atTokensHint')}
+              error={submitted && atTokens === null ? t('admin.condense.atTokensInvalid') : undefined}
+            >
+              {(control) => <Input {...control} inputMode="numeric" value={tokens} onChange={(event) => setTokens(event.target.value)} />}
+            </Field>
+            <Field
+              label={t('admin.condense.atShare')}
+              hint={t('admin.condense.atShareHint')}
+              error={submitted && atShare === null ? t('admin.condense.atShareInvalid') : undefined}
+            >
+              {(control) => <Input {...control} inputMode="numeric" value={share} onChange={(event) => setShare(event.target.value)} />}
+            </Field>
+            <Field
+              label={t('admin.condense.afterHours')}
+              hint={t('admin.condense.afterHoursHint')}
+              error={submitted && afterHours === null ? t('admin.condense.afterHoursInvalid') : undefined}
+            >
+              {(control) => <Input {...control} inputMode="decimal" value={hours} onChange={(event) => setHours(event.target.value)} />}
+            </Field>
+          </div>
+        ) : null}
+        <div>
+          <Button type="submit" variant="primary" loading={save.isPending} disabled={!dirty}>
+            {t('admin.condense.save')}
+          </Button>
+        </div>
+      </form>
+    </Card>
   );
 }
 

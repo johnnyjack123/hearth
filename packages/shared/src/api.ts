@@ -63,7 +63,37 @@ export interface ServerSettings {
   webFetch: boolean;
   /** Web search for research mode. */
   search: SearchSettings;
+  /** When long chats get older pages and searches only in short form. */
+  condense: CondenseSettings;
 }
+
+/**
+ * When a new message condenses a chat: earlier pages then reach the model as
+ * URL and title only. Condensing breaks the provider's prompt cache once,
+ * from the first shortened page on; with cache hits at 1/50 of the price,
+ * carrying a long chat is cheap, so the thresholds sit high.
+ */
+export interface CondenseSettings {
+  /** Whether chats are condensed at all. */
+  enabled: boolean;
+  /** Size of the conversation after the last reply, in tokens. */
+  atTokens: number;
+  /** The same as a share (0.1 to 1) of the model's context window, for models with a small one; the lower limit applies. */
+  atWindowShare: number;
+  /** Hours after the last reply, when the cache has usually gone cold and condensing costs nothing; 0 for never. */
+  afterIdleHours: number;
+}
+
+/** Validates a change of {@link CondenseSettings}. */
+export const updateCondenseSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    atTokens: z.number().int().min(10_000).max(10_000_000),
+    atWindowShare: z.number().min(0.1).max(1),
+    afterIdleHours: z.number().min(0).max(720),
+  })
+  .partial()
+  .strict();
 
 /**
  * Validates a partial update of {@link ServerSettings}.
@@ -74,6 +104,7 @@ export const updateServerSettingsSchema = z
     allowCustomBaseUrls: z.boolean(),
     webFetch: z.boolean(),
     search: updateSearchSettingsSchema,
+    condense: updateCondenseSettingsSchema,
   })
   .partial()
   .strict();
@@ -229,7 +260,7 @@ export interface MessageMetadata {
     /** Part of the completion tokens spent on reasoning, if the provider says. */
     reasoningTokens?: number;
     /**
-     * Each model call of the reply in order, for the developer view; missing
+     * Each model call of the reply in order, for the usage details; missing
      * in replies stored before 2026-10-20.
      */
     calls?: ModelCallUsage[];

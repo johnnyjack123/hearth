@@ -1,4 +1,4 @@
-import { parseWebFetchError, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
+import { parseWebFetchError, type WebFetchGrep, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, Globe, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -18,7 +18,7 @@ function readOutput(output: unknown): WebFetchOutput | null {
     return null;
   }
   const value = output as WebFetchOutput;
-  const { findings, focus, sections, ...rest } = value;
+  const { findings, focus, sections, grep, ...rest } = value;
   return {
     ...rest,
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isWarning) : [],
@@ -26,7 +26,13 @@ function readOutput(output: unknown): WebFetchOutput | null {
     ...(Array.isArray(findings) ? { findings: findings.filter(isFinding) } : {}),
     ...(typeof focus === 'string' ? { focus } : {}),
     ...(isSections(sections) ? { sections } : {}),
+    ...(isGrep(grep) ? { grep } : {}),
   };
+}
+
+function isGrep(value: unknown): value is WebFetchGrep {
+  const grep = value as WebFetchGrep | undefined;
+  return typeof grep?.pattern === 'string' && (grep.lines === null || typeof grep.lines === 'number') && typeof grep.truncated === 'boolean';
 }
 
 function isSections(value: unknown): value is WebFetchSections {
@@ -39,11 +45,16 @@ function isSections(value: unknown): value is WebFetchSections {
   );
 }
 
-/** Which sections the model got, and why; null when it got the whole text. */
+/** Which part of the page the model got, and why; null when it got the whole text. */
 function sectionsNote(t: TranslateFn, output: WebFetchOutput): string | null {
-  const { sections, focus } = output;
+  const { sections, focus, grep } = output;
+  if (grep && grep.lines !== null) {
+    return grep.lines === 0
+      ? t('webFetch.grepNone', { pattern: grep.pattern })
+      : t(grep.truncated ? 'webFetch.grepCut' : 'webFetch.grepShown', { pattern: grep.pattern, count: String(grep.lines) });
+  }
   if (!sections) {
-    return focus ? t('webFetch.shortPage') : null;
+    return focus || grep ? t('webFetch.shortPage') : null;
   }
   const values = { list: sections.shown.join(', '), total: String(sections.total) };
   if (!focus) {
@@ -118,6 +129,9 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
       >
         <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{output?.title ? `${output.title} · ${url}` : url}</span>
+        {output?.grep && output.grep.lines !== null ? (
+          <Badge className="shrink-0">{t('webFetch.grepBadge', { count: String(output.grep.lines) })}</Badge>
+        ) : null}
         {output?.sections ? (
           <Badge className="shrink-0">{t('webFetch.sectionsBadge', { shown: String(output.sections.shown.length), total: String(output.sections.total) })}</Badge>
         ) : null}
@@ -139,6 +153,7 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
           >
             <ToolText label={t('webFetch.source')} text={url} />
             {output?.focus ? <ToolText label={t('webFetch.focus')} text={output.focus} /> : null}
+            {output?.grep ? <ToolText label={t('webFetch.grepLabel')} text={output.grep.pattern} /> : null}
             {failure ? <ToolText label={t('webFetch.failed')} text={failure.text} /> : null}
             {output ? <ToolText label={t('webFetch.content')} text={output.text || t('webFetch.noContent')} /> : null}
             {note ? (

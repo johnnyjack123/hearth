@@ -63,7 +63,7 @@ export function conversationUsage(messages: ChatMessage[]) {
  * @returns The meter, or nothing before the first reply.
  */
 export function ContextMeter({ messages }: { messages: ChatMessage[] }) {
-  const { t, locale, devMode } = usePreferences();
+  const { t, locale } = usePreferences();
   const usage = conversationUsage(messages);
   if (!usage) {
     return null;
@@ -79,16 +79,12 @@ export function ContextMeter({ messages }: { messages: ChatMessage[] }) {
       : t('chat.contextDetails', { used: exact.format(contextTokens), window: exact.format(contextWindow ?? 0), percent }),
     cost === undefined ? t('chat.costUnknown') : t('chat.costTotal', { cost: formatCost(locale, cost) }),
     ...(cost !== undefined && unpriced > 0 ? [t('chat.costPartial', { count: unpriced })] : []),
-    ...(devMode
-      ? [
-          t('chat.devTotals', {
-            input: exact.format(usage.inputTokens),
-            cached: exact.format(usage.cachedInputTokens),
-            output: exact.format(usage.outputTokens),
-            reasoning: exact.format(usage.reasoningTokens),
-          }),
-        ]
-      : []),
+    t('chat.tokenTotals', {
+      input: exact.format(usage.inputTokens),
+      cached: exact.format(usage.cachedInputTokens),
+      output: exact.format(usage.outputTokens),
+      reasoning: exact.format(usage.reasoningTokens),
+    }),
     t('chat.costSource'),
   ];
   const warn = percent !== null && percent >= WARN_PERCENT;

@@ -18,12 +18,18 @@ export interface Section {
   text: string;
 }
 
-/** Longest section; longer ones are split at blank lines. ~400 tokens. */
-const MAX_SECTION_CHARS = 1_600;
+/**
+ * Longest section, ~500 tokens: small enough that a few fit the budget of a
+ * focus and an embedding stands for one topic, large enough to keep a
+ * paragraph with its context. Longer parts are halved until they fit.
+ */
+const MAX_SECTION_CHARS = 2_000;
 
 /**
- * Splits Markdown at its headings, and long parts at blank lines. Fenced
- * code blocks stay in one piece where they fit.
+ * Splits Markdown at its headings, and halves parts that are too long
+ * until each fits, so pages without headings (or with markup the
+ * converter does not see as headings) get sections too. Fenced code blocks
+ * stay in one piece where they fit.
  *
  * @param markdown - The page as Markdown.
  * @returns The sections in page order.
@@ -76,57 +82,72 @@ export function splitSections(markdown: string): Section[] {
   return sections;
 }
 
-/** Cuts text longer than a section at blank lines (not inside code), else hard. */
-function splitLong(text: string): string[] {
-  if (text.length <= MAX_SECTION_CHARS) {
-    return [text];
-  }
-  const paragraphs: string[] = [];
-  let inFence = false;
-  let buffer: string[] = [];
+/** Where code blocks start and end, so cuts can avoid them. */
+function fenceRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  let open = -1;
+  let offset = 0;
   for (const line of text.split('\n')) {
     if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-    }
-    if (!inFence && line.trim() === '' && buffer.length > 0) {
-      paragraphs.push(buffer.join('\n'));
-      buffer = [];
-      continue;
-    }
-    buffer.push(line);
-  }
-  if (buffer.length > 0) {
-    paragraphs.push(buffer.join('\n'));
-  }
-  const pieces: string[] = [];
-  let piece = '';
-  for (const paragraph of paragraphs) {
-    // A heading alone says nothing; it stays with the text below it, even
-    // if that makes the piece a little longer.
-    const headingOnly = /^#{1,6}\s[^\n]*$/.test(piece);
-    if (piece && !headingOnly && piece.length + paragraph.length + 2 > MAX_SECTION_CHARS) {
-      pieces.push(piece);
-      piece = '';
-    }
-    if (paragraph.length > MAX_SECTION_CHARS) {
-      let rest = piece ? `${piece}\n\n${paragraph}` : paragraph;
-      piece = '';
-      while (rest.length > MAX_SECTION_CHARS) {
-        // Cut at a space where one is near, not inside a word.
-        const space = rest.lastIndexOf(' ', MAX_SECTION_CHARS);
-        const cut = space > MAX_SECTION_CHARS / 2 ? space : MAX_SECTION_CHARS;
-        pieces.push(rest.slice(0, cut));
-        rest = rest.slice(cut);
+      if (open < 0) {
+        open = offset;
+      } else {
+        ranges.push([open, offset + line.length]);
+        open = -1;
       }
-      piece = rest;
-      continue;
     }
-    piece = piece ? `${piece}\n\n${paragraph}` : paragraph;
+    offset += line.length + 1;
   }
-  if (piece) {
-    pieces.push(piece);
+  if (open >= 0) {
+    ranges.push([open, text.length]);
   }
-  return pieces.map((part) => part.trim()).filter(Boolean);
+  return ranges;
+}
+
+/** Breaks to halve at, best first: paragraphs, lines, sentences, words. */
+const BREAKS = [/\n[ \t]*\n/g, /\n/g, /[.!?…:;][)"'»“]?\s+/g, /\s+/g];
+
+/**
+ * Where to halve a text: the best kind of break nearest the middle, within
+ * the middle half so both parts keep a useful size. Breaks inside code
+ * blocks count only when nothing else is there.
+ */
+function halvingPoint(text: string): number {
+  const middle = text.length / 2;
+  const from = Math.floor(text.length / 4);
+  const to = Math.ceil((text.length * 3) / 4);
+  const fences = fenceRanges(text);
+  for (const avoidCode of [true, false]) {
+    for (const pattern of BREAKS) {
+      let best = -1;
+      pattern.lastIndex = from;
+      for (let match = pattern.exec(text); match && match.index <= to; match = pattern.exec(text)) {
+        const cut = match.index + match[0].length;
+        if (avoidCode && fences.some(([start, end]) => match.index > start && match.index < end)) {
+          continue;
+        }
+        if (best < 0 || Math.abs(cut - middle) < Math.abs(best - middle)) {
+          best = cut;
+        }
+      }
+      if (best > 0 && best < text.length) {
+        return best;
+      }
+    }
+  }
+  // One long word: cut in the middle, but not inside a surrogate pair.
+  const cut = Math.floor(middle);
+  const code = text.charCodeAt(cut);
+  return code >= 0xdc00 && code <= 0xdfff ? cut - 1 : cut;
+}
+
+/** Halves text longer than a section, again and again, until every part fits. */
+function splitLong(text: string): string[] {
+  if (text.length <= MAX_SECTION_CHARS) {
+    return text ? [text] : [];
+  }
+  const cut = halvingPoint(text);
+  return [...splitLong(text.slice(0, cut).trim()), ...splitLong(text.slice(cut).trim())];
 }
 
 function terms(text: string): string[] {
@@ -180,7 +201,7 @@ export function bm25Scores(sections: Section[], query: string): number[] {
  * @param b - Second vector.
  * @returns Between -1 and 1; 0 for empty or mismatched vectors.
  */
-export function cosine(a: readonly number[], b: readonly number[]): number {
+export function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
   if (a.length === 0 || a.length !== b.length) {
     return 0;
   }
@@ -322,13 +343,27 @@ function render(sections: Section[]): string {
     .join('\n\n');
 }
 
+/**
+ * Lists of sources and links at the end of a page. They are full of topic
+ * words, so keywords and embeddings both rank them high (Wikipedia's
+ * "Einzelnachweise" came out on top for questions about coffee and sleep),
+ * yet they rarely hold an answer.
+ */
+const BACK_MATTER =
+  /^(einzelnachweise|anmerkungen|fußnoten|quellen|quellenangaben|literatur|weblinks|siehe auch|references|notes|footnotes|citations|sources|bibliography|external links|further reading|see also)$/i;
+/** A focus with these words asks for exactly such lists. */
+const ASKS_FOR_SOURCES = /quelle|literatur|nachweis|referenz|weblink|source|reference|citation|bibliograph|further reading/i;
+
 async function scoresFor(sections: Section[], focus: string, helpers: Helpers | null, signal: AbortSignal | undefined): Promise<number[]> {
-  const keywords = bm25Scores(sections, focus);
+  const skip = ASKS_FOR_SOURCES.test(focus) ? () => false : (section: Section) => BACK_MATTER.test(section.heading.trim());
+  // Left out of both rankings; the outline still lists them.
+  const keywords = bm25Scores(sections, focus).map((score, index) => (skip(sections[index]!) ? 0 : score));
   if (!helpers) {
     return fuseRankings([keywords]);
   }
   const candidates = sections
     .map((section, index) => ({ section, index, score: keywords[index] ?? 0 }))
+    .filter(({ section }) => !skip(section))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, MAX_EMBEDDED_SECTIONS);
   const vectors = await embed(
@@ -336,13 +371,15 @@ async function scoresFor(sections: Section[], focus: string, helpers: Helpers | 
     [QUERY_INSTRUCTION + focus, ...candidates.map(({ section }) => (section.heading ? `${section.heading}\n\n${section.text}` : section.text))],
     signal,
   );
-  if (!vectors) {
+  const [query, ...rest] = vectors ?? [];
+  if (!query) {
     return fuseRankings([keywords]);
   }
-  const [query, ...rest] = vectors;
+  // Sections of a failed batch have no vector and count by keywords only.
   const meaning = sections.map(() => 0);
   candidates.forEach((candidate, place) => {
-    meaning[candidate.index] = cosine(query ?? [], rest[place] ?? []);
+    const vector = rest[place];
+    meaning[candidate.index] = vector ? cosine(query, vector) : 0;
   });
   return fuseRankings([keywords, meaning]);
 }
