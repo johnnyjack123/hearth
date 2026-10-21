@@ -310,6 +310,7 @@ export const en: Messages = {
     sources: 'Sources',
     errors: {
       not_configured: 'No web search is set up on this server.',
+      research_off: 'Research is off, so the model did not search.',
       rejected: 'The search provider rejected the request (HTTP {detail}). An admin should check the key or the JSON output of SearXNG.',
       rate_limited: 'The search provider takes no requests right now (limit reached).',
       provider_error: 'The search provider did not answer as expected.',

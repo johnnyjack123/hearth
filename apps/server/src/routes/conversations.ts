@@ -31,7 +31,7 @@ import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
 import { streamAgent, transcript } from './agent.ts';
-import { assignTitle, parseUserMessage, streamChat } from './chat.ts';
+import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
 /**
@@ -185,10 +185,22 @@ export function conversationRoutes(deps: AppDeps) {
       // A known message id means "regenerate" or "edit": the old branch is replaced.
       await discardFrom(db, conversation.id, userMessage.id);
       const previous = await loadMessages(db, conversation.id);
-      // Research mode belongs to ordinary chats; the flag on the message lets
-      // the chat open with the switch as it was last used.
-      const research = body.research === true && !link;
-      const stored: ChatMessage = { ...userMessage, metadata: { createdAt: Date.now(), ...(research ? { research } : {}) } };
+      // Research mode belongs to ordinary chats with a search provider; the
+      // flag on the message lets the chat open with the switch as it was.
+      const search = link ? null : await loadSearchBackend(db, secretBox, searchEndpoints);
+      const research = search !== null && body.research === true;
+      const date = localDate(new Date());
+      // Linked chats talk to an agent with its own prompt and get no notes.
+      const note = link ? null : chatNote(previous, { date, research: search ? research : null });
+      const stored: ChatMessage = {
+        ...userMessage,
+        metadata: {
+          createdAt: Date.now(),
+          ...(link ? {} : { date }),
+          ...(research ? { research } : {}),
+          ...(note ? { note } : {}),
+        },
+      };
       await saveMessage(db, conversation.id, stored);
       await updateConversation(db, conversation.id, { credentialId: row.id, modelId: body.modelId });
 
@@ -231,7 +243,8 @@ export function conversationRoutes(deps: AppDeps) {
         pricing: await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId),
         abortSignal: c.req.raw.signal,
         webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
-        search: research ? await loadSearchBackend(db, secretBox, searchEndpoints) : null,
+        search,
+        research,
       });
     });
 }

@@ -147,11 +147,10 @@ describe('search providers', () => {
     await new Promise((resolve) => closed.close(resolve));
     const unreachable = searxngBackend(`http://127.0.0.1:${closedPort}`, endpoints);
     await expect(unreachable.search({ query: 'x', count: 3 })).rejects.toMatchObject({ code: 'network', detail: 'ECONNREFUSED' });
-    const unknown = searxngBackend('http://no-such-searxng.invalid:8080', endpoints);
-    await expect(unknown.search({ query: 'x', count: 3 })).rejects.toMatchObject({
-      code: 'network',
-      detail: expect.stringMatching(/^(ENOTFOUND|EAI_AGAIN)$/),
-    });
+    // An unknown name, without a real lookup: some networks (hotspots,
+    // providers) answer every name and let the connection time out instead.
+    const notFound = Object.assign(new Error('getaddrinfo ENOTFOUND searxng'), { code: 'ENOTFOUND' });
+    expect(networkCause(new TypeError('fetch failed', { cause: notFound }))).toBe('ENOTFOUND');
     expect(networkCause(new TypeError('fetch failed', { cause: new Error('unexpected redirect') }))).toBe('redirect');
     expect(networkCause(new Error('no cause'))).toBeNull();
     const controller = new AbortController();
@@ -497,7 +496,9 @@ describe('research mode', () => {
     });
 
     expect(llm.calls[0]?.tools.sort()).toEqual(['web_fetch', 'web_search']);
-    expect(llm.calls[0]?.system).toMatch(/Research mode is on\. Today is \d{4}-\d{2}-\d{2}\./);
+    // Date and research mode come as a note in front of the message, not in the system prompt.
+    expect(llm.calls[0]?.system).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\. Research mode is on\.\]/);
     const search = chunks.find((chunk) => chunk.type === 'tool-output-available');
     expect(search).toMatchObject({ output: { query: 'Kaffee rösten', provider: 'searxng', warnings: ['ignore_instructions', 'addressed_to_ai'] } });
     expect(JSON.stringify(llm.calls[1]?.prompt.at(-1))).toContain('untrusted data');
@@ -528,25 +529,40 @@ describe('research mode', () => {
       'tool-web_fetch',
     ]);
 
-    // Next message without research: no search tool, the old search as text,
-    // and found URLs ask again.
-    script = [{ tool: 'web_fetch', input: { url: article } }];
+    // Next message without research. For the prompt cache, system prompt and
+    // tools stay exactly the same; only a note says research is off. The
+    // search refuses, and found URLs ask again.
+    const firstCall = llm.calls[0];
+    script = [
+      { tool: 'web_search', input: { query: 'nochmal' } },
+      { tool: 'web_fetch', input: { url: article } },
+    ];
     const later = await readChunks(await chat(conversationId, 'Noch einmal?', false));
-    expect(llm.calls.at(-1)?.tools).toEqual(['web_fetch']);
-    expect(JSON.stringify(llm.calls.at(-2)?.prompt)).toContain('[Earlier, web_search for \\"Kaffee rösten\\" found: 1.');
+    const lastCall = llm.calls.at(-1);
+    expect(lastCall?.system).toBe(firstCall?.system);
+    expect(lastCall?.tools).toEqual(firstCall?.tools);
+    const prompt = JSON.stringify(lastCall?.prompt);
+    expect(prompt).toContain('[LLM Harness: Research mode is off.]');
+    // The earlier note is still there, unchanged, and the date is not repeated.
+    expect(prompt.match(/Today is/g)).toHaveLength(1);
+    expect(later.find((chunk) => chunk.type === 'tool-output-error')).toMatchObject({ errorText: expect.stringMatching(/^\[research_off\]/) });
     expect(later.some((chunk) => chunk.type === 'data-approval')).toBe(true);
     expect(fetched).toEqual(['/article', '/linked']);
+    await eventually(async () => (await load(conversationId)).messages.length === 4);
+    expect((await load(conversationId)).messages[2]?.metadata).toMatchObject({ note: '[LLM Harness: Research mode is off.]' });
   });
 
-  it('is ignored without a provider and in linked chats', async () => {
+  it('does not exist without a provider', async () => {
     script = [{ tool: 'web_search', input: { query: 'x' } }];
     const conversationId = await newConversation();
     const chunks = await readChunks(await chat(conversationId, 'Suche', true));
     expect(llm.calls[0]?.tools).toEqual(['web_fetch']);
-    expect(llm.calls[0]?.system).not.toContain('Research mode');
+    expect(llm.calls[0]?.system).not.toContain('research mode');
+    // The note gives the date only; there is no research mode to announce.
+    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\.\]/);
     expect(chunks.find((chunk) => chunk.type === 'tool-output-error' || chunk.type === 'tool-input-error')).toBeDefined();
     await eventually(async () => (await load(conversationId)).messages.length === 2);
-    expect((await load(conversationId)).messages[0]?.metadata?.research).toBe(true);
+    expect((await load(conversationId)).messages[0]?.metadata?.research).toBeUndefined();
   });
 });
 

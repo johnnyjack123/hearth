@@ -9,7 +9,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { findInjections, WARNING_TEXT, warningKinds } from '../webfetch/injection.ts';
 import type { KnownUrls } from './known-urls.ts';
-import type { SearchBackend } from './providers.ts';
+import { type SearchBackend, WebSearchError } from './providers.ts';
 
 /** Hits per search; enough to choose from, few enough to keep the context small. */
 const RESULT_COUNT = 8;
@@ -62,16 +62,21 @@ const DESCRIPTION =
  * Builds the `web_search` tool for one chat request.
  *
  * @param backend - The configured provider.
- * @param known - Grows with the hits, which `web_fetch` then loads without asking.
+ * @param known - In research mode: grows with the hits, which `web_fetch`
+ *   then loads without asking. Null while research mode is off; the tool
+ *   stays defined then (for the prompt cache) and refuses.
  * @returns The tool, to be passed to `streamText` as `web_search`.
  */
-export function createWebSearchTool(backend: SearchBackend, known: KnownUrls) {
+export function createWebSearchTool(backend: SearchBackend, known: KnownUrls | null) {
   return tool({
     description: DESCRIPTION,
     inputSchema: z.object({
       query: z.string().trim().min(1).max(400).describe('Search terms'),
     }),
     execute: async ({ query }, { abortSignal }): Promise<WebSearchOutput> => {
+      if (!known) {
+        throw new WebSearchError('research_off', 'Research mode is off; the user can switch it on in the chat. Answer without searching.');
+      }
       const results = await backend.search({ query, count: RESULT_COUNT, ...(abortSignal ? { signal: abortSignal } : {}) });
       for (const result of results) {
         known.add(result.url);

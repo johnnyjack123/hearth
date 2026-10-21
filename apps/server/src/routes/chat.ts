@@ -50,13 +50,23 @@ const WEB_FETCH_INSTRUCTIONS = [
 ].join(' ');
 
 /**
- * Research mode, with the date: models do not know it, and "current"
- * questions depend on it.
+ * Notes of LLM Harness at the start of user messages carry what changes
+ * during a chat (the date, research mode). The system prompt and the tool
+ * list stay the same for the whole chat, so providers can serve everything
+ * before the newest message from their prompt cache.
  */
-function researchInstructions(now: Date, canFetch: boolean): string {
+const NOTE_INSTRUCTIONS =
+  'User messages can start with a note from LLM Harness in square brackets, such as today\'s date; the latest note applies.';
+
+/**
+ * Research mode: switched on and off by the user during a chat, announced
+ * by the notes. The text itself never changes.
+ */
+function researchInstructions(canFetch: boolean): string {
   return [
-    `Research mode is on. Today is ${now.toISOString().slice(0, 10)}.`,
-    'Use web_search when the answer depends on facts you cannot reliably know: recent events, current prices,',
+    'This chat has a research mode that the user switches on and off; the notes say whether it is on.',
+    'While it is off, do not call web_search. While it is on:',
+    'use web_search when the answer depends on facts you cannot reliably know: recent events, current prices,',
     'versions or schedules, specific people, organizations, products or statistics, or anything the user asks you to look up or check.',
     'If you are not sure a fact is correct and current, search instead of guessing.',
     'Do not search for small talk, writing, translation, coding or math help, or well-established general knowledge; answer those directly.',
@@ -334,10 +344,54 @@ export interface StreamChatOptions {
   abortSignal: AbortSignal;
   /** Web fetch for the model; null when an admin switched it off. */
   webFetch: { approvals: FetchApprovals; config: WebFetchConfig } | null;
-  /** Search provider in research mode; null when research mode is off or no provider is set up. */
+  /** The configured search provider; null when none is set up. */
   search: SearchBackend | null;
-  /** Current time, for the date in research mode; tests fix it. */
-  now?: Date;
+  /** Research mode of this request: search, and found URLs load without asking. */
+  research: boolean;
+}
+
+/**
+ * The note for a new user message: today's date and whether research mode
+ * is on, each only if it differs from the last note of the chat (or the
+ * chat starts). The note is stored with the message, so later requests send
+ * exactly the same text.
+ *
+ * @param previous - The conversation before the message.
+ * @param state - Date (YYYY-MM-DD) and research mode now; research is null
+ *   when no search provider is set up and the mode does not exist.
+ * @returns The note, or null if nothing changed.
+ */
+export function chatNote(previous: ChatMessage[], state: { date: string; research: boolean | null }): string | null {
+  const last = previous.findLast((message) => message.role === 'user' && message.metadata?.date !== undefined)?.metadata;
+  const parts: string[] = [];
+  if (last?.date !== state.date) {
+    parts.push(`Today is ${state.date}.`);
+  }
+  if (state.research !== null && (last === undefined || (last.research === true) !== state.research)) {
+    parts.push(`Research mode is ${state.research ? 'on' : 'off'}.`);
+  }
+  return parts.length > 0 ? `[LLM Harness: ${parts.join(' ')}]` : null;
+}
+
+/**
+ * Today's date on the server, as YYYY-MM-DD. In Docker the server's time
+ * zone is UTC unless `TZ` is set; the date in a note may then change an
+ * hour or two off local midnight.
+ *
+ * @param now - The current time.
+ * @returns The date.
+ */
+export function localDate(now: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+}
+
+/** User messages with their stored notes in front, as the model reads them. */
+function withNotes(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) =>
+    message.role === 'user' && message.metadata?.note
+      ? { ...message, parts: [{ type: 'text', text: message.metadata.note }, ...message.parts] }
+      : message,
+  );
 }
 
 /**
@@ -348,13 +402,16 @@ export interface StreamChatOptions {
  * @returns A streaming HTTP response.
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
-  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search } = options;
+  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research } = options;
 
   // The tool writes its questions into the reply. The writer exists as soon
   // as the stream below is created, before the model can call the tool.
   let writer: UIMessageStreamWriter<ChatMessage> | undefined;
-  // Shared by both tools: search hits and page links become free to load.
-  const known = search ? KnownUrls.fromMessages(messages) : null;
+  // Shared by both tools in research mode: search hits and page links
+  // become free to load.
+  const known = search && research ? KnownUrls.fromMessages(messages) : null;
+  // The tool list depends on the server's settings only, never on research
+  // mode: a changed list would void the provider's prompt cache.
   const tools = {
     ...(webFetch
       ? {
@@ -368,14 +425,15 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
           }),
         }
       : {}),
-    ...(search && known ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known) } : {}),
+    ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known) } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL].filter((name) => !(name in tools)));
   const instructions = [
     INSTRUCTIONS,
+    NOTE_INSTRUCTIONS,
     ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
-    ...(search ? [researchInstructions(options.now ?? new Date(), webFetch !== null)] : []),
+    ...(search ? [researchInstructions(webFetch !== null)] : []),
   ].join(' ');
 
   // Reasoning from earlier turns is display-only. Sending it back breaks when the
@@ -383,7 +441,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   // The tools turn stored results back into what the model saw; a call cut
   // off by stop has no result and is left out.
   const modelMessages = pruneMessages({
-    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(messages, missing)), {
+    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(withNotes(messages), missing)), {
       ...(hasTools ? { tools } : {}),
       ignoreIncompleteToolCalls: true,
     }),
@@ -407,7 +465,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
         model,
         instructions,
         messages: modelMessages,
-        ...(hasTools ? { tools, stopWhen: isStepCount(search ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
+        ...(hasTools ? { tools, stopWhen: isStepCount(research ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
         abortSignal,
       });
       streamWriter.merge(

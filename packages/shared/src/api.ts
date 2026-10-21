@@ -192,6 +192,13 @@ export interface MessageMetadata {
    * switch as it was last used.
    */
   research?: boolean;
+  /** Date (YYYY-MM-DD) a user message of an ordinary chat was sent on, for the notes. */
+  date?: string;
+  /**
+   * Note of LLM Harness the model reads in front of a user message, such as
+   * the date or a change of research mode; stored, so it never changes.
+   */
+  note?: string;
   /** Set on replies of an agent in a linked environment. */
   agent?: {
     /** Project the agent worked in. */
