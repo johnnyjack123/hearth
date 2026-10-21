@@ -8,6 +8,7 @@ import type {
   SearchTestResult,
   ServerSettings,
   WebSearchOutput,
+  WebSearchResult,
 } from '@harness/shared';
 import { simulateReadableStream } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -15,6 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { serverToolsAsText } from '../src/routes/chat.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
+import { isPreferred, weighByKind } from '../src/websearch/domains.ts';
 import { KnownUrls } from '../src/websearch/known-urls.ts';
 import {
   braveBackend,
@@ -235,6 +237,48 @@ describe('known URLs', () => {
     const text = serverToolsAsText(messages, new Set(['web_search']));
     expect(text[1]?.parts[0]).toEqual({ type: 'text', text: '[Earlier, web_search for "q" found: 1.  https://hit.example/1]' });
     expect(text[1]?.parts[1]?.type).toBe('tool-web_fetch');
+  });
+});
+
+describe('source weighting', () => {
+  const hit = (url: string): WebSearchResult => ({ title: url, url, snippet: '', published: null });
+
+  it('knows preferred sources per kind of question, subdomains and suffixes included', () => {
+    expect(isPreferred('https://de.wikipedia.org/wiki/Kaffee', 'facts')).toBe(true);
+    expect(isPreferred('https://www.nasa.gov/news', 'facts')).toBe(true);
+    expect(isPreferred('https://www.reddit.com/r/Coffee', 'experiences')).toBe(true);
+    expect(isPreferred('https://www.reddit.com/r/Coffee', 'facts')).toBe(false);
+    // Lookalikes are no preferred sources.
+    expect(isPreferred('https://evilwikipedia.org/', 'facts')).toBe(false);
+    expect(isPreferred('https://wikipedia.org.evil.example/', 'facts')).toBe(false);
+    expect(isPreferred('not a url', 'facts')).toBe(false);
+  });
+
+  it('moves preferred sources a few places up and image collections down, removing nothing', () => {
+    const results = Array.from({ length: 12 }, (_, index) => hit(`https://site${index}.example/`));
+    results[7] = hit('https://de.wikipedia.org/wiki/Kaffee');
+    results[1] = hit('https://www.pinterest.com/pin/1');
+    const weighed = weighByKind(results, 'facts');
+    // Five places up from 7 is a tie with place 2, which the provider's order breaks.
+    expect(weighed.map((result) => result.url)).toEqual([
+      'https://site0.example/',
+      'https://site2.example/',
+      'https://de.wikipedia.org/wiki/Kaffee',
+      'https://site3.example/',
+      'https://site4.example/',
+      'https://site5.example/',
+      'https://www.pinterest.com/pin/1',
+      'https://site6.example/',
+      'https://site8.example/',
+      'https://site9.example/',
+      'https://site10.example/',
+      'https://site11.example/',
+    ]);
+    expect(weighed[2]?.preferred).toBe(true);
+    expect(weighed.filter((result) => result.preferred)).toHaveLength(1);
+    // Without a kind only image collections move.
+    expect(weighByKind(results, undefined).some((result) => result.preferred)).toBe(false);
+    expect(weighByKind(results, undefined)[7]?.url).toBe('https://de.wikipedia.org/wiki/Kaffee');
   });
 });
 
@@ -550,6 +594,32 @@ describe('research mode', () => {
     expect(fetched).toEqual(['/article', '/linked']);
     await eventually(async () => (await load(conversationId)).messages.length === 4);
     expect((await load(conversationId)).messages[2]?.metadata).toMatchObject({ note: '[LLM Harness: Research mode is off.]' });
+  });
+
+  it('moves sources for the kind of question up and passes ten hits on', async () => {
+    await enableSearxng();
+    const many = Array.from({ length: 14 }, (_, index) => ({ title: `Treffer ${index}`, url: `https://site${index}.example/`, content: 'x' }));
+    many[9] = { title: 'Kaffee – Wikipedia', url: 'https://de.wikipedia.org/wiki/Kaffee', content: 'Lexikon' };
+    providers.provider.answer = () => ({ status: 200, body: JSON.stringify({ results: many }) });
+    script = [{ tool: 'web_search', input: { query: 'Kaffee Röstung', kind: 'facts' } }, { text: 'fertig' }];
+    try {
+      const chunks = await readChunks(await chat(await newConversation(), 'Was ist Kaffee?', true));
+      const output = chunks.find((chunk) => chunk.type === 'tool-output-available')?.output as WebSearchOutput;
+      expect(output.kind).toBe('facts');
+      expect(output.results).toHaveLength(10);
+      // From place 9 five up, after the hit already there.
+      expect(output.results[5]).toMatchObject({ url: 'https://de.wikipedia.org/wiki/Kaffee', preferred: true });
+      // The provider was asked for more than the model gets.
+      expect(new URL(providers.provider.requests.at(-1)?.url ?? '').searchParams.get('q')).toBe('Kaffee Röstung');
+      const toolResult = JSON.stringify(llm.calls[1]?.prompt.at(-1));
+      expect(toolResult).toContain('Kaffee – Wikipedia (preferred source for this kind of question)');
+      expect(toolResult).toContain('sources preferred for facts');
+    } finally {
+      providers.provider.answer = (url) => ({
+        status: 200,
+        body: JSON.stringify({ query: url.searchParams.get('q'), results: RESULTS(pagePort) }),
+      });
+    }
   });
 
   it('does not exist without a provider', async () => {

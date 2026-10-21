@@ -38,6 +38,8 @@ const searchResults = () => ({
       publishedDate: '2026-10-01',
     },
     { title: 'Röstgrade im Überblick', url: 'https://example.com/roestgrade', content: 'Hell, mittel, dunkel.' },
+    // A preferred source for facts, which the server moves up.
+    { title: 'Kaffeeröstung – Wikipedia', url: 'https://de.wikipedia.org/wiki/Kaffeer%C3%B6stung', content: 'Lexikonartikel' },
   ],
 });
 
@@ -56,7 +58,7 @@ function researchStep(payload) {
   }
   const done = messages.slice(lastUser).filter((message) => message.role === 'tool');
   if (done.length === 0) {
-    return { call: { name: 'web_search', input: { query: 'Kaffee rösten' } } };
+    return { call: { name: 'web_search', input: { query: 'Kaffee rösten', kind: 'facts' } } };
   }
   if (done.length === 1) {
     return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/testseite` } } };

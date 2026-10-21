@@ -1,6 +1,6 @@
-import { parseWebSearchError, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
+import { parseWebSearchError, SEARCH_KINDS, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
-import { BookOpenCheck, ChevronRight, CircleAlert, Search } from 'lucide-react';
+import { BookOpenCheck, ChevronRight, CircleAlert, Search, Star } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useState } from 'react';
 import { Badge } from '@/components/ui/display.tsx';
@@ -31,6 +31,7 @@ function readOutput(output: unknown): WebSearchOutput | null {
   }
   return {
     query: typeof value.query === 'string' ? value.query : '',
+    ...(value.kind && SEARCH_KINDS.includes(value.kind) ? { kind: value.kind } : {}),
     provider: value.provider ?? 'searxng',
     results: value.results.filter(isResult),
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isWarning) : [],
@@ -183,7 +184,10 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
         className="flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-start transition-colors duration-(--duration-instant) ease-standard hover:bg-accent focus-visible:outline-none focus-visible:ring-(length:--focus-ring-width) focus-visible:ring-ring"
       >
         <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-foreground">{t('webSearch.title', { query })}</span>
+        <span className="min-w-0 flex-1 truncate text-foreground">
+          {t('webSearch.title', { query })}
+          {output?.kind ? <span className="text-muted-foreground"> · {t(`webSearch.kinds.${output.kind}`)}</span> : null}
+        </span>
         {status}
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}
@@ -206,11 +210,21 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
                 <li key={result.url} className="flex min-w-0 gap-2">
                   <span className="w-5 shrink-0 text-end text-xs leading-5 text-muted-foreground tabular-nums">{index + 1}.</span>
                   <div className="flex min-w-0 flex-col gap-1">
-                    {source > 0 ? (
-                      <Badge variant="success" className="w-fit">
-                        <BookOpenCheck aria-hidden="true" />
-                        {t('webSearch.readAs', { number: source })}
-                      </Badge>
+                    {source > 0 || result.preferred ? (
+                      <span className="flex flex-wrap gap-1">
+                        {source > 0 ? (
+                          <Badge variant="success" className="w-fit">
+                            <BookOpenCheck aria-hidden="true" />
+                            {t('webSearch.readAs', { number: source })}
+                          </Badge>
+                        ) : null}
+                        {result.preferred ? (
+                          <Badge variant="primary" className="w-fit">
+                            <Star aria-hidden="true" />
+                            {t('webSearch.preferred')}
+                          </Badge>
+                        ) : null}
+                      </span>
                     ) : null}
                     <ExternalLink url={result.url} title={result.title}>
                       {result.published ? ` · ${result.published}` : null}

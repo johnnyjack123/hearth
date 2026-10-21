@@ -56,6 +56,16 @@ export const updateSearchSettingsSchema = z
 /** See {@link updateSearchSettingsSchema}. */
 export type UpdateSearchSettings = z.infer<typeof updateSearchSettingsSchema>;
 
+/**
+ * Kinds of questions with their own preferred sources: facts and science,
+ * explanations and learning, experiences and opinions, software and
+ * documentation, current news.
+ */
+export const SEARCH_KINDS = ['facts', 'learning', 'experiences', 'tech', 'news'] as const;
+
+/** See {@link SEARCH_KINDS}. */
+export type SearchKind = (typeof SEARCH_KINDS)[number];
+
 /** One hit of a web search. */
 export interface WebSearchResult {
   /** Title of the page. */
@@ -66,6 +76,8 @@ export interface WebSearchResult {
   snippet: string;
   /** Publication date as the provider states it, if any. */
   published: string | null;
+  /** Set when the host is a preferred source for the kind of question. */
+  preferred?: boolean;
 }
 
 /**
@@ -75,6 +87,8 @@ export interface WebSearchResult {
 export interface WebSearchOutput {
   /** The query the model searched for. */
   query: string;
+  /** Kind of question the model named, which weighed the sources. */
+  kind?: SearchKind;
   /** Who answered it. */
   provider: Exclude<SearchProvider, 'off'>;
   /** The hits, best first. */
