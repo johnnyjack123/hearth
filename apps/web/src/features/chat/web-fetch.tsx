@@ -1,4 +1,4 @@
-import { parseWebFetchError, type WebFetchOutput } from '@harness/shared';
+import { parseWebFetchError, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, Globe, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -18,13 +18,38 @@ function readOutput(output: unknown): WebFetchOutput | null {
     return null;
   }
   const value = output as WebFetchOutput;
-  const { findings, ...rest } = value;
+  const { findings, focus, sections, ...rest } = value;
   return {
     ...rest,
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isWarning) : [],
     // Replies stored before findings existed have none; the block then says so.
     ...(Array.isArray(findings) ? { findings: findings.filter(isFinding) } : {}),
+    ...(typeof focus === 'string' ? { focus } : {}),
+    ...(isSections(sections) ? { sections } : {}),
   };
+}
+
+function isSections(value: unknown): value is WebFetchSections {
+  const sections = value as WebFetchSections | undefined;
+  return (
+    typeof sections?.total === 'number' &&
+    Array.isArray(sections.shown) &&
+    sections.shown.every((index) => typeof index === 'number') &&
+    typeof sections.matched === 'boolean'
+  );
+}
+
+/** Which sections the model got, and why; null when it got the whole text. */
+function sectionsNote(t: TranslateFn, output: WebFetchOutput): string | null {
+  const { sections, focus } = output;
+  if (!sections) {
+    return focus ? t('webFetch.shortPage') : null;
+  }
+  const values = { list: sections.shown.join(', '), total: String(sections.total) };
+  if (!focus) {
+    return t('webFetch.sectionsAsked', values);
+  }
+  return sections.matched ? t('webFetch.sectionsChosen', values) : t('webFetch.sectionsNoMatch', values);
 }
 
 function requestedUrl(input: unknown): string {
@@ -59,6 +84,7 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
   const url = output?.url ?? requestedUrl(part.input);
   const declined = failure?.code === 'denied' || failure?.code === 'no_answer';
   const warnings = output?.warnings ?? [];
+  const note = output ? sectionsNote(t, output) : null;
 
   let status: ReactNode;
   if (running) {
@@ -92,6 +118,9 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
       >
         <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{output?.title ? `${output.title} · ${url}` : url}</span>
+        {output?.sections ? (
+          <Badge className="shrink-0">{t('webFetch.sectionsBadge', { shown: String(output.sections.shown.length), total: String(output.sections.total) })}</Badge>
+        ) : null}
         {status}
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}
@@ -109,8 +138,15 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
             className="flex flex-col gap-2 border-t border-border px-3 py-2"
           >
             <ToolText label={t('webFetch.source')} text={url} />
+            {output?.focus ? <ToolText label={t('webFetch.focus')} text={output.focus} /> : null}
             {failure ? <ToolText label={t('webFetch.failed')} text={failure.text} /> : null}
             {output ? <ToolText label={t('webFetch.content')} text={output.text || t('webFetch.noContent')} /> : null}
+            {note ? (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                {note}
+              </p>
+            ) : null}
             {output?.mainContent ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

@@ -73,7 +73,8 @@ function researchInstructions(canFetch: boolean): string {
     'Do not search for small talk, writing, translation, coding or math help, or well-established general knowledge; answer those directly.',
     canFetch
       ? 'Snippets often answer simple facts. Read pages with web_fetch only when the snippets are not enough, usually the one to three most promising; ' +
-        'URLs from search results and links on loaded pages load without asking.'
+        'URLs from search results and links on loaded pages load without asking. ' +
+        'Give web_fetch a focus when you need information on a topic, and leave it out when you need exact figures, tables or quotes.'
       : '',
     'Never put private details from this conversation into search queries.',
     'Cite the sources you used as Markdown links, and say when sources disagree or you found nothing reliable.',
@@ -438,6 +439,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             approvals: webFetch.approvals,
             config: webFetch.config,
             known,
+            helpers,
           }),
         }
       : {}),

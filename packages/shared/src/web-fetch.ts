@@ -109,6 +109,31 @@ export interface WebFetchOutput {
    * stored before 2026-10-18.
    */
   findings?: InjectionFinding[];
+  /** What the model looked for, when it asked for matching sections only. */
+  focus?: string;
+  /**
+   * Set when {@link text} holds only some sections of a long page; the
+   * model can ask for others by number.
+   */
+  sections?: WebFetchSections;
+}
+
+/**
+ * Which sections of a page a `web_fetch` call returned. Sections are
+ * numbered from 1 in page order; long ones are split at paragraphs.
+ */
+export interface WebFetchSections {
+  /** How many sections the page has. */
+  total: number;
+  /** Numbers of the returned sections. */
+  shown: number[];
+  /**
+   * Consecutive sections under the same heading, one entry each; an empty
+   * heading stands for the part before the first heading.
+   */
+  outline: { from: number; to: number; heading: string }[];
+  /** False when nothing matched the focus and the page's beginning stands in. */
+  matched: boolean;
 }
 
 const ERROR_PREFIX = /^\[([a-z_]+)(?::([^\]]{0,200}))?\]\s*/;

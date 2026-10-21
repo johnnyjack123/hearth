@@ -67,6 +67,75 @@ async function post(helpers: Helpers, url: string, body: unknown, signal: AbortS
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+/** Prices of embedding models per token, from OpenRouter's model list; refreshed daily. */
+const embeddingPrices = new Map<string, { price: number | null; at: number }>();
+const PRICE_TTL_MS = 24 * 60 * 60_000;
+
+async function embeddingPrice(helpers: Helpers, signal: AbortSignal | undefined): Promise<number | null> {
+  const cached = embeddingPrices.get(helpers.embeddingModel);
+  if (cached && Date.now() - cached.at < PRICE_TTL_MS) {
+    return cached.price;
+  }
+  let price: number | null = null;
+  try {
+    const deadline = AbortSignal.timeout(helpers.timeoutMs);
+    const response = await fetch(new URL('models?output_modalities=embeddings', `${helpers.apiUrl.replace(/\/+$/, '')}/`), {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
+    });
+    const list = response.ok ? ((await response.json()) as { data?: { id?: unknown; pricing?: { prompt?: unknown } }[] }) : null;
+    const prompt = Number(list?.data?.find((model) => model.id === helpers.embeddingModel)?.pricing?.prompt);
+    price = Number.isFinite(prompt) && prompt >= 0 ? prompt : null;
+  } catch {
+    price = null;
+  }
+  embeddingPrices.set(helpers.embeddingModel, { price, at: Date.now() });
+  return price;
+}
+
+/**
+ * Embeds texts with the embedding model, all in one call.
+ *
+ * @param helpers - See {@link Helpers}.
+ * @param inputs - Texts; the first is usually the query.
+ * @param signal - Ends the call with the chat request.
+ * @returns One vector per input in the same order, or null if the call failed.
+ */
+export async function embed(helpers: Helpers, inputs: string[], signal?: AbortSignal): Promise<number[][] | null> {
+  if (inputs.length === 0) {
+    return [];
+  }
+  try {
+    const body = await post(
+      helpers,
+      new URL('embeddings', `${helpers.apiUrl.replace(/\/+$/, '')}/`).href,
+      { model: helpers.embeddingModel, input: inputs },
+      signal,
+    );
+    const usage = (body.usage ?? {}) as { prompt_tokens?: unknown; total_tokens?: unknown; cost?: unknown };
+    const tokens = typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : typeof usage.total_tokens === 'number' ? usage.total_tokens : 0;
+    let cost = typeof usage.cost === 'number' ? usage.cost : null;
+    if (cost === null) {
+      const price = await embeddingPrice(helpers, signal);
+      cost = price === null ? null : tokens * price;
+    }
+    record(helpers, helpers.embeddingModel, 'sections', { input_tokens: tokens, output_tokens: 0, ...(cost === null ? {} : { cost }) });
+    const vectors: number[][] = [];
+    for (const item of Array.isArray(body.data) ? (body.data as { index?: unknown; embedding?: unknown }[]) : []) {
+      if (typeof item.index === 'number' && Array.isArray(item.embedding)) {
+        vectors[item.index] = item.embedding.filter((value): value is number => typeof value === 'number');
+      }
+    }
+    return vectors.length === inputs.length && vectors.every(Boolean) ? vectors : null;
+  } catch (error) {
+    if (!signal?.aborted) {
+      console.warn(`[helpers] ${helpers.embeddingModel} failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return null;
+  }
+}
+
 /**
  * Asks Jev to place each item on a scale, all in one call.
  *
