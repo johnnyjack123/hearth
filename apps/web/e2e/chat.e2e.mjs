@@ -255,6 +255,15 @@ try {
     await page.waitForSelector(text('gelesen, Quelle 1'), { timeout: 5_000 });
     await page.waitForSelector(text('bevorzugte Quelle'), { timeout: 5_000 });
     await page.waitForSelector(text('Relevanz 100 %'), { timeout: 5_000 });
+    // The handbook linked on the page came in parts: the sections that
+    // match the model's focus, storage among them thanks to the embeddings.
+    await page.waitForSelector(text('von 8 Abschnitten'), { timeout: 5_000 });
+    await page.$$eval('button[aria-label="Inhalt zeigen"]', (buttons) =>
+      buttons.find((button) => button.textContent.includes('Kaffee-Handbuch'))?.click(),
+    );
+    await page.waitForSelector(text('Der Server hat ausgewählt'), { timeout: 5_000 });
+    await page.waitForSelector(text('Wie lagert man Kaffee?'), { timeout: 5_000 });
+    await page.waitForSelector(text('Bohnen luftdicht'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
@@ -271,7 +280,16 @@ try {
     await page.click('[aria-label="Token-Details zeigen"]');
     await page.waitForSelector(text('Tokens je Modellaufruf'), { timeout: 5_000 });
     const results = await page.$$eval('table td', (cells) => cells.map((cell) => cell.textContent));
-    for (const expected of ['web_search', 'web_fetch', 'Antwort', 'typesafe/jev-1.13', 'Treffer reihen', 'Titel']) {
+    for (const expected of [
+      'web_search',
+      'web_fetch',
+      'Antwort',
+      'typesafe/jev-1.13',
+      'Treffer reihen',
+      'qwen/qwen3-embedding-8b',
+      'Abschnitte wählen',
+      'Titel',
+    ]) {
       if (!results.includes(expected)) {
         throw new Error(`no call with "${expected}" in the token table: ${results.join(' | ')}`);
       }
