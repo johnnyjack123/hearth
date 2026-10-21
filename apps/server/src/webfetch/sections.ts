@@ -7,6 +7,7 @@
  * can ask for others.
  */
 import { embed, type Helpers } from '../helpers/openrouter.ts';
+import { analyze, isStopWord, pageLanguage } from './stem.ts';
 
 /** A part of a page, numbered from 1 in page order. */
 export interface Section {
@@ -150,14 +151,25 @@ function splitLong(text: string): string[] {
   return [...splitLong(text.slice(0, cut).trim()), ...splitLong(text.slice(cut).trim())];
 }
 
-function terms(text: string): string[] {
-  return text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._-]*[\p{L}\p{N}]|[\p{L}\p{N}]{2,}/gu) ?? [];
+/** Shortest word or stem that counts as part of a longer one ("bohnen" in "kaffeebohnen", "lager" in "lagerung"). */
+const MIN_PART = 4;
+/** A word part counts half as much as the word itself. */
+const PART_WEIGHT = 0.5;
+/** Text read to tell the page's language. */
+const LANGUAGE_SAMPLE_CHARS = 50_000;
+
+/** Whether one begins or ends the other, as parts of German compounds and stems of longer forms do. */
+function isPart(a: string, b: string): boolean {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= MIN_PART && short !== long && (long.startsWith(short) || long.endsWith(short));
 }
 
 /**
  * BM25 score of each section for a query: words that are rare on the page
- * and frequent in a section count most. Good at names, versions, numbers;
- * blind to synonyms and other languages.
+ * and frequent in a section count most. Words count in any form of the
+ * page's language ("geröstet" for "Rösten") and as parts of compounds at
+ * half weight ("Bohnen" in "Kaffeebohnen"). Good at names, versions,
+ * numbers; blind to synonyms and other languages.
  *
  * @param sections - The sections.
  * @param query - What the model looks for.
@@ -166,30 +178,71 @@ function terms(text: string): string[] {
 export function bm25Scores(sections: Section[], query: string): number[] {
   const k1 = 1.2;
   const b = 0.75;
-  const docs = sections.map((section) => terms(`${section.heading} ${section.text}`));
+  let sample = '';
+  for (const section of sections) {
+    if (sample.length >= LANGUAGE_SAMPLE_CHARS) {
+      break;
+    }
+    sample += ` ${section.text}`;
+  }
+  const language = pageLanguage(sample);
+  const analyzed = sections.map((section) => analyze(`${section.heading} ${section.text}`, language));
+  const docs = analyzed.map((terms) => terms.map((term) => term.stem));
   const average = docs.reduce((sum, doc) => sum + doc.length, 0) / Math.max(1, docs.length);
-  const wanted = [...new Set(terms(query))];
-  const frequency = new Map<string, number>();
-  for (const doc of docs) {
-    for (const term of new Set(doc)) {
-      frequency.set(term, (frequency.get(term) ?? 0) + 1);
+  // Each stem of the page with the words it came from.
+  const vocabulary = new Map<string, Set<string>>();
+  for (const term of analyzed.flat()) {
+    const words = vocabulary.get(term.stem) ?? new Set<string>();
+    words.add(term.word);
+    vocabulary.set(term.stem, words);
+  }
+  // For each word of the query: the stems of the page that stand for it.
+  // Parts compare stems ("lager" in "lagerung") and whole words ("bohnen"
+  // in "kaffeebohnen"; stemmed, that is "boh"). The exact stem and its
+  // parts are separate terms, each with its own rarity: "kaffee" in
+  // "Kaffeepflanzen" stands on every section of a coffee page and must not
+  // make the rare "kaffeepflanz" look common.
+  const all = analyze(query, language);
+  const meaningful = all.filter((term) => !isStopWord(term.word));
+  const queryTerms = new Map((meaningful.length > 0 ? meaningful : all).map((term) => [term.stem, term.word]));
+  const wanted: { forms: Set<string>; weight: number }[] = [];
+  for (const [stem, word] of queryTerms) {
+    if (vocabulary.has(stem)) {
+      wanted.push({ forms: new Set([stem]), weight: 1 });
+    }
+    const parts = new Set<string>();
+    for (const [other, words] of vocabulary) {
+      if (other !== stem && (isPart(stem, other) || [...words].some((candidate) => isPart(word, candidate)))) {
+        parts.add(other);
+      }
+    }
+    if (parts.size > 0) {
+      wanted.push({ forms: parts, weight: PART_WEIGHT });
     }
   }
-  return docs.map((doc) => {
-    const counts = new Map<string, number>();
-    for (const term of doc) {
-      counts.set(term, (counts.get(term) ?? 0) + 1);
+  const counts = docs.map((doc) => {
+    const map = new Map<string, number>();
+    for (const stem of doc) {
+      map.set(stem, (map.get(stem) ?? 0) + 1);
     }
+    return map;
+  });
+  const frequencies = wanted.map(({ forms }) => counts.filter((map) => [...forms].some((form) => map.has(form))).length);
+  return docs.map((doc, index) => {
+    const count = counts[index] ?? new Map<string, number>();
     let score = 0;
-    for (const term of wanted) {
-      const count = counts.get(term) ?? 0;
-      if (count === 0) {
-        continue;
+    wanted.forEach(({ forms, weight }, place) => {
+      let tf = 0;
+      for (const form of forms) {
+        tf += count.get(form) ?? 0;
       }
-      const df = frequency.get(term) ?? 0;
+      if (tf === 0) {
+        return;
+      }
+      const df = frequencies[place] ?? 0;
       const idf = Math.log(1 + (docs.length - df + 0.5) / (df + 0.5));
-      score += (idf * count * (k1 + 1)) / (count + k1 * (1 - b + (b * doc.length) / (average || 1)));
-    }
+      score += (weight * idf * tf * (k1 + 1)) / (tf + k1 * (1 - b + (b * doc.length) / (average || 1)));
+    });
     return score;
   });
 }

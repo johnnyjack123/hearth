@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-21 (abends) · Jev und Embeddings mit dem OpenRouter-Key des Nutzers echt getestet und beschleunigt; grep, rekursives Teilen, Schwellen in der Web-App; nächstes: Test des Nutzers, Entscheidung zu Stemming/Thesaurus_
+_Last updated: 2026-10-21 (abends) · Jev und Embeddings mit dem OpenRouter-Key des Nutzers echt getestet und beschleunigt; grep, rekursives Teilen, Schwellen in der Web-App; Stammformen und Wortteile in BM25; nächstes: Test des Nutzers_
 
 ## Where we are
 
@@ -27,7 +27,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 ## Next step
 
 1. **Test des Nutzers auf dem Pi** nach dem Update des Images: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
-2. **Entscheidung des Nutzers:** BM25 mit Stammformen (Snowball) und Teilwörtern („Kaffeebohnen“ ↔ „Bohnen“) verbessern; Thesaurus (OpenThesaurus, WordNet, ConceptNet) erst, wenn Tests das nahelegen.
+2. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
@@ -60,7 +60,6 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 ## Open questions for the user
 
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
-- Stemming und Teilwörter für BM25 umsetzen? Thesaurus?
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
 ## Known issues / debt
@@ -81,7 +80,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 ## Verification state
 
 Stand 21.10. (abends):
-- **Server:** 142/142 (SQLite), dazu grep, rekursives Halbieren, Anhänge, Schwellen-Einstellung, Hinweis bei schwachen Treffern.
+- **Server:** 147/147 (SQLite), dazu Wortformen (CISTEM, Porter, Wortteile, Füllwörter), grep, rekursives Halbieren, Anhänge, Schwellen-Einstellung, Hinweis bei schwachen Treffern.
 - **Browser-E2E:** 13/13, 0 Konsolenprobleme; Recherche mit Fokus und grep („Treffer: 1“), Token-Tabelle ohne Schalter, Admin-Karte „Lange Chats eindampfen“ speichert. Screenshots 26b, 27, 29, 30 angesehen.
 - **Echt mit dem OpenRouter-Key des Nutzers:** Jev auf 8 Suchen (Bing/DuckDuckGo-Treffer, nur im Testskript); Embeddings auf 9 Fragen und 7 Modellen; Produktionspfad `selectSections` mit Qwen3 (1,6–3,2 s, 0,04 Cent je Wikipedia-Artikel); `grep` auf Wikipedia Dresden, Node-Releases.
 
@@ -109,6 +108,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-21 (spät)
+- BM25 mit Stammformen (CISTEM/Porter), Wortteilen und ohne Füllwörter: 19/20 statt 15/20 auf echten Seiten.
+- Gemessen: 1024 statt 4096 Dimensionen ändern die Auswahl praktisch nicht (Rangkorrelation 0,94–0,98).
 
 ### 2026-10-21 (abends, nach Rückmeldung des Nutzers)
 - `grep` für `web_fetch` und Hinweis im System-Prompt (focus fürs Thema, grep für Zahlen, sonst ganze Seite).
