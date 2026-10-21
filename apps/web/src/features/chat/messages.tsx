@@ -1,5 +1,5 @@
 import { type ApprovalDecision, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
-import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, Receipt, RefreshCw } from 'lucide-react';
+import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
@@ -116,6 +116,7 @@ function AssistantMessage({
   const pages = readPages(message);
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
+      {message.metadata?.condensed ? <CondensedNote /> : null}
       {message.parts.map((part, index) => {
         if (part.type === 'reasoning' && part.text.trim()) {
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
@@ -150,6 +151,17 @@ function AssistantMessage({
       {!streaming ? <Sources pages={pages} /> : null}
       {!streaming ? <MessageActions message={message} canRegenerate={canRegenerate} onRegenerate={onRegenerate} /> : null}
     </motion.div>
+  );
+}
+
+/** Says why the model may load a page again that it read earlier in the chat. */
+function CondensedNote() {
+  const t = useT();
+  return (
+    <p className="flex items-start gap-2 text-xs text-muted-foreground">
+      <FoldVertical className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      {t('chat.condensed')}
+    </p>
   );
 }
 

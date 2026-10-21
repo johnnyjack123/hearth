@@ -30,6 +30,7 @@ import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
+import { shouldCondense } from '../condense.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
@@ -193,6 +194,8 @@ export function conversationRoutes(deps: AppDeps) {
       const date = localDate(new Date());
       // Linked chats talk to an agent with its own prompt and get no notes.
       const note = link ? null : chatNote(previous, { date, research: search ? research : null });
+      // Decided once and stored, so later requests condense at the same place.
+      const condensed = !link && shouldCondense(previous);
       const stored: ChatMessage = {
         ...userMessage,
         metadata: {
@@ -200,6 +203,7 @@ export function conversationRoutes(deps: AppDeps) {
           ...(link ? {} : { date }),
           ...(research ? { research } : {}),
           ...(note ? { note } : {}),
+          ...(condensed ? { condensed } : {}),
         },
       };
       await saveMessage(db, conversation.id, stored);

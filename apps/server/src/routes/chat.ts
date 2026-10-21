@@ -27,6 +27,7 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
+import { condenseHistory } from '../condense.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
@@ -194,7 +195,8 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
     return `[Earlier, web_search for ${JSON.stringify(query)}${outcome ? ` found: ${shorten(outcome)}` : ''}]`;
   }
   const url = String(input.url ?? '');
-  const outcome = error ? (parseWebFetchError(error)?.message ?? error) : String(output?.text ?? '');
+  // A page of a condensed turn stays out here too.
+  const outcome = error ? (parseWebFetchError(error)?.message ?? error) : output?.condensed ? '' : String(output?.text ?? '');
   return `[Earlier, web_fetch loaded ${url}${outcome ? `: ${shorten(outcome)}` : ''}]`;
 }
 
@@ -459,7 +461,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   // The tools turn stored results back into what the model saw; a call cut
   // off by stop has no result and is left out.
   const modelMessages = pruneMessages({
-    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(withNotes(messages), missing)), {
+    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(messages)), missing)), {
       ...(hasTools ? { tools } : {}),
       ignoreIncompleteToolCalls: true,
     }),
@@ -467,7 +469,13 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   });
 
   const startedAt = Date.now();
-  const baseMetadata: MessageMetadata = { createdAt: startedAt, modelId, credentialId };
+  const baseMetadata: MessageMetadata = {
+    createdAt: startedAt,
+    modelId,
+    credentialId,
+    // So the chat can say right away that older results were condensed.
+    ...(messages.at(-1)?.metadata?.condensed ? { condensed: true } : {}),
+  };
   // The context after the reply is what the last model call saw.
   let lastStep: LanguageModelUsage | undefined;
   // Every call of the reply with the tools it asked for, for the developer view.
