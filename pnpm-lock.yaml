@@ -232,6 +232,9 @@ importers:
       pg:
         specifier: ^8.23.1
         version: 8.23.1
+      stemmer:
+        specifier: 2.0.1
+        version: 2.0.1
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -4083,6 +4086,10 @@ packages:
 
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
+
+  stemmer@2.0.1:
+    resolution: {integrity: sha512-bkWvSX2JR4nSZFfs113kd4C6X13bBBrg4fBKv2pVdzpdQI2LA5pZcWzTFNdkYsiUNl13E4EzymSRjZ0D55jBYg==}
+    hasBin: true
 
   streamdown@2.7.0:
     resolution: {integrity: sha512-SHYTCveHpRJfcIC8r+5EANczK21R0iNYo4i7wNaLeLeQjEnaVk4xMFhgV4E/mix69BpFSBui1NOESEXKlZfReA==}
@@ -8375,6 +8382,8 @@ snapshots:
   split2@4.2.0: {}
 
   std-env@4.3.0: {}
+
+  stemmer@2.0.1: {}
 
   streamdown@2.7.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
