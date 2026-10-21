@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-20 · Websuche läuft beim Nutzer auf dem Pi; Fehlalarme und Nachvollziehbarkeit nach seinem Test verbessert; nächstes: seine Entscheidung zu „Quellen gewichten“ und „Teilagent liest“_
+_Last updated: 2026-10-21 · Recherche verbessert (alle fünf abgestimmten Schritte gebaut, gemergt, gepusht); nächstes: Test des Nutzers mit OpenRouter-Key, dann Zweitmeinung zu Warnungen_
 
 ## Where we are
 
@@ -13,6 +13,11 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
 2. Im Chat „Umgebung“ → Gerät → Projekt: pi arbeitet in der VM. Schritte, Werkzeugaufrufe, Rückfragen, Kontext und Kosten erscheinen im Chat. Warnungen des pi-Schutzes zeigen aufklappbar Fundstelle und Grund.
 3. **Ohne Umgebung** lädt das Modell Seiten über `web_fetch` im Server, als Hauptinhalt (Readability). Fremde Hosts brauchen eine Freigabe. Bei Verdacht auf Prompt-Injection zeigt die Warnung aufklappbar jede Fundstelle mit Ausschnitt und einem Satz, warum das gefährlich ist.
 4. **Recherche-Schalter** im Composer (nur wenn ein Admin unter Administration → Server → Websuche einen Anbieter gespeichert hat): Das Modell sucht mit `web_search` und liest Treffer und Links geladener Seiten ohne Rückfrage. Unter der Antwort stehen die gelesenen Seiten als Quellen.
+   - Treffer werden nach Art der Frage gewichtet (Domain-Listen) und mit OpenRouter-Key von Jev gereiht (Relevanz in Prozent).
+   - `web_fetch` kann mit `focus` nur passende Abschnitte holen (BM25, mit OpenRouter-Key plus Embeddings), für genaue Zahlen holt das Modell die ganze Seite.
+   - System-Prompt und Werkzeuge bleiben für den Cache fest, Datum und Schalter kommen als Hinweis vor der Nachricht.
+   - Lange Chats (ab 50 000 Token oder nach einer Stunde Pause) bekommen ältere Seiten und Suchen nur noch gekürzt; der Chat sagt das an.
+   - Entwicklermodus: Tokens und Kosten je Modellaufruf und je Modell (Hauptmodell, Jev, Embeddings, Titel).
 
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
 
@@ -20,12 +25,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Recherche verbessern**, Reihenfolge abgestimmt (ROADMAP Phase 4, „Recherche“ → „Abgestimmt mit dem Nutzer, 20.10. (abends)“). Vor dem Start wartet noch sein Go:
-   1. cache-fester Prompt (Datum und Recherche als Hinweis statt im System-Prompt)
-   2. Domain-Listen
-   3. Jev über OpenRouter für die Reihung, Kosten je Modell im Entwicklermodus
-   4. Abschnittsauswahl mit `focus`: BM25 plus Embeddings über OpenRouter (`qwen/qwen3-embedding-8b`), nicht Jev
-   5. Eindampfen mit Schwelle
+1. **Test des Nutzers auf dem Pi** nach dem Update des Images: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ bei langen Seiten, im Entwicklermodus die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und die Embeddings sind bisher nur gegen Stand-ins geprüft.
 2. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
@@ -35,9 +35,17 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## In flight / half-finished
 
-Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen. Die Websuche mit SearXNG läuft beim Nutzer auf dem Pi (20.10.; der Fehler war ein fehlendes Compose-Profil).
+Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
 
-## Decisions made this session (18.10.)
+## Decisions made this session (20./21.10.)
+
+- **Abschnitte ohne Jev:** BM25 plus Embeddings (`qwen/qwen3-embedding-8b`, in den Sucheinstellungen änderbar), zusammengeführt per RRF. Jev bleibt fürs Reihen der Treffer.
+- **Das Hauptmodell wählt selbst** zwischen ganzer Seite und `focus` (Wunsch des Nutzers): `focus` für Informationen zu einem Thema, ganze Seite für genaue Zahlen, Tabellen, Code und Zitate. Seiten bis 6000 Zeichen kommen immer ganz.
+- **Hilfsmodelle zahlt der Nutzer selbst:** Sein OpenRouter-Zugang (der des Chats oder sein ältester). Ohne Zugang läuft alles wie vorher, nur mit Domain-Listen und BM25.
+- **Eindampfen** ab 50 000 Token Kontext oder nach einer Stunde Pause, nur wenn mindestens 8000 Zeichen schrumpfen. Die Stelle wird an der Nutzernachricht gespeichert, damit Folgeanfragen denselben Anfang haben (Cache). Gekürzte Seiten laden ohne Rückfrage neu: Dieselbe URL trägt nichts Neues hinaus.
+- **Hinweise statt wechselndem System-Prompt** (Idee des Nutzers): Datum und Recherche-Schalter stehen als `[LLM Harness: …]` vor der Nutzernachricht und werden gespeichert.
+
+## Decisions made earlier (18.10.)
 
 - **Suchanbieter:** SearXNG (Compose-Profil `search`) plus wahlweise Brave oder Tavily mit Key, alle hinter `SearchBackend`. So hat der Nutzer es gewählt.
 - **Recherche erlaubt exakte URLs, nie Hosts.** Treffer und Links geladener Seiten hat ein Dritter geschrieben, ohne den Chat zu kennen. Eine selbst gebaute URL könnte Chat-Inhalte hinaustragen, auch auf einem bekannten Host. Weiterleitungen einer gefundenen URL sind frei, weil ihr Server sie wählt.
@@ -49,11 +57,14 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
-- Rückmeldung zur Websuche auf dem Pi (Qualität, Tempo) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
+- Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
+- Sollen die Schwellen fürs Eindampfen (50 000 Token, 1 h) und die Domain-Listen in der Web-App einstellbar werden? Bisher Konstanten im Code.
 
 ## Known issues / debt
 
 - **Mittel:** Brave und Tavily nur gegen Stand-ins geprüft (Formate aus deren Doku); SearXNG läuft beim Nutzer.
+- **Mittel:** Jev (`/api/alpha/decisions`, Alpha-API) und Embeddings über OpenRouter nur gegen Stand-ins geprüft; beide Endpunkte antworten ohne Key mit 401 (also vorhanden). Schlägt ein Hilfsmodell fehl, läuft der Chat ohne weiter.
+- **Niedrig:** Die Kosten des Titels zählen erst ab jetzt zur ersten Antwort; Embedding-Preise ohne `usage.cost` kommen aus OpenRouters Modellliste (24 h im Speicher).
 - **Mittel:** Readability braucht für 1–2-MB-Seiten hier ~1 s, auf dem Pi vermutlich mehrere Sekunden.
 - **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab (fortsetzbare Streams fehlen).
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
@@ -66,8 +77,13 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Verification state
 
-Stand 18.10., nach dem Merge von Schritt 3:
-- **Server:** 103/103 (SQLite), darunter Websuche (Anbieter-Stand-ins, Einstellungen, Recherche mit Drehbuch-Modell), Readability-Fixtures, Vergleich pi-Schutz ↔ Server. Postgres zuletzt am 14.10.
+Stand 21.10., nach Schritt 5 der Recherche:
+- **Server:** 132/132 (SQLite), neu: Prompt bleibt über Anfragen gleich, Gewichtung nach Art, Jev-Reihung mit Kosten und Rückfall, Abschnitte (BM25, Embeddings, Gliederung, Nummern), Eindampfen (Schwelle, Pause, gleicher Prompt-Anfang danach, Neuladen ohne Rückfrage). Postgres zuletzt am 14.10.
+- **Browser-E2E 21.10.:** 13/13, 0 Konsolenprobleme; Recherche mit Jev- und Embedding-Stand-in („7 von 8 Abschnitten“, Kosten je Modell im Entwicklermodus), langer Chat mit Hinweis aufs Eindampfen auch nach Neuladen. Screenshots 27, 29, 30 angesehen.
+- **Echter Lauf der Abschnittsauswahl** (nur BM25, ohne Modell) gegen echte Seiten: de.wikipedia.org/wiki/Kaffee (206 000 Zeichen, 168 Abschnitte, Frage nach Schlaf → §85 „Schlaf“), nodejs.org/api/fs.html (Verzeichnis überwachen → `fs.watch`, `fsPromises.watch`), MDN Caching (Frische ohne `max-age` → „Heuristic caching“). 7–33 ms. Dabei gefunden und behoben: Readability warf alle Wikipedia-Überschriften weg.
+- **pi-Schutz:** `node --test crates/harness-core/pi/guard.test.ts` 6/6.
+
+Stand 18.10. (Block „Recherche“):
 - **pi-Schutz:** `node --test crates/harness-core/pi/guard.test.ts` 6/6; `cargo test -p harness-core --lib` 103 grün (nach Schritt 1).
 - **Typecheck:** alle drei Pakete grün.
 - **Browser-E2E:** 12/12, 0 Konsolenprobleme:
@@ -85,6 +101,14 @@ Stand 18.10., nach dem Merge von Schritt 3:
 ---
 
 ## Log
+
+### 2026-10-21 (Recherche verbessern, Schritte 1–5)
+- Cache-fester Prompt: Datum und Recherche-Schalter als gespeicherter Hinweis vor der Nutzernachricht, `web_search` immer definiert (lehnt bei ausgeschalteter Recherche ab).
+- Domain-Listen nach Art der Frage (`kind` in `web_search`), 20 Treffer holen, 10 weitergeben.
+- Jev über OpenRouter reiht die Treffer (Relevanz), Kosten je Modell im Entwicklermodus, Hilfsmodelle in den Sucheinstellungen.
+- `web_fetch` mit `focus`/`sections`: Abschnitte per BM25 und Embeddings, Gliederung, Anzeige „x von y Abschnitten“.
+- Eindampfen langer Chats mit gespeicherter Stelle, Hinweis im Chat, Neuladen gekürzter Seiten ohne Rückfrage.
+- Überschriften von Wikipedia überleben Readability jetzt (`liftHeadings`); vorher fehlten sie im Hauptinhalt ganz.
 
 ### 2026-10-20 (nach dem Test der Websuche auf dem Pi)
 - Fehlerhinweise bei unerreichbarem Suchanbieter (`ENOTFOUND` → Profil fehlt, `ECONNREFUSED` → Container abgestürzt).

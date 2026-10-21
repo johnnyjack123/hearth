@@ -102,6 +102,8 @@ export const de = {
     modelsError: 'Modelle von „{label}“ konnten nicht geladen werden',
     modelRequired: 'Wähle zuerst ein Modell.',
     thinking: 'Denkt nach',
+    condensed:
+      'Der Chat ist lang geworden: Ältere Seiten und Suchtreffer bekommt das Modell ab hier nur noch gekürzt. Braucht es eine Seite wieder, lädt es sie neu.',
     reasoning: 'Gedankengang',
     copyMessage: 'Antwort kopieren',
     regenerate: 'Antwort neu erzeugen',

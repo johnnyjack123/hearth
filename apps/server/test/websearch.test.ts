@@ -329,7 +329,8 @@ const usage = {
 };
 
 type Prompt = { role: string; content: unknown }[];
-type Step = { tool: string; input: Record<string, unknown> } | { text: string };
+/** One model call: a tool call, or the answer, optionally with a large prompt. */
+type Step = { tool: string; input: Record<string, unknown> } | { text: string; inputTokens?: number };
 
 /**
  * A model that follows a script after each user message: one step per
@@ -367,7 +368,13 @@ function createScriptedLlm(script: () => Step[]): MockLlm & { calls: { prompt: P
                   { type: 'text-start', id: 't1' },
                   { type: 'text-delta', id: 't1', delta: step.text },
                   { type: 'text-end', id: 't1' },
-                  { type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: undefined },
+                    usage: step.inputTokens
+                      ? { ...usage, inputTokens: { total: step.inputTokens, noCache: step.inputTokens, cacheRead: undefined, cacheWrite: undefined } }
+                      : usage,
+                  },
                 ];
           return { stream: simulateReadableStream({ chunks: chunks as never[] }) };
         },
@@ -819,6 +826,48 @@ describe('research mode', () => {
         body: JSON.stringify({ query: url.searchParams.get('q'), results: RESULTS(pagePort) }),
       });
     }
+  });
+
+  it('condenses earlier pages once the chat is long, at a fixed place, and loads them again without asking', async () => {
+    const long = `http://other.test:${pagePort}/long.md`;
+    // A page the user allows once; the reply leaves a long conversation.
+    script = [{ tool: 'web_fetch', input: { url: long } }, { text: 'Gelesen.', inputTokens: 60_000 }];
+    const conversationId = await newConversation();
+    const first = await readChunks(await chat(conversationId, 'Lies bitte das Handbuch', false), (chunk) => {
+      const data = chunk.data as { id: number; state: string } | undefined;
+      if (chunk.type === 'data-approval' && data?.state === 'pending') {
+        void server.request('POST', `/api/conversations/${conversationId}/approvals/${data.id}`, { cookie, body: { decision: 'once' } });
+      }
+    });
+    expect(first.some((chunk) => chunk.type === 'tool-output-available')).toBe(true);
+    expect(first.find((chunk) => chunk.type === 'start')).not.toMatchObject({ messageMetadata: { condensed: true } });
+    await eventually(async () => (await load(conversationId)).messages.length === 2);
+
+    // The next message condenses the page, and the model can load it again
+    // without a question.
+    fetched = [];
+    script = [{ tool: 'web_fetch', input: { url: long } }, { text: 'Nochmal gelesen.' }];
+    const second = await readChunks(await chat(conversationId, 'Was stand da zur Röstung?', false));
+    expect(second.some((chunk) => chunk.type === 'data-approval')).toBe(false);
+    expect(fetched).toEqual(['/long.md']);
+    const condensedPrompt = JSON.stringify(llm.calls[2]?.prompt);
+    expect(condensedPrompt).toContain('Its content was left out because the chat grew long');
+    expect(condensedPrompt).not.toContain('Kaffee Hochland Satz 0');
+    expect(JSON.stringify(llm.calls[3]?.prompt)).toContain('Kaffee Hochland Satz 0');
+    // The reply says so right away; the mark is stored with the question.
+    expect(second.find((chunk) => chunk.type === 'start')).toMatchObject({ messageMetadata: { condensed: true } });
+    await eventually(async () => (await load(conversationId)).messages.length === 4);
+    const stored = (await load(conversationId)).messages;
+    expect(stored.map((message) => message.metadata?.condensed === true)).toEqual([false, false, true, true]);
+
+    // A short chat again: the next request starts exactly like the last one,
+    // so the provider's cache still fits.
+    script = [{ text: 'Gern.' }];
+    await readChunks(await chat(conversationId, 'Danke!', false));
+    const before = llm.calls[2]?.prompt ?? [];
+    expect(JSON.stringify(llm.calls[4]?.prompt.slice(0, before.length))).toBe(JSON.stringify(before));
+    await eventually(async () => (await load(conversationId)).messages.length === 6);
+    expect((await load(conversationId)).messages[4]?.metadata?.condensed).toBeUndefined();
   });
 
   it('does not exist without a provider', async () => {

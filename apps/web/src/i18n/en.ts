@@ -104,6 +104,8 @@ export const en: Messages = {
     modelsError: 'Could not load models from “{label}”',
     modelRequired: 'Select a model first.',
     thinking: 'Thinking',
+    condensed:
+      'This chat has grown long: from here on, the model gets older pages and search results only in short form. If it needs a page again, it loads it anew.',
     reasoning: 'Reasoning',
     copyMessage: 'Copy response',
     regenerate: 'Regenerate response',

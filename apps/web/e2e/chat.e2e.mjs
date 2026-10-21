@@ -302,6 +302,33 @@ try {
     await shot('29-dev-usage');
   });
 
+  await step('a long chat condenses earlier pages for the model', async () => {
+    await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
+    // The whole handbook, and the mock reports a long conversation.
+    await page.type('textarea', 'Lies das ganze Handbuch');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector(text('Das Handbuch ist gelesen.'), { timeout: 20_000 });
+    if (await page.$(text('Der Chat ist lang geworden'))) {
+      throw new Error('condensed before the chat was long');
+    }
+    // Enter does not send while the reply is still streaming.
+    await page.waitForSelector(text('60020 → 40 Tokens'), { timeout: 10_000 });
+    await page.type('textarea', 'Danke');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelector('textarea')?.value === '', { timeout: 5_000 });
+    await page.waitForSelector(text('Der Chat ist lang geworden'), { timeout: 20_000 });
+    // A reload while the reply streams would stop it; wait for its end.
+    await page.waitForSelector(text('Punkt zwei'), { timeout: 20_000 });
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    // Stored with the reply, so it is still there after a reload.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Der Chat ist lang geworden'), { timeout: 10_000 });
+    await page.$eval(text('Der Chat ist lang geworden'), (element) => element.scrollIntoView({ block: 'center' }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('30-condensed');
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };

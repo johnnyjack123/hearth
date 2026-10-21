@@ -53,7 +53,12 @@ export function splitSections(markdown: string): Section[] {
     const match = !inFence ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null;
     if (match) {
       flush();
-      heading = (match[2] ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').trim().slice(0, 120);
+      heading = (match[2] ?? '')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        // Anchor links of docs pages ("#", "¶") are no part of the title.
+        .replace(/\s*[#¶§]+$/, '')
+        .trim()
+        .slice(0, 120);
     }
     current.push(line);
   }

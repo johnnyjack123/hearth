@@ -15,6 +15,7 @@ import { WebFetchError } from './errors.ts';
 import { type FetchPolicy, fetchPage, systemResolve } from './fetch.ts';
 import { findInjections, WARNING_TEXT, warningKinds } from './injection.ts';
 import { grantedHosts, hostKey, mentionedHosts, parseTarget } from './target.ts';
+import { condensedPages } from '../condense.ts';
 import type { Helpers } from '../helpers/openrouter.ts';
 import type { KnownUrls } from '../websearch/known-urls.ts';
 import { selectSections } from './sections.ts';
@@ -78,10 +79,21 @@ export interface WebFetchContext {
  * marker is derived from the content, so the page cannot contain it to fake
  * its end.
  *
- * @param output - Stored tool output.
+ * @param output - Stored tool output; `condensed` is set in memory only, by
+ *   `condenseHistory`, for pages of earlier turns in a long chat.
  * @returns Text for the tool result.
  */
-export function modelText(output: WebFetchOutput): string {
+export function modelText(output: WebFetchOutput & { condensed?: boolean }): string {
+  if (output.condensed) {
+    const intro =
+      `Fetched ${output.url} earlier. Its content was left out because the chat grew long; ` +
+      'call web_fetch with this URL again if you need it, it loads without asking.';
+    if (!output.title) {
+      return intro;
+    }
+    const marker = `web-content-${createHash('sha256').update(output.title).digest('hex').slice(0, 16)}`;
+    return [intro, `<${marker}>`, `Title: ${output.title}`, `</${marker}>`].join('\n');
+  }
   const { sections } = output;
   // Headings come from the page as well, so the outline stays inside the
   // markers and counts for the marker.
@@ -179,6 +191,8 @@ export function createWebFetchTool(context: WebFetchContext) {
   const mentioned = mentionedHosts(context.messages);
   // Grows when the user answers "this host for the rest of the chat".
   const granted = grantedHosts(context.messages);
+  // Pages of earlier turns the model no longer sees; it was told they load again.
+  const condensed = condensedPages(context.messages);
 
   /** Lets the fetch go ahead, asking the user unless the host is known. */
   async function authorize(url: URL, signal: AbortSignal | undefined): Promise<void> {
@@ -213,8 +227,9 @@ export function createWebFetchTool(context: WebFetchContext) {
   async function run(input: Input, signal: AbortSignal | undefined): Promise<WebFetchOutput> {
     const start = parseTarget(input.url.trim(), config);
     // A URL found in search results or on a page carries nothing of the
-    // chat, and neither can the redirects its server chooses.
-    const found = known?.has(start) ?? false;
+    // chat, and neither can the redirects its server chooses. The same
+    // holds for a page loaded before.
+    const found = (known?.has(start) ?? false) || condensed.has(start.href);
     if (!found) {
       await authorize(start, signal);
     }

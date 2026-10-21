@@ -199,6 +199,12 @@ export interface MessageMetadata {
    * the date or a change of research mode; stored, so it never changes.
    */
   note?: string;
+  /**
+   * Set when the chat had grown long. On a user message: results of
+   * web_fetch and web_search before it reach the model only in short form,
+   * from now on. On the reply to it: so the chat can say so.
+   */
+  condensed?: boolean;
   /** Set on replies of an agent in a linked environment. */
   agent?: {
     /** Project the agent worked in. */

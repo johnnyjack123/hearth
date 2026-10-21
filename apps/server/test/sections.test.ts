@@ -16,6 +16,8 @@ describe('splitting', () => {
       { index: 3, heading: 'Installation' },
     ]);
     expect(sections[2]?.text).toContain('# kein Titel');
+    // Anchor links of docs pages stay out of the heading.
+    expect(splitSections('## [`fs.watch()`](#fs_watch)[#](https://nodejs.org/api/fs.html#fswatch)\nText')[0]?.heading).toBe('`fs.watch()`');
   });
 
   it('keeps a heading right above another one with the next section', () => {
