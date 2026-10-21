@@ -375,6 +375,15 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - *Verlauf eindampfen nur mit Schwelle:* Jede Änderung an älteren Nachrichten ändert den Anfang des Prompts, alles danach kostet dann **einmal** den vollen Preis. Mit Cache zu 1/50 ist Mitschleppen billiger als Eindampfen. Mit Abschnittsauswahl kommt ohnehin keine ganze Seite mehr in den Verlauf. Eindampfen also erst ab einer Kontextgröße (z. B. 50 000 Token) oder nach längerer Pause (Cache dann sowieso kalt): ältere Seiten nur noch mit Titel und URL, die das Modell bei Bedarf neu lädt (ohne Rückfrage, die URL ist bekannt).
     - *Cache-fester Prompt (Idee des Nutzers):* System-Prompt und Werkzeugliste bleiben im ganzen Chat gleich. Der Prompt sagt, dass sich Datum und Recherche-Modus ändern können. Ändert sich eins davon, steht vor der neuen Nutzernachricht ein kurzer Hinweis („Recherche ist jetzt aus“, „Heute ist …“). `web_search` ist immer definiert und lehnt bei ausgeschalteter Recherche ab. Weil die AI SDK keine System-Nachrichten im Verlauf erlaubt, ist der Hinweis Teil der Nutzernachricht. Er wird in ihren Metadaten gespeichert, damit er bei späteren Anfragen gleich aussieht. Ein Modellwechsel bricht den Cache weiterhin.
     - *Entwicklermodus:* Kosten je Modell (Hauptmodell, Jev, Titel). Jev liefert seine Kosten selbst (`usage.cost`).
+    - *Wann Vorauswahl Geld spart (gilt für jeden Klassifikator):* Der Klassifikator liest die ganze Seite, das Hauptmodell danach nur den ausgewählten Teil. Das spart nur, wenn der Eingabepreis des Hauptmodells über dem des Klassifikators geteilt durch den weggelassenen Anteil liegt; bei 70 % weggelassen etwa über 0,06 $ je Mio. Token. Flash direkt (0,15 $) spart, OpenRouter-Flash (0,028 $) nicht. Abschnittsauswahl deshalb nur, wenn sie sich laut Preiskatalog rechnet oder die Seite lang ist (Qualität, Kontext). Das Reihen der Treffer lohnt immer, es kostet fast nichts.
+    - *Alternativen zu Jev auf OpenRouter (21.10.):*
+      - kein anderes Entscheidungsmodell und kein Reranker; nur Sicherheits-Klassifikatoren (`gpt-oss-safeguard-20b`, `llama-guard-4-12b`)
+      - kleine Chat-Modelle als Klassifikator: `ibm-granite/granite-4.0-h-micro` (0,017 $ ein, 0,112 $ aus, mit Logprobs), `openai/gpt-oss-20b` (0,018/0,09 $, denkt mit), `inclusionai/ling-3.0-flash` (0,021/0,063 $). Die Eingabe kostet rund halb so viel wie bei Jev, dafür gibt es keine echten Wahrscheinlichkeiten, sie sind langsamer und folgen eher Anweisungen im Text.
+      - Embeddings ab 0,004 $
+      - kostenlos lokal: BM25 oder ein kleiner Reranker auf dem Pi
+      - Reranker von Cohere, Jina und Voyage nur mit eigenem Key
+
+      Der Unterschied zu Jev liegt bei rund 0,01 Cent pro Seite, **Jev bleibt**. Für eine spätere Zusammenfassung vorgemerkt: `scaledown/summarize` (0,04 $ Eingabe, Ausgabe kostenlos).
     - *Reihenfolge:*
       1. cache-fester Prompt
       2. Domain-Listen als Vorgewicht und Rückfall
