@@ -259,7 +259,7 @@ function MessageActions({
             animate={{ opacity: 1, transition: transitions.enter }}
             exit={{ opacity: 0, transition: transitions.exit }}
           >
-            <UsageDetails usage={usage} agent={message.metadata?.agent !== undefined} />
+            <UsageDetails usage={usage} agent={message.metadata?.agent !== undefined} modelId={message.metadata?.modelId} />
           </motion.div>
         ) : null}
       </AnimatePresence>

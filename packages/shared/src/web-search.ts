@@ -24,6 +24,20 @@ export const KEYED_SEARCH_PROVIDERS = ['brave', 'tavily'] as const;
 export type KeyedSearchProvider = (typeof KEYED_SEARCH_PROVIDERS)[number];
 
 /**
+ * Small models of research mode, reached through OpenRouter with the key
+ * of the user who chats: Jev ranks search hits, an embedding model helps
+ * pick the sections of a page. Users without an OpenRouter key go without.
+ */
+export interface HelperSettings {
+  /** Whether research may use them at all. */
+  enabled: boolean;
+  /** OpenRouter id of the Jev model, e.g. `typesafe/jev-1.13`. */
+  jevModel: string;
+  /** OpenRouter id of the embedding model, e.g. `qwen/qwen3-embedding-8b`. */
+  embeddingModel: string;
+}
+
+/**
  * Web search settings as admins see them. API keys never leave the server;
  * only a hint of the stored key does.
  */
@@ -34,7 +48,12 @@ export interface SearchSettings {
   searxngUrl: string | null;
   /** Hints of the stored keys (`…abcd`), null when none is stored. */
   keys: Record<KeyedSearchProvider, string | null>;
+  /** See {@link HelperSettings}. */
+  helpers: HelperSettings;
 }
+
+/** OpenRouter model ids: provider, slash, name, optionally a variant. */
+const MODEL_ID = /^~?[\w.-]+\/[\w.:-]+$/;
 
 /**
  * Validates a change of {@link SearchSettings}. A key of `null` deletes the
@@ -49,6 +68,14 @@ export const updateSearchSettingsSchema = z
       .nullable(),
     braveKey: z.string().trim().min(1).max(500).nullable(),
     tavilyKey: z.string().trim().min(1).max(500).nullable(),
+    helpers: z
+      .object({
+        enabled: z.boolean(),
+        jevModel: z.string().trim().max(200).regex(MODEL_ID),
+        embeddingModel: z.string().trim().max(200).regex(MODEL_ID),
+      })
+      .partial()
+      .strict(),
   })
   .partial()
   .strict();
@@ -78,6 +105,8 @@ export interface WebSearchResult {
   published: string | null;
   /** Set when the host is a preferred source for the kind of question. */
   preferred?: boolean;
+  /** How well Jev thinks the hit answers the question, 0 to 1. */
+  relevance?: number;
 }
 
 /**

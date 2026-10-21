@@ -229,6 +229,11 @@ export interface MessageMetadata {
     calls?: ModelCallUsage[];
     /** Prices the cost was computed with, US dollars per million tokens. */
     rates?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+    /**
+     * Calls of helper models for this reply (Jev, embeddings, the title);
+     * their cost is part of {@link cost}.
+     */
+    helpers?: ModelCallUsage[];
   };
 }
 
@@ -249,6 +254,10 @@ export interface ModelCallUsage {
   reasoning?: number;
   /** Tools the call asked for; empty when it ended with the answer. */
   tools: string[];
+  /** Model of a helper call; the reply's own calls use the chat's model. */
+  model?: string;
+  /** What a helper call was for. */
+  purpose?: 'rank' | 'sections' | 'title';
   /**
    * Cost in US dollars, split by kind where the prices are known; agents
    * report only the total.

@@ -30,6 +30,7 @@ import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
+import { loadHelpers } from '../helpers/load.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -206,9 +207,8 @@ export function conversationRoutes(deps: AppDeps) {
 
       const model = llm.createModel(credential, body.modelId);
       const text = userMessage.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-      if (!conversation.title) {
-        void assignTitle(db, conversation.id, model, text);
-      }
+      // Its cost joins the first reply of an ordinary chat.
+      const title = conversation.title ? null : assignTitle(db, conversation.id, model, text);
 
       if (link) {
         const run = hub.startRun(link.deviceId, {
@@ -245,6 +245,8 @@ export function conversationRoutes(deps: AppDeps) {
         webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
         search,
         research,
+        helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
+        title,
       });
     });
 }

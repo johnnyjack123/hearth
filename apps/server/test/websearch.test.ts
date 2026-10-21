@@ -422,7 +422,12 @@ describe('research mode', () => {
   beforeEach(async () => {
     fetched = [];
     llm = createScriptedLlm(() => script);
-    server = await createTestServer('sqlite', { llm, webFetch: webFetch() });
+    // Helper models go to the stand-in too, but only for users with an OpenRouter key.
+    server = await createTestServer('sqlite', {
+      llm,
+      webFetch: webFetch(),
+      helpers: { apiUrl: `http://127.0.0.1:${providers.port}/api/v1`, timeoutMs: 2_000 },
+    });
     cookie = await server.signUp('alice@example.com');
     credential = (await (
       await server.request('POST', '/api/providers', {
@@ -483,7 +488,27 @@ describe('research mode', () => {
       body: { search: { provider: 'brave', braveKey: 'BSA-secret-key-0123' } },
     });
     const settings = (await withKey.json()) as ServerSettings;
-    expect(settings.search).toEqual({ provider: 'brave', searxngUrl: null, keys: { brave: '…0123', tavily: null } });
+    expect(settings.search).toEqual({
+      provider: 'brave',
+      searxngUrl: null,
+      keys: { brave: '…0123', tavily: null },
+      helpers: { enabled: true, jevModel: 'typesafe/jev-1.13', embeddingModel: 'qwen/qwen3-embedding-8b' },
+    });
+    // Helper models can be changed, and nonsense is refused.
+    const helpers = await server.request('PATCH', '/api/admin/settings', {
+      cookie,
+      body: { search: { helpers: { embeddingModel: 'baai/bge-m3', enabled: false } } },
+    });
+    expect(((await helpers.json()) as ServerSettings).search.helpers).toEqual({
+      enabled: false,
+      jevModel: 'typesafe/jev-1.13',
+      embeddingModel: 'baai/bge-m3',
+    });
+    const invalid = await server.request('PATCH', '/api/admin/settings', {
+      cookie,
+      body: { search: { helpers: { jevModel: 'not a model' } } },
+    });
+    expect(invalid.status).toBe(400);
     const everything = await (await server.request('GET', '/api/admin/settings', { cookie })).text();
     expect(everything).not.toContain('BSA-secret');
     expect(((await (await server.request('GET', '/api/settings')).json()) as PublicSettings).webSearch).toBe(true);
@@ -620,6 +645,82 @@ describe('research mode', () => {
         body: JSON.stringify({ query: url.searchParams.get('q'), results: RESULTS(pagePort) }),
       });
     }
+  });
+
+  it('lets Jev rank the hits with the OpenRouter key of the user, and counts its cost', async () => {
+    await enableSearxng();
+    const hits = ['Spam', 'Mittel', 'Kaffee – Wikipedia', 'Daneben', 'Beste Antwort'].map((title, index) => ({
+      title,
+      url: index === 2 ? 'https://de.wikipedia.org/wiki/Kaffee' : `https://site${index}.example/`,
+      content: `Ausschnitt ${index}`,
+    }));
+    // Levels 0 to 3; Wikipedia gets the bonus of a preferred source on top.
+    const levels = [0, 1, 2, 1, 3];
+    providers.provider.answer = (url) =>
+      url.pathname === '/api/alpha/decisions'
+        ? {
+            status: 200,
+            body: JSON.stringify({
+              model: 'typesafe/jev-1.13',
+              answers: Object.fromEntries(levels.map((score, index) => [`item_${index + 1}`, { type: 'score', score }])),
+              usage: { input_tokens: 800, output_tokens: 0, cost: 0.0000336 },
+            }),
+          }
+        : { status: 200, body: JSON.stringify({ results: hits }) };
+    await server.request('POST', '/api/providers', {
+      cookie,
+      body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-test-0123456789abcdef' },
+    });
+    script = [{ tool: 'web_search', input: { query: 'Kaffee', kind: 'facts' } }, { text: 'fertig' }];
+    try {
+      const conversationId = await newConversation();
+      const chunks = await readChunks(await chat(conversationId, 'Wie wird Kaffee geröstet?', true));
+      const output = chunks.find((chunk) => chunk.type === 'tool-output-available')?.output as WebSearchOutput;
+      expect(output.results.map((result) => result.title)).toEqual(['Beste Antwort', 'Kaffee – Wikipedia', 'Mittel', 'Daneben', 'Spam']);
+      expect(output.results[0]?.relevance).toBe(1);
+      expect(output.results[1]).toMatchObject({ preferred: true, relevance: 2 / 3 });
+
+      // One call for all hits, with the user's key and question.
+      const request = providers.provider.requests.find((entry) => entry.url.endsWith('/api/alpha/decisions'));
+      expect(request?.headers.authorization).toBe('Bearer sk-or-test-0123456789abcdef');
+      const body = JSON.parse(request?.body ?? '{}') as { model: string; state: { user_question: string }; questions: Record<string, { type: string }> };
+      expect(body.model).toBe('typesafe/jev-1.13');
+      expect(Object.keys(body.questions)).toHaveLength(5);
+      expect(body.questions.item_1?.type).toBe('score');
+      expect(body.state.user_question).toContain('Wie wird Kaffee geröstet?');
+      expect(JSON.stringify(llm.calls[1]?.prompt.at(-1))).toContain('Relevance: 100 %');
+
+      // Jev's cost is part of the reply, next to the title.
+      await eventually(async () => (await load(conversationId)).messages.length === 2);
+      const usage = (await load(conversationId)).messages[1]?.metadata?.usage;
+      expect(usage?.helpers?.find((call) => call.purpose === 'rank')).toMatchObject({
+        model: 'typesafe/jev-1.13',
+        input: 800,
+        cost: { total: 0.0000336 },
+      });
+      expect(usage?.helpers?.some((call) => call.purpose === 'title')).toBe(true);
+
+      // Jev fails: the order of the provider with the domain list, and the reply goes on.
+      providers.provider.answer = (url) =>
+        url.pathname === '/api/alpha/decisions' ? { status: 502, body: '{}' } : { status: 200, body: JSON.stringify({ results: hits }) };
+      const fallback = await readChunks(await chat(conversationId, 'Und nochmal?', true));
+      const second = fallback.find((chunk) => chunk.type === 'tool-output-available')?.output as WebSearchOutput;
+      expect(second.results[0]?.title).toBe('Kaffee – Wikipedia');
+      expect(second.results.some((result) => result.relevance !== undefined)).toBe(false);
+    } finally {
+      providers.provider.answer = (url) => ({
+        status: 200,
+        body: JSON.stringify({ query: url.searchParams.get('q'), results: RESULTS(pagePort) }),
+      });
+    }
+  });
+
+  it('asks no helper model without an OpenRouter key', async () => {
+    await enableSearxng();
+    script = [{ tool: 'web_search', input: { query: 'Kaffee' } }, { text: 'fertig' }];
+    providers.provider.requests.length = 0;
+    await readChunks(await chat(await newConversation(), 'Kaffee?', true));
+    expect(providers.provider.requests.some((entry) => entry.url.includes('/api/alpha/'))).toBe(false);
   });
 
   it('does not exist without a provider', async () => {

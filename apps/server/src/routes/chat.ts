@@ -27,7 +27,8 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
-import { callUsage, type ModelPricing, usageMetadata } from '../pricing.ts';
+import { type Helpers } from '../helpers/openrouter.ts';
+import { callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -80,6 +81,9 @@ function researchInstructions(canFetch: boolean): string {
     .filter(Boolean)
     .join(' ');
 }
+
+/** How long a finished reply waits for the title call before it is stored. */
+const TITLE_WAIT_MS = 3_000;
 
 /** Most model calls per reply when tools are offered (tool rounds plus the answer). */
 const MAX_STEPS = 6;
@@ -265,18 +269,19 @@ function cleanTitle(raw: string): string {
  * @param model - Model of the current request; titles cost the user's tokens,
  *   so no separate model is configured.
  * @param firstMessage - Text of the first user message.
- * @returns Resolves when the generated title was stored or discarded.
+ * @returns The usage of the title call, for the cost of the first reply;
+ *   null if the model failed.
  */
 export async function assignTitle(
   db: Kysely<DB>,
   conversationId: string,
   model: LanguageModel,
   firstMessage: string,
-): Promise<void> {
+): Promise<LanguageModelUsage | null> {
   const fallback = fallbackTitle(firstMessage);
   await db.updateTable('conversation').set({ title: fallback }).where('id', '=', conversationId).execute();
   try {
-    const { text } = await generateText({
+    const { text, usage } = await generateText({
       model,
       instructions: TITLE_INSTRUCTIONS,
       prompt: firstMessage.slice(0, 2_000),
@@ -293,8 +298,10 @@ export async function assignTitle(
         .where('title', '=', fallback)
         .execute();
     }
+    return usage;
   } catch (error) {
     console.warn('[chat] title generation failed:', error instanceof Error ? error.message : error);
+    return null;
   }
 }
 
@@ -348,6 +355,10 @@ export interface StreamChatOptions {
   search: SearchBackend | null;
   /** Research mode of this request: search, and found URLs load without asking. */
   research: boolean;
+  /** Helper models of the user (Jev, embeddings); null without an OpenRouter key. */
+  helpers: Helpers | null;
+  /** The title call of a new chat, whose cost joins the first reply; null otherwise. */
+  title: Promise<LanguageModelUsage | null> | null;
 }
 
 /**
@@ -402,7 +413,12 @@ function withNotes(messages: ChatMessage[]): ChatMessage[] {
  * @returns A streaming HTTP response.
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
-  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research } = options;
+  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research, helpers } = options;
+  // What Jev ranks search hits against: the user's newest message.
+  const question = (messages.at(-1)?.parts ?? [])
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join(' ')
+    .slice(0, 2_000);
 
   // The tool writes its questions into the reply. The writer exists as soon
   // as the stream below is created, before the model can call the tool.
@@ -425,7 +441,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
           }),
         }
       : {}),
-    ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known) } : {}),
+    ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }) } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL].filter((name) => !(name in tools)));
@@ -486,7 +502,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               return undefined;
             }
             if (part.type === 'finish') {
-              return { ...baseMetadata, usage: usageMetadata(part.totalUsage, lastStep, pricing, calls) };
+              return { ...baseMetadata, usage: withHelpers(usageMetadata(part.totalUsage, lastStep, pricing, calls), [...(helpers?.usage ?? [])]) };
             }
             return undefined;
           },
@@ -498,7 +514,13 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       if (responseMessage.parts.length === 0) {
         return;
       }
-      await saveMessage(db, conversationId, { ...responseMessage, metadata: { ...baseMetadata, ...responseMessage.metadata } });
+      const metadata: MessageMetadata = { ...baseMetadata, ...responseMessage.metadata };
+      // The title of a new chat is usually done by now; a late one is left out.
+      const title = options.title ? await Promise.race([options.title, new Promise<null>((resolve) => setTimeout(resolve, TITLE_WAIT_MS, null))]) : null;
+      if (title && metadata.usage) {
+        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title, pricing, []), model: modelId, purpose: 'title' }]);
+      }
+      await saveMessage(db, conversationId, { ...responseMessage, metadata });
       await updateConversation(db, conversationId, {});
     },
     onError: describeStreamError,

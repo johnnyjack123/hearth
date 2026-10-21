@@ -10,6 +10,7 @@ import type { PricingCatalog } from '../pricing.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
 import type { WebFetchConfig } from '../webfetch/tool.ts';
 import type { SearchEndpoints } from '../websearch/providers.ts';
+import type { HelperOptions } from '../helpers/load.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
 
@@ -42,6 +43,8 @@ export interface AppDeps {
    * Brave and Tavily. The server itself never sets it.
    */
   webSearch?: Partial<SearchEndpoints>;
+  /** Overrides for helper models (OpenRouter stand-in in tests). The server itself never sets it. */
+  helpers?: HelperOptions;
 }
 
 /**

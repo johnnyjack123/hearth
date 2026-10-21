@@ -22,7 +22,12 @@ const DEFAULTS: ServerSettings = {
   registration: 'open',
   allowCustomBaseUrls: false,
   webFetch: true,
-  search: { provider: 'off', searxngUrl: null, keys: { brave: null, tavily: null } },
+  search: {
+    provider: 'off',
+    searxngUrl: null,
+    keys: { brave: null, tavily: null },
+    helpers: { enabled: true, jevModel: 'typesafe/jev-1.13', embeddingModel: 'qwen/qwen3-embedding-8b' },
+  },
 };
 
 type SettingKey = keyof ServerSettings;
@@ -47,6 +52,8 @@ export async function getServerSettings(db: Kysely<DB>): Promise<ServerSettings>
       (settings as unknown as Record<string, unknown>)[row.key] = JSON.parse(row.value);
     }
   }
+  // Stored before a field existed: the defaults fill it in.
+  settings.search = { ...DEFAULTS.search, ...settings.search, helpers: { ...DEFAULTS.search.helpers, ...settings.search.helpers } };
   return settings;
 }
 
@@ -96,6 +103,7 @@ export async function updateSearchSettings(
     provider: patch.provider ?? current.provider,
     searxngUrl: patch.searxngUrl === undefined ? current.searxngUrl : patch.searxngUrl,
     keys: { ...current.keys },
+    helpers: { ...current.helpers, ...patch.helpers },
   };
   const keys = { brave: patch.braveKey, tavily: patch.tavilyKey };
   for (const provider of KEYED_SEARCH_PROVIDERS) {
