@@ -24,7 +24,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    1. cache-fester Prompt (Datum und Recherche als Hinweis statt im System-Prompt)
    2. Domain-Listen
    3. Jev über OpenRouter für die Reihung, Kosten je Modell im Entwicklermodus
-   4. Abschnittsauswahl mit `focus`
+   4. Abschnittsauswahl mit `focus`: BM25 plus Embeddings über OpenRouter (`qwen/qwen3-embedding-8b`), nicht Jev
    5. Eindampfen mit Schwelle
 2. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
