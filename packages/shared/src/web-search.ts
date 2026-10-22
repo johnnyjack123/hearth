@@ -137,6 +137,7 @@ export const WEB_SEARCH_ERRORS = [
   'research_off',
   'rejected',
   'rate_limited',
+  'engines_blocked',
   'provider_error',
   'timeout',
   'network',

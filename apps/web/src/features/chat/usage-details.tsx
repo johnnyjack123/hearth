@@ -243,6 +243,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
 
       <div className="flex flex-col gap-1 text-muted-foreground">
         {input > 0 ? <p>{t('chat.usageDetails.cacheShare', { percent: Math.round((cached / input) * 100) })}</p> : null}
+        {usage.billed ? <p>{t('chat.usageDetails.billed')}</p> : null}
         {usage.rates ? (
           <p>
             {t('chat.usageDetails.rates', {

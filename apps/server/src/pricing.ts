@@ -1,5 +1,5 @@
 import type { MessageMetadata, ModelCallUsage, ProviderKind } from '@harness/shared';
-import type { LanguageModelUsage } from 'ai';
+import type { LanguageModelUsage, ProviderMetadata } from 'ai';
 
 /**
  * Prices and limits of a model: US dollars per million tokens, as the
@@ -187,6 +187,35 @@ export class PricingCatalog {
   }
 }
 
+/** What a provider billed for one model call, as OpenRouter reports it. */
+export interface BilledCost {
+  /** US dollars. */
+  total: number;
+  /** Part for the prompt, cached tokens included. */
+  input?: number;
+  /** Part for the completion, reasoning included. */
+  output?: number;
+}
+
+/**
+ * Reads what OpenRouter billed for a call from its provider metadata (see
+ * `openRouterCost` in `llm.ts`).
+ *
+ * @param metadata - Provider metadata of the call.
+ * @returns The billed cost, or null for other providers.
+ */
+export function billedCost(metadata: ProviderMetadata | undefined): BilledCost | null {
+  const entry = metadata?.openrouter as { cost?: unknown; promptCost?: unknown; completionCost?: unknown } | undefined;
+  const dollars = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined);
+  const total = dollars(entry?.cost);
+  if (total === undefined) {
+    return null;
+  }
+  const input = dollars(entry?.promptCost);
+  const output = dollars(entry?.completionCost);
+  return { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) };
+}
+
 /**
  * Usage of a reply for the chat: tokens, the context size after the last
  * model call (what the next message starts from) and the cost.
@@ -220,7 +249,13 @@ export function usageMetadata(
   if (pricing?.contextWindow !== undefined) {
     usage.contextWindow = pricing.contextWindow;
   }
-  if (pricing?.input !== undefined && pricing.output !== undefined) {
+  if (calls.length > 0 && calls.every((call) => call.billed && call.cost)) {
+    // What the provider billed beats any catalog: OpenRouter routes to hosts
+    // whose prices differ (21.10.2026: listed 0.024 $, billed 0.14 $ per
+    // million input tokens of DeepSeek V4.1 Flash).
+    usage.cost = calls.reduce((sum, call) => sum + (call.cost?.total ?? 0), 0);
+    usage.billed = true;
+  } else if (pricing?.input !== undefined && pricing.output !== undefined) {
     // Cache prices default to the input price when the catalog has none.
     usage.cost =
       (uncached * pricing.input +
@@ -271,9 +306,10 @@ export function withHelpers(usage: NonNullable<MessageMetadata['usage']>, helper
  * @param step - Usage of the call.
  * @param pricing - Prices of the model, if known.
  * @param tools - Tools the call asked for.
+ * @param billed - What the provider billed, if it says; replaces the estimate.
  * @returns The call's entry in `usage.calls`.
  */
-export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null, tools: string[]): ModelCallUsage {
+export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null, tools: string[], billed: BilledCost | null = null): ModelCallUsage {
   const input = step.inputTokens ?? 0;
   const cacheRead = step.inputTokenDetails.cacheReadTokens ?? 0;
   const cacheWrite = step.inputTokenDetails.cacheWriteTokens ?? 0;
@@ -283,7 +319,10 @@ export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null
   if (reasoning !== undefined) {
     call.reasoning = reasoning;
   }
-  if (pricing?.input !== undefined && pricing.output !== undefined) {
+  if (billed) {
+    call.cost = billed;
+    call.billed = true;
+  } else if (pricing?.input !== undefined && pricing.output !== undefined) {
     const uncached = step.inputTokenDetails.noCacheTokens ?? Math.max(0, input - cacheRead - cacheWrite);
     const cost = {
       input: (uncached * pricing.input) / 1_000_000,

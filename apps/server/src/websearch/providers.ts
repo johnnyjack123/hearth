@@ -259,9 +259,41 @@ export function searxngBackend(baseUrl: string, endpoints: SearchEndpoints): Sea
         snippet: item.content,
         published: item.publishedDate,
       }));
-      return normalizeResults(items, count);
+      const results = normalizeResults(items, count);
+      const blocked = blockedEngines(body);
+      if (results.length === 0 && blocked.length > 0) {
+        // Without this, the model searched five to eight more times in vain
+        // (benchmark of 22.10.2026); a block lasts about an hour.
+        throw new WebSearchError(
+          'engines_blocked',
+          `The search engines behind SearXNG are blocking requests right now (${blocked.join('; ')}). ` +
+            'Do not search again in this reply. Answer from what you know, say that the web search is unavailable, ' +
+            'and load pages you know with web_fetch if the answer needs them.',
+          blocked.map((entry) => (entry.split(':')[0] ?? '').replace(/\s+/g, '-')).join('/'),
+        );
+      }
+      return results;
     },
   };
+}
+
+/**
+ * Engines SearXNG could not ask, as "name: reason" ("brave: too many
+ * requests", "duckduckgo: CAPTCHA"). Search engines block a server that
+ * asks too often; SearXNG then suspends them for a while.
+ *
+ * @param body - The JSON answer of SearXNG.
+ * @returns The engines and why, empty when all answered.
+ */
+export function blockedEngines(body: unknown): string[] {
+  const entries = (body as { unresponsive_engines?: unknown } | null)?.unresponsive_engines;
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .filter((entry): entry is [unknown, unknown] => Array.isArray(entry) && entry.length >= 2)
+    .map(([name, reason]) => `${String(name).slice(0, 40)}: ${String(reason).replace(/^Suspended: /, '').slice(0, 60)}`)
+    .slice(0, 8);
 }
 
 /**

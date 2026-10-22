@@ -267,6 +267,11 @@ export interface MessageMetadata {
     /** Prices the cost was computed with, US dollars per million tokens. */
     rates?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
     /**
+     * True when {@link cost} is what the provider billed (OpenRouter reports
+     * it with every answer), not an estimate from catalog prices.
+     */
+    billed?: boolean;
+    /**
      * Calls of helper models for this reply (Jev, embeddings, the title);
      * their cost is part of {@link cost}.
      */
@@ -300,6 +305,8 @@ export interface ModelCallUsage {
    * report only the total.
    */
   cost?: { total: number; input?: number; cacheRead?: number; cacheWrite?: number; output?: number };
+  /** True when {@link cost} is what the provider billed, not an estimate. */
+  billed?: boolean;
 }
 
 /**

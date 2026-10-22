@@ -72,3 +72,12 @@ configs:
         formats:
           - html
           - json
+      # Ab Werk fragt SearXNG nur drei Websuchmaschinen (Google CSE, Brave,
+      # DuckDuckGo). Nach vielen Suchen sperren sie den Server für etwa eine
+      # Stunde; mit Bing und Yahoo kamen im Test (22.10.2026) trotzdem Treffer.
+      # Google direkt und Qwant verweigerten den Zugriff, deshalb fehlen sie.
+      engines:
+        - name: bing
+          disabled: false
+        - name: yahoo
+          disabled: false

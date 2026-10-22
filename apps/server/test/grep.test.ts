@@ -1,6 +1,6 @@
 import type { WebFetchOutput } from '@harness/shared';
 import { describe, expect, it } from 'vitest';
-import { grepMatcher, grepPage } from '../src/webfetch/grep.ts';
+import { grepMatcher, grepPage, grepTerms } from '../src/webfetch/grep.ts';
 import { modelText } from '../src/webfetch/tool.ts';
 
 const page = [
@@ -20,9 +20,18 @@ const page = [
 
 describe('grep', () => {
   it('takes words literally and ignores case', () => {
-    expect(grepMatcher('a.b|(x')?.test('A.B')).toBe(true);
-    expect(grepMatcher('a.b')?.test('axb')).toBe(false);
+    expect(grepMatcher('abc.d|(x')?.test('ABC.D')).toBe(true);
+    expect(grepMatcher('abc.d')?.test('abcxd')).toBe(false);
     expect(grepMatcher(' | ')).toBeNull();
+  });
+
+  it('drops words too short to mean anything, and backslashes of regular expressions', () => {
+    // As DeepSeek wrote them in the benchmark of 22.10.2026.
+    expect(grepTerms(String.raw`Pi 5|Leerlauf|W|24|0\.|€|\$`)).toEqual({ terms: ['pi 5', 'leerlauf', '€', '$'], ignored: ['w', '24', '0.'] });
+    // Only short words: they are all there is to look for.
+    expect(grepTerms('W|kW')).toEqual({ terms: ['w', 'kw'], ignored: [] });
+    const result = grepPage(page, 'Preis|€|ab');
+    expect(result?.ignored).toEqual(['ab']);
   });
 
   it('returns matching lines with their heading and the header of their table', () => {
@@ -31,6 +40,7 @@ describe('grep', () => {
       text: ['## Preise', '| Tarif | Preis pro Monat | Daten |', '| --- | --- | --- |', '| Basis | 9,99 € | 5 GB |', '| Plus | 19,99 € | 20 GB |'].join('\n'),
       lines: 2,
       truncated: false,
+      ignored: [],
     });
   });
 

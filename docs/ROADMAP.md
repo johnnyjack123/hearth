@@ -364,7 +364,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - **Abgestimmt mit dem Nutzer, 20.10. (abends):**
     - *Er nutzt DeepSeek V4.1 Flash.* Preise je Mio. Token (Eingabe / Cache-Treffer / Ausgabe):
       - direkt `deepseek-flash`: 0,15 $ / 0,003 $ / 0,60 $
-      - OpenRouter `deepseek/deepseek-v4.1-flash`: 0,028 $ / 0,00057 $ / 0,12 $
+      - OpenRouter `deepseek/deepseek-v4.1-flash`: 0,028 $ / 0,00057 $ / 0,12 $ (Listenpreis; am 22.10. bot ihn kein Anbieter, abgerechnet hat DeepInfra 0,14 $ / 0,0042 $ / 0,42 $. Seitdem zeigt der Chat die abgerechneten Kosten.)
       - OpenRouter `…-1017`: 0,15 $ / 0,003 $ / 0,60 $
 
       Der Cache-Rabatt ist bei allen 1/50. „1/5“ galt nur für V4 Flash über OpenRouter.
