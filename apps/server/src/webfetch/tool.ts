@@ -137,12 +137,13 @@ export function modelText(output: WebFetchOutput & { condensed?: boolean }): str
       `${why} Call web_fetch again with sections: [numbers] for others, with grep for exact figures, or without focus for the whole text.]`,
     );
   } else if (output.grep && output.grep.lines !== null) {
-    const { pattern, lines: count, truncated } = output.grep;
+    const { pattern, lines: count, truncated, ignored } = output.grep;
+    const skipped = ignored?.length ? ` Ignored as too short (they match almost every line): ${ignored.map((term) => `"${term}"`).join(', ')}.` : '';
     lines.push(
       count === 0
-        ? `[Nothing on the page matched "${pattern}". Try other words, a focus, or load the page without grep.]`
+        ? `[Nothing on the page matched "${pattern}".${skipped} Try other words, a focus, or load the page without grep.]`
         : `[Only the ${count} line${count === 1 ? '' : 's'} with "${pattern}"${truncated ? ', cut at the size limit' : ''}, ` +
-            'with the headings above them and the header of each table. If they do not hold what you need, ' +
+            `with the headings above them and the header of each table.${skipped} If they do not hold what you need, ` +
             'call web_fetch again with other words, with focus, or without grep for the whole page.]',
     );
   } else if (output.focus || output.grep) {
@@ -187,7 +188,7 @@ const inputSchema = z.object({
     .string()
     .max(300)
     .optional()
-    .describe('Words or phrases to find on the page, separated by |; returns only the lines that contain them. Case is ignored, no regular expressions'),
+    .describe('Words or phrases of three or more characters to find on the page, separated by |; returns only the lines that contain them. Written as plain text: case is ignored, no regular expressions'),
   sections: z
     .array(z.number().int().min(1).max(100_000))
     .max(30)
@@ -292,7 +293,16 @@ export function createWebFetchTool(context: WebFetchContext) {
       warnings: warningKinds(findings),
       findings,
       ...(focus && !grepped ? { focus } : {}),
-      ...(pattern && !input.sections?.length ? { grep: { pattern, lines: grepped?.lines ?? null, truncated: grepped?.truncated ?? false } } : {}),
+      ...(pattern && !input.sections?.length
+        ? {
+            grep: {
+              pattern,
+              lines: grepped?.lines ?? null,
+              truncated: grepped?.truncated ?? false,
+              ...(grepped?.ignored.length ? { ignored: grepped.ignored } : {}),
+            },
+          }
+        : {}),
       ...(selection ? { sections: { total: selection.total, shown: selection.shown, outline: selection.outline, matched: selection.matched } } : {}),
     };
   }

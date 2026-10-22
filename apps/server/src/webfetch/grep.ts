@@ -22,10 +22,32 @@ export interface GrepResult {
   lines: number;
   /** True if more lines matched than fit the budget. */
   truncated: boolean;
+  /** Words left out as too short, see {@link grepTerms}. */
+  ignored: string[];
+}
+
+/** Shorter words with a letter or digit ("W", "24", "0.") match nearly every line. */
+const MIN_TERM_CHARS = 3;
+
+/**
+ * Splits what the model asked for into words or phrases. Backslashes go:
+ * models write regular expressions out of habit ("0\.", "\$"), but the words
+ * are matched literally. Words under three characters with a letter or
+ * digit count only when nothing longer was given; symbols like "€" always
+ * count.
+ *
+ * @param pattern - Words or phrases separated by `|`.
+ * @returns The words to look for and the ones left out, lowercase.
+ */
+export function grepTerms(pattern: string): { terms: string[]; ignored: string[] } {
+  const all = [...new Set(pattern.split('|').map((term) => term.replace(/\\/g, '').trim().toLowerCase()))].filter(Boolean).slice(0, MAX_TERMS);
+  const tooShort = (term: string) => [...term].length < MIN_TERM_CHARS && /[\p{L}\p{N}]/u.test(term);
+  const kept = all.filter((term) => !tooShort(term));
+  return kept.length > 0 ? { terms: kept, ignored: all.filter(tooShort) } : { terms: all, ignored: [] };
 }
 
 /**
- * Splits what the model asked for into words or phrases. They are matched
+ * Builds the matcher for what the model asked for. The words are matched
  * literally and ignoring case: a regular expression from the model could
  * take the server's time with catastrophic backtracking.
  *
@@ -33,7 +55,7 @@ export interface GrepResult {
  * @returns A matcher, or null if the pattern holds nothing to look for.
  */
 export function grepMatcher(pattern: string): RegExp | null {
-  const terms = [...new Set(pattern.split('|').map((term) => term.trim().toLowerCase()))].filter(Boolean).slice(0, MAX_TERMS);
+  const { terms } = grepTerms(pattern);
   if (terms.length === 0) {
     return null;
   }
@@ -131,5 +153,5 @@ export function grepPage(markdown: string, pattern: string): GrepResult | null {
       tableShown = tableShown || isRow;
     }
   }
-  return { text: out.join('\n').trim(), lines: matched, truncated };
+  return { text: out.join('\n').trim(), lines: matched, truncated, ignored: grepTerms(pattern).ignored };
 }

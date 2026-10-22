@@ -128,6 +128,8 @@ export interface WebFetchGrep {
   lines: number | null;
   /** True if more lines matched than fit. */
   truncated: boolean;
+  /** Words left out because they were too short to mean anything ("W", "24"). */
+  ignored?: string[];
 }
 
 /**

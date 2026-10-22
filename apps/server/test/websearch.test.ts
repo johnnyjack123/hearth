@@ -163,6 +163,23 @@ describe('search providers', () => {
     expect(await code()).toBe('provider_error:');
     provider.answer = () => ({ status: 200, body: '{}', delayMs: 1_000 });
     expect(await code()).toBe('timeout:');
+    // Engines that block the server: no hits, and the model is told to stop.
+    const blocked = [
+      ['brave', 'too many requests'],
+      ['google cse', 'Suspended: too many requests'],
+      ['duckduckgo', 'CAPTCHA'],
+    ];
+    provider.answer = () => ({ status: 200, body: JSON.stringify({ results: [], unresponsive_engines: blocked }) });
+    expect(await code()).toBe('engines_blocked:brave/google-cse/duckduckgo');
+    await expect(searx.search({ query: 'x', count: 3 })).rejects.toThrow(
+      'blocking requests right now (brave: too many requests; google cse: too many requests; duckduckgo: CAPTCHA). Do not search again',
+    );
+    // Some engines blocked, others answered: the hits count.
+    provider.answer = () => ({
+      status: 200,
+      body: JSON.stringify({ results: [{ title: 'Treffer', url: 'https://bing.example/', content: 'x' }], unresponsive_engines: blocked }),
+    });
+    expect(await code()).toBe('no error');
     // The cause says whether the container is missing or does not listen.
     // A port that was just free; fetch itself blocks some low ports such as 9.
     const closed = http.createServer();
