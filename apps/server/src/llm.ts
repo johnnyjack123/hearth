@@ -2,9 +2,9 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
 import { type ModelInfo, PROVIDERS, type ProviderKind } from '@harness/shared';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, ProviderMetadata } from 'ai';
 
 /**
  * A credential with its decrypted API key, ready to call the provider.
@@ -149,6 +149,45 @@ async function fetchModels(credential: ResolvedCredential): Promise<ModelInfo[]>
   }
 }
 
+/** OpenRouter's billed cost from the `usage` of an answer, as provider metadata `openrouter`. */
+function costOf(usage: unknown): ProviderMetadata | undefined {
+  const { cost, cost_details: details } = (usage ?? {}) as { cost?: unknown; cost_details?: Record<string, unknown> };
+  if (typeof cost !== 'number') {
+    return undefined;
+  }
+  const part = (value: unknown) => (typeof value === 'number' ? value : null);
+  return {
+    openrouter: {
+      cost,
+      promptCost: part(details?.upstream_inference_prompt_cost),
+      completionCost: part(details?.upstream_inference_completions_cost),
+    },
+  };
+}
+
+/**
+ * OpenRouter reports in every answer what it billed. Catalog prices can be
+ * far off, because OpenRouter routes a model to hosts with their own prices
+ * (21.10.2026: DeepSeek V4.1 Flash listed at 0.024 $, billed by DeepInfra at
+ * 0.14 $ per million input tokens). `pricing.billedCost` reads it back.
+ */
+const openRouterCost: MetadataExtractor = {
+  extractMetadata: async ({ parsedBody }) => costOf((parsedBody as { usage?: unknown } | undefined)?.usage),
+  createStreamExtractor: () => {
+    let usage: unknown;
+    return {
+      processChunk(chunk) {
+        // The usage comes with the last chunk.
+        const next = (chunk as { usage?: unknown } | undefined)?.usage;
+        if (next) {
+          usage = next;
+        }
+      },
+      buildMetadata: () => costOf(usage),
+    };
+  },
+};
+
 /**
  * Creates the production {@link LlmGateway} backed by the AI SDK providers.
  * Model lists are cached per credential for a few minutes, because the model
@@ -174,6 +213,7 @@ export function createLlmGateway(): LlmGateway {
         case 'mistral':
           return createMistral({ apiKey, baseURL })(modelId);
         case 'openrouter':
+          return createOpenAICompatible({ name: credential.kind, baseURL, apiKey, includeUsage: true, metadataExtractor: openRouterCost })(modelId);
         case 'ollama':
         case 'openai-compatible':
           return createOpenAICompatible({ name: credential.kind, baseURL, apiKey })(modelId);

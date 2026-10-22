@@ -29,7 +29,7 @@ import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
 import { condenseHistory } from '../condense.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
-import { callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
+import { type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -83,6 +83,14 @@ function researchInstructions(canFetch: boolean): string {
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** The title call of a new chat, whose cost joins its first reply. */
+export interface TitleCall {
+  /** Tokens of the call. */
+  usage: LanguageModelUsage;
+  /** What the provider billed, if it says. */
+  billed: BilledCost | null;
 }
 
 /** How long a finished reply waits for the title call before it is stored. */
@@ -273,19 +281,19 @@ function cleanTitle(raw: string): string {
  * @param model - Model of the current request; titles cost the user's tokens,
  *   so no separate model is configured.
  * @param firstMessage - Text of the first user message.
- * @returns The usage of the title call, for the cost of the first reply;
- *   null if the model failed.
+ * @returns Usage and billed cost of the title call, for the cost of the
+ *   first reply; null if the model failed.
  */
 export async function assignTitle(
   db: Kysely<DB>,
   conversationId: string,
   model: LanguageModel,
   firstMessage: string,
-): Promise<LanguageModelUsage | null> {
+): Promise<TitleCall | null> {
   const fallback = fallbackTitle(firstMessage);
   await db.updateTable('conversation').set({ title: fallback }).where('id', '=', conversationId).execute();
   try {
-    const { text, usage } = await generateText({
+    const { text, usage, providerMetadata } = await generateText({
       model,
       instructions: TITLE_INSTRUCTIONS,
       prompt: firstMessage.slice(0, 2_000),
@@ -302,7 +310,7 @@ export async function assignTitle(
         .where('title', '=', fallback)
         .execute();
     }
-    return usage;
+    return { usage, billed: billedCost(providerMetadata) };
   } catch (error) {
     console.warn('[chat] title generation failed:', error instanceof Error ? error.message : error);
     return null;
@@ -362,7 +370,7 @@ export interface StreamChatOptions {
   /** Helper models of the user (Jev, embeddings); null without an OpenRouter key. */
   helpers: Helpers | null;
   /** The title call of a new chat, whose cost joins the first reply; null otherwise. */
-  title: Promise<LanguageModelUsage | null> | null;
+  title: Promise<TitleCall | null> | null;
 }
 
 /**
@@ -508,7 +516,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             }
             if (part.type === 'finish-step') {
               lastStep = part.usage;
-              calls.push(callUsage(part.usage, pricing, stepTools));
+              calls.push(callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata)));
               stepTools = [];
               return undefined;
             }
@@ -529,7 +537,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       // The title of a new chat is usually done by now; a late one is left out.
       const title = options.title ? await Promise.race([options.title, new Promise<null>((resolve) => setTimeout(resolve, TITLE_WAIT_MS, null))]) : null;
       if (title && metadata.usage) {
-        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title, pricing, []), model: modelId, purpose: 'title' }]);
+        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title.usage, pricing, [], title.billed), model: modelId, purpose: 'title' }]);
       }
       await saveMessage(db, conversationId, { ...responseMessage, metadata });
       await updateConversation(db, conversationId, {});

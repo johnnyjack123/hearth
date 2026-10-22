@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-21 (abends) · Jev und Embeddings mit dem OpenRouter-Key des Nutzers echt getestet und beschleunigt; grep, rekursives Teilen, Schwellen in der Web-App; Stammformen und Wortteile in BM25; nächstes: Test des Nutzers_
+_Last updated: 2026-10-22 · Benchmark Jev gegen Modell mit echtem SearXNG und DeepSeek (Jev bleibt); abgerechnete OpenRouter-Kosten, gesperrte Suchmaschinen erkannt, Bing/Yahoo in SearXNG, knappere Jev-Anfrage, grep ohne Kurzwörter; nächstes: Test des Nutzers_
 
 ## Where we are
 
@@ -26,8 +26,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Test des Nutzers auf dem Pi** nach dem Update des Images: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
-2. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
+1. **Test des Nutzers auf dem Pi** nach dem Update des Images und `docker compose --profile search up -d` (neue SearXNG-Konfiguration mit Bing und Yahoo): OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
+2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
    - **Stopp der VM im Leerlauf**
@@ -79,6 +79,10 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Verification state
 
+Stand 22.10.:
+- **Server:** 151/151, dazu abgerechnete Kosten (Platzhalter-OpenRouter durch die echte AI SDK), gesperrte Suchmaschinen, kurze grep-Wörter.
+- **Echt:** Benchmark mit 24 Recherche-Läufen (SearXNG in der VM, DeepSeek V4.1 Flash über OpenRouter), Jev gegen DeepSeek auf 12 gleichen Listen; danach Kosten von OpenRouter, knappe Jev-Anfrage und grep mit Produktionscode gegen die echten Dienste. VM danach aufgeräumt und gestoppt, Testserver beendet, Test-Datenbanken gelöscht.
+
 Stand 21.10. (abends):
 - **Server:** 147/147 (SQLite), dazu Wortformen (CISTEM, Porter, Wortteile, Füllwörter), grep, rekursives Halbieren, Anhänge, Schwellen-Einstellung, Hinweis bei schwachen Treffern.
 - **Browser-E2E:** 13/13, 0 Konsolenprobleme; Recherche mit Fokus und grep („Treffer: 1“), Token-Tabelle ohne Schalter, Admin-Karte „Lange Chats eindampfen“ speichert. Screenshots 26b, 27, 29, 30 angesehen.
@@ -108,6 +112,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-22
+- Benchmark: Jev reiht (10 Treffer) gegen Modell wählt aus 20; gleich gute Antworten, Kosten im Rauschen. Jev bleibt, mit 25 % knapperer Anfrage.
+- Gefunden: SearXNG ab Werk nur mit drei Suchmaschinen, die nach ~80 Suchen sperren; OpenRouter rechnet anders ab als gelistet (0,14 statt 0,024 $ pro Million Eingabe-Token).
+- Behoben: Bing und Yahoo in der SearXNG-Konfiguration, `engines_blocked` statt leerer Treffer, abgerechnete OpenRouter-Kosten im Chat, grep ohne Kurzwörter und Backslashes.
 
 ### 2026-10-21 (spät)
 - BM25 mit Stammformen (CISTEM/Porter), Wortteilen und ohne Füllwörter: 19/20 statt 15/20 auf echten Seiten.

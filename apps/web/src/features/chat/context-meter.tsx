@@ -48,6 +48,8 @@ export function conversationUsage(messages: ChatMessage[]) {
     contextWindow: last.contextWindow,
     cost: priced.length > 0 ? priced.reduce((sum, cost) => sum + cost, 0) : undefined,
     unpriced: replies.length - priced.length,
+    // Every priced reply as billed by the provider, none estimated.
+    billed: priced.length > 0 && replies.every((message) => message.metadata?.usage?.cost === undefined || message.metadata.usage.billed === true),
     inputTokens: total((usage) => usage.inputTokens),
     cachedInputTokens: total((usage) => usage.cachedInputTokens),
     outputTokens: total((usage) => usage.outputTokens),
@@ -85,7 +87,7 @@ export function ContextMeter({ messages }: { messages: ChatMessage[] }) {
       output: exact.format(usage.outputTokens),
       reasoning: exact.format(usage.reasoningTokens),
     }),
-    t('chat.costSource'),
+    usage.billed ? t('chat.costBilled') : t('chat.costSource'),
   ];
   const warn = percent !== null && percent >= WARN_PERCENT;
 
