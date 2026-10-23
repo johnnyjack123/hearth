@@ -44,6 +44,7 @@ use crate::daemon::{self, Instance};
 use crate::idle::{Idle, Report, Watcher};
 use crate::net::{self, Question};
 use crate::progress::Progress;
+use crate::status::{Connection, StatusFile};
 use crate::{login, run, takeover};
 
 /// The only machine interface harness speaks so far.
@@ -181,9 +182,10 @@ fn keep_connected(
     let url = tunnel_url(client.url())?;
     let ca = ServerCa::from_config(&config.global()?.server)?;
     let idle = Idle::new(machine);
+    let status = Arc::new(StatusFile::new(config, client.url()));
     // Watches the VM also while the server is unreachable; stops with this
     // function.
-    let _watcher = Watcher::spawn(&idle, machine, mode);
+    let _watcher = Watcher::spawn(&idle, machine, mode, &status);
     let shared = Arc::new(Shared {
         config: config.clone(),
         machine: machine.to_owned(),
@@ -193,6 +195,7 @@ fn keep_connected(
             Mode::Background => Console::none(),
         },
         idle,
+        status,
     });
     let projects = offered(config);
     print_offer(mode, &projects);
@@ -211,23 +214,41 @@ fn keep_connected(
                     "Der Server kennt dieses Gerät nicht mehr (in der Web-App entfernt?). Neu \
                      koppeln mit `harness login`.",
                 );
+                shared
+                    .status
+                    .update(|s| s.connection = Connection::Unpaired);
                 return Ok(Ended::Revoked);
             }
             Ok(Ended::Stopped) => return Ok(Ended::Stopped),
             Ok(Ended::Closed) => {
                 say(mode, "Der Server hat die Verbindung beendet.");
+                shared.status.update(|s| {
+                    s.connection = Connection::Offline;
+                    s.error = Some("Der Server hat die Verbindung beendet.".to_owned());
+                });
                 wait = Duration::from_secs(1);
             }
-            Err(error) => say(
-                mode,
-                &format!("Verbindung zu {} unterbrochen: {error:#}", client.url()),
-            ),
+            Err(error) => {
+                say(
+                    mode,
+                    &format!("Verbindung zu {} unterbrochen: {error:#}", client.url()),
+                );
+                shared.status.update(|s| {
+                    s.connection = Connection::Offline;
+                    s.error = Some(truncate(&format!("{error:#}"), 300));
+                });
+            }
         }
         say(mode, &format!("Neuer Versuch in {} s …", wait.as_secs()));
         let deadline = Instant::now() + wait;
         while Instant::now() < deadline {
             if instance.stop_requested() {
                 return Ok(Ended::Stopped);
+            }
+            // Without a connection there are no sessions to end first.
+            if instance.vm_stop_requested() {
+                let shared = Arc::clone(&shared);
+                thread::spawn(move || stop_vm_now(&shared, StopFrom::Tray));
             }
             thread::sleep(Duration::from_millis(200));
         }
@@ -317,6 +338,8 @@ struct Shared {
     console: Console,
     /// Use of the VM, for the idle stop and the web app.
     idle: Arc<Idle>,
+    /// What the tray icon shows.
+    status: Arc<StatusFile>,
 }
 
 /// Runs one connection until it ends.
@@ -368,6 +391,10 @@ fn serve(
         },
     )?;
     let mut reported: Option<Report> = None;
+    shared.status.update(|s| {
+        s.connection = Connection::Connected;
+        s.error = None;
+    });
     say(
         shared.mode,
         match shared.mode {
@@ -385,6 +412,9 @@ fn serve(
         if instance.stop_requested() {
             let _ = socket.close(None);
             break Ok(Ended::Stopped);
+        }
+        if instance.vm_stop_requested() {
+            stop_vm(shared, &mut sessions, &out, None);
         }
         match socket.read() {
             Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(&text) {
@@ -453,6 +483,7 @@ fn serve(
         let _ = session.thread.join();
     }
     shared.idle.end_all();
+    shared.status.update(|s| s.questions.clear());
     result
 }
 
@@ -571,7 +602,7 @@ fn dispatch(
         ServerMessage::Welcome { .. } | ServerMessage::Unknown => {}
         ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
-        ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, request),
+        ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, Some(request)),
         ServerMessage::Prompt(prompt) => {
             // First sign of life in the chat: the computer has the message.
             let _ = out.send(DeviceMessage::SessionEvent {
@@ -658,6 +689,7 @@ fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: Ta
         session: request.session.clone(),
         out: out.clone(),
         idle: Arc::clone(&shared.idle),
+        status: Arc::clone(&shared.status),
     };
     // As for prompts, the device decides; read fresh.
     let released = offered(&shared.config)
@@ -723,19 +755,28 @@ fn outcome(report: &TakeoverReport) -> String {
     }
 }
 
-/// Stops the VM because the user asked in the browser. Replies on their
-/// way end with that reason instead of "pi wurde beendet"; the next message
-/// of a chat starts VM and agent again.
+/// Stops the VM because the user asked, in the browser (`request` from the
+/// server) or at the tray icon. Replies on their way end with that reason
+/// instead of "pi wurde beendet"; the next message of a chat starts VM and
+/// agent again.
 fn stop_vm(
     shared: &Arc<Shared>,
     sessions: &mut HashMap<String, SessionHandle>,
     out: &Sender<DeviceMessage>,
-    request: String,
+    request: Option<String>,
 ) {
+    let place = if request.is_some() {
+        StopFrom::Browser
+    } else {
+        StopFrom::Tray
+    };
     for session in shared.idle.answering() {
         let _ = out.send(DeviceMessage::SessionClosed {
             session: session.clone(),
-            reason: Some("Die VM wurde im Browser gestoppt.".to_owned()),
+            reason: Some(format!(
+                "Die VM wurde {} gestoppt.",
+                place.text("im", "in der")
+            )),
         });
         shared.idle.end(&session);
     }
@@ -746,20 +787,52 @@ fn stop_vm(
     let shared = Arc::clone(shared);
     let out = out.clone();
     thread::spawn(move || {
-        say(shared.mode, "VM wird gestoppt (aus dem Browser).");
-        shared.idle.show(VmStatus::Stopping);
-        let (ok, message) = match crate::vm::stop() {
-            Ok(message) => (true, message),
-            Err(error) => (false, format!("{error:#}")),
-        };
-        say(shared.mode, &format!("VM-Stopp: {message}"));
-        shared.idle.wake();
-        let _ = out.send(DeviceMessage::VmResult {
-            request,
-            ok,
-            message: truncate(&message, 900),
-        });
+        let (ok, message) = stop_vm_now(&shared, place);
+        if let Some(request) = request {
+            let _ = out.send(DeviceMessage::VmResult {
+                request,
+                ok,
+                message: truncate(&message, 900),
+            });
+        }
     });
+}
+
+/// Where the user asked to stop the VM.
+#[derive(Clone, Copy)]
+enum StopFrom {
+    Browser,
+    Tray,
+}
+
+impl StopFrom {
+    /// "im Browser" or "in der Taskleiste", with the given prepositions.
+    fn text(self, browser: &str, tray: &str) -> String {
+        match self {
+            StopFrom::Browser => format!("{browser} Browser"),
+            StopFrom::Tray => format!("{tray} Taskleiste"),
+        }
+    }
+}
+
+/// Stops the VM through the VM service; the watcher reports the result.
+fn stop_vm_now(shared: &Shared, from: StopFrom) -> (bool, String) {
+    say(
+        shared.mode,
+        &format!("VM wird gestoppt (aus {}).", from.text("dem", "der")),
+    );
+    shared.idle.show(VmStatus::Stopping);
+    shared.status.update(|s| {
+        s.vm = VmStatus::Stopping;
+        s.stop_at = None;
+    });
+    let (ok, message) = match crate::vm::stop() {
+        Ok(message) => (true, message),
+        Err(error) => (false, format!("{error:#}")),
+    };
+    say(shared.mode, &format!("VM-Stopp: {message}"));
+    shared.idle.wake();
+    (ok, message)
 }
 
 /// Events of one session to the server.
@@ -768,12 +841,22 @@ struct Emitter {
     session: String,
     out: Sender<DeviceMessage>,
     idle: Arc<Idle>,
+    status: Arc<StatusFile>,
 }
 
 impl Emitter {
     fn event(&self, event: AgentEvent) {
-        match event {
+        match &event {
             AgentEvent::Done { .. } | AgentEvent::Error { .. } => self.idle.end(&self.session),
+            AgentEvent::Approval {
+                id, host, state, ..
+            } => {
+                self.idle.touch();
+                // The tray icon points at open questions.
+                let open = *state == ApprovalState::Pending;
+                self.status
+                    .question(&self.session, *id, open.then_some(host.as_str()));
+            }
             _ => self.idle.touch(),
         }
         let _ = self.out.send(DeviceMessage::SessionEvent {
@@ -784,6 +867,7 @@ impl Emitter {
 
     fn closed(&self, reason: Option<String>) {
         self.idle.end(&self.session);
+        self.status.session_ended(&self.session);
         let _ = self.out.send(DeviceMessage::SessionClosed {
             session: self.session.clone(),
             reason,
@@ -857,6 +941,7 @@ fn session(
         session: first.session.clone(),
         out: out.clone(),
         idle: Arc::clone(&shared.idle),
+        status: Arc::clone(&shared.status),
     };
     let title = first
         .conversation

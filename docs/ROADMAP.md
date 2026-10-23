@@ -280,7 +280,10 @@ Bausteine:
    - Schwere Funde halten den Merge an, die Freigabe geht nur mit `harness merge --approve <ID>`.
    - Autosync-Schalter pro Chat.
    - Jev bewertet die hinzugefügten Zeilen je Datei über den Server, mit dem OpenRouter-Zugang des Nutzers (Phase 2c, Stufe 3, für Diffs gebaut).
-4. Tray-Symbol für `harnessd`
+4. ✅ **Tray-Symbol für `harnessd`** (24.10.):
+   - Zustand von Verbindung und VM (mit Stopp im Leerlauf), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden.
+   - Benachrichtigungen bei Rückfragen des Gateways (Klick öffnet den Chat) und bei angehaltenen Merges (Menü kopiert `harness merge --approve <ID>`).
+   - Der Tunnel bleibt im Kindprozess `harness daemon run`, das war die offene Frage. Der Tray liest dessen Statusdatei und steuert ihn über benannte Ereignisse.
 5. Installer
 6. `web_fetch` für pi, fortsetzbare Streams
 

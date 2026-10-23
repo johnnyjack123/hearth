@@ -16,6 +16,7 @@ mod progress;
 mod project;
 mod review;
 mod run;
+mod status;
 mod takeover;
 mod terminal;
 mod vm;

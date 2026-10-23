@@ -11,10 +11,12 @@
 #   the commit home -> "save progress" commits, checks and merges the
 #   agent's work, autosync does it after a reply, a git hook holds the merge
 #   for the terminal -> VM activity and idle time in the web app, a terminal
-#   command keeps the VM busy -> harness daemon stop
+#   command keeps the VM busy -> the tray icon of harnessd and its status
+#   file -> harness daemon stop
 #
-# VM_STOP=1 also stops the VM: once from the browser (API), once because it
-# sat idle for a minute. Takes about three minutes longer (two VM starts).
+# VM_STOP=1 also stops the VM: from the browser (API), from the tray icon
+# (its named event) and because it sat idle for a minute. Takes about four
+# minutes longer (three VM starts).
 #
 # Needs the running VM, both images, `cargo build` and `pnpm install`. Uses
 # ports 8095/8096 and a temporary HARNESS_HOME; pi's shared volume
@@ -82,6 +84,16 @@ vm_is() { test "$(device 'v[0].vm')" = "$1"; }
 terminals_are() { test "$(device 'v[0].activity && v[0].activity.terminals')" = "$1"; }
 # Minutes until the idle stop as the web app shows them; -1 if none is due.
 stop_minutes() { device 'v[0].activity && v[0].activity.stopsAt ? Math.round((v[0].activity.stopsAt - Date.now()) / 60000) : -1'; }
+# Suffix of the service's named objects, as harness computes it (FNV-1a of
+# the lower-case configuration folder as harness.exe sees it).
+object_suffix() {
+  node -e "let h=0xcbf29ce484222325n;for(const b of Buffer.from(process.argv[1].toLowerCase())){h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn}console.log(h.toString(16).padStart(16,'0'))" \
+    "$(cygpath -m "$HARNESS_HOME")"
+}
+status_file() { # status_file <expression on daemon-status.json>
+  json "$1" < "$HARNESS_HOME/daemon-status.json"
+}
+status_connected() { test "$(status_file v.connection 2> /dev/null)" = connected; }
 stops_in_40_to_45() {
   local minutes
   minutes=$(stop_minutes)
@@ -173,6 +185,10 @@ check "Dienst verbunden" wait_for 30 grep -q "Verbunden" "$HARNESS_HOME/daemon.l
 "$H" connect < /dev/null > "$WORK/second.log" 2>&1
 check "zweite Verbindung abgelehnt" grep -q "Hintergrunddienst hält die Verbindung" "$WORK/second.log"
 check "VM-Status gemeldet" test "$(api GET /api/devices | json "v[0].online && v[0].vm !== null")" = true
+check "Statusdatei für das Tray-Symbol" wait_for 10 status_connected
+TRAY=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$REPO/scripts/tray-check.ps1")" -DaemonPid "$(status_file v.pid)" | tr -d '\r')
+check "Tray-Symbol von harnessd" test "${TRAY#* }" = tray
+TRAY_PID=${TRAY%% *}
 
 echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
@@ -259,6 +275,14 @@ if [ -n "${VM_STOP:-}" ]; then
   check "Dienst meldet den Stopp" test "$(api POST "/api/devices/$DEVICE/vm/stop" | json v.ok)" = true
   check "VM aus" wait_for 30 vm_is stopped
 
+  echo "== VM aus der Taskleiste stoppen"
+  "$H" vmd start > "$WORK/vm-start-tray.log" 2>&1
+  check "VM läuft wieder" wait_for 40 vm_is running
+  powershell.exe -NoProfile -Command \
+    "[System.Threading.EventWaitHandle]::OpenExisting('Local\llm-harness-daemon-vmstop-$(object_suffix)').Set()" > /dev/null
+  check "VM aus (Taskleiste)" wait_for 60 vm_is stopped
+  check "Protokoll nennt die Taskleiste" grep -q "aus der Taskleiste" "$HARNESS_HOME/daemon.log"
+
   echo "== Stopp nach einer Minute Leerlauf"
   "$H" vmd start > "$WORK/vm-start.log" 2>&1
   api PATCH "/api/devices/$DEVICE" '{"idleMinutes":1}' > /dev/null
@@ -269,6 +293,9 @@ fi
 echo "== Hintergrunddienst beenden"
 "$H" daemon stop > "$WORK/daemon-stop.log" 2>&1
 check "Dienst beendet" grep -q "Hintergrunddienst beendet" "$WORK/daemon-stop.log"
+check "Statusdatei aufgeräumt" test ! -e "$HARNESS_HOME/daemon-status.json"
+check "harnessd samt Tray-Symbol beendet" wait_for 10 bash -c \
+  "! tasklist //FI 'PID eq $TRAY_PID' | grep -q harnessd"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures Prüfung(en) fehlgeschlagen. Protokolle:"
