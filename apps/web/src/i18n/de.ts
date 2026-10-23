@@ -337,6 +337,8 @@ export const de = {
     readCount: '{count} gelesen',
     readAs: 'gelesen, Quelle {number}',
     preferred: 'bevorzugte Quelle',
+    preferredHint: 'Die Seite steht auf der Liste verlässlicher Quellen für die Suchart „{kind}“ (etwa Wikipedia und Behörden für Fakten, offizielle Dokumentation für Technik). Solche Treffer rücken 5 Plätze nach vorn, und das Modell sieht sie als bevorzugt markiert. Andere Treffer bleiben in der Liste.',
+    preferredHintAny: 'Die Seite steht auf der Liste verlässlicher Quellen für diese Art Frage. Solche Treffer rücken 5 Plätze nach vorn, und das Modell sieht sie als bevorzugt markiert. Andere Treffer bleiben in der Liste.',
     relevance: 'Relevanz {percent} %',
     kinds: {
       facts: 'Fakten',
@@ -350,6 +352,10 @@ export const de = {
     hideResults: 'Treffer verbergen',
     sources: 'Quellen',
     unsourcedLabel: 'Ungeprüfte Links',
+    badgeLabel: 'Quellen dieses Absatzes: {hosts}',
+    badgeHeading: 'Quellen dieses Absatzes',
+    searchHitOnly: 'nur Suchtreffer, nicht gelesen',
+    unchecked: 'ungeprüft: weder gelesen noch gefunden',
     unsourced: 'Diese Links stehen auf keiner gelesenen Seite und in keinem Suchtreffer dieses Chats. Das Modell hat sie selbst ergänzt, vielleicht aus dem Gedächtnis; solche Adressen sind manchmal erfunden. Prüfe sie, bevor du dich darauf verlässt:',
     errors: {
       not_configured: 'Auf diesem Server ist keine Websuche eingerichtet.',

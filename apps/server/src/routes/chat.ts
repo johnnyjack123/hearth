@@ -45,12 +45,15 @@ const INSTRUCTIONS = [
 ].join(' ');
 
 /**
- * Every statement from the web gets its source next to it, so the user can
- * check it; the chat flags links to pages the chat never read or found.
+ * Every paragraph with information from the web names its sources, so the
+ * user can check them. The web app turns the bracketed links at the end of a
+ * paragraph into a source badge and flags links to pages the chat never read
+ * or found.
  */
 const CITATION_INSTRUCTIONS =
-  'Put a Markdown link to the source right after each statement that comes from the web, using the exact address you loaded or found, ' +
-  'and link only pages you loaded with web_fetch or that came up in web_search. ' +
+  'End each paragraph or list item that uses information from the web with its sources as Markdown links in parentheses, ' +
+  'for example ([Page title](https://example.org/page), [Other page](https://example.org/other)), using the exact address you loaded or found. ' +
+  'Do not put source links inside sentences. Link only pages you loaded with web_fetch or that came up in web_search. ' +
   'If a statement rests on a search snippet alone, say so. Do not add links from memory as if they were sources.';
 
 const WEB_FETCH_INSTRUCTIONS = [
