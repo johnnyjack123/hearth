@@ -12,7 +12,7 @@
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ beim Nutzer eingerichtet (17.10.); offen: Stopp im Leerlauf |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 Stufe 1 (feste Regeln) fertig, Stufen 2 und 3 offen |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis und Warnungen (Muster); offen: Jev als Klassifikator |
-| 3 | Desktop-App (Tauri) + UI für Netz- und Git-Regeln und Rückfragen | offen |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | offen |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -248,20 +248,30 @@ Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt
   - das Ergebnis gespeichert an der Warnung (Datenteil bzw. Fund), mit Modell, Kosten und Zeit
 - **Einstellungen:** welche Warnungen automatisch bewertet werden, mit welchem Modell, Höchstkosten pro Tag.
 
-## Phase 3 – Desktop-App und Gateway
+## Phase 3 – Tray-App und Einrichtung (statt Desktop-App)
 
-- Tauri 2 als Hülle, Frontend ist `apps/web` mit Desktop-Funktionen per Capability-Erkennung
-- Prozess `harnessd` (IPC) für CLI und App gemeinsam
-- Gateway-Oberfläche: Live-Protokoll und Rückfragen als Desktop-Benachrichtigung statt `harness net watch`. Das Gateway selbst (DNS, Ziel-IP-Prüfung, Voreinstellungen, Rückfragen) gibt es seit Phase 2, Paket 6. Die App nutzt denselben Steuerkanal (`watch`, `decide`).
-- UI für Netz-Allowlist, Git-Regeln, Projekte und Harnesse (ARCHITECTURE.md §5, §7)
-- **Umgebung grafisch anlegen** (Wunsch des Nutzers, 15.10.):
-  - Ordner wählen
-  - Voreinstellung fürs Netz wählen
-  - Schalter „für Agents aus dem Web freigeben“ (Phase 4)
-- **Automatischer Sync** (Wunsch des Nutzers, 15.10.): `harnessd` holt neue Commits des Agents laufend als `agent/<projekt>`. Das ist sicher, weil es den Ordner des Nutzers nicht anfasst.
-  - Übernehmen per Knopf, Benachrichtigung bei neuen Commits.
-  - Pro Projekt optional automatisch, aber nur konfliktfrei und nur bei sauberem Arbeitsbaum.
-  - Der Explorer sieht die Dateien also nach dem Übernehmen. Eine Live-Spiegelung ist der Sync-Modus in Phase 5.
+**Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
+
+Ablauf aus Sicht des Nutzers:
+1. Installer einmal ausführen. Er richtet Podman, VM, VM-Dienst und Tray-App ein.
+2. Einmal im Terminal koppeln (`harness login <Server>`). Danach läuft alles im Browser.
+3. **Eine Umgebung entsteht nur im Terminal:** `harness init` im Ordner gibt ihn frei und meldet ihn beim Server. Die Web-App kann keine Umgebung anlegen, keinen Ordner wählen und keine Freigabe erweitern (Sicherheit, ausdrücklicher Wunsch des Nutzers). „Projekte direkt aus dem Web anlegen“ (Phase 4) entfällt damit.
+4. Chat mit der Umgebung verknüpfen und eine Nachricht schicken: Der Dienst startet die VM, legt die Instanz an, bringt den Stand des Ordners per Git hinein und meldet jeden Schritt. Der Agent startet erst, wenn alles bereit ist. (Gibt es seit Phase 4.)
+5. **„Fortschritt sichern“ im Chat:** Der Dienst committet offene Änderungen im Container, holt die Commits per sync, zeigt das Ergebnis der Merge-Prüfung im Chat und übernimmt sie per Knopf in den Ordner.
+6. **Im Browser:** Zustand der VM, VM sofort beenden, Leerlaufzeit bis zum automatischen Stopp.
+
+Bausteine:
+- **Tray-App:** `harnessd.exe` bekommt ein Tray-Symbol (Crates `tray-icon` und `muda`, reines Win32, kein WebView, wenige MB RAM). Menü: Zustand (verbunden, VM an oder aus), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden. Optional Windows-Benachrichtigungen für Rückfragen des Gateways. Offen: Tunnel weiter im Kindprozess `harness daemon run` oder im selben Prozess.
+- **Installer (Setup-Assistent, ARCHITECTURE.md §5):** Virtualisierung prüfen, Hyper-V einschalten (Neustart), Podman installieren (winget oder mitgeliefert), `harness vmd install`, Machine über den Dienst anlegen, Images bauen (große Downloads vorher ansagen), Autostart. Windows Home ohne Hyper-V kommt später (WSL als Rückfall).
+- **Server und Web:** Zustand des Geräts im Tunnel (VM, letzte Aktivität), Befehl „VM stoppen“ und Einstellung „Leerlaufzeit“ pro Gerät. **Das Gerät nimmt vom Server nur harmlose Befehle an** (VM stoppen, Leerlaufzeit, Sichern, Übernehmen eines schon freigegebenen Projekts), nie neue Ordner, Projekte oder Freigaben.
+- **Sichern und Übernehmen:** neue Tunnel-Nachrichten, die Merge-Prüfung als Datenteil im Chat, Konflikte und ein unsauberer Arbeitsbaum als verständliche Meldung.
+- Nicht mehr geplant: eigene Oberfläche für Netzregeln, Git-Regeln und Harnesse in einer App. Was davon im Browser gebraucht wird, kommt dorthin. Die Dateien in `~/.harness` bleiben die Quelle.
+
+Offen (mit dem Nutzer klären):
+- Übernehmen direkt in den ausgecheckten Branch (wie `harness merge`, nur bei sauberem Arbeitsbaum) oder erst nur `agent/<projekt>` holen und mit einem zweiten Knopf mergen.
+- Schwere Funde der Merge-Prüfung: im Browser übergehbar oder nur im Terminal?
+- „Immer erlauben“ bei Netz-Rückfragen aus dem Browser schreibt heute die allow-Liste des Projekts. Bleibt das so?
+- Automatischer Sync (Wunsch vom 15.10.): `harnessd` holt neue Commits laufend als `agent/<projekt>`, ohne den Ordner anzufassen.
 
 ## Phase 4 – Chat ↔ Umgebung
 
@@ -271,7 +281,7 @@ Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt
 3. Die erste Verknüpfung eines Chats mit einem Projekt bestätigt der Nutzer lokal. Optional: „eigene Chats automatisch erlauben“.
 4. Der Agent arbeitet in der Instanz. Der Chat zeigt Dateiänderungen und Befehle, übernehmen geht per Knopf (sync/merge).
 
-**Projekte direkt aus dem Web anlegen:** leerer Arbeitsbereich oder Klon einer Git-URL, ohne Repository auf dem Host. Offen ist dabei, wohin die Ergebnisse gehen: Download, Push aus dem Container mit eigenem Token, oder ein Host-Ordner.
+~~**Projekte direkt aus dem Web anlegen**~~: verworfen am 23.10. Umgebungen entstehen nur per `harness init` im Terminal (Sicherheit, Entscheidung des Nutzers, siehe Phase 3).
 
 Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`, Instanz und pi-Anbindung aus Phase 2 wiederverwendet), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Für „wenige Klicks“ müssen außerdem der VM-Start ohne Admin-Fenster (Phase 2b) und der Setup-Assistent (Phase 3) stehen. Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). TLS im Gateway gibt es seit dem 17.10. (`https://`-Server, eigene CA über `[server] ca`). Offen dazu: Verbrauch pro Gerät erfassen.
 
@@ -314,6 +324,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - **Offen:**
     - echter Suchlauf gegen SearXNG auf dem Pi (Nutzer)
     - Suche für Agents in der VM
+    - **`web_fetch` für pi** (Frage des Nutzers, 23.10.): eine pi-Erweiterung (wie der Guard per `-e`) bringt ein Werkzeug `web_fetch` mit `focus`, `grep`, `sections` und `fullPage`. Es ruft über `http://llm.harness/…` einen neuen Server-Pfad mit dem Geräte-Token. Der Server lädt die Seite wie im Web-Chat (Adressfilter, Readability, Abschnitte, Embeddings mit dem OpenRouter-Key des Nutzers, Prompt-Injection-Funde). Das Gateway prüft den Ziel-Host der Anfrage gegen die Netzregeln des Projekts und fragt wie bei direkten Verbindungen, sonst wäre der Server ein Umweg um die Regeln.
     - **DeepSeek als weiterer Suchanbieter prüfen** (Hinweis des Nutzers vom 18.10.): DeepSeek bietet laut seiner Website neuerdings eine Websuche unter `https://api.deepseek.com/v1/tools/search` an, vermutlich auf Sprachmodelle zugeschnitten. Noch ungeprüft:
       - Antwortformat und Preis
       - ob der normale API-Key reicht

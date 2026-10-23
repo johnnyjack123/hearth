@@ -1,6 +1,6 @@
 # LLM Harness – Hinweise für Agenten
 
-Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Client, der Chats mit isolierten Container-Umgebungen auf dem Rechner des Nutzers verbindet.
+Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus Hintergrunddienst mit Tray-Symbol, der Chats mit isolierten Container-Umgebungen auf dem Rechner des Nutzers verbindet.
 
 **Lesereihenfolge für neue Sitzungen:**
 1. [`docs/PROGRESS.md`](docs/PROGRESS.md): wo wir stehen, nächster Schritt, offene Fragen
@@ -44,6 +44,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus geplanter Desktop-Clie
 - **TLS im Gateway, 17.10.:** `llm.harness` geht auch an einen `https://`-Server (rustls im Gateway, Feature `tls`). Server mit eigener CA über `[server] ca` in `config.toml`, Anleitung mit Caddy in `docs/deploy.md`.
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
 - Nächstes: siehe PROGRESS.md „Next step“ (Test des Nutzers mit Websuche auf dem Pi, dann Zweitmeinung zu Warnungen und Stopp der VM im Leerlauf).
+- **Keine Desktop-App (Entscheidung 23.10.):** statt Tauri eine Tray-App in Rust (`harnessd`), eingestellt wird alles im Browser. **Umgebungen entstehen nur per `harness init` im Terminal**, nie aus dem Web; das Gerät nimmt vom Server nur harmlose Befehle an (VM stoppen, Leerlaufzeit, Sichern, Übernehmen freigegebener Projekte). Plan: ROADMAP.md, Phase 3.
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
