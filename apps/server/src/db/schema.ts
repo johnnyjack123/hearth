@@ -74,6 +74,8 @@ export interface DeviceTable {
   tokenHash: string;
   createdAt: number;
   lastUsedAt: number | null;
+  /** Idle minutes until the device stops its VM; null: the default. */
+  idleMinutes: number | null;
 }
 
 /**

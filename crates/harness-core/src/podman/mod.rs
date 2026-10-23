@@ -321,6 +321,21 @@ impl Provider for PodmanProvider {
             }))
     }
 
+    fn running_containers(&self) -> Result<Vec<ContainerInfo>> {
+        let json = self.run("ps", &["ps", "--format", "json"])?;
+        let containers: Vec<RawContainer> =
+            serde_json::from_str(&json).map_err(|e| unexpected("ps", e))?;
+        Ok(containers
+            .into_iter()
+            .map(|c| ContainerInfo {
+                name: c.names.into_iter().next().unwrap_or_default(),
+                status: ContainerStatus::parse(&c.state),
+                image: c.image,
+                labels: c.labels.unwrap_or_default(),
+            })
+            .collect())
+    }
+
     fn create_container(&self, spec: &ContainerSpec) -> Result<()> {
         let args = args::container_create(spec)?;
         match self.network_internal(&spec.network)? {

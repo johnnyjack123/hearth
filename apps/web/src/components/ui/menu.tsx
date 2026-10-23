@@ -1,9 +1,17 @@
+import { Check } from 'lucide-react';
 import { DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from 'radix-ui';
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/utils.ts';
 
 const floatingSurface =
   'z-50 rounded-lg bg-popover text-popover-foreground shadow-elevation-2 data-[state=open]:animate-pop-in data-[state=closed]:animate-pop-out';
+
+const itemClasses = cn(
+  'relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
+  'transition-colors duration-(--duration-instant) data-highlighted:bg-accent data-highlighted:text-accent-foreground',
+  'data-disabled:pointer-events-none data-disabled:opacity-50 pointer-coarse:min-h-11',
+  '[&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
+);
 
 /** Dropdown menu root. */
 export const DropdownMenu = MenuPrimitive.Root;
@@ -42,15 +50,33 @@ export function DropdownMenuItem({
   return (
     <MenuPrimitive.Item
       className={cn(
-        'relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none',
-        'transition-colors duration-(--duration-instant) data-highlighted:bg-accent data-highlighted:text-accent-foreground',
-        'data-disabled:pointer-events-none data-disabled:opacity-50 pointer-coarse:min-h-11',
-        '[&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
+        itemClasses,
         destructive && 'text-destructive data-highlighted:bg-destructive-subtle data-highlighted:text-destructive [&_svg]:text-destructive',
         className,
       )}
       {...props}
     />
+  );
+}
+
+/** Group of menu entries of which exactly one is chosen; `value` names it. */
+export const DropdownMenuRadioGroup = MenuPrimitive.RadioGroup;
+
+/**
+ * An entry of a {@link DropdownMenuRadioGroup}; the chosen one carries a
+ * check and medium weight, so the choice does not rest on the icon alone.
+ *
+ * @param props - Radix radio item props.
+ * @returns The menu item.
+ */
+export function DropdownMenuRadioItem({ className, children, ...props }: ComponentProps<typeof MenuPrimitive.RadioItem>) {
+  return (
+    <MenuPrimitive.RadioItem className={cn(itemClasses, 'pe-8 data-[state=checked]:font-medium', className)} {...props}>
+      {children}
+      <MenuPrimitive.ItemIndicator className="absolute end-2 flex items-center">
+        <Check aria-hidden="true" />
+      </MenuPrimitive.ItemIndicator>
+    </MenuPrimitive.RadioItem>
   );
 }
 

@@ -1,16 +1,17 @@
 # Progress
 
-_Last updated: 2026-10-23 (spät) · Plan für Tray-App statt Tauri und Umgebungen nur per Terminal festgehalten (ROADMAP Phase 3); nächstes: Block „Umgebung im Web-Chat“ in neuer Sitzung_
+_Last updated: 2026-10-23 (nachts) · Block „Umgebung im Web-Chat“, Schritt 1 fertig: VM-Zustand, Stopp und Leerlaufzeit im Browser, Stopp im Leerlauf im Dienst (Branch `feat/environment-ux`); nächstes: neuer Chat direkt mit Umgebung_
 
 ## Where we are
 
-Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf Feature-Branches (zuletzt `feat/research`), die nach jedem geprüften Stück per `--no-ff` in `main` gemergt und gepusht werden (Freigabe des Nutzers). `feat/phase-4-chat-env` ist seit dem 18.10. nicht mehr der Arbeitsbranch.
+Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf Feature-Branches (zuletzt `feat/environment-ux`), die nach jedem geprüften Stück per `--no-ff` in `main` gemergt und gepusht werden (Freigabe des Nutzers). `feat/phase-4-chat-env` ist seit dem 18.10. nicht mehr der Arbeitsbranch.
 
 **Terminal:** Im Projektordner startet `harness` (bzw. `harness run pi`) Gateway, Instanz und pi in der VM. Rückfragen des Gateways kommen im selben Terminal. `harness sync`/`merge` holen die Commits des Agents; `merge` prüft sie vorher (Regeln, OSV).
 
 **Web-Chat:**
 1. `harness login <Server>` koppelt den Rechner und richtet den Hintergrunddienst ein; `harness init` meldet ein Projekt.
 2. Im Chat „Umgebung“ → Gerät → Projekt: pi arbeitet in der VM. Schritte, Werkzeugaufrufe, Rückfragen, Kontext und Kosten erscheinen im Chat. Warnungen des pi-Schutzes zeigen aufklappbar Fundstelle und Grund.
+   - Das Umgebungs-Popover und Einstellungen → Geräte zeigen den VM-Zustand, was sie gerade nutzt und wann sie im Leerlauf stoppt. „VM stoppen“ geht aus dem Browser, die Leerlaufzeit (Standard 30 min, „nie“ möglich) ist pro Gerät einstellbar. Der Hintergrunddienst stoppt die VM danach selbst.
 3. **Ohne Umgebung** lädt das Modell Seiten über `web_fetch` im Server, als Hauptinhalt (Readability). Fremde Hosts brauchen eine Freigabe. Bei Verdacht auf Prompt-Injection zeigt die Warnung aufklappbar jede Fundstelle mit Ausschnitt und einem Satz, warum das gefährlich ist.
 4. **Recherche-Schalter** im Composer (nur wenn ein Admin unter Administration → Server → Websuche einen Anbieter gespeichert hat): Das Modell sucht mit `web_search` und liest Treffer und Links geladener Seiten ohne Rückfrage. Unter der Antwort stehen die gelesenen Seiten als Quellen.
    - Treffer werden nach Art der Frage gewichtet (Domain-Listen) und mit OpenRouter-Key von Jev gereiht (Relevanz in Prozent).
@@ -29,8 +30,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 ## Next step
 
 1. **Block „Umgebung im Web-Chat“ samt Tray-App** (Plan des Nutzers vom 23.10., ROADMAP.md Phase 3): Vorschlag für die Reihenfolge
-   1. Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst
-   2. neuer Chat direkt mit Umgebung
+   1. ✅ Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst (23.10.). Der Nutzer holt es mit `cargo build`, `harness daemon stop`, `harness daemon start`; der Server auf dem Pi braucht das neue Image (`docker compose pull`, dann `docker compose up -d --no-deps server`). Die Reihenfolge ist egal (Protokoll-Aushandlung).
+   2. **als Nächstes:** neuer Chat direkt mit Umgebung
    3. „Fortschritt sichern“ und „Übernehmen“ im Chat (commit im Container, sync, Merge-Prüfung im Chat, merge); vorher die offenen Punkte aus Phase 3 mit dem Nutzer klären
    4. Tray-Symbol für `harnessd`
    5. Installer, der Podman, VM und Dienst einrichtet
@@ -45,6 +46,13 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 ## In flight / half-finished
 
 Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
+
+## Decisions made 23.10. (nachts, Schritt 1)
+
+- **Leerlaufzeit Standard 30 min**, wählbar 15 min, 30 min, 1 h, 2 h oder nie; pro Gerät auf dem Server gespeichert, der Dienst bekommt sie über den Tunnel.
+- **Leerlauf** = keine Antwort eines Agents, kein harness-Befehl im Terminal, keine Container in der VM, die harness nicht angelegt hat. Wartende pi-Sitzungen halten die VM nicht; sie enden mit dem Stopp, die nächste Nachricht startet VM und pi neu.
+- **Stopp aus dem Browser geht immer**, auch wenn etwas läuft; die Web-App fragt dann nach. Laufende Antworten enden mit „Die VM wurde im Browser gestoppt.“
+- **Protokoll-Aushandlung statt harter Versionsgleichheit**, damit der Server auf dem Pi und der Rechner nicht gleichzeitig aktualisiert werden müssen.
 
 ## Decisions made 23.10.
 
@@ -94,6 +102,13 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Verification state
 
+Stand 23.10. (nachts, Schritt 1 „Umgebung im Web-Chat“):
+- **Rust:** `cargo test` grün (harness-core 106, harness-cli 7, neu: Belegt-Marker samt Aufräumen nach Absturz, Leerlauf-Zustand, Status je Protokoll, Tunnel-Nachrichten), `cargo clippy --all-targets` ohne Warnungen.
+- **Server:** 154/154, neu: Aushandlung (Protokoll 1 bekommt nichts Neues, 0 und 3 werden abgelehnt), Aktivität mit `stopsAt`, `settings` beim Gruß und nach Änderung, `vm.stop`/`vm.result` samt Abbruch bei Trennung, Routen mit Eigentümer-Prüfung und Grenzen.
+- **Browser-E2E:** 13/13, 0 Konsolenprobleme; Popover mit „VM läuft“, „Stoppt um …“, Menü der Leerlaufzeit (→ `settings` beim Gerät), Rückfrage beim Stopp mit Terminal in Benutzung, „VM gestoppt“; Geräte-Seite hell und bei 360 px. Screenshots 31–36 angesehen.
+- **Echt:** `VM_STOP=1 bash scripts/smoke-connect.sh` 41/41 gegen die VM: Aktivität mit Protokoll 2, Leerlaufzeit kommt an, `harness net watch` hält die VM, Stopp aus dem Browser (~3 s), Stopp nach 1 min Leerlauf. VM danach wieder gestoppt (wie vorher), keine Reste.
+- **Nicht geprüft:** echter Server auf dem Pi mit Protokoll 2 und Rechner mit Protokoll 1 gemischt (nur in Tests), Dichten und Tastaturbedienung des neuen Menüs (nur per Radix), Stopp im Leerlauf beim echten Dienst des Nutzers über längere Zeit.
+
 Stand 23.10. (abends):
 - **Server:** 151/151. **Browser-E2E:** 13/13, 0 Konsolenprobleme; neu: Quellen-Link in Klammern verschwindet aus dem Satz, Badge „127.0.0.1“ am Absatzende, Liste beim Zeigen mit „Kaffee-Testseite“, erfundener Link bleibt echter Link (`target=_blank`, Cursor `pointer`), Tooltip „bevorzugte Quelle“. Screenshot 27b angesehen.
 - **Nicht geprüft:** echtes Modell mit dem neuen Quellen-Prompt (hält DeepSeek die Klammern am Absatzende ein?), Badge auf Touch-Geräten.
@@ -137,6 +152,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-23 (nachts)
+- Gebaut: Tunnel-Protokoll 2 mit Aushandlung, VM-Aktivität und Leerlaufzeit, `vm.stop` aus dem Browser, Wächter im Dienst mit Belegt-Markern und Prüfung auf fremde Container, Bedienung im Umgebungs-Popover und unter Geräte, Radio-Einträge im Dropdown-Primitiv.
+- Gefunden: Puppeteers `::-p-text` sah einen geänderten Text im Popover nicht; Heredocs mit Backticks scheitern im Bash-Werkzeug (CLAUDE.md).
 
 ### 2026-10-23 (abends)
 - Gefunden: Streamdown rendert Links als Knöpfe mit Bestätigungsdialog, deshalb wirkten sie nicht wie Links.

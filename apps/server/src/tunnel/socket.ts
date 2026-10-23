@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { TUNNEL_PATH } from '@harness/shared';
+import { DEFAULT_IDLE_MINUTES, TUNNEL_PATH } from '@harness/shared';
 import type { Kysely } from 'kysely';
 import { type WebSocket, WebSocketServer } from 'ws';
 import type { DB } from '../db/schema.ts';
@@ -55,7 +55,9 @@ export function attachTunnel(server: UpgradeServer, db: Kysely<DB>, hub: DeviceH
         }
         wss.handleUpgrade(request, socket, head, (ws) => {
           alive.set(ws, true);
-          const connection = hub.attach(found.device.id, found.owner.id, ws);
+          const connection = hub.attach(found.device.id, found.owner.id, ws, {
+            idleMinutes: found.device.idleMinutes ?? DEFAULT_IDLE_MINUTES,
+          });
           ws.on('pong', () => alive.set(ws, true));
           ws.on('message', (data, isBinary) => {
             if (isBinary) {

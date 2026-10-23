@@ -15,8 +15,10 @@ import type {
   PublicSettings,
   SearchTestResult,
   ServerSettings,
+  UpdateDeviceInput,
   UpdateProviderCredentialInput,
   UpdateServerSettings,
+  VmStopResult,
 } from '@harness/shared';
 import type { UIMessage } from 'ai';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
@@ -96,6 +98,9 @@ export const api = {
   devices: {
     list: () => request<DeviceSummary[]>('GET', '/devices'),
     remove: (id: string) => request<void>('DELETE', `/devices/${encodeURIComponent(id)}`),
+    update: (id: string, input: UpdateDeviceInput) =>
+      request<DeviceSummary>('PATCH', `/devices/${encodeURIComponent(id)}`, input),
+    stopVm: (id: string) => request<VmStopResult>('POST', `/devices/${encodeURIComponent(id)}/vm/stop`),
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),

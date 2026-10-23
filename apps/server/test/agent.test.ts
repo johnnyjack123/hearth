@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server';
 import {
   type AgentEvent,
   type ConversationDetail,
+  DEFAULT_IDLE_MINUTES,
   type ConversationSummary,
   type DeviceSummary,
   type PairingPoll,
@@ -37,7 +38,13 @@ class FakeDevice implements TunnelSocket {
       // Answers after startRun returned, like a real device would.
       setTimeout(() => this.onPrompt?.(message), 0);
     }
+    if (message.type === 'vm.stop' && this.stopsVm) {
+      setTimeout(() => this.say({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }), 0);
+    }
   }
+
+  /** Whether `vm.stop` is answered by itself. */
+  stopsVm = false;
 
   close(code?: number): void {
     this.closedWith = code;
@@ -155,7 +162,7 @@ describe('DeviceHub', () => {
 
     const good = connect(hub, 'd3');
     good.hello();
-    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT], vm: 'unknown' });
+    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT], vm: 'unknown', activity: null });
     good.say({ type: 'status', vm: 'stopped' });
     expect(hub.status('d3').vm).toBe('stopped');
     good.say({ type: 'session.event', session: 's', event: { type: 'nope' } });
@@ -207,6 +214,55 @@ describe('DeviceHub', () => {
       types.push(event.type);
     }
     expect(types).toEqual(['text.start', 'done']);
+  });
+
+  it('speaks protocol 1 with older devices and sends them nothing new', async () => {
+    const hub = new DeviceHub();
+    const old = connect(hub, 'd1');
+    old.say({ type: 'hello', version: 1, projects: [] });
+    expect(hub.status('d1').online).toBe(true);
+    hub.configure('d1', { idleMinutes: 5 });
+    expect(old.received.map((message) => message.type)).toEqual(['welcome']);
+    await expect(hub.stopVm('d1')).rejects.toMatchObject({ status: 409, code: 'device_outdated' });
+    old.say({ type: 'status', vm: 'running' });
+    expect(hub.status('d1')).toMatchObject({ vm: 'running', activity: null });
+
+    const ancient = connect(hub, 'd0');
+    ancient.say({ type: 'hello', version: 0, projects: [] });
+    expect(ancient.closedWith).toBe(4001);
+  });
+
+  it('hands over the idle time, keeps the activity and stops the VM on request', async () => {
+    const hub = new DeviceHub();
+    const device = new FakeDevice();
+    device.connection = hub.attach('d1', 'user-1', device, { idleMinutes: 15 });
+    device.hello();
+    expect(device.received.at(-1)).toEqual({ type: 'settings', idleMinutes: 15 });
+    hub.configure('d1', { idleMinutes: 0 });
+    expect(device.received.at(-1)).toEqual({ type: 'settings', idleMinutes: 0 });
+
+    // The stop time comes relative, so the device's clock does not matter.
+    const before = Date.now();
+    device.say({ type: 'status', vm: 'running', replies: 0, terminals: 1, stopIn: 600 });
+    const activity = hub.status('d1').activity;
+    expect(activity).toMatchObject({ replies: 0, terminals: 1 });
+    expect(activity?.stopsAt).toBeGreaterThanOrEqual(before + 600_000);
+    expect(activity?.stopsAt).toBeLessThanOrEqual(Date.now() + 600_000);
+    device.say({ type: 'status', vm: 'stopping', replies: 0, terminals: 0, stopIn: null });
+    expect(hub.status('d1')).toMatchObject({ vm: 'stopping', activity: { stopsAt: null } });
+
+    const stopped = hub.stopVm('d1');
+    const request = device.received.at(-1);
+    expect(request).toMatchObject({ type: 'vm.stop' });
+    // An answer to another request changes nothing.
+    device.say({ type: 'vm.result', request: 'other', ok: false, message: 'nein' });
+    device.say({ type: 'vm.result', request: (request as { request: string }).request, ok: true, message: 'Die VM ist gestoppt.' });
+    await expect(stopped).resolves.toEqual({ ok: true, message: 'Die VM ist gestoppt.' });
+
+    const lost = hub.stopVm('d1');
+    device.connection?.closed();
+    await expect(lost).rejects.toMatchObject({ status: 409, code: 'device_offline' });
+    await expect(hub.stopVm('d1')).rejects.toMatchObject({ code: 'device_offline' });
   });
 });
 
@@ -366,6 +422,41 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(device.received.at(-1)).toEqual({ type: 'approval.decide', session: conversation.id, id: 7, decision: 'session' });
   });
 
+  it('lets the owner set the idle time and stop the VM', async () => {
+    const { deviceId, userId } = await pair();
+    const listed = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(listed[0]).toMatchObject({ idleMinutes: DEFAULT_IDLE_MINUTES, activity: null, vm: null });
+
+    const offline = await server.request('POST', `/api/devices/${deviceId}/vm/stop`, { cookie });
+    expect(offline.status).toBe(409);
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    device.stopsVm = true;
+
+    const patch = await server.request('PATCH', `/api/devices/${deviceId}`, { cookie, body: { idleMinutes: 45 } });
+    expect(patch.status).toBe(200);
+    expect(await patch.json()).toMatchObject({ idleMinutes: 45, online: true });
+    expect(device.received.at(-1)).toEqual({ type: 'settings', idleMinutes: 45 });
+    for (const idleMinutes of [-1, 1.5, 24 * 60 + 1]) {
+      const invalid = await server.request('PATCH', `/api/devices/${deviceId}`, { cookie, body: { idleMinutes } });
+      expect(invalid.status).toBe(400);
+    }
+
+    device.say({ type: 'status', vm: 'running', replies: 1, terminals: 0, stopIn: null });
+    const devices = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(devices[0]).toMatchObject({ vm: 'running', idleMinutes: 45, activity: { replies: 1, terminals: 0, stopsAt: null } });
+
+    const stop = await server.request('POST', `/api/devices/${deviceId}/vm/stop`, { cookie });
+    expect(stop.status).toBe(200);
+    expect(await stop.json()).toEqual({ ok: true, message: 'Die VM ist gestoppt.' });
+
+    // Nobody else can change or stop it.
+    const mallory = await server.signUp('mallory@example.com');
+    const foreign = await server.request('PATCH', `/api/devices/${deviceId}`, { cookie: mallory, body: { idleMinutes: 1 } });
+    expect(foreign.status).toBe(404);
+    expect((await server.request('POST', `/api/devices/${deviceId}/vm/stop`, { cookie: mallory })).status).toBe(404);
+  });
+
   it('keeps reported projects while the device is offline and links to them', async () => {
     const { token, deviceId } = await pair();
     // What `harness init` does without a running service.
@@ -432,7 +523,11 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         ws.once('error', reject);
       });
       expect(welcome).toEqual({ type: 'welcome', version: TUNNEL_VERSION });
+      // The idle time stored earlier comes with the greeting.
+      await server.request('PATCH', `/api/devices/${deviceId}`, { cookie, body: { idleMinutes: 90 } });
+      const settings = new Promise<unknown>((resolve) => ws.once('message', (data) => resolve(JSON.parse(data.toString()))));
       ws.send(JSON.stringify({ type: 'hello', version: TUNNEL_VERSION, projects: [PROJECT] }));
+      expect(await settings).toEqual({ type: 'settings', idleMinutes: 90 });
       await eventually(async () => server.hub.status(deviceId).online);
 
       // Revoking the device in the web app cuts the tunnel at once.

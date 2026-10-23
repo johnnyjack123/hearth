@@ -267,6 +267,19 @@ Bausteine:
 - **Sichern und Übernehmen:** neue Tunnel-Nachrichten, die Merge-Prüfung als Datenteil im Chat, Konflikte und ein unsauberer Arbeitsbaum als verständliche Meldung.
 - Nicht mehr geplant: eigene Oberfläche für Netzregeln, Git-Regeln und Harnesse in einer App. Was davon im Browser gebraucht wird, kommt dorthin. Die Dateien in `~/.harness` bleiben die Quelle.
 
+**Stand 23.10. (Branch `feat/environment-ux`), Block „Umgebung im Web-Chat“:**
+1. ✅ **Zustand von Gerät und VM, Stopp und Leerlaufzeit im Browser.**
+   - Tunnel-Protokoll 2 mit Aushandlung: Server und Rechner lassen sich nacheinander aktualisieren.
+   - Das Gerät meldet VM-Zustand (auch „wird gestoppt“), laufende Agent-Antworten und harness-Befehle im Terminal sowie die Sekunden bis zum Stopp im Leerlauf.
+   - Im Umgebungs-Popover des Chats und unter Einstellungen → Geräte: Zustand, „In Benutzung: …“ bzw. „Stoppt um 14:35“, Knopf „VM stoppen“ (fragt nach, wenn etwas läuft), Menü „Automatisch stoppen nach 15 min / 30 min / 1 h / 2 h / nie“ (Standard 30 min, pro Gerät auf dem Server gespeichert).
+   - Der Hintergrunddienst stoppt die VM nach der Leerlaufzeit. Leerlauf heißt: keine Antwort eines Agents, kein harness-Befehl im Terminal (Belegt-Marker) und keine fremden Container in der VM.
+   - Geprüft: Server-Tests, Browser-E2E, `VM_STOP=1 bash scripts/smoke-connect.sh` gegen die echte VM (Stopp aus dem Browser und nach 1 min Leerlauf).
+2. neuer Chat direkt mit Umgebung
+3. „Fortschritt sichern“ und „Übernehmen“ im Chat (vorher die offenen Fragen unten klären)
+4. Tray-Symbol für `harnessd`
+5. Installer
+6. `web_fetch` für pi, fortsetzbare Streams
+
 Offen (mit dem Nutzer klären):
 - Übernehmen direkt in den ausgecheckten Branch (wie `harness merge`, nur bei sauberem Arbeitsbaum) oder erst nur `agent/<projekt>` holen und mit einem zweiten Knopf mergen.
 - Schwere Funde der Merge-Prüfung: im Browser übergehbar oder nur im Terminal?

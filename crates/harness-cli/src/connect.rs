@@ -31,7 +31,8 @@ use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
     AgentEvent, ApprovalState, Decision, DeviceMessage, NoticeLevel, ProgressState, Prompt,
-    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, truncate,
+    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, VERSION_VM_CONTROL, VmStatus,
+    truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
@@ -39,6 +40,7 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
 use crate::daemon::{self, Instance};
+use crate::idle::{Idle, Report, Watcher};
 use crate::net::{self, Question};
 use crate::progress::Progress;
 use crate::{login, run};
@@ -53,8 +55,8 @@ const POLL: Duration = Duration::from_millis(100);
 /// remote on|off` and new projects take effect without a restart.
 const RESCAN: Duration = Duration::from_secs(10);
 
-/// The VM's state is reported this often (the VM service answers fast).
-const VM_STATUS: Duration = Duration::from_secs(15);
+/// How long the server may take to greet after the connection is up.
+const WELCOME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A question on this computer is refused after this long without answer.
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -71,7 +73,7 @@ pub enum Mode {
 }
 
 /// A log line; in the background with a time, because it goes to a file.
-fn say(mode: Mode, text: &str) {
+pub(crate) fn say(mode: Mode, text: &str) {
     match mode {
         Mode::Foreground => println!("{text}"),
         Mode::Background => println!("{} {text}", utc_stamp()),
@@ -177,6 +179,10 @@ fn keep_connected(
 ) -> anyhow::Result<Ended> {
     let url = tunnel_url(client.url())?;
     let ca = ServerCa::from_config(&config.global()?.server)?;
+    let idle = Idle::new(machine);
+    // Watches the VM also while the server is unreachable; stops with this
+    // function.
+    let _watcher = Watcher::spawn(&idle, machine, mode);
     let shared = Arc::new(Shared {
         config: config.clone(),
         machine: machine.to_owned(),
@@ -185,6 +191,7 @@ fn keep_connected(
             Mode::Foreground => Console::new(),
             Mode::Background => Console::none(),
         },
+        idle,
     });
     let projects = offered(config);
     print_offer(mode, &projects);
@@ -307,6 +314,8 @@ struct Shared {
     machine: String,
     mode: Mode,
     console: Console,
+    /// Use of the VM, for the idle stop and the web app.
+    idle: Arc<Idle>,
 }
 
 /// Runs one connection until it ends.
@@ -326,16 +335,38 @@ fn serve(
         }
         Err(error) => return Err(error).context("Verbindungsaufbau"),
     };
+    let server_version = match welcome(&mut socket)? {
+        Ok(version) => version,
+        Err(ended) => return Ok(ended),
+    };
+    // The lower version of both; each side only sends what it knows.
+    let version = server_version.min(TUNNEL_VERSION);
+    if server_version < VERSION_VM_CONTROL {
+        say(
+            shared.mode,
+            &format!(
+                "Der Server spricht noch Protokoll {server_version}: VM-Zustand und -Stopp im \
+                 Browser erst nach einem Update des Servers."
+            ),
+        );
+    } else if server_version > TUNNEL_VERSION {
+        say(
+            shared.mode,
+            &format!(
+                "Der Server spricht Protokoll {server_version}, dieses harness {TUNNEL_VERSION}. \
+                 Neue Funktionen erst nach einem Update von harness."
+            ),
+        );
+    }
     let mut projects = offered(&shared.config);
     send(
         &mut socket,
         &DeviceMessage::Hello {
-            version: TUNNEL_VERSION,
+            version,
             projects: projects.clone(),
         },
     )?;
-    let mut vm = crate::vm::status();
-    send(&mut socket, &DeviceMessage::Status { vm })?;
+    let mut reported: Option<Report> = None;
     say(
         shared.mode,
         match shared.mode {
@@ -349,7 +380,6 @@ fn serve(
     let (out, outgoing) = mpsc::channel::<DeviceMessage>();
     let mut sessions: HashMap<String, SessionHandle> = HashMap::new();
     let mut rescanned = Instant::now();
-    let mut vm_checked = Instant::now();
     let result = loop {
         if instance.stop_requested() {
             let _ = socket.close(None);
@@ -405,13 +435,12 @@ fn serve(
                 )?;
             }
         }
-        if vm_checked.elapsed() >= VM_STATUS {
-            vm_checked = Instant::now();
-            let now = crate::vm::status();
-            if now != vm {
-                vm = now;
-                send(&mut socket, &DeviceMessage::Status { vm })?;
-            }
+        // Sent on change only: the stop time is a fixed instant until
+        // something happens.
+        let report = shared.idle.report();
+        if reported != Some(report) {
+            send(&mut socket, &report.message(version))?;
+            reported = Some(report);
         }
     };
     // Sessions end with the connection; the next message of a chat starts
@@ -422,7 +451,39 @@ fn serve(
     for (_, session) in sessions {
         let _ = session.thread.join();
     }
+    shared.idle.end_all();
     result
+}
+
+/// Waits for the server's greeting: its protocol version, or how the
+/// connection ended before.
+fn welcome(socket: &mut Socket) -> anyhow::Result<Result<u32, Ended>> {
+    let deadline = Instant::now() + WELCOME_TIMEOUT;
+    while Instant::now() < deadline {
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                if let Ok(ServerMessage::Welcome { version }) = serde_json::from_str(&text) {
+                    return Ok(Ok(version));
+                }
+            }
+            Ok(Message::Close(frame)) => {
+                return Ok(Err(if frame.is_some_and(|f| u16::from(f.code) == 4003) {
+                    Ended::Revoked
+                } else {
+                    Ended::Closed
+                }));
+            }
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) => {}
+            Err(tungstenite::Error::ConnectionClosed) => return Ok(Err(Ended::Closed)),
+            Err(error) => return Err(error).context("Begrüßung des Servers"),
+        }
+    }
+    bail!("Der Server hat nicht gegrüßt.")
 }
 
 /// Opens the tunnel. With `[server] ca` only that CA counts for an
@@ -506,14 +567,9 @@ fn dispatch(
     message: ServerMessage,
 ) {
     match message {
-        ServerMessage::Welcome { version } if version != TUNNEL_VERSION => say(
-            shared.mode,
-            &format!(
-                "Der Server spricht Protokoll {version}, dieses harness {TUNNEL_VERSION}. Bitte \
-                 harness oder den Server aktualisieren."
-            ),
-        ),
         ServerMessage::Welcome { .. } | ServerMessage::Unknown => {}
+        ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
+        ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, request),
         ServerMessage::Prompt(prompt) => {
             // First sign of life in the chat: the computer has the message.
             let _ = out.send(DeviceMessage::SessionEvent {
@@ -540,6 +596,8 @@ fn dispatch(
                 });
                 return;
             }
+            // Until `done`, an error or the session's end (see `Emitter`).
+            shared.idle.begin(&prompt.session);
             if let Some(session) = sessions.get(&prompt.session) {
                 if session.project == prompt.project && session.harness == prompt.harness {
                     if session
@@ -591,15 +649,59 @@ fn dispatch(
     }
 }
 
+/// Stops the VM because the user asked in the browser. Replies on their
+/// way end with that reason instead of "pi wurde beendet"; the next message
+/// of a chat starts VM and agent again.
+fn stop_vm(
+    shared: &Arc<Shared>,
+    sessions: &mut HashMap<String, SessionHandle>,
+    out: &Sender<DeviceMessage>,
+    request: String,
+) {
+    for session in shared.idle.answering() {
+        let _ = out.send(DeviceMessage::SessionClosed {
+            session: session.clone(),
+            reason: Some("Die VM wurde im Browser gestoppt.".to_owned()),
+        });
+        shared.idle.end(&session);
+    }
+    // The threads end on their own once pi is gone; nobody waits for them.
+    for (_, session) in sessions.drain() {
+        let _ = session.commands.send(Command::Close);
+    }
+    let shared = Arc::clone(shared);
+    let out = out.clone();
+    thread::spawn(move || {
+        say(shared.mode, "VM wird gestoppt (aus dem Browser).");
+        shared.idle.show(VmStatus::Stopping);
+        let (ok, message) = match crate::vm::stop() {
+            Ok(message) => (true, message),
+            Err(error) => (false, format!("{error:#}")),
+        };
+        say(shared.mode, &format!("VM-Stopp: {message}"));
+        shared.idle.wake();
+        let _ = out.send(DeviceMessage::VmResult {
+            request,
+            ok,
+            message: truncate(&message, 900),
+        });
+    });
+}
+
 /// Events of one session to the server.
 #[derive(Clone)]
 struct Emitter {
     session: String,
     out: Sender<DeviceMessage>,
+    idle: Arc<Idle>,
 }
 
 impl Emitter {
     fn event(&self, event: AgentEvent) {
+        match event {
+            AgentEvent::Done { .. } | AgentEvent::Error { .. } => self.idle.end(&self.session),
+            _ => self.idle.touch(),
+        }
         let _ = self.out.send(DeviceMessage::SessionEvent {
             session: self.session.clone(),
             event,
@@ -607,6 +709,7 @@ impl Emitter {
     }
 
     fn closed(&self, reason: Option<String>) {
+        self.idle.end(&self.session);
         let _ = self.out.send(DeviceMessage::SessionClosed {
             session: self.session.clone(),
             reason,
@@ -679,6 +782,7 @@ fn session(
     let emit = Emitter {
         session: first.session.clone(),
         out: out.clone(),
+        idle: Arc::clone(&shared.idle),
     };
     let title = first
         .conversation

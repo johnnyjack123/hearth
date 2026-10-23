@@ -45,6 +45,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus Hintergrunddienst mit 
 - **Richtungsentscheidung:** Erster und vorerst einziger Sandbox-Provider ist **Podman + Hyper-V mit Linux-VM im Isoliert-Modus** (siehe ARCHITECTURE.md §3). Windows Sandbox wurde verworfen (RAM, kein Exec-I/O, Absturz; `docs/spikes/phase-0b-windows-sandbox.md`). Weitere Provider kommen später über die Provider-Schnittstelle. Bitte keinen zweiten Provider „nebenbei“ anfangen. Ein ungesicherter **Host-Modus** ist vorgemerkt, aber noch nicht dran.
 - Nächstes: siehe PROGRESS.md „Next step“ (Test des Nutzers mit Websuche auf dem Pi, dann Zweitmeinung zu Warnungen und Stopp der VM im Leerlauf).
 - **Keine Desktop-App (Entscheidung 23.10.):** statt Tauri eine Tray-App in Rust (`harnessd`), eingestellt wird alles im Browser. **Umgebungen entstehen nur per `harness init` im Terminal**, nie aus dem Web; das Gerät nimmt vom Server nur harmlose Befehle an (VM stoppen, Leerlaufzeit, Sichern, Übernehmen freigegebener Projekte). Plan: ROADMAP.md, Phase 3.
+- **Block „Umgebung im Web-Chat“, Schritt 1 erledigt (23.10., Branch `feat/environment-ux`):** Zustand von Gerät und VM im Chat (Umgebungs-Popover) und unter Einstellungen → Geräte, VM aus dem Browser stoppen, Leerlaufzeit pro Gerät, Stopp im Leerlauf im Hintergrunddienst. Tunnel-Protokoll 2 mit Aushandlung. Siehe Stolpersteine „VM-Leerlauf und Steuerung aus dem Browser“. Nächster Schritt: neuer Chat direkt mit Umgebung.
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -93,7 +94,8 @@ cargo test -p harness-core -- --ignored --test-threads=1                   # all
 cargo test -p harness-cli --test terminal_vm -- --ignored --test-threads=1  # harness shell/run pi in einem simulierten Terminal (Rückfragen, Strg+C, Größe)
 node --test crates/harness-core/pi/guard.test.ts   # Muster des pi-Schutzes gegen Prompt-Injection (läuft auch in cargo test, wenn node da ist)
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
-bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync (~1 min)
+bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync, VM-Aktivität (~1 min)
+VM_STOP=1 bash scripts/smoke-connect.sh   # zusätzlich VM-Stopp aus dem Browser und nach 1 min Leerlauf (~4 min, zwei VM-Starts)
 bash scripts/gateway-lock.sh          # images/gateway/Cargo.lock neu aus Cargo.lock (nach cargo update / neuen Gateway-Abhängigkeiten)
 target/debug/harness init             # Ordner als Projekt anlegen (mit Git), beim Server melden, Dienst sicherstellen
 target/debug/harness daemon [status|start|stop|install|uninstall]   # Hintergrunddienst für Web-Chats (Protokoll: ~/.harness/daemon.log)
@@ -120,6 +122,8 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - **Streamdown rendert Links ab Werk als `<button>`** mit Bestätigungsdialog (`linkSafety` ist standardmäßig an): kein Link-Cursor, keine Zieladresse beim Zeigen, kein Mittelklick. `markdown.tsx` ersetzt `a` deshalb durch einen echten Link (`MarkdownLink`, nur http(s) und mailto, der Platzhalter `streamdown:incomplete-link` beim Streamen bleibt Text). Eigene `rehypePlugins` **ersetzen** die Standardliste (raw, sanitize, harden); also `...Object.values(defaultRehypePlugins)` voranstellen. Plugins dahinter dürfen eigene Elemente einfügen, die das Sanitizing sonst entfernen würde; gerendert werden sie über `components['<tag>']`.
 
 ### Dateien schreiben (Claude Code)
+
+- **Heredocs mit Backticks im Bash-Werkzeug scheitern** („unexpected EOF while looking for matching `'`“) oder laufen still nicht, auch mit `<<'EOF'`. Python-Skripte mit Backticks (Template-Strings, Markdown) deshalb per Write in `$CLAUDE_JOB_DIR/tmp/` ablegen und mit `python -I <datei>` ausführen.
 
 - **Unicode-Escapes in Werkzeug-Eingaben:** Vierstellige Escapes wie `\u` + `200B` kommen als echtes, unsichtbares Zeichen in der Datei an, und `\\` wird zu `\`. Im Code deshalb immer die Klammerform `\u{200B}` schreiben (in Regex mit Flag `u`), und Zeilen mit vierstelligen Escapes nicht per Edit anfassen (der Vergleich scheitert), sondern per Skript nach Zeilennummer. `apps/server/test/source.test.ts` meldet rohe unsichtbare Zeichen und Steuerzeichen in allen versionierten Textdateien („Trojan Source“), auch aus Merges von Agents.
 
@@ -343,6 +347,17 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - **TLS:** Der Tunnel nutzt bei `[server] ca` einen eigenen `native_tls::TlsConnector` nur mit dieser CA, wie die HTTP-Anfragen. Ohne CA nimmt `tungstenite::connect` den Windows-Speicher.
 - Test des echten Dienstes: `scripts/smoke-connect.sh` mit `harness daemon start` unter `HARNESS_HOME` (eigener Mutex, eigenes Protokoll).
 - **Der laufende Dienst sperrt `target\debug\harness.exe` und `harnessd.exe`**, der Autostart zeigt in der Entwicklung genau dorthin. `cargo build` scheitert dann mit „Zugriff verweigert“. Beide Dateien umbenennen (wie bei `harness run`), nicht den Dienst des Nutzers beenden. Der Nutzer holt die neue Version mit `harness daemon stop` und `harness daemon start`.
+
+### VM-Leerlauf und Steuerung aus dem Browser (`harness-cli/src/idle.rs`, `harness-core/src/busy.rs`, `apps/server/src/tunnel/hub.ts`, Web `features/devices/device-vm.tsx`)
+
+- **Tunnel-Protokoll 2 mit Aushandlung:** Der Server grüßt mit seiner Version (`welcome`), das Gerät antwortet im `hello` mit der kleineren von beiden, der Server nimmt 1 bis 2 an. Neues schickt jede Seite nur, wenn die ausgehandelte Version es kennt (`VERSION_VM_CONTROL`). So lassen sich Server (Pi) und Rechner nacheinander aktualisieren. Ein Gerät mit Protokoll 1 meldet in seinem Log fälschlich „Bitte harness oder den Server aktualisieren“, funktioniert aber. Neue Nachrichten oder Felder vom Gerät brauchen eine höhere Version: Der Server prüft `.strict()` und würfe ein altes Gerät sonst mit 4002 hinaus.
+- **Neue Nachrichten:** `status` trägt ab Version 2 `replies`, `terminals` und `stopIn` (Sekunden bis zum Stopp, relativ, damit die Uhr des Rechners egal ist; der Server macht daraus `stopsAt`). `settings` (Server → Gerät, `idleMinutes`) kommt nach dem `hello` und bei jeder Änderung. `vm.stop` mit `request`-ID, das Gerät antwortet mit `vm.result`; die Route `POST /api/devices/:id/vm/stop` wartet bis zu 3 Minuten darauf. VM-Zustand `stopping` gibt es nur in Version 2 (für Version 1 meldet das Gerät `running`).
+- **Leerlaufzeit** pro Gerät in `device.idleMinutes` (`null` = Standard 30, 0 = nie, höchstens 1440), geändert per `PATCH /api/devices/:id`. Bis der Server sie schickt, gilt beim Gerät der Standard.
+- **Wächter im Dienst** (`idle::Watcher`, Thread neben der Verbindung, läuft auch ohne Server): alle 15 s VM-Zustand über den VM-Dienst und Belegt-Marker. Leerlauf heißt: keine Agent-Antwort unterwegs (von der Nachricht bis `done`/`error`/Sitzungsende), kein harness-Befehl im Terminal. Ein frisch gestarteter VM-Zustand zählt als Aktivität. Wartende pi-Sitzungen zählen nicht; sie sterben mit der VM, die nächste Nachricht startet beides neu.
+- **Belegt-Marker** (`harness_core::busy`): Dateien in `%LOCALAPPDATA%\llm-harness\busy\<machine>\`, offen gehalten **ohne `FILE_SHARE_DELETE`**. Wer zählt, versucht sie zu löschen: Gelingt das, war der Halter beendet (auch nach Absturz); scheitert es, läuft er. `main.rs` setzt ihn für `run`, `shell`, `sync`, `stop`, `status`, `image` und `net` (also auch `net watch`). Der Dienst hält während laufender Antworten selbst einen, damit Dienste anderer Konfigurationen (`HARNESS_HOME`, Smoke-Tests) die VM nicht stoppen. Ein Prozess zählt seine eigenen Marker nie.
+- **Vor einem Stopp im Leerlauf** fragt der Wächter `podman ps`: Laufen Container ohne Label `io.llm-harness.managed` (z. B. `harness-pg` für Postgres-Tests), bleibt die VM an und der Leerlauf beginnt neu (Zeile im `daemon.log`).
+- **Stopp aus dem Browser:** Das Gerät beendet alle Sitzungen; Antworten, die gerade laufen, enden mit „Die VM wurde im Browser gestoppt.“ Die Web-App fragt vorher nach, wenn ein Agent antwortet oder ein Terminal die VM nutzt.
+- **Browser-E2E:** `::-p-text(...)` fand einen Text nicht, der sich in einem schon gerenderten Element änderte (Zustandszeile im Popover), obwohl er sichtbar war. Für Texte, die nach einer Abfrage wechseln, `waitForText` (`document.body.innerText`) nehmen.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 

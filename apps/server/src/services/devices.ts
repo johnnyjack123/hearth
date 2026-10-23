@@ -1,5 +1,13 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import type { DeviceSummary, PairingInfo, PairingPoll, PairingStart, RemoteProject } from '@harness/shared';
+import {
+  DEFAULT_IDLE_MINUTES,
+  type DeviceSummary,
+  type PairingInfo,
+  type PairingPoll,
+  type PairingStart,
+  type RemoteProject,
+  type UpdateDeviceInput,
+} from '@harness/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { SecretBox } from '../crypto.ts';
@@ -84,6 +92,8 @@ function toSummary(row: DeviceRow): DeviceSummary {
     online: false,
     projects: [],
     vm: null,
+    activity: null,
+    idleMinutes: row.idleMinutes ?? DEFAULT_IDLE_MINUTES,
   };
 }
 
@@ -307,6 +317,7 @@ export async function decidePairing(
         tokenHash: hashSecret(token),
         createdAt: Date.now(),
         lastUsedAt: null,
+        idleMinutes: null,
       })
       .execute();
   });
@@ -339,6 +350,30 @@ export async function listDevices(db: Kysely<DB>, userId: string): Promise<Devic
  */
 export async function findDevice(db: Kysely<DB>, userId: string, id: string): Promise<DeviceRow | undefined> {
   return db.selectFrom('device').selectAll().where('id', '=', id).where('userId', '=', userId).executeTakeFirst();
+}
+
+/**
+ * Changes a device's settings.
+ *
+ * @param db - Open database.
+ * @param userId - Expected owner.
+ * @param id - Device id.
+ * @param input - The new settings.
+ * @returns The updated device.
+ * @throws {HttpError} 404 if the device does not exist or belongs to someone else.
+ */
+export async function updateDevice(db: Kysely<DB>, userId: string, id: string, input: UpdateDeviceInput): Promise<DeviceRow> {
+  const result = await db
+    .updateTable('device')
+    .set({ idleMinutes: input.idleMinutes })
+    .where('id', '=', id)
+    .where('userId', '=', userId)
+    .executeTakeFirst();
+  const row = Number(result.numUpdatedRows) === 1 ? await findDevice(db, userId, id) : undefined;
+  if (!row) {
+    throw notFound('Device');
+  }
+  return row;
 }
 
 /**

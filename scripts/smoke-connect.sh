@@ -8,7 +8,11 @@
 #   pi in RPC mode runs a command that commits and asks the gateway for
 #   example.com -> the question is answered over the chat API -> the reply
 #   with tool call and text is streamed and stored -> harness sync brings
-#   the commit home -> harness daemon stop
+#   the commit home -> VM activity and idle time in the web app, a terminal
+#   command keeps the VM busy -> harness daemon stop
+#
+# VM_STOP=1 also stops the VM: once from the browser (API), once because it
+# sat idle for a minute. Takes about three minutes longer (two VM starts).
 #
 # Needs the running VM, both images, `cargo build` and `pnpm install`. Uses
 # ports 8095/8096 and a temporary HARNESS_HOME; pi's shared volume
@@ -28,6 +32,7 @@ export HARNESS_HOME="$WORK/home"
 J='Content-Type: application/json'
 O="Origin: $URL"
 CONNECT=""
+WATCH=""
 
 failures=0
 check() { # check <label> <command…>
@@ -59,11 +64,26 @@ wait_for() { # wait_for <seconds> <command…>
 json() { # json <expression> (reads stdin)
   node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s);console.log(eval(process.argv[1]))})" "$1"
 }
+device() { # device <expression on the first device>
+  api GET /api/devices | json "$1"
+}
+vm_is() { test "$(device 'v[0].vm')" = "$1"; }
+terminals_are() { test "$(device 'v[0].activity && v[0].activity.terminals')" = "$1"; }
+# Minutes until the idle stop as the web app shows them; -1 if none is due.
+stop_minutes() { device 'v[0].activity && v[0].activity.stopsAt ? Math.round((v[0].activity.stopsAt - Date.now()) / 60000) : -1'; }
+stops_in_40_to_45() {
+  local minutes
+  minutes=$(stop_minutes)
+  [ "$minutes" -ge 40 ] && [ "$minutes" -le 45 ]
+}
 
 cleanup() {
   [ -n "${KEEP_LOGS:-}" ] && mkdir -p "$KEEP_LOGS" && cp "$WORK"/*.log "$HARNESS_HOME"/daemon.log "$KEEP_LOGS"/ 2> /dev/null
   [ -n "$CONNECT" ] && kill "$CONNECT" 2> /dev/null
+  [ -n "$WATCH" ] && kill "$WATCH" 2> /dev/null
   "$H" daemon stop > /dev/null 2>&1
+  # Removing the test's containers needs the VM, which VM_STOP=1 stopped.
+  [ -n "${VM_STOP:-}" ] && "$H" vmd start > /dev/null 2>&1
   "$H" logout > /dev/null 2>&1
   (cd "$WORK/$NAME" 2> /dev/null && "$H" stop > /dev/null 2>&1)
   "$PM" rm -f "harness-$NAME" "harness-gw-$NAME" "harness-install-$NAME" > /dev/null 2>&1
@@ -177,6 +197,32 @@ check "Commit des Agents auf agent/$NAME" test "$(git log -1 --format=%s "agent/
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null
 check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HARNESS_HOME/daemon.log"
+
+echo "== VM in der Web-App"
+check "Aktivität gemeldet (Protokoll 2)" test \
+  "$(device "v[0].vm === 'running' && v[0].activity !== null && v[0].activity.replies === 0")" = true
+api PATCH "/api/devices/$DEVICE" '{"idleMinutes":45}' > /dev/null
+check "Leerlaufzeit beim Dienst angekommen" wait_for 20 stops_in_40_to_45
+"$H" net watch < /dev/null > "$WORK/watch.log" 2>&1 &
+WATCH=$!
+check "Befehl im Terminal hält die VM" wait_for 30 terminals_are 1
+check "dabei kein Stopp geplant" test "$(stop_minutes)" = -1
+kill "$WATCH" 2> /dev/null
+wait "$WATCH" 2> /dev/null
+WATCH=""
+check "nach dem Befehl wieder frei" wait_for 30 terminals_are 0
+
+if [ -n "${VM_STOP:-}" ]; then
+  echo "== VM aus dem Browser stoppen"
+  check "Dienst meldet den Stopp" test "$(api POST "/api/devices/$DEVICE/vm/stop" | json v.ok)" = true
+  check "VM aus" wait_for 30 vm_is stopped
+
+  echo "== Stopp nach einer Minute Leerlauf"
+  "$H" vmd start > "$WORK/vm-start.log" 2>&1
+  api PATCH "/api/devices/$DEVICE" '{"idleMinutes":1}' > /dev/null
+  check "Dienst stoppt die unbenutzte VM" wait_for 150 grep -q "unbenutzt, wird gestoppt" "$HARNESS_HOME/daemon.log"
+  check "VM nach dem Leerlauf aus" wait_for 90 vm_is stopped
+fi
 
 echo "== Hintergrunddienst beenden"
 "$H" daemon stop > "$WORK/daemon-stop.log" 2>&1

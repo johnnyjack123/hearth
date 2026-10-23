@@ -1,5 +1,4 @@
 import type { ChatLink, ConversationDetail, ConversationSummary, DeviceSummary, LinkConversationInput } from '@harness/shared';
-import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown, Container, Laptop, Unlink } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -10,19 +9,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu.ts
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
-import { queryKeys } from '@/lib/queries.ts';
+import { queryKeys, useDevices } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
-
-/** Online state changes when `harness connect` starts or stops elsewhere. */
-const DEVICE_REFRESH_MS = 5_000;
-
-function useLiveDevices(enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.devices,
-    queryFn: api.devices.list,
-    refetchInterval: enabled ? DEVICE_REFRESH_MS : false,
-  });
-}
+import { DeviceVm } from '../devices/device-vm.tsx';
 
 function storeConversation(summary: ConversationSummary): void {
   queryClient.setQueryData<ConversationDetail<ChatMessage>>(queryKeys.conversation(summary.id), (current) =>
@@ -48,7 +37,7 @@ export function useLinkOnline(link: ChatLink | null): boolean | undefined {
  * @returns The device, or undefined while unknown.
  */
 export function useLinkDevice(link: ChatLink | null): DeviceSummary | undefined {
-  const devices = useLiveDevices(link !== null);
+  const devices = useDevices(link !== null);
   return link ? devices.data?.find((device) => device.id === link.deviceId) : undefined;
 }
 
@@ -120,10 +109,14 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
               </span>
               <span className="break-words text-xs text-muted-foreground">{t('agent.onDevice', { device: link.deviceName })}</span>
               <OnlineBadge online={online} />
-              {online ? <VmLine vm={device?.vm ?? null} /> : null}
               {online === false ? <span className="text-xs text-muted-foreground">{t('agent.offlineHint')}</span> : null}
             </div>
           </div>
+          {device ? (
+            <div className="border-t border-border pt-2">
+              <DeviceVm device={device} />
+            </div>
+          ) : null}
           <div className="flex flex-col gap-1 border-t border-border pt-2">
             <Button
               variant="ghost"
@@ -178,7 +171,7 @@ function OnlineBadge({ online }: { online: boolean | undefined }) {
 
 function VmLine({ vm }: { vm: DeviceSummary['vm'] }) {
   const t = useT();
-  return vm ? <span className="text-xs text-muted-foreground">{t(`agent.vm.${vm}`)}</span> : null;
+  return vm ? <span className="text-xs text-muted-foreground">{t(`devices.vm.${vm}`)}</span> : null;
 }
 
 function sameChoice(a: LinkConversationInput | null, b: LinkConversationInput | null): boolean {
@@ -202,7 +195,7 @@ export function LinkDialog({
   conversation: ConversationSummary;
 }) {
   const t = useT();
-  const devices = useLiveDevices(open);
+  const devices = useDevices(open);
   const current = conversation.link
     ? { deviceId: conversation.link.deviceId, project: conversation.link.project, harness: conversation.link.harness }
     : null;

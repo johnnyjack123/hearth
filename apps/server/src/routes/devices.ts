@@ -1,23 +1,43 @@
 import {
   type DeviceSelf,
+  type DeviceSummary,
   deviceProjectsSchema,
   pairingDecisionSchema,
   pairingTokenSchema,
+  type RemoteProject,
   startPairingSchema,
+  updateDeviceSchema,
 } from '@harness/shared';
 import { Hono } from 'hono';
+import { notFound } from '../http/errors.ts';
 import { type AppDeps, type AppEnv, type DeviceEnv, requireDevice } from '../http/context.ts';
 import {
   decidePairing,
   deleteDevice,
   deviceSummary,
+  findDevice,
   listDevices,
   loadDeviceProjects,
   pairingInfo,
   pollPairing,
   saveDeviceProjects,
   startPairing,
+  updateDevice,
 } from '../services/devices.ts';
+import type { DeviceHub } from '../tunnel/hub.ts';
+
+/**
+ * A stored device with what its live connection reports.
+ *
+ * @param hub - Connected devices.
+ * @param device - The stored device.
+ * @param projects - Its stored projects.
+ * @returns The device as the web app shows it.
+ */
+function withLive(hub: DeviceHub, device: DeviceSummary, projects: RemoteProject[]): DeviceSummary {
+  const live = hub.status(device.id);
+  return { ...device, online: live.online, vm: live.vm, activity: live.activity, projects };
+}
 
 /**
  * Unauthenticated pairing endpoints a device calls (`/api/pairing`),
@@ -56,12 +76,21 @@ export function deviceRoutes(deps: AppDeps) {
         db,
         devices.map((device) => device.id),
       );
-      return c.json(
-        devices.map((device) => {
-          const live = deps.hub.status(device.id);
-          return { ...device, online: live.online, vm: live.vm, projects: projects.get(device.id) ?? [] };
-        }),
-      );
+      return c.json(devices.map((device) => withLive(deps.hub, device, projects.get(device.id) ?? [])));
+    })
+    .patch('/:id', async (c) => {
+      const input = updateDeviceSchema.parse(await c.req.json());
+      const row = await updateDevice(db, c.get('user').id, c.req.param('id'), input);
+      deps.hub.configure(row.id, { idleMinutes: input.idleMinutes });
+      const projects = (await loadDeviceProjects(db, [row.id])).get(row.id) ?? [];
+      return c.json(withLive(deps.hub, deviceSummary(row), projects));
+    })
+    .post('/:id/vm/stop', async (c) => {
+      const row = await findDevice(db, c.get('user').id, c.req.param('id'));
+      if (!row) {
+        throw notFound('Device');
+      }
+      return c.json(await deps.hub.stopVm(row.id));
     })
     .delete('/:id', async (c) => {
       await deleteDevice(db, c.get('user').id, c.req.param('id'));
@@ -89,10 +118,9 @@ export function deviceSelfRoutes(deps: AppDeps) {
     .get('/', async (c) => {
       const owner = c.get('owner');
       const device = c.get('device');
-      const live = deps.hub.status(device.id);
       const projects = (await loadDeviceProjects(db, [device.id])).get(device.id) ?? [];
       const body: DeviceSelf = {
-        device: { ...deviceSummary(device), online: live.online, vm: live.vm, projects },
+        device: withLive(deps.hub, deviceSummary(device), projects),
         user: { email: owner.email, name: owner.name },
       };
       return c.json(body);

@@ -16,6 +16,8 @@ export type ApiErrorCode =
   | 'custom_base_url_forbidden'
   | 'too_many_requests'
   | 'device_offline'
+  | 'device_outdated'
+  | 'device_timeout'
   | 'conflict'
   | 'internal';
 
