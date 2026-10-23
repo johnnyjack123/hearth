@@ -2,10 +2,24 @@ import { z } from 'zod';
 import type { WebFetchAnswer } from './web-fetch.ts';
 
 /**
- * Version of the device tunnel protocol. Server and device refuse to talk if
- * they disagree, instead of misreading each other's messages.
+ * Version of the device tunnel protocol. The server greets with its version,
+ * the device answers with the lower of both, and each side only sends what
+ * that version knows. So server and device can be updated one after the
+ * other.
+ *
+ * Version 2: VM activity in `status`, the idle time (`settings`) and
+ * stopping the VM from the browser (`vm.stop`, `vm.result`).
  */
-export const TUNNEL_VERSION = 1;
+export const TUNNEL_VERSION = 2;
+
+/** Oldest device protocol the server still accepts. */
+export const MIN_TUNNEL_VERSION = 1;
+
+/** Idle minutes until a device stops its VM, unless the user chose otherwise. */
+export const DEFAULT_IDLE_MINUTES = 30;
+
+/** Longest idle time one can set; 0 means the VM never stops by itself. */
+export const MAX_IDLE_MINUTES = 24 * 60;
 
 /** Path of the device tunnel (WebSocket, device token as bearer). */
 export const TUNNEL_PATH = '/api/device/tunnel';
@@ -106,8 +120,11 @@ export type AgentEvent = z.infer<typeof agentEventSchema>;
 
 const sessionId = z.string().min(1).max(100);
 
-/** State of a device's VM: it starts when an agent needs it. */
-export const VM_STATES = ['running', 'stopped', 'starting', 'unknown'] as const;
+/**
+ * State of a device's VM: it starts when an agent needs it. `stopping` comes
+ * from protocol 2 on.
+ */
+export const VM_STATES = ['running', 'stopped', 'starting', 'stopping', 'unknown'] as const;
 
 /** See {@link VM_STATES}. */
 export type VmState = (typeof VM_STATES)[number];
@@ -135,9 +152,27 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('projects'), projects: z.array(remoteProjectSchema).max(200) }).strict(),
-  z.object({ type: z.literal('status'), vm: z.enum(VM_STATES) }).strict(),
+  z
+    .object({
+      type: z.literal('status'),
+      vm: z.enum(VM_STATES),
+      // From protocol 2 on: what keeps the VM busy, and in how many seconds
+      // the device stops it when nothing happens (null: it will not).
+      replies: z.number().int().nonnegative().max(1_000).optional(),
+      terminals: z.number().int().nonnegative().max(1_000).optional(),
+      stopIn: z.number().int().nonnegative().max(MAX_IDLE_MINUTES * 60).nullable().optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('session.event'), session: sessionId, event: agentEventSchema }).strict(),
   z.object({ type: z.literal('session.closed'), session: sessionId, reason: text(1_000).optional() }).strict(),
+  z
+    .object({
+      type: z.literal('vm.result'),
+      request: z.string().min(1).max(100),
+      ok: z.boolean(),
+      message: text(1_000),
+    })
+    .strict(),
 ]);
 
 /** See {@link deviceMessageSchema}. */
@@ -197,6 +232,16 @@ export type ServerMessage =
       id: number;
       /** The answer. */
       decision: ApprovalDecision;
+    }
+  | {
+      type: 'settings';
+      /** Idle minutes until the device stops its VM; 0: never. Protocol 2. */
+      idleMinutes: number;
+    }
+  | {
+      type: 'vm.stop';
+      /** Id the device repeats in its `vm.result`. Protocol 2. */
+      request: string;
     };
 
 /**

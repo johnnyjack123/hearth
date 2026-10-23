@@ -72,6 +72,21 @@ const step = async (name, fn) => {
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
 const text = (selectorText) => `::-p-text(${selectorText})`;
 
+/** Waits for text the page shows after a refresh, e.g. of the device list. */
+const waitForText = (wanted, timeout = 15_000) =>
+  page.waitForFunction((value) => document.body.innerText.includes(value), { timeout }, wanted);
+
+/** Polls a condition outside the page, e.g. what the simulated device got. */
+async function waitFor(condition, what, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (!condition()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 try {
   await step('register first user', async () => {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -437,12 +452,21 @@ try {
     });
     const received = [];
     const sendEvent = (session, event) => device.send(JSON.stringify({ type: 'session.event', session, event }));
+    const sendStatus = (vm, activity) => device.send(JSON.stringify({ type: 'status', vm, replies: 0, terminals: 0, stopIn: null, ...activity }));
     device.on('message', (data) => {
       const message = JSON.parse(data.toString());
       received.push(message);
       if (message.type === 'welcome') {
-        device.send(JSON.stringify({ type: 'hello', version: 1, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
-        device.send(JSON.stringify({ type: 'status', vm: 'stopped' }));
+        // Protocol 2: VM activity, idle time and stopping from the browser.
+        device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
+        sendStatus('stopped');
+      }
+      if (message.type === 'vm.stop') {
+        sendStatus('stopping');
+        setTimeout(() => {
+          sendStatus('stopped');
+          device.send(JSON.stringify({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }));
+        }, 300);
       }
       if (message.type === 'session.prompt') {
         const s = message.session;
@@ -538,6 +562,58 @@ try {
       await page.reload({ waitUntil: 'networkidle0' });
       await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 10_000 });
       await page.waitForSelector(text('Beantwortet'), { timeout: 5_000 });
+
+      // The VM in the chat: state, when it stops by itself, the idle time.
+      if (!received.some((message) => message.type === 'settings' && message.idleMinutes === 30)) {
+        throw new Error(`device got no idle time: ${JSON.stringify(received.map((message) => message.type))}`);
+      }
+      sendStatus('running', { stopIn: 25 * 60 });
+      // The composer's button, not the label under the reply.
+      await page.click(`form ${text('pi in demo')}`);
+      await page.waitForSelector(text('VM läuft'), { timeout: 10_000 });
+      await page.waitForSelector(text('Stoppt um'), { timeout: 10_000 });
+      await page.waitForSelector(text('Automatisch stoppen nach 30 min'), { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('31-environment-vm');
+      await page.click(text('Automatisch stoppen nach 30 min'));
+      await page.waitForSelector('[role=menuitemradio][aria-checked=true]', { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('32-idle-menu');
+      await page.click(`[role=menuitemradio]${text('Nach 1 h')}`);
+      await page.waitForSelector(text('Automatisch stoppen nach 1 h'), { timeout: 5_000 });
+      await waitFor(() => received.some((message) => message.type === 'settings' && message.idleMinutes === 60), 'idle time 60 on the device');
+
+      // Stopping while something uses the VM asks first.
+      sendStatus('running', { terminals: 1 });
+      const busySince = Date.now();
+      await waitForText('In Benutzung: harness im Terminal');
+      console.log(`     busy shown after ${Date.now() - busySince} ms`);
+      await page.click(text('VM stoppen'));
+      await page.waitForSelector(text('VM trotzdem stoppen?'), { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('33-stop-confirm');
+      await page.click(`[role=alertdialog] ${text('VM stoppen')}`);
+      await waitForText('VM gestoppt');
+      await waitForText('VM aus, startet bei Bedarf');
+      if (!received.some((message) => message.type === 'vm.stop')) {
+        throw new Error('device got no vm.stop');
+      }
+      await shot('34-vm-stopped');
+      await page.keyboard.press('Escape');
+
+      // The same controls under Settings -> Devices, in light mode.
+      sendStatus('running', { stopIn: 50 * 60 });
+      await page.evaluate(() => localStorage.setItem('harness.theme', 'light'));
+      await page.goto(`${BASE}/settings?tab=devices`, { waitUntil: 'networkidle0' });
+      await waitForText('VM läuft');
+      await waitForText('Automatisch stoppen nach 1 h');
+      await shot('35-devices-vm-light');
+      await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+      await page.reload({ waitUntil: 'networkidle0' });
+      await waitForText('VM stoppen');
+      await shot('36-devices-vm-mobile-light');
+      await page.setViewport({ width: 1280, height: 820, deviceScaleFactor: 1 });
+      await page.evaluate(() => localStorage.removeItem('harness.theme'));
     } finally {
       device.close();
     }

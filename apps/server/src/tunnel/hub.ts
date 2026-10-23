@@ -1,12 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import {
   type AgentEvent,
   type ApprovalDecision,
+  type DeviceActivity,
   type DeviceMessage,
   deviceMessageSchema,
+  DEFAULT_IDLE_MINUTES,
+  MIN_TUNNEL_VERSION,
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
   type VmState,
+  type VmStopResult,
 } from '@harness/shared';
 import { HttpError } from '../http/errors.ts';
 
@@ -29,7 +34,21 @@ export interface DeviceStatus {
   projects: RemoteProject[];
   /** The device's VM while online. */
   vm: VmState | null;
+  /** Use of the VM while online, from devices with protocol 2. */
+  activity: DeviceActivity | null;
 }
+
+/** Settings the server keeps for a device and hands it on connect. */
+export interface DeviceSettings {
+  /** Idle minutes until the device stops its VM; 0: never. */
+  idleMinutes: number;
+}
+
+/** First protocol with VM activity, idle time and `vm.stop`. */
+const VERSION_VM_CONTROL = 2;
+
+/** How long a device may take to stop its VM (podman, then a hard stop). */
+const VM_STOP_TIMEOUT_MS = 3 * 60_000;
 
 /** Hooks of the hub into the rest of the server. */
 export interface HubListener {
@@ -127,12 +146,23 @@ export class AgentRun implements AsyncIterable<AgentEvent> {
   }
 }
 
+interface PendingStop {
+  resolve: (result: VmStopResult) => void;
+  reject: (error: HttpError) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface Connection {
   socket: TunnelSocket;
   userId: string;
   greeted: boolean;
+  /** Protocol the device speaks, known after its hello. */
+  version: number;
   projects: RemoteProject[];
   vm: VmState;
+  activity: DeviceActivity | null;
+  settings: DeviceSettings;
+  stops: Map<string, PendingStop>;
 }
 
 interface ActiveRun {
@@ -161,15 +191,26 @@ export class DeviceHub {
    * @param deviceId - Authenticated device.
    * @param userId - Its owner.
    * @param socket - The open socket.
+   * @param settings - The device's settings, sent once it has greeted.
    * @returns Handlers for the socket's frames and its end.
    */
-  attach(deviceId: string, userId: string, socket: TunnelSocket): TunnelConnection {
+  attach(deviceId: string, userId: string, socket: TunnelSocket, settings?: DeviceSettings): TunnelConnection {
     const previous = this.#devices.get(deviceId);
     if (previous) {
       this.#drop(deviceId, previous, 'device_replaced');
       previous.socket.close(CLOSE_REPLACED, 'replaced');
     }
-    const connection: Connection = { socket, userId, greeted: false, projects: [], vm: 'unknown' };
+    const connection: Connection = {
+      socket,
+      userId,
+      greeted: false,
+      version: 0,
+      projects: [],
+      vm: 'unknown',
+      activity: null,
+      settings: settings ?? previous?.settings ?? { idleMinutes: DEFAULT_IDLE_MINUTES },
+      stops: new Map(),
+    };
     this.#devices.set(deviceId, connection);
     this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION });
 
@@ -199,8 +240,55 @@ export class DeviceHub {
   status(deviceId: string): DeviceStatus {
     const connection = this.#devices.get(deviceId);
     return connection?.greeted
-      ? { online: true, projects: connection.projects, vm: connection.vm }
-      : { online: false, projects: [], vm: null };
+      ? { online: true, projects: connection.projects, vm: connection.vm, activity: connection.activity }
+      : { online: false, projects: [], vm: null, activity: null };
+  }
+
+  /**
+   * Hands changed settings to a connected device; a device that connects
+   * later gets them with its greeting from the database.
+   *
+   * @param deviceId - Device id.
+   * @param settings - The new settings.
+   */
+  configure(deviceId: string, settings: DeviceSettings): void {
+    const connection = this.#devices.get(deviceId);
+    if (!connection) {
+      return;
+    }
+    connection.settings = settings;
+    if (connection.greeted && connection.version >= VERSION_VM_CONTROL) {
+      this.#send(connection, { type: 'settings', idleMinutes: settings.idleMinutes });
+    }
+  }
+
+  /**
+   * Asks a device to stop its VM and waits for its answer. Whatever runs
+   * there ends; the next message of a chat starts the VM again.
+   *
+   * @param deviceId - Device id.
+   * @returns The device's answer.
+   * @throws {HttpError} 409 if the device is offline or too old for it,
+   *   504 if it does not answer in time.
+   */
+  stopVm(deviceId: string): Promise<VmStopResult> {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
+    }
+    if (connection.version < VERSION_VM_CONTROL) {
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot stop its VM yet; update harness'));
+    }
+    const request = randomUUID();
+    return new Promise<VmStopResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        connection.stops.delete(request);
+        reject(new HttpError(504, 'device_timeout', 'The device did not answer in time'));
+      }, VM_STOP_TIMEOUT_MS);
+      timer.unref?.();
+      connection.stops.set(request, { resolve, reject, timer });
+      this.#send(connection, { type: 'vm.stop', request });
+    });
   }
 
   /**
@@ -280,14 +368,19 @@ export class DeviceHub {
     }
     switch (message.type) {
       case 'hello':
-        if (message.version !== TUNNEL_VERSION) {
-          connection.socket.close(CLOSE_VERSION, `protocol ${TUNNEL_VERSION} required`);
+        // The device answers the welcome with the lower of both versions.
+        if (message.version < MIN_TUNNEL_VERSION || message.version > TUNNEL_VERSION) {
+          connection.socket.close(CLOSE_VERSION, `protocol ${MIN_TUNNEL_VERSION}-${TUNNEL_VERSION} required`);
           this.#drop(deviceId, connection, 'device_protocol');
           return;
         }
         connection.greeted = true;
+        connection.version = message.version;
         connection.projects = message.projects;
         this.#store(deviceId, message.projects);
+        if (connection.version >= VERSION_VM_CONTROL) {
+          this.#send(connection, { type: 'settings', idleMinutes: connection.settings.idleMinutes });
+        }
         return;
       case 'projects':
         connection.projects = message.projects;
@@ -295,7 +388,25 @@ export class DeviceHub {
         return;
       case 'status':
         connection.vm = message.vm;
+        connection.activity =
+          message.replies === undefined
+            ? null
+            : {
+                replies: message.replies,
+                terminals: message.terminals ?? 0,
+                // Relative on the wire, so the device's clock does not matter.
+                stopsAt: message.stopIn === null || message.stopIn === undefined ? null : Date.now() + message.stopIn * 1000,
+              };
         return;
+      case 'vm.result': {
+        const pending = connection.stops.get(message.request);
+        if (pending) {
+          clearTimeout(pending.timer);
+          connection.stops.delete(message.request);
+          pending.resolve({ ok: message.ok, message: message.message });
+        }
+        return;
+      }
       case 'session.event': {
         // A device only reports on sessions the server opened with it.
         const active = this.#runs.get(message.session);
@@ -335,6 +446,11 @@ export class DeviceHub {
       return;
     }
     this.#devices.delete(deviceId);
+    for (const pending of connection.stops.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new HttpError(409, 'device_offline', 'The device disconnected'));
+    }
+    connection.stops.clear();
     for (const [session, active] of this.#runs) {
       if (active.deviceId === deviceId) {
         active.run.fail(reason);

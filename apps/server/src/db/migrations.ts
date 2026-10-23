@@ -147,6 +147,15 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('deviceProject').execute();
     },
   },
+  // Idle time per device, chosen in the web app.
+  '0005_device_idle': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').addColumn('idleMinutes', 'integer').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').dropColumn('idleMinutes').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

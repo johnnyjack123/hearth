@@ -13,6 +13,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Popover,
@@ -75,6 +77,7 @@ export function DesignPage() {
   const [checked, setChecked] = useState(true);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [segment, setSegment] = useState<'a' | 'b' | 'c'>('a');
+  const [radio, setRadio] = useState('30');
 
   return (
     <div className="min-h-dvh bg-background">
@@ -344,6 +347,25 @@ export function DesignPage() {
                 </Command>
               </PopoverContent>
             </Popover>
+          </Row>
+          <Row label="DropdownMenuRadioGroup · DropdownMenuRadioItem">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">{t('devices.vm.idle')}</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="max-w-72">
+                <DropdownMenuLabel className="font-normal">{t('devices.vm.idleHint')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={radio} onValueChange={setRadio}>
+                  <DropdownMenuRadioItem value="15">{t('devices.vm.minutes', { count: 15 })}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="30">{t('devices.vm.minutes', { count: 30 })}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="60" disabled>
+                    {t('devices.vm.hours', { count: 1 })}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="0">{t('devices.vm.idleNever')}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </Row>
         </Block>
 

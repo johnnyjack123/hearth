@@ -11,6 +11,7 @@ import { api, errorMessage } from '@/lib/api.ts';
 import { springs } from '@/lib/motion.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { queryKeys, useDevices } from '@/lib/queries.ts';
+import { DeviceVm } from '../devices/device-vm.tsx';
 import { Section } from '../shell/page.tsx';
 
 /**
@@ -21,7 +22,7 @@ import { Section } from '../shell/page.tsx';
  */
 export function DevicesPanel() {
   const { t } = usePreferences();
-  const devices = useDevices();
+  const devices = useDevices(true);
 
   return (
     <Section title={t('devices.title')} description={t('devices.description')}>
@@ -74,7 +75,7 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
   }
 
   return (
-    <div className="flex items-center gap-4 p-4">
+    <div className="flex items-start gap-4 p-4">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Laptop className="size-5" aria-hidden="true" />
       </div>
@@ -91,6 +92,7 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
           {t('devices.paired', { date: date(device.createdAt) })} ·{' '}
           {device.lastUsedAt ? t('devices.lastUsed', { date: date(device.lastUsedAt) }) : t('devices.neverUsed')}
         </span>
+        <DeviceVm device={device} />
       </div>
       <Button variant="ghost" size="icon-sm" aria-label={t('common.delete')} onClick={() => setRemoving(true)}>
         <Trash2 />

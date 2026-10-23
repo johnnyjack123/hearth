@@ -2,14 +2,39 @@
 //! VM service when it is installed, so the user never needs an admin
 //! window for it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::bail;
+use harness_core::busy::{self, Marker};
 use harness_core::podman::PodmanProvider;
 use harness_core::tunnel::VmStatus;
 use harness_core::vmd::{self, Request, VmState};
 
 use crate::progress::{Progress, Terminal, step};
+
+/// Set while this process asks the VM service for a start; the service's
+/// own status cannot tell a booting VM from a hung one.
+static STARTING: AtomicBool = AtomicBool::new(false);
+
+/// Set while this process asks the VM service for a stop.
+static STOPPING: AtomicBool = AtomicBool::new(false);
+
+/// Resets a flag when the request ends, also on errors.
+struct Flag(&'static AtomicBool);
+
+impl Flag {
+    fn raise(flag: &'static AtomicBool) -> Flag {
+        flag.store(true, Ordering::SeqCst);
+        Flag(flag)
+    }
+}
+
+impl Drop for Flag {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
 
 /// A provider for `machine`, starting the VM first if SSH does not answer.
 pub fn provider(machine: &str) -> anyhow::Result<PodmanProvider> {
@@ -34,6 +59,7 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
         "vm",
         &format!("VM {machine} starten (bis zu einer Minute)"),
         || {
+            let _starting = Flag::raise(&STARTING);
             let answer = vmd::request(Request::Start)?;
             if !answer.ok {
                 bail!("VM-Start über den Dienst: {}", answer.message);
@@ -44,18 +70,48 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
     Ok(provider)
 }
 
+/// Stops the VM through the VM service; returns the service's message.
+pub fn stop() -> anyhow::Result<String> {
+    if !vmd::available() {
+        bail!("Ohne VM-Dienst (`harness vmd install`) kann harness die VM nicht stoppen.");
+    }
+    let _stopping = Flag::raise(&STOPPING);
+    let answer = vmd::request(Request::Stop)?;
+    if !answer.ok {
+        bail!("{}", answer.message);
+    }
+    Ok(answer.message)
+}
+
 /// The VM's state for the web app; asks the VM service, which is fast and
 /// starts nothing.
 pub fn status() -> VmStatus {
+    if STOPPING.load(Ordering::SeqCst) {
+        return VmStatus::Stopping;
+    }
     if !vmd::available() {
         return VmStatus::Unknown;
     }
-    match vmd::request(Request::Status) {
-        Ok(answer) => match answer.state {
-            VmState::Running => VmStatus::Running,
-            VmState::Stopped => VmStatus::Stopped,
-            VmState::Unresponsive | VmState::Unknown => VmStatus::Unknown,
-        },
-        Err(_) => VmStatus::Unknown,
+    let state = match vmd::request(Request::Status) {
+        Ok(answer) => answer.state,
+        Err(_) => return VmStatus::Unknown,
+    };
+    match state {
+        VmState::Running => VmStatus::Running,
+        _ if STARTING.load(Ordering::SeqCst) => VmStatus::Starting,
+        VmState::Stopped => VmStatus::Stopped,
+        VmState::Unresponsive | VmState::Unknown => VmStatus::Unknown,
     }
+}
+
+/// Marks the VM of `machine` as used by this command until the process
+/// ends, so the background service does not stop it as idle. Without a
+/// marker (unwritable folder) the command runs anyway.
+pub fn mark_in_use(machine: &str) -> Option<Marker> {
+    let command = std::env::args().nth(1).filter(|a| !a.starts_with('-'));
+    let label = match command {
+        Some(command) => format!("harness {command}"),
+        None => "harness".to_owned(),
+    };
+    busy::Marker::acquire(machine, &label).ok()
 }

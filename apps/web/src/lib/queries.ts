@@ -81,13 +81,22 @@ export function useProviders() {
   return useQuery({ queryKey: queryKeys.providers, queryFn: api.providers.list });
 }
 
+/** Online state and VM change on the computer; this keeps them current. */
+const DEVICE_REFRESH_MS = 5_000;
+
 /**
  * Lists the user's paired devices.
  *
+ * @param live - Refresh every few seconds, for views that show online state
+ *   and VM.
  * @returns The query result.
  */
-export function useDevices() {
-  return useQuery({ queryKey: queryKeys.devices, queryFn: api.devices.list });
+export function useDevices(live = false) {
+  return useQuery({
+    queryKey: queryKeys.devices,
+    queryFn: api.devices.list,
+    refetchInterval: live ? DEVICE_REFRESH_MS : false,
+  });
 }
 
 /**

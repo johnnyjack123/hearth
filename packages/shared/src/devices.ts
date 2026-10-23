@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { RemoteProject, VmState } from './agent.ts';
+import { MAX_IDLE_MINUTES, type RemoteProject, type VmState } from './agent.ts';
 import type { ModelInfo } from './api.ts';
 import type { ProviderKind } from './providers.ts';
 
@@ -22,6 +22,50 @@ export interface DeviceSummary {
   projects: RemoteProject[];
   /** Its VM while online, else null. */
   vm: VmState | null;
+  /**
+   * What keeps the VM busy and when the device stops it; null while offline
+   * or for devices that do not report it yet (protocol 1).
+   */
+  activity: DeviceActivity | null;
+  /** Idle minutes until the device stops its VM; 0: never. */
+  idleMinutes: number;
+}
+
+/**
+ * Use of a device's VM, as the device reports it.
+ */
+export interface DeviceActivity {
+  /** Agent replies running on it right now. */
+  replies: number;
+  /** harness commands in a terminal that use the VM (`harness run`, `shell` …). */
+  terminals: number;
+  /**
+   * When the device stops the idle VM, epoch milliseconds (server clock);
+   * null while something uses it, while it is off, or with idle time 0.
+   */
+  stopsAt: number | null;
+}
+
+/**
+ * Validates a change of a device's settings in the web app.
+ */
+export const updateDeviceSchema = z
+  .object({
+    idleMinutes: z.number().int().min(0).max(MAX_IDLE_MINUTES),
+  })
+  .strict();
+
+/** See {@link updateDeviceSchema}. */
+export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
+
+/**
+ * Answer of a device to "stop the VM".
+ */
+export interface VmStopResult {
+  /** Whether the VM is off now. */
+  ok: boolean;
+  /** What happened, in German, from the device. */
+  message: string;
 }
 
 /**

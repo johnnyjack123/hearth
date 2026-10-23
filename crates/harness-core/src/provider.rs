@@ -59,6 +59,9 @@ pub trait Provider {
     /// Looks up a container by exact name.
     fn container(&self, name: &str) -> Result<Option<ContainerInfo>>;
 
+    /// All running containers, also those harness did not create.
+    fn running_containers(&self) -> Result<Vec<ContainerInfo>>;
+
     /// Creates (but does not start) a hardened container.
     fn create_container(&self, spec: &ContainerSpec) -> Result<()>;
 

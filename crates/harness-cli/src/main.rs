@@ -8,6 +8,7 @@
 mod connect;
 mod daemon;
 mod doctor;
+mod idle;
 mod login;
 mod net;
 mod progress;
@@ -187,6 +188,21 @@ fn main() -> ExitCode {
 /// Returns whether the command succeeded; hard errors propagate.
 fn run(cli: Cli) -> anyhow::Result<bool> {
     let config = ConfigDir::open_default()?;
+    // The background service stops an idle VM; not while a command uses it.
+    // The service itself counts its own sessions.
+    let _in_use = match &cli.command {
+        None
+        | Some(
+            Command::Run { .. }
+            | Command::Shell
+            | Command::Sync { .. }
+            | Command::Stop
+            | Command::Status
+            | Command::Image { .. }
+            | Command::Net { .. },
+        ) => vm::mark_in_use(&machine_name(&config, cli.machine.clone())?),
+        Some(_) => None,
+    };
     let Some(command) = cli.command else {
         let machine = machine_name(&config, cli.machine)?;
         return run::run(&config, &machine, None, Vec::new());

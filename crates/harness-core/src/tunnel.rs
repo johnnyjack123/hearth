@@ -9,8 +9,19 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Protocol version; must match the server's `TUNNEL_VERSION`.
-pub const TUNNEL_VERSION: u32 = 1;
+/// Protocol version of this harness. The server greets with its own; the
+/// device speaks the lower of both and only sends what that version knows.
+pub const TUNNEL_VERSION: u32 = 2;
+
+/// Version that brought VM activity, the idle time and `vm.stop`.
+pub const VERSION_VM_CONTROL: u32 = 2;
+
+/// Idle minutes until the VM stops, until the server says otherwise
+/// (`DEFAULT_IDLE_MINUTES` in `@harness/shared`).
+pub const DEFAULT_IDLE_MINUTES: u32 = 30;
+
+/// Longest idle time the server may set (`MAX_IDLE_MINUTES`).
+pub const MAX_IDLE_MINUTES: u32 = 24 * 60;
 
 /// Path of the tunnel on the server.
 pub const TUNNEL_PATH: &str = "/api/device/tunnel";
@@ -65,6 +76,8 @@ pub enum VmStatus {
     Stopped,
     /// Being started.
     Starting,
+    /// Being stopped (protocol 2).
+    Stopping,
     /// Not known (no VM service).
     Unknown,
 }
@@ -265,6 +278,9 @@ pub enum DeviceMessage {
     Status {
         /// The VM.
         vm: VmStatus,
+        /// What keeps it busy; only from protocol 2 on.
+        #[serde(flatten)]
+        activity: Option<VmActivity>,
     },
     /// An event of a session's current reply.
     #[serde(rename = "session.event")]
@@ -283,6 +299,29 @@ pub enum DeviceMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Answer to [`ServerMessage::VmStop`] (protocol 2).
+    #[serde(rename = "vm.result")]
+    VmResult {
+        /// The request's id.
+        request: String,
+        /// Whether the VM is off now.
+        ok: bool,
+        /// What happened, in German.
+        message: String,
+    },
+}
+
+/// Use of the VM, sent with [`DeviceMessage::Status`] from protocol 2 on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct VmActivity {
+    /// Agent replies running.
+    pub replies: u32,
+    /// harness commands in a terminal that use the VM.
+    pub terminals: u32,
+    /// Seconds until the idle VM is stopped; `None` while something uses
+    /// it, while it is off, or with idle time 0.
+    #[serde(rename = "stopIn")]
+    pub stop_in: Option<u64>,
 }
 
 /// The chat behind a session.
@@ -374,6 +413,19 @@ pub enum ServerMessage {
         /// The answer.
         decision: Decision,
     },
+    /// Settings of this device from the web app (protocol 2).
+    #[serde(rename = "settings")]
+    Settings {
+        /// Idle minutes until the VM stops; 0: never.
+        #[serde(rename = "idleMinutes")]
+        idle_minutes: u32,
+    },
+    /// The user wants the VM off now (protocol 2).
+    #[serde(rename = "vm.stop")]
+    VmStop {
+        /// Id to repeat in [`DeviceMessage::VmResult`].
+        request: String,
+    },
     /// A message type of a newer server; ignored.
     #[serde(other)]
     Unknown,
@@ -441,10 +493,32 @@ mod tests {
         );
         let status = DeviceMessage::Status {
             vm: VmStatus::Stopped,
+            activity: None,
         };
         assert_eq!(
             serde_json::to_value(&status).unwrap(),
             json!({ "type": "status", "vm": "stopped" })
+        );
+        let busy = DeviceMessage::Status {
+            vm: VmStatus::Running,
+            activity: Some(VmActivity {
+                replies: 1,
+                terminals: 0,
+                stop_in: None,
+            }),
+        };
+        assert_eq!(
+            serde_json::to_value(&busy).unwrap(),
+            json!({ "type": "status", "vm": "running", "replies": 1, "terminals": 0, "stopIn": null })
+        );
+        let result = DeviceMessage::VmResult {
+            request: "r1".into(),
+            ok: true,
+            message: "Die VM ist gestoppt.".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            json!({ "type": "vm.result", "request": "r1", "ok": true, "message": "Die VM ist gestoppt." })
         );
         let approval = AgentEvent::Approval {
             id: 3,
@@ -483,6 +557,17 @@ mod tests {
                 ..
             }
         ));
+        let settings: ServerMessage =
+            serde_json::from_value(json!({ "type": "settings", "idleMinutes": 15 })).unwrap();
+        assert_eq!(settings, ServerMessage::Settings { idle_minutes: 15 });
+        let stop: ServerMessage =
+            serde_json::from_value(json!({ "type": "vm.stop", "request": "r1" })).unwrap();
+        assert_eq!(
+            stop,
+            ServerMessage::VmStop {
+                request: "r1".into()
+            }
+        );
         let newer: ServerMessage =
             serde_json::from_value(json!({ "type": "files.list", "session": "c1" })).unwrap();
         assert_eq!(newer, ServerMessage::Unknown);
