@@ -4,6 +4,7 @@ import { BookOpenCheck, ChevronRight, CircleAlert, Search, Star } from 'lucide-r
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useState } from 'react';
 import { Badge } from '@/components/ui/display.tsx';
+import { Tooltip } from '@/components/ui/menu.tsx';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import type { ChatMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
@@ -134,6 +135,9 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
   const interrupted = !streaming && (part.state === 'input-streaming' || part.state === 'input-available');
   const input = part.input as { query?: unknown } | undefined;
   const query = output?.query || (typeof input?.query === 'string' ? input.query : '');
+  const preferredHint = output?.kind
+    ? t('webSearch.preferredHint', { kind: t(`webSearch.kinds.${output.kind}`) })
+    : t('webSearch.preferredHintAny');
 
   let status: ReactNode;
   if (running) {
@@ -207,10 +211,16 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
                           </Badge>
                         ) : null}
                         {result.preferred ? (
-                          <Badge variant="primary" className="w-fit">
-                            <Star aria-hidden="true" />
-                            {t('webSearch.preferred')}
-                          </Badge>
+                          <Tooltip content={preferredHint}>
+                            <Badge
+                              variant="primary"
+                              tabIndex={0}
+                              className="w-fit cursor-help focus-visible:outline-none focus-visible:ring-(length:--focus-ring-width) focus-visible:ring-ring"
+                            >
+                              <Star aria-hidden="true" />
+                              {t('webSearch.preferred')}
+                            </Badge>
+                          </Tooltip>
                         ) : null}
                       </span>
                     ) : null}

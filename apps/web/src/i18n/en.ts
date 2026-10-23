@@ -338,6 +338,8 @@ export const en: Messages = {
     readCount: 'read: {count}',
     readAs: 'read, source {number}',
     preferred: 'preferred source',
+    preferredHint: 'The page is on the list of reliable sources for the search kind “{kind}” (such as Wikipedia and authorities for facts, official documentation for tech). Such hits move up 5 places, and the model sees them marked as preferred. Other hits stay in the list.',
+    preferredHintAny: 'The page is on the list of reliable sources for this kind of question. Such hits move up 5 places, and the model sees them marked as preferred. Other hits stay in the list.',
     relevance: 'relevance {percent} %',
     kinds: {
       facts: 'facts',
@@ -351,6 +353,10 @@ export const en: Messages = {
     hideResults: 'Hide results',
     sources: 'Sources',
     unsourcedLabel: 'Unchecked links',
+    badgeLabel: 'Sources of this paragraph: {hosts}',
+    badgeHeading: 'Sources of this paragraph',
+    searchHitOnly: 'search hit only, not read',
+    unchecked: 'unchecked: neither read nor found',
     unsourced: 'These links appear on no page read and in no search hit of this chat. The model added them itself, perhaps from memory; such addresses are sometimes made up. Check them before you rely on them:',
     errors: {
       not_configured: 'No web search is set up on this server.',

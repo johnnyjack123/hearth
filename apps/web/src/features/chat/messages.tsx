@@ -13,7 +13,7 @@ import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-part
 import { formatCost } from './context-meter.tsx';
 import { UsageDetails } from './usage-details.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
-import { knownPageKeys, unsourcedLinks } from './citations.ts';
+import { type KnownSource, knownSources, sourcesSignature, unsourcedLinks } from './citations.ts';
 import { readPages, Sources, UnsourcedLinks, WebSearchCall } from './web-search.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
@@ -56,7 +56,11 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
   // Links of a reply are checked against everything the chat read or found.
-  const known = useMemo(() => knownPageKeys(messages), [messages]);
+  // The map stays the same while a reply streams text, so its Markdown
+  // blocks are not all rendered again for every chunk.
+  const current = knownSources(messages);
+  const signature = sourcesSignature(current);
+  const known = useMemo(() => current, [signature]);
 
   return (
     <div className="mx-auto flex w-full max-w-(--content-width) flex-col gap-8 px-4 py-8" aria-live="polite" aria-busy={busy}>
@@ -116,7 +120,7 @@ function AssistantMessage({
   canRegenerate: boolean;
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
-  known: ReadonlySet<string>;
+  known: ReadonlyMap<string, KnownSource>;
 }) {
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
@@ -148,7 +152,9 @@ function AssistantMessage({
         if (part.type === 'text') {
           return (
             <Suspense key={index} fallback={<p className="whitespace-pre-wrap text-base leading-7">{part.text}</p>}>
-              <Markdown animating={streaming}>{part.text}</Markdown>
+              <Markdown animating={streaming} sources={known}>
+                {part.text}
+              </Markdown>
             </Suspense>
           );
         }

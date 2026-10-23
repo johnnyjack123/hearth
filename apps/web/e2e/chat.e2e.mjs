@@ -269,6 +269,10 @@ try {
     await page.waitForSelector(text('gelesen, Quelle 1'), { timeout: 5_000 });
     await page.waitForSelector(text('bevorzugte Quelle'), { timeout: 5_000 });
     await page.waitForSelector(text('Relevanz 100 %'), { timeout: 5_000 });
+    // The badge explains itself.
+    await page.hover('[tabindex="0"]::-p-text(bevorzugte Quelle)');
+    await page.waitForSelector(text('Liste verlässlicher Quellen für die Suchart „Fakten“'), { timeout: 5_000 });
+    await page.mouse.move(0, 0);
     // The handbook linked on the page came in parts: the sections that
     // match the model's focus, storage among them thanks to the embeddings.
     await page.waitForSelector(text('von 8 Abschnitten · semantisch'), { timeout: 5_000 });
@@ -286,6 +290,36 @@ try {
     if (!unsourced.includes('https://example.org/roestgrade-erfunden') || unsourced.includes('8091/testseite')) {
       throw new Error(`unexpected unsourced links: ${unsourced}`);
     }
+    // Links are real links. The source in brackets left the sentence and
+    // became a badge at the paragraph's end; the made-up link stays inline.
+    const paragraph = await page.$eval(text('Laut der Recherche röstet man Kaffee'), (element) => {
+      const block = element.closest('p') ?? element;
+      const link = block.querySelector('a[href="https://example.org/roestgrade-erfunden"]');
+      return {
+        text: block.textContent,
+        badge: block.querySelector('button[aria-label^="Quellen dieses Absatzes"]')?.textContent ?? null,
+        last: block.lastElementChild?.tagName ?? null,
+        cursor: link ? getComputedStyle(link).cursor : null,
+        target: link?.getAttribute('target') ?? null,
+      };
+    });
+    if (
+      paragraph.text.includes('Kaffee-Testseite') ||
+      paragraph.badge !== '127.0.0.1' ||
+      paragraph.cursor !== 'pointer' ||
+      paragraph.target !== '_blank' ||
+      !paragraph.text.includes('bei etwa 200 °C, mehr zu Röstgraden')
+    ) {
+      throw new Error(`unexpected paragraph: ${JSON.stringify(paragraph)}`);
+    }
+    await page.hover('button[aria-label^="Quellen dieses Absatzes"]');
+    await page.waitForSelector(`[data-radix-popper-content-wrapper] a[href="http://127.0.0.1:8091/testseite"] ${text('Kaffee-Testseite')}`, {
+      timeout: 5_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('27b-source-badge');
+    await page.mouse.move(0, 0);
+    await page.waitForFunction(() => !document.querySelector('[data-radix-popper-content-wrapper]'), { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 

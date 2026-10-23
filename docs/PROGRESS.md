@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-23 · Pi auf neuem Image (Jev, Abschnitte, Bing/Yahoo); Kostentabellen getrennt nach Chat-Modell und Hilfsmodellen, „semantisch/Stichworte/ganze Seite“ in der Karte, Belege je Aussage mit „Ungeprüfte Links“, Laufschrift für lange Modellnamen; nächstes: Test des Nutzers, Entscheidung zur Verschlüsselung mit Passwort_
+_Last updated: 2026-10-23 (abends) · echte Links und Quellen-Badges am Absatzende, Tooltip „bevorzugte Quelle“; Verschlüsselung mit Passwort entschieden (am Ende); nächstes: UX der Umgebung im Web-Chat (mit dem Nutzer klären, was stört)_
 
 ## Where we are
 
@@ -19,7 +19,7 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - `grep` holt für genaue Zahlen nur die Zeilen mit bestimmten Wörtern (mit Überschriften und Tabellenköpfen).
    - Lange Chats (ab 200 000 Token, 50 % des Kontextfensters oder nach 6 h Pause; in der Web-App einstellbar) bekommen ältere Seiten und Suchen nur noch gekürzt; der Chat sagt das an.
    - Tokens und Kosten stehen immer hinter dem Beleg-Knopf: eine Tabelle je Aufruf des Chat-Modells, eine für die Hilfsmodelle (Jev, Embeddings, Titel), dann die Gesamtsumme. Summen auch im Tooltip des Kontext-Rings.
-   - Das Modell setzt nach jeder Aussage aus dem Web einen Link auf die Seite. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
+   - Das Modell nennt am Ende jedes Absatzes seine Quellen; der Chat zeigt sie als Badge (Host, „+n“), beim Zeigen oder Klicken mit Liste. Links im Text sind echte Links. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
    - Die Karte einer geladenen Seite sagt, ob Abschnitte nach Bedeutung („semantisch“) oder nur nach Stichworten gewählt wurden oder ob das Modell die ganze Seite las.
 
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
@@ -28,7 +28,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Test des Nutzers auf dem Pi.** Am 23.10. lief dort noch das Image vom 20.10. (`pull` ohne Neuerstellen des Containers); jetzt läuft der aktuelle Stand, SearXNG mit Bing und Yahoo. Der Test: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
+1. **UX der Umgebung im Web-Chat** (Wunsch des Nutzers vom 23.10.): erst klären, was ihn stört, dann als eigener Block. Kandidaten: neuer Chat direkt mit Umgebung, Status von Gerät und VM im Chat-Kopf, geänderte Dateien und „Übernehmen“ (sync/merge samt Merge-Prüfung) im Chat, fortsetzbare Streams, VM-Stopp im Leerlauf.
+   Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
@@ -61,7 +62,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
-- **Secrets mit dem Passwort verschlüsseln?** Vorschlag und Folgen in ROADMAP.md, Phase 5. Vor allem: Nach einem Neustart des Servers gehen Keys erst nach dem Login wieder, gekoppelte Rechner bräuchten einen eigenen verpackten Schlüssel, Passwort vergessen heißt Keys neu eintragen.
+- **UX der Umgebung im Web-Chat:** Der Nutzer will sie verbessern (23.10.). Vorschläge stehen in der Antwort vom 23.10. (neuer Chat direkt mit Umgebung, Status im Chat-Kopf, Änderungen und „Übernehmen“ im Chat, fortsetzbare Streams, VM-Stopp im Leerlauf); was ihn konkret stört, ist noch offen.
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
@@ -81,6 +82,10 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 23.10. (abends):
+- **Server:** 151/151. **Browser-E2E:** 13/13, 0 Konsolenprobleme; neu: Quellen-Link in Klammern verschwindet aus dem Satz, Badge „127.0.0.1“ am Absatzende, Liste beim Zeigen mit „Kaffee-Testseite“, erfundener Link bleibt echter Link (`target=_blank`, Cursor `pointer`), Tooltip „bevorzugte Quelle“. Screenshot 27b angesehen.
+- **Nicht geprüft:** echtes Modell mit dem neuen Quellen-Prompt (hält DeepSeek die Klammern am Absatzende ein?), Badge auf Touch-Geräten.
 
 Stand 23.10.:
 - **Server:** 151/151, neu: `sections.ranking` je nach Weg (Stichworte, Bedeutung, Nummern).
@@ -121,6 +126,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-23 (abends)
+- Gefunden: Streamdown rendert Links als Knöpfe mit Bestätigungsdialog, deshalb wirkten sie nicht wie Links.
+- Gebaut: echte Links, Quellen als Badge am Absatzende (Hover-Liste), Prompt verlangt Quellen gesammelt am Absatzende, Tooltip zu „bevorzugte Quelle“.
+- Entschieden: Secrets mit dem Passwort verschlüsseln, aber erst am Ende.
 
 ### 2026-10-23
 - Gefunden: Der Pi lief nach `docker compose pull` weiter mit dem alten Container (Stand 20.10.), deshalb fehlten Jev und Abschnitte. Neu erstellt mit `up -d --no-deps server`, SearXNG mit `--force-recreate`.
