@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–3 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev; Branch `feat/environment-ux`); nächstes: Tray-Symbol für `harnessd`_
+_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–4 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol; Branch `feat/environment-ux`); nächstes: Installer_
 
 ## Where we are
 
@@ -28,6 +28,8 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - Das Modell nennt am Ende jedes Absatzes seine Quellen; der Chat zeigt sie als Badge (Host, „+n“), beim Zeigen oder Klicken mit Liste. Links im Text sind echte Links. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
    - Die Karte einer geladenen Seite sagt, ob Abschnitte nach Bedeutung („semantisch“) oder nur nach Stichworten gewählt wurden oder ob das Modell die ganze Seite las.
 
+**Tray-Symbol:** `harnessd` zeigt Verbindung und VM, öffnet Web-App und Protokoll, stoppt die VM, beendet den Dienst und meldet Rückfragen und angehaltene Merges als Windows-Benachrichtigung.
+
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
 
 Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash scripts/smoke-connect.sh` (~1 min). Browser-E2E nur bei freiem Speicher (siehe Known issues).
@@ -38,8 +40,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    1. ✅ Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst (23.10.). Der Nutzer holt es mit `cargo build`, `harness daemon stop`, `harness daemon start`; der Server auf dem Pi braucht das neue Image (`docker compose pull`, dann `docker compose up -d --no-deps server`). Die Reihenfolge ist egal (Protokoll-Aushandlung).
    2. ✅ neuer Chat direkt mit Umgebung (23.10.)
    3. ✅ „Fortschritt sichern“, Freigabe per ID, Autosync, Jev für den Diff (23./24.10.)
-   4. **als Nächstes:** Tray-Symbol für `harnessd`
-   5. Installer, der Podman, VM und Dienst einrichtet
+   4. ✅ Tray-Symbol für `harnessd` (24.10.)
+   5. **als Nächstes:** Installer, der Podman, VM und Dienst einrichtet
    6. `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
@@ -118,6 +120,12 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Verification state
 
+Stand 24.10. (Schritt 4: Tray-Symbol):
+- **Rust:** `cargo test` grün (neu: Statusdatei, Menütexte und -aktionen in Deutsch und Englisch, Status anderer Läufe ignoriert, gezeichnetes Symbol), Clippy ohne Warnungen.
+- **Symbol** als Pixel-Abzug in 16, 24 und 32 px auf hellem und dunklem Grund angesehen.
+- **Echt:** `VM_STOP=1 bash scripts/smoke-connect.sh` 61 grün, dazu VM-Stopp über das Ereignis des Trays; die Tray-Prüfung selbst lief nach Korrektur des Prüfskripts im kurzen Durchlauf 51/51 grün (Fenster des Trays beim richtigen harnessd, Statusdatei verbunden, nach `daemon stop` Statusdatei weg und harnessd beendet).
+- **Nicht geprüft:** Menü und Benachrichtigungen per Klick (kein Fernsteuern des Desktops), Anzeige bei 125/150 % Skalierung, Neustart des Explorers.
+
 Stand 24.10. (Schritt 3: Fortschritt sichern, Autosync, Jev):
 - **Rust:** `cargo test` grün (harness-core 107, harness-cli 9, neu: Branch-Helfer nach Merge, Freigabe-Anträge samt ID-Prüfung, Übernahme-Ereignis im Protokoll), Clippy ohne Warnungen.
 - **Server:** 159/159, neu:
@@ -189,6 +197,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-24 (Schritt 4)
+- Gebaut: Tray-Symbol in `harnessd` (Win32 über windows-sys), Statusdatei des Dienstes, VM-Stopp aus der Taskleiste über ein benanntes Ereignis, Benachrichtigungen bei Rückfragen und angehaltenen Merges.
+- Gefunden: PowerShell übergibt `$null` für String-Parameter als `""`; `FindWindowEx` fand das Fenster deshalb nicht (Prüfskript nutzt jetzt `EnumWindows`).
 
 ### 2026-10-24 (Schritt 3)
 - Gebaut: Fortschritt sichern (Commit im Container, holen, prüfen, mergen, Agent-Branch nachziehen), Freigabe-Anträge mit `harness merge --approve`, Autosync pro Chat, Jev für Diffs über den Server, Tunnel-Protokoll 3, Übernahme-Karte im Chat.

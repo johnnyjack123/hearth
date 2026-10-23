@@ -24,6 +24,7 @@ use harness_core::tunnel::{
 use harness_core::{MANAGED_LABEL, Provider as _};
 
 use crate::connect::{Mode, say};
+use crate::status::{StatusFile, unix_in};
 
 /// How often the watcher looks at the VM (the VM service answers fast).
 const CHECK: Duration = Duration::from_secs(15);
@@ -211,14 +212,16 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    /// Starts watching the VM of `machine`.
-    pub fn spawn(idle: &Arc<Idle>, machine: &str, mode: Mode) -> Watcher {
+    /// Starts watching the VM of `machine`; what it sees also goes to the
+    /// tray icon's `status`.
+    pub fn spawn(idle: &Arc<Idle>, machine: &str, mode: Mode, status: &Arc<StatusFile>) -> Watcher {
         let (signals, receiver) = mpsc::channel();
         *lock(&idle.signals) = Some(signals.clone());
         let thread = {
             let idle = Arc::clone(idle);
             let machine = machine.to_owned();
-            thread::spawn(move || watch(&idle, &machine, mode, &receiver))
+            let status = Arc::clone(status);
+            thread::spawn(move || watch(&idle, &machine, mode, &status, &receiver))
         };
         Watcher {
             signals,
@@ -236,7 +239,7 @@ impl Drop for Watcher {
     }
 }
 
-fn watch(idle: &Idle, machine: &str, mode: Mode, signals: &Receiver<Signal>) {
+fn watch(idle: &Idle, machine: &str, mode: Mode, status: &StatusFile, signals: &Receiver<Signal>) {
     let mut was_running = false;
     loop {
         let vm = crate::vm::status();
@@ -252,12 +255,22 @@ fn watch(idle: &Idle, machine: &str, mode: Mode, signals: &Receiver<Signal>) {
         let minutes = idle.minutes.load(Ordering::SeqCst);
         let stop_at = (running && replies == 0 && terminals.is_empty() && minutes > 0)
             .then(|| last + Duration::from_secs(u64::from(minutes) * 60));
-        *lock(&idle.report) = Report {
+        let report = Report {
             vm,
             replies,
             terminals: u32::try_from(terminals.len()).unwrap_or(u32::MAX),
             stop_at,
         };
+        *lock(&idle.report) = report;
+        let now = Instant::now();
+        status.update(|s| {
+            s.vm = report.vm;
+            s.replies = report.replies;
+            s.terminals = report.terminals;
+            s.stop_at = report
+                .stop_at
+                .map(|at| unix_in(at.saturating_duration_since(now)));
+        });
         if stop_at.is_some_and(|at| Instant::now() >= at) {
             stop_idle(idle, machine, mode, minutes);
             continue;

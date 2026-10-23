@@ -35,6 +35,7 @@ pub fn automatic() -> bool {
 
 /// Suffix of the named kernel objects: one service per configuration
 /// folder, so a test with `HARNESS_HOME` does not collide with the user's.
+/// harnessd computes the same; keep both in step.
 fn object_suffix(config: &ConfigDir) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in config.root().to_string_lossy().to_lowercase().bytes() {
@@ -106,10 +107,13 @@ mod sys {
         true
     }
 
-    /// Creates (or opens) the stop event and clears it.
-    pub fn create_event(name: &str) -> std::io::Result<Handle> {
+    /// Creates (or opens) a named event and clears it. A manual-reset event
+    /// stays set once signalled (stop); an auto-reset one is consumed by the
+    /// check that sees it (one request).
+    pub fn create_event(name: &str, manual_reset: bool) -> std::io::Result<Handle> {
         let name = wide(name);
-        let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, name.as_ptr()) };
+        let handle =
+            unsafe { CreateEventW(std::ptr::null(), i32::from(manual_reset), 0, name.as_ptr()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
         }
@@ -192,12 +196,14 @@ mod sys {
 }
 
 /// The running service's hold on its configuration folder, with the
-/// event that asks it to stop.
+/// events that ask it to stop and (from the tray icon) to stop the VM.
 pub struct Instance {
     #[cfg(windows)]
     _mutex: sys::Handle,
     #[cfg(windows)]
     stop: sys::Handle,
+    #[cfg(windows)]
+    vm_stop: sys::Handle,
 }
 
 impl Instance {
@@ -209,10 +215,14 @@ impl Instance {
         let Some(mutex) = sys::create_mutex(&format!(r"Local\llm-harness-daemon-{suffix}"))? else {
             return Ok(None);
         };
-        let stop = sys::create_event(&format!(r"Local\llm-harness-daemon-stop-{suffix}"))?;
+        let stop = sys::create_event(&format!(r"Local\llm-harness-daemon-stop-{suffix}"), true)?;
+        // harnessd (the tray icon) signals it; the name must match there.
+        let vm_stop =
+            sys::create_event(&format!(r"Local\llm-harness-daemon-vmstop-{suffix}"), false)?;
         Ok(Some(Instance {
             _mutex: mutex,
             stop,
+            vm_stop,
         }))
     }
 
@@ -220,6 +230,18 @@ impl Instance {
     #[cfg(not(windows))]
     pub fn acquire(_config: &ConfigDir) -> anyhow::Result<Option<Instance>> {
         Ok(Some(Instance {}))
+    }
+
+    /// Whether the tray icon asked to stop the VM since the last check.
+    pub fn vm_stop_requested(&self) -> bool {
+        #[cfg(windows)]
+        {
+            sys::is_set(&self.vm_stop)
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
     }
 
     /// Whether `harness daemon stop` asked this process to end.
