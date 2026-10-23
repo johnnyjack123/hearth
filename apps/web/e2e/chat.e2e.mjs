@@ -169,6 +169,9 @@ try {
     await page.waitForSelector(text('Kaffeebohnen werden bei etwa 200 °C geröstet.'), { timeout: 5_000 });
     // Only the article reached the model, not navigation or sidebar.
     await page.waitForSelector(text('Nur der Hauptinhalt'), { timeout: 5_000 });
+    // Without focus or grep the card says the model read the whole page.
+    await page.waitForSelector(text('ganze Seite'), { timeout: 5_000 });
+    await page.waitForSelector(text('Das Modell hat die ganze Seite gelesen'), { timeout: 5_000 });
     const content = await page.$eval(text('Kaffeebohnen werden bei etwa 200 °C geröstet.'), (element) => element.textContent);
     if (content.includes('Ähnliche Seiten') || content.includes('[Shop]')) {
       throw new Error(`navigation in the content: ${content}`);
@@ -268,15 +271,21 @@ try {
     await page.waitForSelector(text('Relevanz 100 %'), { timeout: 5_000 });
     // The handbook linked on the page came in parts: the sections that
     // match the model's focus, storage among them thanks to the embeddings.
-    await page.waitForSelector(text('von 8 Abschnitten'), { timeout: 5_000 });
+    await page.waitForSelector(text('von 8 Abschnitten · semantisch'), { timeout: 5_000 });
     await page.$$eval('button[aria-label="Inhalt zeigen"]', (buttons) =>
       buttons.find((button) => button.textContent.includes('Kaffee-Handbuch'))?.click(),
     );
     await page.waitForSelector(text('Der Server hat ausgewählt'), { timeout: 5_000 });
+    await page.waitForSelector(text('nach Bedeutung (semantische Suche mit Embeddings)'), { timeout: 5_000 });
     await page.waitForSelector(text('Wie lagert man Kaffee?'), { timeout: 5_000 });
     await page.waitForSelector(text('Bohnen luftdicht'), { timeout: 5_000 });
     // Then only the line with one word.
     await page.waitForSelector(text('Treffer: 1'), { timeout: 5_000 });
+    // A link the model added from memory is flagged, the page it read is not.
+    const unsourced = await page.$eval('section[aria-label="Ungeprüfte Links"]', (element) => element.textContent);
+    if (!unsourced.includes('https://example.org/roestgrade-erfunden') || unsourced.includes('8091/testseite')) {
+      throw new Error(`unexpected unsourced links: ${unsourced}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
@@ -287,7 +296,8 @@ try {
     // Tokens and cost of every model call of the reply, without any setting.
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
     await page.click('[aria-label="Token-Details zeigen"]');
-    await page.waitForSelector(text('Tokens je Modellaufruf'), { timeout: 5_000 });
+    await page.waitForSelector(text('Chat-Modell mock-model: Tokens und Kosten je Aufruf'), { timeout: 5_000 });
+    await page.waitForSelector(text('Hilfsmodelle (über OpenRouter)'), { timeout: 5_000 });
     const results = await page.$$eval('table td', (cells) => cells.map((cell) => cell.textContent));
     for (const expected of [
       'web_search',
@@ -306,7 +316,7 @@ try {
     // The context ring lists the chat's totals.
     await page.hover('button[aria-label*="Kontext:"]');
     await page.waitForSelector(text('Gesamt:'), { timeout: 5_000 });
-    await page.$eval(text('Tokens je Modellaufruf'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
+    await page.$eval(text('Hilfsmodelle (über OpenRouter)'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('29-dev-usage');
   });
@@ -531,6 +541,20 @@ try {
     await shot('23-web-fetch-dark');
     await page.goto(`${BASE}/settings?tab=appearance`, { waitUntil: 'networkidle0' });
     await shot('09-settings-dark');
+
+    // Long names scroll to their end while pointed at; short ones stay put.
+    await page.goto(`${BASE}/design`, { waitUntil: 'networkidle0' });
+    const marquees = await page.$$('button[class~="group/marquee"]');
+    await marquees[0].scrollIntoView();
+    await marquees[0].hover();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    const shifted = await marquees[0].$eval('span > span', (element) => new DOMMatrix(getComputedStyle(element).transform).m41);
+    const long = await marquees[0].$eval('span', (element) => element.title);
+    const short = await marquees[1].$eval('span', (element) => element.title);
+    if (!(shifted < -50) || !long || short) {
+      throw new Error(`marquee: shifted ${shifted}, title "${long}", short title "${short}"`);
+    }
+    await shot('30-marquee-dark');
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
     await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Und noch eine Frage'));

@@ -361,6 +361,11 @@ export interface SectionSelection {
   outline: OutlineGroup[];
   /** False when nothing matched the focus and the page's beginning stands in. */
   matched: boolean;
+  /**
+   * How a focus was matched: by keywords alone, or by keywords and meaning
+   * (embeddings); null for sections asked for by number.
+   */
+  ranking: 'keywords' | 'meaning' | null;
 }
 
 /** What the model asked for. */
@@ -407,12 +412,17 @@ const BACK_MATTER =
 /** A focus with these words asks for exactly such lists. */
 const ASKS_FOR_SOURCES = /quelle|literatur|nachweis|referenz|weblink|source|reference|citation|bibliograph|further reading/i;
 
-async function scoresFor(sections: Section[], focus: string, helpers: Helpers | null, signal: AbortSignal | undefined): Promise<number[]> {
+async function scoresFor(
+  sections: Section[],
+  focus: string,
+  helpers: Helpers | null,
+  signal: AbortSignal | undefined,
+): Promise<{ scores: number[]; ranking: 'keywords' | 'meaning' }> {
   const skip = ASKS_FOR_SOURCES.test(focus) ? () => false : (section: Section) => BACK_MATTER.test(section.heading.trim());
   // Left out of both rankings; the outline still lists them.
   const keywords = bm25Scores(sections, focus).map((score, index) => (skip(sections[index]!) ? 0 : score));
   if (!helpers) {
-    return fuseRankings([keywords]);
+    return { scores: fuseRankings([keywords]), ranking: 'keywords' };
   }
   const candidates = sections
     .map((section, index) => ({ section, index, score: keywords[index] ?? 0 }))
@@ -426,7 +436,7 @@ async function scoresFor(sections: Section[], focus: string, helpers: Helpers | 
   );
   const [query, ...rest] = vectors ?? [];
   if (!query) {
-    return fuseRankings([keywords]);
+    return { scores: fuseRankings([keywords]), ranking: 'keywords' };
   }
   // Sections of a failed batch have no vector and count by keywords only.
   const meaning = sections.map(() => 0);
@@ -434,7 +444,7 @@ async function scoresFor(sections: Section[], focus: string, helpers: Helpers | 
     const vector = rest[place];
     meaning[candidate.index] = vector ? cosine(query, vector) : 0;
   });
-  return fuseRankings([keywords, meaning]);
+  return { scores: fuseRankings([keywords, meaning]), ranking: 'meaning' };
 }
 
 /**
@@ -461,6 +471,7 @@ export async function selectSections(
   const wanted = new Set(request.sections ?? []);
   let chosen: Section[] = [];
   let matched = true;
+  let ranking: SectionSelection['ranking'] = null;
   if (wanted.size > 0) {
     let used = 0;
     for (const section of sections) {
@@ -471,7 +482,9 @@ export async function selectSections(
     }
   }
   if (chosen.length === 0) {
-    const scores = request.focus ? await scoresFor(sections, request.focus, helpers, signal) : sections.map(() => 0);
+    const ranked = request.focus ? await scoresFor(sections, request.focus, helpers, signal) : null;
+    const scores = ranked?.scores ?? sections.map(() => 0);
+    ranking = ranked?.ranking ?? null;
     matched = scores.some((score) => score > 0);
     chosen = chooseSections(sections, scores, FOCUS_BUDGET_CHARS);
   }
@@ -481,5 +494,6 @@ export async function selectSections(
     shown: chosen.map((section) => section.index),
     outline: outlineOf(sections),
     matched,
+    ranking,
   };
 }

@@ -102,6 +102,8 @@
   --animate-dot-pulse: dot-pulse 1.2s var(--easing-standard) infinite;
   --animate-skeleton: skeleton 1.6s var(--easing-standard) infinite;
   --animate-spin: spin 0.9s linear infinite;
+  /* Inlined, so the duration and distance MarqueeText sets on the element apply. */
+  --animate-marquee: marquee var(--marquee-duration) linear var(--duration-slow) both;
 }
 
 @keyframes pop-in {
@@ -164,6 +166,12 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(var(--marquee-shift));
   }
 }
 

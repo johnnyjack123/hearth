@@ -16,6 +16,15 @@ export const durations = {
 } as const;
 
 /**
+ * Speeds in pixels per second. CSS cannot divide a distance by a speed, so
+ * these live here only.
+ */
+export const speeds = {
+  /** Text scrolling into view, slow enough to read along. */
+  marquee: 50,
+} as const;
+
+/**
  * Cubic-bezier curves matching `--easing-*`.
  */
 export const easings = {

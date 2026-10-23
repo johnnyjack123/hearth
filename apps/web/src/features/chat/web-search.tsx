@@ -9,6 +9,7 @@ import type { ChatMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { pageKey } from './citations.ts';
 import { InjectionWarning, isFinding, isWarning, RevealedText } from './injection-findings.tsx';
 
 function isResult(value: unknown): value is WebSearchResult {
@@ -44,19 +45,6 @@ function hostOf(url: string): string {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return url;
-  }
-}
-
-/**
- * Host and path of a URL, without scheme, `www.`, query and trailing slash:
- * models often fetch a hit as a tidied-up variant.
- */
-function pageKey(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.host.toLowerCase().replace(/^www\./, '')}${parsed.pathname.replace(/\/+$/, '')}`;
-  } catch {
-    return null;
   }
 }
 
@@ -245,6 +233,35 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
         ) : null}
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * Links of a reply that point to no page the chat read or found, with a
+ * warning: the model added them itself, possibly from memory.
+ *
+ * @param props - The addresses, see `unsourcedLinks`.
+ * @returns The note, or nothing.
+ */
+export function UnsourcedLinks({ links }: { links: string[] }) {
+  const t = useT();
+  if (links.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label={t('webSearch.unsourcedLabel')} className="flex flex-col gap-1.5 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+      <p className="flex items-start gap-2">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        {t('webSearch.unsourced')}
+      </p>
+      <ul className="flex flex-col gap-1">
+        {links.map((url) => (
+          <li key={url} className="break-all font-mono text-foreground">
+            {url}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

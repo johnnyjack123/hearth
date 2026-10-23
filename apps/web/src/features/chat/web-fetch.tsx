@@ -45,8 +45,8 @@ function isSections(value: unknown): value is WebFetchSections {
   );
 }
 
-/** Which part of the page the model got, and why; null when it got the whole text. */
-function sectionsNote(t: TranslateFn, output: WebFetchOutput): string | null {
+/** Which part of the page the model got, and why. */
+function sectionsNote(t: TranslateFn, output: WebFetchOutput): string {
   const { sections, focus, grep } = output;
   if (grep && grep.lines !== null) {
     return grep.lines === 0
@@ -54,13 +54,28 @@ function sectionsNote(t: TranslateFn, output: WebFetchOutput): string | null {
       : t(grep.truncated ? 'webFetch.grepCut' : 'webFetch.grepShown', { pattern: grep.pattern, count: String(grep.lines) });
   }
   if (!sections) {
-    return focus || grep ? t('webFetch.shortPage') : null;
+    return focus || grep ? t('webFetch.shortPage') : t('webFetch.wholePage');
   }
   const values = { list: sections.shown.join(', '), total: String(sections.total) };
   if (!focus) {
     return t('webFetch.sectionsAsked', values);
   }
-  return sections.matched ? t('webFetch.sectionsChosen', values) : t('webFetch.sectionsNoMatch', values);
+  // Replies stored before 23.10.2026 do not say how the sections were picked.
+  const how = sections.ranking === 'meaning' ? ` ${t('webFetch.rankedByMeaning')}` : sections.ranking === 'keywords' ? ` ${t('webFetch.rankedByKeywords')}` : '';
+  return (sections.matched ? t('webFetch.sectionsChosen', values) : t('webFetch.sectionsNoMatch', values)) + how;
+}
+
+/** Short form of {@link sectionsNote} for the closed card; null when nothing was left out. */
+function readBadge(t: TranslateFn, output: WebFetchOutput): string | null {
+  const { sections, focus, grep } = output;
+  if (grep && grep.lines !== null) {
+    return t('webFetch.grepBadge', { count: String(grep.lines) });
+  }
+  if (sections) {
+    const badge = t('webFetch.sectionsBadge', { shown: String(sections.shown.length), total: String(sections.total) });
+    return sections.ranking ? `${badge} · ${t(sections.ranking === 'meaning' ? 'webFetch.byMeaning' : 'webFetch.byKeywords')}` : badge;
+  }
+  return focus || grep ? null : t('webFetch.wholeBadge');
 }
 
 function requestedUrl(input: unknown): string {
@@ -96,6 +111,7 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
   const declined = failure?.code === 'denied' || failure?.code === 'no_answer';
   const warnings = output?.warnings ?? [];
   const note = output ? sectionsNote(t, output) : null;
+  const badge = output ? readBadge(t, output) : null;
 
   let status: ReactNode;
   if (running) {
@@ -129,12 +145,7 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
       >
         <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{output?.title ? `${output.title} · ${url}` : url}</span>
-        {output?.grep && output.grep.lines !== null ? (
-          <Badge className="shrink-0">{t('webFetch.grepBadge', { count: String(output.grep.lines) })}</Badge>
-        ) : null}
-        {output?.sections ? (
-          <Badge className="shrink-0">{t('webFetch.sectionsBadge', { shown: String(output.sections.shown.length), total: String(output.sections.total) })}</Badge>
-        ) : null}
+        {badge ? <Badge className="shrink-0">{badge}</Badge> : null}
         {status}
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}

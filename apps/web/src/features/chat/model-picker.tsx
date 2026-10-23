@@ -4,7 +4,7 @@ import { Check, ChevronDown, CircleAlert, Settings2, Sparkles } from 'lucide-rea
 import { useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command.tsx';
-import { Skeleton } from '@/components/ui/display.tsx';
+import { MarqueeText, Skeleton } from '@/components/ui/display.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { providerName } from '@/lib/providers.ts';
@@ -39,14 +39,14 @@ export function ModelPicker({ selection, onSelect, groups, loading }: ModelPicke
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="min-w-0 max-w-64 gap-1.5 px-2 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="sm" className="group/marquee min-w-0 max-w-64 gap-1.5 px-2 text-muted-foreground hover:text-foreground">
           <Sparkles className="text-primary" />
-          <span className="truncate">{label}</span>
+          <MarqueeText text={label} />
           <ChevronDown className="opacity-60" />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" side="top" className="w-[min(var(--spacing)*88,calc(100vw-var(--spacing)*8))] p-0">
-        <Command loop>
+        <Command loop defaultValue={selection ? `${selection.credentialId}::${selection.modelId}` : undefined}>
           <CommandInput placeholder={t('chat.searchModels')} />
           <CommandList>
             {loading ? (
@@ -74,6 +74,7 @@ export function ModelPicker({ selection, onSelect, groups, loading }: ModelPicke
                   return (
                     <CommandItem
                       key={model.id}
+                      className="group/marquee"
                       value={`${group.credentialId}::${model.id}`}
                       keywords={[model.name, model.id, group.label]}
                       onSelect={() => {
@@ -81,9 +82,9 @@ export function ModelPicker({ selection, onSelect, groups, loading }: ModelPicke
                         setOpen(false);
                       }}
                     >
-                      <span className="min-w-0 flex-1 truncate">{model.name}</span>
+                      <MarqueeText text={model.name} wrapOnTouch className="flex-1" />
                       {model.name !== model.id ? (
-                        <span className="max-w-2/5 truncate font-mono text-xs text-muted-foreground">{model.id}</span>
+                        <MarqueeText text={model.id} wrapOnTouch className="max-w-2/5 font-mono text-xs text-muted-foreground" />
                       ) : null}
                       <Check className={selected ? 'text-primary' : 'invisible'} aria-hidden="true" />
                     </CommandItem>

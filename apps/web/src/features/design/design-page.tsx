@@ -5,7 +5,7 @@ import { Logo } from '@/components/brand/logo.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command.tsx';
 import { ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog.tsx';
-import { Avatar, Badge, Card, EmptyState, Kbd, Separator, Skeleton } from '@/components/ui/display.tsx';
+import { Avatar, Badge, Card, EmptyState, Kbd, MarqueeText, Separator, Skeleton } from '@/components/ui/display.tsx';
 import { Field } from '@/components/ui/field.tsx';
 import { Input, Textarea } from '@/components/ui/input.tsx';
 import {
@@ -226,6 +226,14 @@ export function DesignPage() {
             <Kbd>⌘</Kbd>
             <Spinner />
             <Spinner className="size-6 text-primary" />
+          </Row>
+          <Row label="MarqueeText · group/marquee">
+            <Button variant="outline" className="group/marquee w-56 justify-start">
+              <MarqueeText text="Example Provider: Example Model 3.2 Experimental (thinking, 128k context)" />
+            </Button>
+            <Button variant="outline" className="group/marquee w-56 justify-start">
+              <MarqueeText text="example-model-small" />
+            </Button>
           </Row>
           <Row label="Skeleton">
             <div className="flex w-full max-w-sm flex-col gap-2">

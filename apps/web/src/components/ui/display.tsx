@@ -1,6 +1,8 @@
 import { cva, type VariantProps } from 'class-variance-authority';
+import { useReducedMotion } from 'motion/react';
 import { Avatar as AvatarPrimitive } from 'radix-ui';
-import type { ComponentProps, ReactNode } from 'react';
+import { type ComponentProps, type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { durations, speeds } from '@/lib/motion.ts';
 import { cn } from '@/lib/utils.ts';
 
 const badgeVariants = cva(
@@ -61,6 +63,66 @@ export function Avatar({ name, src, className }: { name: string; src?: string | 
  */
 export function Skeleton({ className, ...props }: ComponentProps<'div'>) {
   return <div aria-hidden="true" className={cn('animate-skeleton rounded-md bg-muted', className)} {...props} />;
+}
+
+/** Scrolls while the `group/marquee` control is pointed at, focused or highlighted (cmdk). */
+const MARQUEE_ACTIVE = [
+  'group-hover/marquee:max-w-none group-hover/marquee:animate-marquee',
+  'group-focus-visible/marquee:max-w-none group-focus-visible/marquee:animate-marquee',
+  'group-data-[selected=true]/marquee:max-w-none group-data-[selected=true]/marquee:animate-marquee',
+];
+
+/**
+ * One line of text, cut off with an ellipsis. When it does not fit, it
+ * scrolls once to its end while the surrounding control is pointed at,
+ * focused or highlighted, so long names stay readable; put the class
+ * `group/marquee` on that control. The full text is also the tooltip, which
+ * is what users who prefer reduced motion get instead.
+ *
+ * @param props - The text, classes for the outer element, and whether the
+ *   text wraps on touch screens instead, where nothing can point at it.
+ * @returns The text.
+ */
+export function MarqueeText({ text, className, wrapOnTouch = false }: { text: string; className?: string; wrapOnTouch?: boolean }) {
+  const outer = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  const reducedMotion = useReducedMotion();
+
+  useLayoutEffect(() => {
+    const box = outer.current;
+    const line = inner.current;
+    if (!box || !line) {
+      return;
+    }
+    const measure = () => setShift(Math.max(0, line.scrollWidth - box.clientWidth));
+    measure();
+    // The web font may arrive after the first measurement and change the width.
+    void document.fonts?.ready.then(measure);
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [text]);
+
+  const scrolls = shift > 0 && !reducedMotion;
+  const style = scrolls
+    ? ({ '--marquee-shift': `-${shift}px`, '--marquee-duration': `${Math.max(shift / speeds.marquee, durations.slow)}s` } as CSSProperties)
+    : undefined;
+  return (
+    <span ref={outer} title={shift > 0 ? text : undefined} className={cn('block min-w-0 overflow-hidden', className)}>
+      <span
+        ref={inner}
+        style={style}
+        className={cn(
+          'inline-block max-w-full truncate align-top',
+          wrapOnTouch && 'pointer-coarse:whitespace-normal pointer-coarse:break-words',
+          scrolls && MARQUEE_ACTIVE,
+        )}
+      >
+        {text}
+      </span>
+    </span>
+  );
 }
 
 /**

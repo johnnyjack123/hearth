@@ -1,7 +1,7 @@
 import { type ApprovalDecision, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Tooltip } from '@/components/ui/menu.tsx';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
@@ -13,7 +13,8 @@ import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-part
 import { formatCost } from './context-meter.tsx';
 import { UsageDetails } from './usage-details.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
-import { readPages, Sources, WebSearchCall } from './web-search.tsx';
+import { knownPageKeys, unsourcedLinks } from './citations.ts';
+import { readPages, Sources, UnsourcedLinks, WebSearchCall } from './web-search.tsx';
 
 const Markdown = lazy(() => import('./markdown.tsx').then((module) => ({ default: module.Markdown })));
 
@@ -54,6 +55,8 @@ export interface MessageListProps {
 export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove }: MessageListProps) {
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
+  // Links of a reply are checked against everything the chat read or found.
+  const known = useMemo(() => knownPageKeys(messages), [messages]);
 
   return (
     <div className="mx-auto flex w-full max-w-(--content-width) flex-col gap-8 px-4 py-8" aria-live="polite" aria-busy={busy}>
@@ -73,6 +76,7 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
               canRegenerate={message.id === lastAssistantId && !busy}
               onRegenerate={onRegenerate}
               onApprove={onApprove}
+              known={known}
             />
           );
         }
@@ -104,6 +108,7 @@ function AssistantMessage({
   canRegenerate,
   onRegenerate,
   onApprove,
+  known,
 }: {
   message: ChatMessage;
   animate: boolean;
@@ -111,6 +116,7 @@ function AssistantMessage({
   canRegenerate: boolean;
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
+  known: ReadonlySet<string>;
 }) {
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
@@ -149,6 +155,7 @@ function AssistantMessage({
         return null;
       })}
       {!streaming ? <Sources pages={pages} /> : null}
+      {!streaming ? <UnsourcedLinks links={unsourcedLinks(message, known)} /> : null}
       {!streaming ? <MessageActions message={message} canRegenerate={canRegenerate} onRegenerate={onRegenerate} /> : null}
     </motion.div>
   );
