@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-23 (nachts) · Block „Umgebung im Web-Chat“, Schritt 1 fertig: VM-Zustand, Stopp und Leerlaufzeit im Browser, Stopp im Leerlauf im Dienst (Branch `feat/environment-ux`); nächstes: neuer Chat direkt mit Umgebung_
+_Last updated: 2026-10-23 (nachts) · Block „Umgebung im Web-Chat“, Schritte 1 und 2 fertig (VM im Browser, neuer Chat direkt mit Umgebung; Branch `feat/environment-ux`); nächstes: „Sichern und Übernehmen“ samt Autosync_
 
 ## Where we are
 
@@ -11,6 +11,7 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
 **Web-Chat:**
 1. `harness login <Server>` koppelt den Rechner und richtet den Hintergrunddienst ein; `harness init` meldet ein Projekt.
 2. Im Chat „Umgebung“ → Gerät → Projekt: pi arbeitet in der VM. Schritte, Werkzeugaufrufe, Rückfragen, Kontext und Kosten erscheinen im Chat. Warnungen des pi-Schutzes zeigen aufklappbar Fundstelle und Grund.
+   - Ein neuer Chat kann direkt mit Umgebung starten: Knopf „Umgebung“ auf der Startseite oder „Neuer Chat in dieser Umgebung“ im Popover eines verknüpften Chats.
    - Das Umgebungs-Popover und Einstellungen → Geräte zeigen den VM-Zustand, was sie gerade nutzt und wann sie im Leerlauf stoppt. „VM stoppen“ geht aus dem Browser, die Leerlaufzeit (Standard 30 min, „nie“ möglich) ist pro Gerät einstellbar. Der Hintergrunddienst stoppt die VM danach selbst.
 3. **Ohne Umgebung** lädt das Modell Seiten über `web_fetch` im Server, als Hauptinhalt (Readability). Fremde Hosts brauchen eine Freigabe. Bei Verdacht auf Prompt-Injection zeigt die Warnung aufklappbar jede Fundstelle mit Ausschnitt und einem Satz, warum das gefährlich ist.
 4. **Recherche-Schalter** im Composer (nur wenn ein Admin unter Administration → Server → Websuche einen Anbieter gespeichert hat): Das Modell sucht mit `web_search` und liest Treffer und Links geladener Seiten ohne Rückfrage. Unter der Antwort stehen die gelesenen Seiten als Quellen.
@@ -31,8 +32,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 1. **Block „Umgebung im Web-Chat“ samt Tray-App** (Plan des Nutzers vom 23.10., ROADMAP.md Phase 3): Vorschlag für die Reihenfolge
    1. ✅ Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst (23.10.). Der Nutzer holt es mit `cargo build`, `harness daemon stop`, `harness daemon start`; der Server auf dem Pi braucht das neue Image (`docker compose pull`, dann `docker compose up -d --no-deps server`). Die Reihenfolge ist egal (Protokoll-Aushandlung).
-   2. **als Nächstes:** neuer Chat direkt mit Umgebung
-   3. „Fortschritt sichern“ und „Übernehmen“ im Chat (commit im Container, sync, Merge-Prüfung im Chat, merge); vorher die offenen Punkte aus Phase 3 mit dem Nutzer klären
+   2. ✅ neuer Chat direkt mit Umgebung (23.10.)
+   3. **als Nächstes:** „Fortschritt sichern“ und „Übernehmen“ im Chat (commit im Container, sync, Merge-Prüfung im Chat, merge in den ausgecheckten Branch; schwere Funde per ID nur im Terminal freigeben), dazu Autosync als Schalter. Entscheidungen des Nutzers stehen in ROADMAP Phase 3.
    4. Tray-Symbol für `harnessd`
    5. Installer, der Podman, VM und Dienst einrichtet
    6. `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
@@ -46,6 +47,12 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 ## In flight / half-finished
 
 Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
+
+## Decisions made 23.10. (nachts, nach Schritt 1)
+
+- Übernehmen mergt direkt in den ausgecheckten Branch; schwere Funde gibt nur ein Befehl im Terminal mit der ID des Antrags aus dem Browser frei; „Immer erlauben“ schreibt weiter die allow-Liste.
+- Autosync als Schalter: nach jeder fertigen Antwort mergen, wenn alle Prüfungen grün sind, danach neuer Branch vom gemergten Stand in die VM.
+- Neu gewünscht: Kontext-Kompaktierung und Thinking-Effort-Regler im Web-Chat, abgeglichen mit pi; Einstellungen zwischen pi und Web gleich halten (ROADMAP Phase 3).
 
 ## Decisions made 23.10. (nachts, Schritt 1)
 
@@ -81,7 +88,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
-- Zu Phase 3 (Tray-App): Übernehmen direkt in den ausgecheckten Branch oder erst `agent/<projekt>`? Schwere Funde der Merge-Prüfung im Browser übergehbar? „Immer erlauben“ aus dem Browser weiter in die allow-Liste? (ROADMAP.md, Phase 3 → Offen)
+- Zu Autosync: Wie soll der neue Branch nach dem Merge heißen (fortlaufend `agent/<projekt>` neu aufsetzen oder `agent/<projekt>-<n>`)? Vorschlag: `agent/<projekt>` bleibt der Name und wird auf den gemergten Stand gesetzt.
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
@@ -101,6 +108,11 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 23.10. (nachts, Schritt 2):
+- **Server:** 155/155, neu: Chat mit `link` anlegen (nicht angebotenes Projekt 409 und fremdes Gerät 404, jeweils ohne gespeicherten Chat; erste Nachricht geht ans Gerät).
+- **Browser-E2E:** 13/13, 0 Konsolenprobleme; „Neuer Chat in dieser Umgebung“ öffnet die Startseite mit „Nachricht an pi in demo …“, die erste Nachricht geht als neue Sitzung ans Gerät, Antwort im neuen Chat; Auswahl über den Dialog der Startseite und „Ohne Umgebung“. Screenshots 37 und 38 angesehen.
+- **Nicht geprüft:** mit echtem Gerät (nur simuliert; der Weg dahinter ist derselbe wie beim Verknüpfen).
 
 Stand 23.10. (nachts, Schritt 1 „Umgebung im Web-Chat“):
 - **Rust:** `cargo test` grün (harness-core 106, harness-cli 7, neu: Belegt-Marker samt Aufräumen nach Absturz, Leerlauf-Zustand, Status je Protokoll, Tunnel-Nachrichten), `cargo clippy --all-targets` ohne Warnungen.
@@ -152,6 +164,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-23 (nachts, Schritt 2)
+- Gebaut: neuer Chat direkt mit Umgebung (Startseite, `link` beim Anlegen, „Neuer Chat in dieser Umgebung“).
+- Entschieden vom Nutzer: Übernehmen in den ausgecheckten Branch, schwere Funde nur per ID im Terminal, „Immer erlauben“ bleibt, Autosync als Schalter; neu gewünscht: Kompaktierung und Effort-Regler im Web, mit pi abgeglichen.
 
 ### 2026-10-23 (nachts)
 - Gebaut: Tunnel-Protokoll 2 mit Aushandlung, VM-Aktivität und Leerlaufzeit, `vm.stop` aus dem Browser, Wächter im Dienst mit Belegt-Markern und Prüfung auf fremde Container, Bedienung im Umgebungs-Popover und unter Geräte, Radio-Einträge im Dropdown-Primitiv.

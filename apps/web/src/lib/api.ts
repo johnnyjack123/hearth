@@ -5,6 +5,7 @@ import type {
   ApprovalDecision,
   ConversationDetail,
   ConversationSummary,
+  CreateConversationInput,
   CreateProviderCredentialInput,
   CredentialModels,
   DeviceSummary,
@@ -108,8 +109,7 @@ export const api = {
   conversations: {
     list: () => request<ConversationSummary[]>('GET', '/conversations'),
     get: (id: string) => request<ConversationDetail<ChatMessage>>('GET', `/conversations/${encodeURIComponent(id)}`),
-    create: (selection: { credentialId?: string; modelId?: string }) =>
-      request<ConversationSummary>('POST', '/conversations', selection),
+    create: (input: CreateConversationInput) => request<ConversationSummary>('POST', '/conversations', input),
     rename: (id: string, title: string) =>
       request<ConversationSummary>('PATCH', `/conversations/${encodeURIComponent(id)}`, { title }),
     remove: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}`),

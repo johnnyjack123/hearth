@@ -12,6 +12,7 @@ import { AuthLayout } from '@/features/auth/auth-layout.tsx';
 import { LoginPage, RegisterPage } from '@/features/auth/auth-pages.tsx';
 import { ChatPage } from '@/features/chat/chat-page.tsx';
 import { disposeAllChats } from '@/features/chat/chat-store.ts';
+import { type EnvironmentSearch, parseEnvironmentSearch } from '@/features/chat/environment.tsx';
 import { NewChatPage } from '@/features/chat/new-chat-page.tsx';
 import { PairingPage } from '@/features/devices/pairing-page.tsx';
 import { SETTINGS_TABS, SettingsPage, type SettingsTab } from '@/features/settings/settings-page.tsx';
@@ -65,7 +66,13 @@ const appRoute = createRoute({
   component: AppShell,
 });
 
-const homeRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: NewChatPage });
+const homeRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/',
+  // "New chat in this environment" preselects it.
+  validateSearch: (search: Record<string, unknown>): EnvironmentSearch => parseEnvironmentSearch(search),
+  component: NewChatPage,
+});
 
 const chatRoute = createRoute({
   getParentRoute: () => appRoute,
