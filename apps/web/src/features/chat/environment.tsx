@@ -1,6 +1,15 @@
-import type { ChatLink, ConversationDetail, ConversationSummary, DeviceSummary, LinkConversationInput } from '@harness/shared';
-import { Check, ChevronDown, Container, Laptop, Unlink } from 'lucide-react';
-import { useState } from 'react';
+import {
+  type ChatLink,
+  type ConversationDetail,
+  type ConversationSummary,
+  type DeviceSummary,
+  harnessNameSchema,
+  type LinkConversationInput,
+  projectNameSchema,
+} from '@harness/shared';
+import { useNavigate } from '@tanstack/react-router';
+import { Check, ChevronDown, Container, Laptop, MessageSquarePlus, Unlink, X } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/display.tsx';
@@ -12,6 +21,46 @@ import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys, useDevices } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
 import { DeviceVm } from '../devices/device-vm.tsx';
+
+/** Search parameters of the start page that preselect an environment. */
+export interface EnvironmentSearch {
+  /** Device id. */
+  device?: string;
+  /** Project on that device. */
+  project?: string;
+  /** Harness, e.g. `pi`. */
+  harness?: string;
+}
+
+/**
+ * Keeps only well-formed environment parameters; the server checks the rest
+ * when the chat is created.
+ *
+ * @param search - Raw search parameters.
+ * @returns The environment, complete or empty.
+ */
+export function parseEnvironmentSearch(search: Record<string, unknown>): EnvironmentSearch {
+  const { device, project, harness } = search;
+  const valid =
+    typeof device === 'string' &&
+    device.length > 0 &&
+    device.length <= 100 &&
+    projectNameSchema.safeParse(project).success &&
+    harnessNameSchema.safeParse(harness).success;
+  return valid ? { device, project: project as string, harness: harness as string } : {};
+}
+
+/**
+ * The environment the start page's search parameters name, if complete.
+ *
+ * @param search - Parsed search parameters.
+ * @returns The choice, or null.
+ */
+export function environmentFromSearch(search: EnvironmentSearch): LinkConversationInput | null {
+  return search.device && search.project && search.harness
+    ? { deviceId: search.device, project: search.project, harness: search.harness }
+    : null;
+}
 
 function storeConversation(summary: ConversationSummary): void {
   queryClient.setQueryData<ConversationDetail<ChatMessage>>(queryKeys.conversation(summary.id), (current) =>
@@ -26,7 +75,7 @@ function storeConversation(summary: ConversationSummary): void {
  * @param link - The chat's link, if any.
  * @returns True, false, or undefined while unknown.
  */
-export function useLinkOnline(link: ChatLink | null): boolean | undefined {
+export function useLinkOnline(link: Pick<ChatLink, 'deviceId'> | null): boolean | undefined {
   return useLinkDevice(link)?.online;
 }
 
@@ -36,7 +85,7 @@ export function useLinkOnline(link: ChatLink | null): boolean | undefined {
  * @param link - The chat's link, if any.
  * @returns The device, or undefined while unknown.
  */
-export function useLinkDevice(link: ChatLink | null): DeviceSummary | undefined {
+export function useLinkDevice(link: Pick<ChatLink, 'deviceId'> | null): DeviceSummary | undefined {
   const devices = useDevices(link !== null);
   return link ? devices.data?.find((device) => device.id === link.deviceId) : undefined;
 }
@@ -50,18 +99,27 @@ export function useLinkDevice(link: ChatLink | null): DeviceSummary | undefined 
  */
 export function EnvironmentButton({ conversation, online }: { conversation: ConversationSummary; online: boolean | undefined }) {
   const t = useT();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
   const [unlinking, setUnlinking] = useState(false);
   const { link } = conversation;
-  const device = useLinkDevice(link);
 
-  async function unlink() {
+  async function choose(choice: LinkConversationInput) {
+    try {
+      const summary = await api.conversations.link(conversation.id, choice);
+      storeConversation(summary);
+      toast.success(t('agent.linked', { project: choice.project }));
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+      throw error;
+    }
+  }
+
+  async function unlink(close: () => void) {
     setUnlinking(true);
     try {
       await api.conversations.unlink(conversation.id);
       storeConversation({ ...conversation, link: null });
-      setMenuOpen(false);
+      close();
       toast.success(t('agent.unlinked'));
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -70,7 +128,111 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
     }
   }
 
-  const dialog = <LinkDialog open={dialogOpen} onOpenChange={setDialogOpen} conversation={conversation} />;
+  return (
+    <EnvironmentControl
+      link={link}
+      online={online}
+      confirmLabel={t('agent.link')}
+      onChoose={choose}
+      actions={(close) =>
+        link ? (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start"
+              onClick={() => {
+                close();
+                void navigate({ to: '/', search: { device: link.deviceId, project: link.project, harness: link.harness } });
+              }}
+            >
+              <MessageSquarePlus />
+              {t('agent.newChatHere')}
+            </Button>
+            <Button variant="ghost" size="sm" className="justify-start text-destructive" loading={unlinking} onClick={() => void unlink(close)}>
+              <Unlink />
+              {t('agent.unlink')}
+            </Button>
+          </>
+        ) : null
+      }
+    />
+  );
+}
+
+/**
+ * The environment control of the start page: the chat does not exist yet, so
+ * the choice is only kept until the first message creates it.
+ *
+ * @param props - The chosen environment and how to change it.
+ * @returns The control.
+ */
+export function NewChatEnvironment({
+  value,
+  onChange,
+}: {
+  value: LinkConversationInput | null;
+  onChange: (value: LinkConversationInput | null) => void;
+}) {
+  const t = useT();
+  const device = useLinkDevice(value);
+  // Until the device list is there, the id stands in for the name.
+  const link: ChatLink | null = value ? { ...value, deviceName: device?.name ?? value.deviceId } : null;
+  return (
+    <EnvironmentControl
+      link={link}
+      online={device?.online}
+      confirmLabel={t('agent.choose')}
+      onChoose={onChange}
+      actions={(close) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="justify-start"
+          onClick={() => {
+            close();
+            onChange(null);
+          }}
+        >
+          <X />
+          {t('agent.withoutEnvironment')}
+        </Button>
+      )}
+    />
+  );
+}
+
+/**
+ * Button with dialog when no environment is chosen; otherwise the chosen one
+ * with a menu: device and VM, another environment, and `actions`.
+ */
+function EnvironmentControl({
+  link,
+  online,
+  confirmLabel,
+  onChoose,
+  actions,
+}: {
+  link: ChatLink | null;
+  online: boolean | undefined;
+  confirmLabel: string;
+  onChoose: (choice: LinkConversationInput) => Promise<void> | void;
+  actions: (close: () => void) => ReactNode;
+}) {
+  const t = useT();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const device = useLinkDevice(link);
+
+  const dialog = (
+    <LinkDialog
+      open={dialogOpen}
+      onOpenChange={setDialogOpen}
+      current={link ? { deviceId: link.deviceId, project: link.project, harness: link.harness } : null}
+      confirmLabel={confirmLabel}
+      onChoose={onChoose}
+    />
+  );
   if (!link) {
     return (
       <>
@@ -130,10 +292,7 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
               <Container />
               {t('agent.change')}
             </Button>
-            <Button variant="ghost" size="sm" className="justify-start text-destructive" loading={unlinking} onClick={() => void unlink()}>
-              <Unlink />
-              {t('agent.unlink')}
-            </Button>
+            {actions(() => setMenuOpen(false))}
           </div>
         </PopoverContent>
       </Popover>
@@ -180,25 +339,27 @@ function sameChoice(a: LinkConversationInput | null, b: LinkConversationInput | 
 
 /**
  * Picks a device, project and harness for a chat. Only projects the computer
- * offers right now can be chosen; the computer confirms the first use.
+ * offers can be chosen; the computer decides when the first message comes.
  *
- * @param props - Open state and the conversation.
+ * @param props - Open state, the current choice, the confirm label and what
+ *   to do with a new choice (rejecting keeps the dialog open).
  * @returns The dialog.
  */
 export function LinkDialog({
   open,
   onOpenChange,
-  conversation,
+  current,
+  confirmLabel,
+  onChoose,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  conversation: ConversationSummary;
+  current: LinkConversationInput | null;
+  confirmLabel: string;
+  onChoose: (choice: LinkConversationInput) => Promise<void> | void;
 }) {
   const t = useT();
   const devices = useDevices(open);
-  const current = conversation.link
-    ? { deviceId: conversation.link.deviceId, project: conversation.link.project, harness: conversation.link.harness }
-    : null;
   const [choice, setChoice] = useState<LinkConversationInput | null>(current);
   const [saving, setSaving] = useState(false);
   // Each opening starts from the current link, not from the last choice.
@@ -216,12 +377,10 @@ export function LinkDialog({
     }
     setSaving(true);
     try {
-      const summary = await api.conversations.link(conversation.id, choice);
-      storeConversation(summary);
-      toast.success(t('agent.linked', { project: choice.project }));
+      await onChoose(choice);
       onOpenChange(false);
-    } catch (error) {
-      toast.error(errorMessage(t, error));
+    } catch {
+      // onChoose has told the user why.
     } finally {
       setSaving(false);
     }
@@ -254,7 +413,7 @@ export function LinkDialog({
             {t('common.cancel')}
           </Button>
           <Button variant="primary" disabled={!choice || sameChoice(choice, current)} loading={saving} onClick={() => void save()}>
-            {t('agent.link')}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

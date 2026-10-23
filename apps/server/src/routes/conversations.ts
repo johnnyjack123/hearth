@@ -72,11 +72,23 @@ export function conversationRoutes(deps: AppDeps) {
     .get('/', async (c) => c.json(await listConversations(db, c.get('user').id)))
     .post('/', async (c) => {
       const user = c.get('user');
-      const selection = createConversationSchema.parse(await c.req.json().catch(() => ({})));
+      const { link, ...selection } = createConversationSchema.parse(await c.req.json().catch(() => ({})));
       if (selection.credentialId && !(await findCredential(db, user.id, selection.credentialId))) {
         throw notFound('Credential');
       }
-      return c.json(await createConversation(db, user.id, selection), 201);
+      // Checked before anything is stored, so a refused link leaves no chat behind.
+      if (link) {
+        if (!(await findDevice(db, user.id, link.deviceId))) {
+          throw notFound('Device');
+        }
+        await assertOffered(link.deviceId, link.project, link.harness);
+      }
+      const conversation = await createConversation(db, user.id, selection);
+      if (!link) {
+        return c.json(conversation, 201);
+      }
+      await setLink(db, conversation.id, link);
+      return c.json(await findConversation(db, user.id, conversation.id), 201);
     })
     .get('/:id', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));

@@ -274,17 +274,21 @@ Bausteine:
    - Im Umgebungs-Popover des Chats und unter Einstellungen → Geräte: Zustand, „In Benutzung: …“ bzw. „Stoppt um 14:35“, Knopf „VM stoppen“ (fragt nach, wenn etwas läuft), Menü „Automatisch stoppen nach 15 min / 30 min / 1 h / 2 h / nie“ (Standard 30 min, pro Gerät auf dem Server gespeichert).
    - Der Hintergrunddienst stoppt die VM nach der Leerlaufzeit. Leerlauf heißt: keine Antwort eines Agents, kein harness-Befehl im Terminal (Belegt-Marker) und keine fremden Container in der VM.
    - Geprüft: Server-Tests, Browser-E2E, `VM_STOP=1 bash scripts/smoke-connect.sh` gegen die echte VM (Stopp aus dem Browser und nach 1 min Leerlauf).
-2. neuer Chat direkt mit Umgebung
-3. „Fortschritt sichern“ und „Übernehmen“ im Chat (vorher die offenen Fragen unten klären)
+2. ✅ **Neuer Chat direkt mit Umgebung:** Umgebungs-Knopf auf der Startseite, der Chat entsteht schon verknüpft (`POST /api/conversations` mit `link`), „Neuer Chat in dieser Umgebung“ im Popover eines verknüpften Chats.
+3. „Fortschritt sichern“ und „Übernehmen“ im Chat samt Autosync (Entscheidungen unten)
 4. Tray-Symbol für `harnessd`
 5. Installer
 6. `web_fetch` für pi, fortsetzbare Streams
 
-Offen (mit dem Nutzer klären):
-- Übernehmen direkt in den ausgecheckten Branch (wie `harness merge`, nur bei sauberem Arbeitsbaum) oder erst nur `agent/<projekt>` holen und mit einem zweiten Knopf mergen.
-- Schwere Funde der Merge-Prüfung: im Browser übergehbar oder nur im Terminal?
-- „Immer erlauben“ bei Netz-Rückfragen aus dem Browser schreibt heute die allow-Liste des Projekts. Bleibt das so?
-- Automatischer Sync (Wunsch vom 15.10.): `harnessd` holt neue Commits laufend als `agent/<projekt>`, ohne den Ordner anzufassen.
+**Entschieden vom Nutzer (23.10. nachts)** – vorher „Offen“:
+- **Übernehmen mergt direkt in den ausgecheckten Branch** (wie `harness merge`, nur bei sauberem Arbeitsbaum).
+- **Schwere Funde der Merge-Prüfung nur im Terminal freigeben.** Ablauf: Der Browser beantragt den Merge und bekommt eine ID. Auf dem Rechner gibt ein Befehl mit dieser ID ihn frei (etwa `harness merge --approve <ID>`). So entscheidet nie der Browser allein über Funde.
+- **„Immer erlauben“ aus dem Browser schreibt weiter die allow-Liste** des Projekts. Allgemein sollen Einstellungen zwischen pi und Web-Chat gleich sein.
+- **Autosync als Schalter:** Ist er an, mergt der Dienst nach jeder fertigen Antwort eines Agents den Stand in den ausgecheckten Branch auf dem Host, sofern alle Prüfungen grün sind. Sonst mergt er nicht und zeigt die Funde. Nach dem Merge macht er vom aktuellen Stand einen neuen Branch und gibt ihn wieder in die VM, damit es übersichtlich bleibt. Inhaltlich ändert sich in der VM dabei nichts, außer der Nutzer hat inzwischen selbst etwas geändert.
+
+**Neu gewünscht (23.10. nachts):**
+- **Kontext-Kompaktierung im Web-Chat** (Zusammenfassen älterer Verläufe, nicht nur das Eindampfen von Seiten) und ein **Regler für den Thinking-Effort**. Beides muss mit pi abgeglichen werden: pi hat eigene Denkstufen und automatische Kompaktierung, ein verknüpfter Chat soll dieselben Einstellungen nutzen.
+- **Einstellungen zwischen pi und Web gleich halten** (Modell, Effort, Kompaktierung, Netzfreigaben).
 
 ## Phase 4 – Chat ↔ Umgebung
 

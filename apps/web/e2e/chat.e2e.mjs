@@ -468,6 +468,14 @@ try {
           device.send(JSON.stringify({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }));
         }, 300);
       }
+      if (message.type === 'session.prompt' && message.text === 'Neu mit Umgebung') {
+        const s = message.session;
+        sendEvent(s, { type: 'text.start', id: 'n1' });
+        sendEvent(s, { type: 'text.delta', id: 'n1', delta: 'Neuer Chat läuft in demo.' });
+        sendEvent(s, { type: 'text.end', id: 'n1' });
+        sendEvent(s, { type: 'done', aborted: false });
+        return;
+      }
       if (message.type === 'session.prompt') {
         const s = message.session;
         sendEvent(s, { type: 'progress', id: 'received', label: 'Auf dem Rechner angekommen', state: 'done' });
@@ -614,6 +622,39 @@ try {
       await shot('36-devices-vm-mobile-light');
       await page.setViewport({ width: 1280, height: 820, deviceScaleFactor: 1 });
       await page.evaluate(() => localStorage.removeItem('harness.theme'));
+
+      // A new chat straight in the environment, from the linked chat's menu.
+      await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
+      await page.click(`form ${text('pi in demo')}`);
+      await page.click(text('Neuer Chat in dieser Umgebung'));
+      await page.waitForFunction(() => location.pathname === '/' && location.search.includes('project=demo'), { timeout: 5_000 });
+      await page.waitForFunction(() => document.querySelector('textarea')?.placeholder.includes('pi in demo'), { timeout: 10_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('37-new-chat-environment');
+      await page.type('textarea', 'Neu mit Umgebung');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+      await waitForText('Neuer Chat läuft in demo.');
+      const prompts = received.filter((message) => message.type === 'session.prompt');
+      const fresh = prompts.at(-1);
+      if (fresh?.text !== 'Neu mit Umgebung' || fresh.project !== 'demo' || fresh.session === prompts[0]?.session) {
+        throw new Error(`new chat sent ${JSON.stringify(fresh)}`);
+      }
+      await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
+      await shot('38-new-chat-environment-reply');
+
+      // The start page's own dialog, and back to an ordinary chat.
+      await page.goto(BASE, { waitUntil: 'networkidle0' });
+      await page.click('[aria-label="Mit Umgebung verbinden"]');
+      await page.click(`[role=dialog] ${text('demo')}`);
+      await page.click(`[role=dialog] ${text('Auswählen')}`);
+      await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
+      // The dialog fades out over the composer first.
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+      await page.click(`form ${text('pi in demo')}`);
+      await page.waitForSelector(text('Ohne Umgebung'), { timeout: 5_000 });
+      await page.click(text('Ohne Umgebung'));
+      await page.waitForSelector('[aria-label="Mit Umgebung verbinden"]', { timeout: 5_000 });
     } finally {
       device.close();
     }

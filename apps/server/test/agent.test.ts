@@ -422,6 +422,40 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(device.received.at(-1)).toEqual({ type: 'approval.decide', session: conversation.id, id: 7, decision: 'session' });
   });
 
+  it('creates a chat that is linked from the start', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const link = { deviceId, project: 'demo', harness: 'pi' };
+    const count = async () => ((await (await server.request('GET', '/api/conversations', { cookie })).json()) as unknown[]).length;
+
+    // A project the device does not offer creates nothing.
+    const refused = await server.request('POST', '/api/conversations', { cookie, body: { link: { ...link, project: 'secret' } } });
+    expect(refused.status).toBe(409);
+    const mallory = await server.signUp('mallory@example.com');
+    const foreign = await server.request('POST', '/api/conversations', { cookie: mallory, body: { link } });
+    expect(foreign.status).toBe(404);
+    expect(await count()).toBe(0);
+
+    const created = await server.request('POST', '/api/conversations', {
+      cookie,
+      body: { credentialId: credential.id, modelId: 'mock-1', link },
+    });
+    expect(created.status).toBe(201);
+    const conversation = (await created.json()) as ConversationSummary;
+    expect(conversation.link).toEqual({ ...link, deviceName: 'harness auf TEST' });
+    expect((await load(conversation.id)).link).toEqual(conversation.link);
+
+    // The first message goes to the device, not to the model.
+    device.onPrompt = (prompt) => device.emit(prompt.session, { type: 'done', aborted: false });
+    await (await chat(conversation.id, 'Los')).text();
+    expect(device.received.find((message) => message.type === 'session.prompt')).toMatchObject({
+      session: conversation.id,
+      project: 'demo',
+      text: 'Los',
+    });
+  });
+
   it('lets the owner set the idle time and stop the VM', async () => {
     const { deviceId, userId } = await pair();
     const listed = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];

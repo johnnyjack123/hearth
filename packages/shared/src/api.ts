@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ChatLink } from './agent.ts';
+import { type ChatLink, linkConversationSchema } from './agent.ts';
 import { PROVIDER_KINDS, type ProviderKind } from './providers.ts';
 import { type SearchSettings, updateSearchSettingsSchema } from './web-search.ts';
 
@@ -349,9 +349,14 @@ export const createConversationSchema = z
   .object({
     credentialId: z.string().min(1).max(100),
     modelId: z.string().min(1).max(200),
+    /** Environment to link the new chat to, so it starts with an agent. */
+    link: linkConversationSchema,
   })
   .partial()
   .strict();
+
+/** See {@link createConversationSchema}. */
+export type CreateConversationInput = z.infer<typeof createConversationSchema>;
 
 /**
  * Validates the body of a request that renames a conversation.

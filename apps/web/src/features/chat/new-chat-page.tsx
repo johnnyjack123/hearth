@@ -1,6 +1,6 @@
-import type { ConversationDetail, ConversationSummary } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, LinkConversationInput } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Bug, KeyRound, Lightbulb, ListChecks, PenLine } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
@@ -17,6 +17,7 @@ import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
 import { getChat } from './chat-store.ts';
+import { environmentFromSearch, NewChatEnvironment, useLinkOnline } from './environment.tsx';
 import { ResearchToggle } from './research-toggle.tsx';
 
 const SUGGESTIONS: { icon: typeof Lightbulb; title: MessageKey; prompt: MessageKey }[] = [
@@ -43,6 +44,17 @@ export function NewChatPage() {
   const [creating, setCreating] = useState(false);
   const [research, setResearch] = useState(false);
   const { data: publicSettings } = usePublicSettings();
+  const search = useSearch({ from: '/app/' });
+  const [environment, setEnvironment] = useState<LinkConversationInput | null>(() => environmentFromSearch(search));
+  // Another environment in the address ("New chat in this environment" from
+  // another chat) replaces the choice; compared by value, not identity.
+  const searchKey = `${search.device ?? ''}/${search.project ?? ''}/${search.harness ?? ''}`;
+  const [seenSearch, setSeenSearch] = useState(searchKey);
+  if (searchKey !== seenSearch) {
+    setSeenSearch(searchKey);
+    setEnvironment(environmentFromSearch(search));
+  }
+  const online = useLinkOnline(environment);
 
   async function submit(text: string) {
     if (!selection) {
@@ -50,14 +62,15 @@ export function NewChatPage() {
     }
     setCreating(true);
     try {
-      const conversation = await api.conversations.create(selection);
+      // Created already linked, so the first message goes to the agent.
+      const conversation = await api.conversations.create({ ...selection, ...(environment ? { link: environment } : {}) });
       queryClient.setQueryData<ConversationSummary[]>(queryKeys.conversations, (list) => [conversation, ...(list ?? [])]);
       queryClient.setQueryData<ConversationDetail<ChatMessage>>(queryKeys.conversation(conversation.id), {
         ...conversation,
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research).chat.sendMessage({ text });
+      void getChat(conversation.id, [], selection, research && !environment).chat.sendMessage({ text });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -126,12 +139,22 @@ export function NewChatPage() {
                 value={draft}
                 onValueChange={setDraft}
                 onSubmit={(text) => void submit(text)}
-                blockedReason={creating ? t('common.loading') : selection ? null : t('chat.modelRequired')}
+                blockedReason={
+                  creating
+                    ? t('common.loading')
+                    : !selection
+                      ? t('chat.modelRequired')
+                      : environment && online === false
+                        ? t('agent.offlineHint')
+                        : null
+                }
+                placeholder={environment ? t('agent.placeholder', { harness: environment.harness, project: environment.project }) : undefined}
                 autoFocus
                 toolbar={
                   <>
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
-                    {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
+                    <NewChatEnvironment value={environment} onChange={setEnvironment} />
+                    {!environment && publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
                   </>
                 }
               />
