@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-23 (abends) · echte Links und Quellen-Badges am Absatzende, Tooltip „bevorzugte Quelle“; Verschlüsselung mit Passwort entschieden (am Ende); nächstes: UX der Umgebung im Web-Chat (mit dem Nutzer klären, was stört)_
+_Last updated: 2026-10-23 (spät) · Plan für Tray-App statt Tauri und Umgebungen nur per Terminal festgehalten (ROADMAP Phase 3); nächstes: Block „Umgebung im Web-Chat“ in neuer Sitzung_
 
 ## Where we are
 
@@ -28,21 +28,32 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **UX der Umgebung im Web-Chat** (Wunsch des Nutzers vom 23.10.): erst klären, was ihn stört, dann als eigener Block. Kandidaten: neuer Chat direkt mit Umgebung, Status von Gerät und VM im Chat-Kopf, geänderte Dateien und „Übernehmen“ (sync/merge samt Merge-Prüfung) im Chat, fortsetzbare Streams, VM-Stopp im Leerlauf.
+1. **Block „Umgebung im Web-Chat“ samt Tray-App** (Plan des Nutzers vom 23.10., ROADMAP.md Phase 3): Vorschlag für die Reihenfolge
+   1. Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst
+   2. neuer Chat direkt mit Umgebung
+   3. „Fortschritt sichern“ und „Übernehmen“ im Chat (commit im Container, sync, Merge-Prüfung im Chat, merge); vorher die offenen Punkte aus Phase 3 mit dem Nutzer klären
+   4. Tray-Symbol für `harnessd`
+   5. Installer, der Podman, VM und Dienst einrichtet
+   6. `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
-3. Danach (Reihenfolge laut Nutzer):
-   - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
-   - **Stopp der VM im Leerlauf**
-4. Phase-4-Reste: Übernehmen per Knopf (sync/merge samt Merge-Prüfung im Web), neuer Chat direkt mit Umgebung, fortsetzbare Streams, Suche für Agents in der VM (über den Server).
-5. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
+3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, zusammen mit `web_fetch` für pi).
+4. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
+5. Zum Schluss (Entscheidung des Nutzers): Secrets mit dem Passwort verschlüsseln (ROADMAP Phase 5).
 6. Vorgemerkt: DeepSeeks Websuche (`api.deepseek.com/v1/tools/search`) als weiteren Suchanbieter prüfen (ROADMAP, Phase 4 „Recherche“ → Offen).
 
 ## In flight / half-finished
 
 Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
 
-## Decisions made this session (20./21.10.)
+## Decisions made 23.10.
+
+- **Keine Tauri-App**, stattdessen Tray-Symbol für `harnessd` und alle Einstellungen im Browser (RAM).
+- **Umgebungen nur per Terminal** (`harness init`), nie aus dem Web; „Projekte direkt aus dem Web anlegen“ ist verworfen.
+- **VM im Browser:** Zustand, sofort stoppen, Leerlaufzeit. „Fortschritt sichern“ im Chat bringt die Arbeit des Agents per sync und merge auf die Platte.
+- **Secrets mit dem Passwort verschlüsseln:** ja, aber zum Schluss.
+
+## Decisions made earlier (20./21.10.)
 
 - **Abschnitte ohne Jev:** BM25 plus Embeddings (`qwen/qwen3-embedding-8b`, in den Sucheinstellungen änderbar), zusammengeführt per RRF. Jev bleibt fürs Reihen der Treffer.
 - **Das Hauptmodell wählt selbst** zwischen ganzer Seite und `focus` (Wunsch des Nutzers): `focus` für Informationen zu einem Thema, ganze Seite für genaue Zahlen, Tabellen, Code und Zitate. Seiten bis 6000 Zeichen kommen immer ganz.
@@ -62,7 +73,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
-- **UX der Umgebung im Web-Chat:** Der Nutzer will sie verbessern (23.10.). Vorschläge stehen in der Antwort vom 23.10. (neuer Chat direkt mit Umgebung, Status im Chat-Kopf, Änderungen und „Übernehmen“ im Chat, fortsetzbare Streams, VM-Stopp im Leerlauf); was ihn konkret stört, ist noch offen.
+- Zu Phase 3 (Tray-App): Übernehmen direkt in den ausgecheckten Branch oder erst `agent/<projekt>`? Schwere Funde der Merge-Prüfung im Browser übergehbar? „Immer erlauben“ aus dem Browser weiter in die allow-Liste? (ROADMAP.md, Phase 3 → Offen)
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 

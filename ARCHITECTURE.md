@@ -20,7 +20,7 @@ Leitplanken:
 ## 2. Überblick
 
 ```
-Browser / Tauri-UI
+Browser (einzige Oberfläche)
         │  HTTPS + SSE
         ▼
 Harness-Server (Docker) ─────────────► LLM-Anbieter (Anthropic, OpenAI, Google, Ollama …)
@@ -30,7 +30,7 @@ Harness-Server (Docker) ─────────────► LLM-Anbieter 
         │  WSS-Tunnel (vom Rechner ausgehend, nur für verknüpfte Chats)
         │
 harnessd (Hintergrunddienst auf dem Rechner des Nutzers)
-  ├─ IPC ◄── Tauri-App (Verwaltung + Chat)
+  ├─ Tray-Symbol (Zustand, Web-App öffnen, VM stoppen)
   ├─ IPC ◄── harness-CLI (Terminal)
   ├─ Git-Worker (führt geprüfte Git-Operationen auf dem Host aus)
   └─ Podman-API ──► Linux-VM (Hyper-V)
@@ -42,9 +42,9 @@ harnessd (Hintergrunddienst auf dem Rechner des Nutzers)
 | Komponente | Technik | Aufgabe |
 |---|---|---|
 | Server | Node.js + TypeScript, läuft im Docker-Container | Accounts, Chats, LLM-Aufrufe, Geräteverwaltung, Tunnel |
-| Web-UI | React-SPA | Wird vom Server ausgeliefert und ist gleichzeitig in der Tauri-App gebündelt |
+| Web-UI | React-SPA | Wird vom Server ausgeliefert; einzige Oberfläche, auch für Einstellungen des Geräts |
 | `harnessd` | Rust | Container, Netzwerk-Gateway, Git-Worker, Tunnel zum Server |
-| Tauri-App | Tauri 2 | Oberfläche für `harnessd` plus Chat |
+| Tray-App | Rust (`tray-icon`) | Tray-Symbol von `harnessd`; Entscheidung vom 23.10. statt einer Tauri-App |
 | `harness`-CLI | Rust | Startet Harnesse im Terminal, mit dem aktuellen Ordner als Projekt |
 | Base-Image | Debian | Linux-Userland mit Toolchain für die Agents |
 
@@ -335,7 +335,7 @@ Deployment:
   - Er setzt dynamischen Speicher mit kleinem Startwert, räumt nach fehlgeschlagenen Starts auf und startet die VM nach Standby neu.
   - Entschieden gegen eine geplante Aufgabe: Ein elevierter Podman würde eine Konfiguration aus dem Benutzerprofil lesen, die jeder Nutzerprozess ändern kann. Das wäre eine Rechteausweitung.
 - **`harnessd`:** Rust-Dienst, startet bei der Anmeldung oder bei Bedarf. Er ist der einzige Prozess, der Podman steuert, und hält Git-Worker, Gateway-Steuerung und Tunnel. IPC läuft über eine Named Pipe (Windows) bzw. einen Unix-Socket.
-- **Tauri-App:** Oberfläche für `harnessd` und den Chat. Wird das Fenster geschlossen, bleibt nur das Tray-Symbol, und die WebView wird freigegeben. Terminal-Sitzungen und verknüpfte Chats laufen über `harnessd` weiter.
+- **Tray-App statt Tauri (Entscheidung des Nutzers, 23.10.):** Eine WebView kostet zu viel RAM. `harnessd` zeigt nur ein Tray-Symbol; eingestellt wird alles im Browser. Umgebungen entstehen nur per `harness init` im Terminal, nie aus dem Web. Details: ROADMAP.md, Phase 3.
 - **Ohne Server:** Umgebungsverwaltung und Terminal-Modus funktionieren vollständig. Für den Chat braucht es einen Login auf einem Server.
 - **Setup-Assistent:**
   1. Virtualisierung prüfen
@@ -402,9 +402,9 @@ Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizu
 ## 7. Frontend
 
 - **Stack:** React 19 + TypeScript + Vite, Tailwind CSS v4, shadcn/ui (Radix), Motion für Animationen, TanStack Router und Query, Shiki für Code, Markdown-Streaming, xterm.js, Diff-Ansicht.
-- **Eine SPA für beide:** Sie wird vom Server ausgeliefert und in der Tauri-App gebündelt. Desktop-Funktionen werden per Capability-Erkennung eingeblendet.
+- **Eine SPA:** Sie wird vom Server ausgeliefert und ist die einzige Oberfläche (keine Desktop-App seit dem 23.10.). Was den Rechner betrifft (VM, Leerlauf, Sichern, Übernehmen), geht als Befehl über den Tunnel an `harnessd`, das selbst entscheidet, was es annimmt.
 - **Design:** hell und dunkel, ruhige Animationen (Nachrichten einblenden, Streaming-Cursor, Layout-Übergänge). `prefers-reduced-motion` wird beachtet.
-- **Desktop-Ansichten:**
+- **Ansichten für Umgebungen** (früher als Desktop-App geplant, jetzt im Browser, soweit gebraucht):
   - Übersicht: Instanzen, Status, Ressourcen
   - Projekt mit Tabs: Übersicht, Netzwerk (Voreinstellung, Listen, Live-Protokoll), Git (Richtlinien, offene Anfragen, Audit-Log), Dateien (versteckte und geschützte Pfade), Harnesse, Logs
   - Chats, Geräte/Server, Einstellungen
@@ -415,8 +415,7 @@ Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizu
 llm_harness/
 ├─ apps/
 │  ├─ server/          Hono, Kysely, Better Auth, AI SDK
-│  ├─ web/             React-SPA
-│  └─ desktop/         Tauri 2 (Frontend = apps/web)
+│  └─ web/             React-SPA
 ├─ crates/
 │  ├─ harness-core/    Konfiguration, Provider (Podman-CLI über SSH), Instanzen, Richtlinien
 │  ├─ harnessd/        Dienst: IPC, Git-Worker, Tunnel, Adapter
