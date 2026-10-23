@@ -40,19 +40,20 @@ function Cell({ children, head, start }: { children: ReactNode; head?: boolean; 
   );
 }
 
-type Purpose = NonNullable<ModelCallUsage['purpose']> | 'answer';
+type Purpose = NonNullable<ModelCallUsage['purpose']>;
 
 /**
- * The reply's own calls and its helper calls (Jev, embeddings, title),
- * summed per model and purpose.
+ * The helper calls of a reply (Jev, embeddings, the title), summed per
+ * model and purpose.
  *
  * @param usage - The reply's usage.
- * @param modelId - The chat's model.
- * @returns One row per model and purpose, the reply's own calls first.
+ * @returns One row per model and purpose, in the order they first ran.
  */
-export function costByModel(usage: Usage, modelId: string | undefined) {
+export function helperCosts(usage: Usage) {
   const rows = new Map<string, { model: string; purpose: Purpose; calls: number; input: number; output: number; cost: number | undefined }>();
-  const add = (call: ModelCallUsage, model: string, purpose: Purpose) => {
+  for (const call of usage.helpers ?? []) {
+    const model = call.model ?? '–';
+    const purpose = call.purpose ?? 'title';
     const key = `${model}|${purpose}`;
     const row = rows.get(key) ?? { model, purpose, calls: 0, input: 0, output: 0, cost: 0 };
     row.calls += 1;
@@ -60,21 +61,15 @@ export function costByModel(usage: Usage, modelId: string | undefined) {
     row.output += call.output;
     row.cost = row.cost === undefined || call.cost === undefined ? undefined : row.cost + call.cost.total;
     rows.set(key, row);
-  };
-  for (const call of usage.calls ?? []) {
-    add(call, modelId ?? '–', 'answer');
-  }
-  for (const call of usage.helpers ?? []) {
-    add(call, call.model ?? '–', call.purpose ?? 'answer');
   }
   return [...rows.values()];
 }
 
 /**
- * Tokens and cost of every model call of a reply, behind a button below it:
- * how much each call sent anew, how much came from the provider's cache,
- * how much it wrote and reasoned, and what each part cost; with helper
- * models, also the cost per model.
+ * Tokens and cost of a reply, behind a button below it: one table for the
+ * chat's model with every call (what it sent anew, what came from the
+ * provider's cache, what it wrote and reasoned, what it cost), one for the
+ * helper models, and the total.
  *
  * @param props - The reply's usage, its model and whether an agent produced it.
  * @returns The tables.
@@ -83,14 +78,17 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
   const { t, locale } = usePreferences();
   const tokens = new Intl.NumberFormat(locale);
   const calls = usage.calls ?? [];
-  const byModel = costByModel(usage, modelId);
+  const helpers = helperCosts(usage);
   const input = sum(calls, (call) => call.input);
   const cached = sum(calls, (call) => call.cacheRead);
   const withCacheWrite = calls.some((call) => call.cacheWrite > 0);
-  const withSplitCost = calls.some((call) => call.cost?.input !== undefined);
+  const priced = calls.every((call) => call.cost !== undefined);
+  const mainCost = priced ? sum(calls, (call) => call.cost?.total) : undefined;
+  const helperCost = helpers.every((row) => row.cost !== undefined) ? helpers.reduce((total, row) => total + (row.cost ?? 0), 0) : undefined;
   const dollars = (value: number | undefined) => (value === undefined ? t('chat.usageDetails.unknown') : formatDollars(locale, value));
   const result = (call: ModelCallUsage) => (call.tools.length > 0 ? call.tools.join(', ') : agent ? '–' : t('chat.usageDetails.answer'));
   const table = 'w-full border-collapse text-xs tabular-nums [&_tbody_tr]:border-t [&_tbody_tr]:border-border [&_tfoot_tr]:border-t-2 [&_tfoot_tr]:border-border';
+  const caption = 'px-2 pt-2 text-start font-medium text-foreground';
 
   if (calls.length === 0) {
     return <p className="text-xs text-muted-foreground">{t('chat.usageDetails.noCalls')}</p>;
@@ -99,7 +97,9 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
     <div className="flex flex-col gap-3 text-xs text-foreground">
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <table className={table}>
-          <caption className="px-2 pt-2 text-start font-medium text-muted-foreground">{t('chat.usageDetails.tokens')}</caption>
+          <caption className={caption}>
+            {agent ? t('chat.usageDetails.agentCalls') : t('chat.usageDetails.mainCalls', { model: modelId ?? '–' })}
+          </caption>
           <thead>
             <tr>
               <Cell head start>
@@ -114,6 +114,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               {withCacheWrite ? <Cell head>{t('chat.usageDetails.cacheWrite')}</Cell> : null}
               <Cell head>{t('chat.usageDetails.output')}</Cell>
               <Cell head>{t('chat.usageDetails.reasoning')}</Cell>
+              <Cell head>{t('chat.usageDetails.cost')}</Cell>
             </tr>
           </thead>
           <tbody>
@@ -127,6 +128,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
                 {withCacheWrite ? <Cell>{tokens.format(call.cacheWrite)}</Cell> : null}
                 <Cell>{tokens.format(call.output)}</Cell>
                 <Cell>{call.reasoning === undefined ? '–' : tokens.format(call.reasoning)}</Cell>
+                <Cell>{dollars(call.cost?.total)}</Cell>
               </tr>
             ))}
           </tbody>
@@ -140,67 +142,16 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               {withCacheWrite ? <Cell>{tokens.format(sum(calls, (call) => call.cacheWrite))}</Cell> : null}
               <Cell>{tokens.format(sum(calls, (call) => call.output))}</Cell>
               <Cell>{tokens.format(sum(calls, (call) => call.reasoning))}</Cell>
+              <Cell>{dollars(mainCost)}</Cell>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <table className={table}>
-          <caption className="px-2 pt-2 text-start font-medium text-muted-foreground">{t('chat.usageDetails.costs')}</caption>
-          <thead>
-            <tr>
-              <Cell head start>
-                {t('chat.usageDetails.call')}
-              </Cell>
-              {withSplitCost ? (
-                <>
-                  <Cell head>{t('chat.usageDetails.fresh')}</Cell>
-                  <Cell head>{t('chat.usageDetails.cached')}</Cell>
-                  {withCacheWrite ? <Cell head>{t('chat.usageDetails.cacheWrite')}</Cell> : null}
-                  <Cell head>{t('chat.usageDetails.output')}</Cell>
-                </>
-              ) : null}
-              <Cell head>{t('chat.usageDetails.total')}</Cell>
-            </tr>
-          </thead>
-          <tbody>
-            {calls.map((call, index) => (
-              <tr key={index}>
-                <Cell start>{index + 1}</Cell>
-                {withSplitCost ? (
-                  <>
-                    <Cell>{dollars(call.cost?.input)}</Cell>
-                    <Cell>{dollars(call.cost?.cacheRead)}</Cell>
-                    {withCacheWrite ? <Cell>{dollars(call.cost?.cacheWrite)}</Cell> : null}
-                    <Cell>{dollars(call.cost?.output)}</Cell>
-                  </>
-                ) : null}
-                <Cell>{dollars(call.cost?.total)}</Cell>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="font-medium">
-              <Cell start>{t('chat.usageDetails.sum')}</Cell>
-              {withSplitCost ? (
-                <>
-                  <Cell>{dollars(sum(calls, (call) => call.cost?.input))}</Cell>
-                  <Cell>{dollars(sum(calls, (call) => call.cost?.cacheRead))}</Cell>
-                  {withCacheWrite ? <Cell>{dollars(sum(calls, (call) => call.cost?.cacheWrite))}</Cell> : null}
-                  <Cell>{dollars(sum(calls, (call) => call.cost?.output))}</Cell>
-                </>
-              ) : null}
-              <Cell>{dollars(usage.cost)}</Cell>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {byModel.length > 1 ? (
+      {helpers.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-border bg-card">
           <table className={table}>
-            <caption className="px-2 pt-2 text-start font-medium text-muted-foreground">{t('chat.usageDetails.byModel')}</caption>
+            <caption className={caption}>{t('chat.usageDetails.helpers')}</caption>
             <thead>
               <tr>
                 <Cell head start>
@@ -212,11 +163,11 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
                 <Cell head>{t('chat.usageDetails.calls')}</Cell>
                 <Cell head>{t('chat.usageDetails.input')}</Cell>
                 <Cell head>{t('chat.usageDetails.output')}</Cell>
-                <Cell head>{t('chat.usageDetails.total')}</Cell>
+                <Cell head>{t('chat.usageDetails.cost')}</Cell>
               </tr>
             </thead>
             <tbody>
-              {byModel.map((row) => (
+              {helpers.map((row) => (
                 <tr key={`${row.model}|${row.purpose}`}>
                   <Cell start>{row.model}</Cell>
                   <Cell start>{t(`chat.usageDetails.purposes.${row.purpose}`)}</Cell>
@@ -231,10 +182,10 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               <tr className="font-medium">
                 <Cell start>{t('chat.usageDetails.sum')}</Cell>
                 <Cell start>{''}</Cell>
-                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.calls, 0))}</Cell>
-                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.input, 0))}</Cell>
-                <Cell>{tokens.format(byModel.reduce((total, row) => total + row.output, 0))}</Cell>
-                <Cell>{dollars(usage.cost)}</Cell>
+                <Cell>{tokens.format(helpers.reduce((total, row) => total + row.calls, 0))}</Cell>
+                <Cell>{tokens.format(helpers.reduce((total, row) => total + row.input, 0))}</Cell>
+                <Cell>{tokens.format(helpers.reduce((total, row) => total + row.output, 0))}</Cell>
+                <Cell>{dollars(helperCost)}</Cell>
               </tr>
             </tfoot>
           </table>
@@ -242,6 +193,13 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
       ) : null}
 
       <div className="flex flex-col gap-1 text-muted-foreground">
+        {usage.cost !== undefined ? (
+          <p className="font-medium text-foreground">
+            {helpers.length > 0
+              ? t('chat.usageDetails.totalWithHelpers', { total: dollars(usage.cost), main: dollars(mainCost), helpers: dollars(helperCost) })
+              : t('chat.usageDetails.totalOnly', { total: dollars(usage.cost) })}
+          </p>
+        ) : null}
         {input > 0 ? <p>{t('chat.usageDetails.cacheShare', { percent: Math.round((cached / input) * 100) })}</p> : null}
         {usage.billed ? <p>{t('chat.usageDetails.billed')}</p> : null}
         {usage.rates ? (

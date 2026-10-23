@@ -801,7 +801,7 @@ describe('research mode', () => {
     // Without an OpenRouter key keywords decide, and the storage section
     // shares no word with the question.
     const keywords = await shownFor();
-    expect(keywords).toMatchObject({ focus, sections: { total: 8, matched: true } });
+    expect(keywords).toMatchObject({ focus, sections: { total: 8, matched: true, ranking: 'keywords' } });
     expect(keywords.sections?.shown).not.toContain(5);
     expect(keywords.text).not.toContain('luftdicht');
 
@@ -827,6 +827,7 @@ describe('research mode', () => {
       const chunks = await readChunks(await chat(conversationId, `Lies ${long}`, false));
       const [byMeaning, byNumber] = chunks.filter((chunk) => chunk.type === 'tool-output-available').map((chunk) => chunk.output as WebFetchOutput);
       expect(byMeaning?.sections?.shown).toContain(5);
+      expect(byMeaning?.sections?.ranking).toBe('meaning');
       expect(byMeaning?.text).toContain('[§5]\n## Aufbewahrung');
       expect(byMeaning?.sections?.outline).toHaveLength(8);
       const request = providers.provider.requests.find((entry) => entry.url.endsWith('/api/v1/embeddings'));
@@ -842,6 +843,7 @@ describe('research mode', () => {
       // Asked by number: unknown numbers are left out.
       expect(byNumber).toMatchObject({ sections: { shown: [1], matched: true } });
       expect(byNumber?.focus).toBeUndefined();
+      expect(byNumber?.sections?.ranking).toBeUndefined();
       expect(byNumber?.text).toContain('## Anbau');
 
       // The embedding call counts towards the reply, priced from OpenRouter's list.

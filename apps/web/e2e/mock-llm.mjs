@@ -94,7 +94,7 @@ function researchStep(payload) {
   if (done.length === 3) {
     return { call: { name: 'web_fetch', input: { url: `http://127.0.0.1:${PORT}/handbuch`, grep: 'luftdicht' } } };
   }
-  return { text: 'Laut der Recherche röstet man Kaffee bei etwa 200 °C ([Kaffee-Testseite](http://127.0.0.1:8091/testseite)).' };
+  return { text: 'Laut der Recherche röstet man Kaffee bei etwa 200 °C ([Kaffee-Testseite](http://127.0.0.1:8091/testseite)), mehr zu Röstgraden steht [hier](https://example.org/roestgrade-erfunden).' };
 }
 
 /** The reply of a tool-using model, or null to answer as usual. */

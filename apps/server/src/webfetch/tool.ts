@@ -303,7 +303,15 @@ export function createWebFetchTool(context: WebFetchContext) {
             },
           }
         : {}),
-      ...(selection ? { sections: { total: selection.total, shown: selection.shown, outline: selection.outline, matched: selection.matched } } : {}),
+      ...(selection ? {
+            sections: {
+              total: selection.total,
+              shown: selection.shown,
+              outline: selection.outline,
+              matched: selection.matched,
+              ...(selection.ranking ? { ranking: selection.ranking } : {}),
+            },
+          } : {}),
     };
   }
 

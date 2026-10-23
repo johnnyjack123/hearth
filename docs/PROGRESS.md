@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-22 · Benchmark Jev gegen Modell mit echtem SearXNG und DeepSeek (Jev bleibt); abgerechnete OpenRouter-Kosten, gesperrte Suchmaschinen erkannt, Bing/Yahoo in SearXNG, knappere Jev-Anfrage, grep ohne Kurzwörter; nächstes: Test des Nutzers_
+_Last updated: 2026-10-23 · Pi auf neuem Image (Jev, Abschnitte, Bing/Yahoo); Kostentabellen getrennt nach Chat-Modell und Hilfsmodellen, „semantisch/Stichworte/ganze Seite“ in der Karte, Belege je Aussage mit „Ungeprüfte Links“, Laufschrift für lange Modellnamen; nächstes: Test des Nutzers, Entscheidung zur Verschlüsselung mit Passwort_
 
 ## Where we are
 
@@ -18,7 +18,9 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - System-Prompt und Werkzeuge bleiben für den Cache fest, Datum und Schalter kommen als Hinweis vor der Nachricht.
    - `grep` holt für genaue Zahlen nur die Zeilen mit bestimmten Wörtern (mit Überschriften und Tabellenköpfen).
    - Lange Chats (ab 200 000 Token, 50 % des Kontextfensters oder nach 6 h Pause; in der Web-App einstellbar) bekommen ältere Seiten und Suchen nur noch gekürzt; der Chat sagt das an.
-   - Tokens und Kosten je Modellaufruf und je Modell (Hauptmodell, Jev, Embeddings, Titel) stehen immer hinter dem Beleg-Knopf, Summen im Tooltip des Kontext-Rings. Den Entwicklermodus gibt es nicht mehr.
+   - Tokens und Kosten stehen immer hinter dem Beleg-Knopf: eine Tabelle je Aufruf des Chat-Modells, eine für die Hilfsmodelle (Jev, Embeddings, Titel), dann die Gesamtsumme. Summen auch im Tooltip des Kontext-Rings.
+   - Das Modell setzt nach jeder Aussage aus dem Web einen Link auf die Seite. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
+   - Die Karte einer geladenen Seite sagt, ob Abschnitte nach Bedeutung („semantisch“) oder nur nach Stichworten gewählt wurden oder ob das Modell die ganze Seite las.
 
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
 
@@ -26,7 +28,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 
 ## Next step
 
-1. **Test des Nutzers auf dem Pi** nach dem Update des Images und `docker compose --profile search up -d` (neue SearXNG-Konfiguration mit Bing und Yahoo): OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
+1. **Test des Nutzers auf dem Pi.** Am 23.10. lief dort noch das Image vom 20.10. (`pull` ohne Neuerstellen des Containers); jetzt läuft der aktuelle Stand, SearXNG mit Bing und Yahoo. Der Test: OpenRouter-Zugang anlegen (Einstellungen → Anbieter), dann Recherche. Prüfen: Relevanz-Angaben im Suchblock, „x von y Abschnitten“ und „Treffer: n“ bei langen Seiten, unter der Antwort die Zeilen „Treffer reihen“ (Jev) und „Abschnitte wählen“ (Embeddings) mit Kosten. Jev und Embeddings sind am 21.10. mit seinem Key echt geprüft, aber nur in Skripten, nicht im Chat mit echtem Modell.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach (Reihenfolge laut Nutzer):
    - **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind jetzt die natürliche Eingabe dafür.
@@ -59,6 +61,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
+- **Secrets mit dem Passwort verschlüsseln?** Vorschlag und Folgen in ROADMAP.md, Phase 5. Vor allem: Nach einem Neustart des Servers gehen Keys erst nach dem Login wieder, gekoppelte Rechner bräuchten einen eigenen verpackten Schlüssel, Passwort vergessen heißt Keys neu eintragen.
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
@@ -78,6 +81,12 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 23.10.:
+- **Server:** 151/151, neu: `sections.ranking` je nach Weg (Stichworte, Bedeutung, Nummern).
+- **Browser-E2E:** 13/13, 0 Konsolenprobleme; neue Tabellenüberschriften, „7 von 8 Abschnitten · semantisch“, „ganze Seite“, „Ungeprüfte Links“ mit einem erfundenen Link der Mock-Antwort (die gelesene Seite steht nicht darin), Laufschrift auf `/design` (verschiebt sich beim Zeigen, Tooltip nur bei langen Namen). Screenshots 27, 28, 29, 30 angesehen.
+- **Nicht geprüft:** Laufschrift in der echten Modellauswahl mit langen Namen (gleiche Komponente, nur auf `/design` gesehen), Verhalten auf Touch-Geräten (dort umbrechen die Namen in der Liste).
+- **Pi:** Image aktualisiert, Server gesund, SearXNG liefert Treffer von Bing, Yahoo, Google CSE und Brave (DuckDuckGo per CAPTCHA gesperrt).
 
 Stand 22.10.:
 - **Server:** 151/151, dazu abgerechnete Kosten (Platzhalter-OpenRouter durch die echte AI SDK), gesperrte Suchmaschinen, kurze grep-Wörter.
@@ -112,6 +121,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-23
+- Gefunden: Der Pi lief nach `docker compose pull` weiter mit dem alten Container (Stand 20.10.), deshalb fehlten Jev und Abschnitte. Neu erstellt mit `up -d --no-deps server`, SearXNG mit `--force-recreate`.
+- Gebaut: getrennte Kostentabellen, Anzeige „semantisch/Stichworte/ganze Seite“, Belege je Aussage mit „Ungeprüfte Links“, `MarqueeText` für lange Modellnamen (Modellauswahl, `/design`).
+- Beantwortet: Jev funktioniert auch mit DeepSeek direkt, solange der Nutzer einen OpenRouter-Zugang hat. Keys sind schon verschlüsselt (AES-256-GCM mit Server-Secret), Passwort-Variante ist vorgemerkt.
 
 ### 2026-10-22
 - Benchmark: Jev reiht (10 Treffer) gegen Modell wählt aus 20; gleich gute Antworten, Kosten im Rauschen. Jev bleibt, mit 25 % knapperer Anfrage.

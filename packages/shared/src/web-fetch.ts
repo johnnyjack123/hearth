@@ -148,6 +148,12 @@ export interface WebFetchSections {
   outline: { from: number; to: number; heading: string }[];
   /** False when nothing matched the focus and the page's beginning stands in. */
   matched: boolean;
+  /**
+   * How a focus was matched: by keywords alone, or also by meaning with the
+   * embedding model; missing for sections asked for by number and for
+   * replies stored before 23.10.2026.
+   */
+  ranking?: 'keywords' | 'meaning';
 }
 
 const ERROR_PREFIX = /^\[([a-z_]+)(?::([^\]]{0,200}))?\]\s*/;
