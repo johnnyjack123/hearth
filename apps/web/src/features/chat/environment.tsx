@@ -8,19 +8,22 @@ import {
   projectNameSchema,
 } from '@harness/shared';
 import { useNavigate } from '@tanstack/react-router';
-import { Check, ChevronDown, Container, Laptop, MessageSquarePlus, Unlink, X } from 'lucide-react';
+import { Check, ChevronDown, Container, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys, useDevices } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
 import { DeviceVm } from '../devices/device-vm.tsx';
+import { upsertMessage } from './chat-store.ts';
+import { takeoverTitle } from './takeover-card.tsx';
 
 /** Search parameters of the start page that preselect an environment. */
 export interface EnvironmentSearch {
@@ -101,7 +104,39 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
   const t = useT();
   const navigate = useNavigate();
   const [unlinking, setUnlinking] = useState(false);
+  const [saving, setSaving] = useState(false);
   const { link } = conversation;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const message = await api.conversations.takeover(conversation.id);
+      upsertMessage(conversation.id, message);
+      // The card in the chat has the details; the toast reaches a user who
+      // closed the menu meanwhile.
+      const report = message.parts.findLast((part) => part.type === 'data-takeover')?.data;
+      if (report) {
+        const title = takeoverTitle(t, report);
+        if (report.state === 'merged' || report.state === 'up_to_date') {
+          toast.success(title);
+        } else {
+          toast.warning(title);
+        }
+      }
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setAutosync(autosync: boolean) {
+    try {
+      storeConversation(await api.conversations.updateLink(conversation.id, { autosync }));
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+    }
+  }
 
   async function choose(choice: LinkConversationInput) {
     try {
@@ -134,6 +169,24 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
       online={online}
       confirmLabel={t('agent.link')}
       onChoose={choose}
+      work={
+        link ? (
+          <>
+            <Button variant="secondary" size="sm" className="justify-start" loading={saving} disabled={online === false} onClick={() => void save()}>
+              <Save />
+              {saving ? t('takeover.saving') : t('takeover.save')}
+            </Button>
+            <span className="text-xs text-muted-foreground">{t('takeover.saveHint')}</span>
+            <label className="flex cursor-pointer items-start gap-3 pt-1">
+              <Switch checked={link.autosync} onCheckedChange={(checked) => void setAutosync(checked)} />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm text-foreground">{t('takeover.autosync')}</span>
+                <span className="text-xs text-muted-foreground">{t('takeover.autosyncHint')}</span>
+              </span>
+            </label>
+          </>
+        ) : null
+      }
       actions={(close) =>
         link ? (
           <>
@@ -177,7 +230,7 @@ export function NewChatEnvironment({
   const t = useT();
   const device = useLinkDevice(value);
   // Until the device list is there, the id stands in for the name.
-  const link: ChatLink | null = value ? { ...value, deviceName: device?.name ?? value.deviceId } : null;
+  const link: ChatLink | null = value ? { ...value, deviceName: device?.name ?? value.deviceId, autosync: false } : null;
   return (
     <EnvironmentControl
       link={link}
@@ -204,19 +257,22 @@ export function NewChatEnvironment({
 
 /**
  * Button with dialog when no environment is chosen; otherwise the chosen one
- * with a menu: device and VM, another environment, and `actions`.
+ * with a menu: device, the agent's `work`, VM, another environment, and
+ * `actions`.
  */
 function EnvironmentControl({
   link,
   online,
   confirmLabel,
   onChoose,
+  work = null,
   actions,
 }: {
   link: ChatLink | null;
   online: boolean | undefined;
   confirmLabel: string;
   onChoose: (choice: LinkConversationInput) => Promise<void> | void;
+  work?: ReactNode;
   actions: (close: () => void) => ReactNode;
 }) {
   const t = useT();
@@ -274,6 +330,7 @@ function EnvironmentControl({
               {online === false ? <span className="text-xs text-muted-foreground">{t('agent.offlineHint')}</span> : null}
             </div>
           </div>
+          {work ? <div className="flex flex-col gap-1.5 border-t border-border pt-2">{work}</div> : null}
           {device ? (
             <div className="border-t border-border pt-2">
               <DeviceVm device={device} />

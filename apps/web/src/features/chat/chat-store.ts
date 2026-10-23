@@ -28,6 +28,28 @@ function refreshConversationList(): void {
 }
 
 /**
+ * Puts a message the server stored outside a chat request (a takeover
+ * report) into the open chat and the cache: replaces the message with the
+ * same id or appends it.
+ *
+ * @param conversationId - Conversation id.
+ * @param message - The stored message.
+ */
+export function upsertMessage(conversationId: string, message: ChatMessage): void {
+  const merge = (messages: ChatMessage[]) =>
+    messages.some((candidate) => candidate.id === message.id)
+      ? messages.map((candidate) => (candidate.id === message.id ? message : candidate))
+      : [...messages, message];
+  const entry = entries.get(conversationId);
+  if (entry) {
+    entry.chat.messages = merge(entry.chat.messages);
+  }
+  queryClient.setQueryData<ConversationDetail<ChatMessage>>(queryKeys.conversation(conversationId), (current) =>
+    current ? { ...current, messages: merge(current.messages) } : current,
+  );
+}
+
+/**
  * Returns the chat session of a conversation, creating it on first use.
  *
  * @param conversationId - Conversation id; also the chat id.

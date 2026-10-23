@@ -197,7 +197,7 @@ Grenze: Kein Scanner findet zuverlässig alles. Die Prüfung ist ein Sicherheits
 - **Offen:**
   - Lücken mit Versionsbezug (exakte Versionen aus den Lockfiles)
   - Stufe 2 (Scanner im Container)
-  - Stufe 3 (KI)
+  - Stufe 3 (KI): Jev bewertet seit dem 24.10. die hinzugefügten Zeilen je Datei (Phase 3, „Fortschritt sichern“). Ein Chat-Modell mit Begründung fehlt noch.
   - Einstellungen, welche Stufen laufen und mit welchem Modell, später in App und Web-UI. Die KI-Prüfung kostet Geld und muss abwählbar sein.
 
 **Stufe 3, Überlegungen vom 17.10.:** Ein Klassifikationsmodell wie Jev (TypeSafe; über pi auch per OpenRouter, Cloudflare und Vercel erreichbar) passt zu Ja/Nein-Fragen mit Wahrscheinlichkeit, etwa „schädlich?“ pro Datei oder Hunk. Es ist billig und schnell. Ein Chat-Modell liefert dafür Begründungen. Für beide gilt:
@@ -275,7 +275,11 @@ Bausteine:
    - Der Hintergrunddienst stoppt die VM nach der Leerlaufzeit. Leerlauf heißt: keine Antwort eines Agents, kein harness-Befehl im Terminal (Belegt-Marker) und keine fremden Container in der VM.
    - Geprüft: Server-Tests, Browser-E2E, `VM_STOP=1 bash scripts/smoke-connect.sh` gegen die echte VM (Stopp aus dem Browser und nach 1 min Leerlauf).
 2. ✅ **Neuer Chat direkt mit Umgebung:** Umgebungs-Knopf auf der Startseite, der Chat entsteht schon verknüpft (`POST /api/conversations` mit `link`), „Neuer Chat in dieser Umgebung“ im Popover eines verknüpften Chats.
-3. „Fortschritt sichern“ und „Übernehmen“ im Chat samt Autosync (Entscheidungen unten)
+3. ✅ **„Fortschritt sichern“ und Autosync** (23./24.10.):
+   - Commit im Container, holen, prüfen (feste Regeln, OSV, Jev), Merge in den ausgecheckten Branch. Danach steht der Agent-Branch in VM und Host auf dem gemergten Stand.
+   - Schwere Funde halten den Merge an, die Freigabe geht nur mit `harness merge --approve <ID>`.
+   - Autosync-Schalter pro Chat.
+   - Jev bewertet die hinzugefügten Zeilen je Datei über den Server, mit dem OpenRouter-Zugang des Nutzers (Phase 2c, Stufe 3, für Diffs gebaut).
 4. Tray-Symbol für `harnessd`
 5. Installer
 6. `web_fetch` für pi, fortsetzbare Streams

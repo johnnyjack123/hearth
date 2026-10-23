@@ -29,7 +29,8 @@ export interface HelperOptions {
  * @param db - Open database.
  * @param secretBox - Decrypts the key.
  * @param userId - The user who chats.
- * @param chat - Credential of the chat request.
+ * @param chat - Credential of the chat request; null for requests of a
+ *   paired computer, which have no chat.
  * @param options - See {@link HelperOptions}.
  * @returns The helpers, or null if switched off or the user has no usable OpenRouter key.
  */
@@ -37,14 +38,15 @@ export async function loadHelpers(
   db: Kysely<DB>,
   secretBox: SecretBox,
   userId: string,
-  chat: CredentialRow,
+  chat: CredentialRow | null,
   options: HelperOptions = {},
 ): Promise<Helpers | null> {
   const { search } = await getServerSettings(db);
   if (!search.helpers.enabled) {
     return null;
   }
-  const row = chat.kind === 'openrouter' ? chat : (await listCredentialRows(db, userId)).find((candidate) => candidate.kind === 'openrouter');
+  const row =
+    chat?.kind === 'openrouter' ? chat : (await listCredentialRows(db, userId)).find((candidate) => candidate.kind === 'openrouter');
   if (!row) {
     return null;
   }

@@ -10,6 +10,8 @@ import {
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
+  VERSION_TAKEOVER,
+  VERSION_VM_CONTROL,
   type VmState,
   type VmStopResult,
 } from '@harness/shared';
@@ -44,9 +46,6 @@ export interface DeviceSettings {
   idleMinutes: number;
 }
 
-/** First protocol with VM activity, idle time and `vm.stop`. */
-const VERSION_VM_CONTROL = 2;
-
 /** How long a device may take to stop its VM (podman, then a hard stop). */
 const VM_STOP_TIMEOUT_MS = 3 * 60_000;
 
@@ -68,10 +67,13 @@ export interface TunnelConnection {
  * Why the server ended a run itself. Sent as the error text of the reply;
  * the web app shows a translated message for each.
  */
-export type RunFailure = 'device_replaced' | 'device_lost' | 'device_protocol' | 'chat_unlinked' | 'agent_ended';
+export type RunFailure = 'device_replaced' | 'device_lost' | 'device_protocol' | 'chat_unlinked' | 'agent_ended' | 'timeout';
 
 /** Prompt for a session, as {@link DeviceHub.startRun} sends it. */
 export type PromptMessage = Extract<ServerMessage, { type: 'session.prompt' }>;
+
+/** Request to take over a session's work, as {@link DeviceHub.startTakeover} sends it. */
+export type TakeoverMessage = Extract<ServerMessage, { type: 'session.takeover' }>;
 
 // Close codes in the private range 4000-4999.
 const CLOSE_REPLACED = 4000;
@@ -302,16 +304,54 @@ export class DeviceHub {
    *   refuses with a reason the chat shows.
    */
   startRun(deviceId: string, prompt: PromptMessage): AgentRun {
+    return this.#start(deviceId, prompt);
+  }
+
+  /**
+   * Asks a device to take over a session's agent work into the user's
+   * folder; the events of the run report how far it got.
+   *
+   * @param deviceId - Device the session runs on.
+   * @param message - The request.
+   * @returns The run.
+   * @throws {HttpError} 409 if the device is offline, too old for it, or the
+   *   session is still answering.
+   */
+  startTakeover(deviceId: string, message: TakeoverMessage): AgentRun {
+    const connection = this.#devices.get(deviceId);
+    if (connection?.greeted && connection.version < VERSION_TAKEOVER) {
+      throw new HttpError(409, 'device_outdated', 'The device cannot take work over yet; update harness');
+    }
+    return this.#start(deviceId, message);
+  }
+
+  /**
+   * Gives up on a run the device does not finish, so the session can start
+   * a new one.
+   *
+   * @param session - Session id.
+   * @param reason - Why; the run ends with it.
+   */
+  abandonRun(session: string, reason: RunFailure): void {
+    this.#runs.get(session)?.run.fail(reason);
+    this.#runs.delete(session);
+  }
+
+  #start(deviceId: string, message: PromptMessage | TakeoverMessage): AgentRun {
     const connection = this.#devices.get(deviceId);
     if (!connection?.greeted) {
       throw new HttpError(409, 'device_offline', 'The device is not connected');
     }
-    if (this.#runs.has(prompt.session)) {
+    if (this.#runs.has(message.session)) {
       throw new HttpError(409, 'conflict', 'The agent is still answering');
     }
-    const run = new AgentRun(() => this.#send(connection, { type: 'session.cancel', session: prompt.session }));
-    this.#runs.set(prompt.session, { deviceId, run });
-    this.#send(connection, prompt);
+    const run = new AgentRun(() => this.#send(connection, { type: 'session.cancel', session: message.session }));
+    this.#runs.set(message.session, { deviceId, run });
+    // Protocol 1 and 2 devices know no autosync; the field would only confuse a reader of their logs.
+    this.#send(
+      connection,
+      message.type === 'session.prompt' && connection.version < VERSION_TAKEOVER ? { ...message, autosync: false } : message,
+    );
     return run;
   }
 

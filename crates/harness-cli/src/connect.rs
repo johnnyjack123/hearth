@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead as _, IsTerminal as _, Write as _};
 use std::net::TcpStream;
 use std::process::{Child, ChildStdin};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -31,8 +32,8 @@ use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
     AgentEvent, ApprovalState, Decision, DeviceMessage, NoticeLevel, ProgressState, Prompt,
-    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, VERSION_VM_CONTROL, VmStatus,
-    truncate,
+    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest,
+    TakeoverState, VERSION_VM_CONTROL, VmStatus, truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
@@ -43,7 +44,7 @@ use crate::daemon::{self, Instance};
 use crate::idle::{Idle, Report, Watcher};
 use crate::net::{self, Question};
 use crate::progress::Progress;
-use crate::{login, run};
+use crate::{login, run, takeover};
 
 /// The only machine interface harness speaks so far.
 const PI_RPC: &str = "pi-rpc";
@@ -568,6 +569,7 @@ fn dispatch(
 ) {
     match message {
         ServerMessage::Welcome { .. } | ServerMessage::Unknown => {}
+        ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
         ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, request),
         ServerMessage::Prompt(prompt) => {
@@ -646,6 +648,78 @@ fn dispatch(
                 let _ = s.commands.send(Command::Decide(id, decision));
             }
         }
+    }
+}
+
+/// Takes a chat's agent work over in a thread of its own; pi keeps
+/// running. The server sends this only while no reply of the chat runs.
+fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: TakeoverRequest) {
+    let emit = Emitter {
+        session: request.session.clone(),
+        out: out.clone(),
+        idle: Arc::clone(&shared.idle),
+    };
+    // As for prompts, the device decides; read fresh.
+    let released = offered(&shared.config)
+        .iter()
+        .any(|p| p.name == request.project && p.harnesses.contains(&request.harness));
+    let name = match ProjectName::new(&request.project) {
+        Ok(name) if released => name,
+        _ => {
+            emit.closed(Some(format!(
+                "Projekt {} ist auf diesem Rechner nicht für Web-Chats freigegeben.",
+                request.project
+            )));
+            return;
+        }
+    };
+    shared.idle.begin(&request.session);
+    let shared = Arc::clone(shared);
+    thread::spawn(move || {
+        let title = request
+            .conversation
+            .title
+            .as_deref()
+            .map(sanitize)
+            .unwrap_or_else(|| "ohne Titel".to_owned());
+        let report = takeover::takeover(
+            &shared.config,
+            &shared.machine,
+            &name,
+            false,
+            &crate::progress::Terminal::default(),
+            &mut |report| {
+                emit.event(AgentEvent::Takeover {
+                    report: report.clone(),
+                });
+            },
+        );
+        say(
+            shared.mode,
+            &format!("Chat „{title}“: Übernehmen {}", outcome(&report)),
+        );
+        emit.event(AgentEvent::Done { aborted: false });
+    });
+}
+
+/// How a takeover ended, for the log.
+fn outcome(report: &TakeoverReport) -> String {
+    match report.state {
+        TakeoverState::Merged => format!(
+            "fertig, {} Commit(s) in {}",
+            report.commits.unwrap_or(0),
+            report.branch.as_deref().unwrap_or("?")
+        ),
+        TakeoverState::UpToDate => "fertig, nichts Neues".to_owned(),
+        TakeoverState::Held => format!(
+            "angehalten (schwere Funde), Freigabe mit harness merge --approve {}",
+            report.request.as_deref().unwrap_or("?")
+        ),
+        TakeoverState::Conflict => "angehalten, Konflikte".to_owned(),
+        TakeoverState::Refused | TakeoverState::Failed | TakeoverState::Running => format!(
+            "nicht möglich: {}",
+            report.reason.as_deref().unwrap_or("unbekannt")
+        ),
     }
 }
 
@@ -838,6 +912,19 @@ struct Agent {
     approvals: Option<ApprovalBridge>,
     /// Set while the harness has the message but has not answered yet.
     thinking: Arc<Mutex<bool>>,
+    /// Holds back the end of a reply so autosync can run first.
+    reply_end: ReplyEnd,
+    /// Signals from the reader that a reply ended and autosync is due.
+    finished: Receiver<()>,
+}
+
+/// With autosync, the reader does not pass a reply's `done` on but
+/// reports the end here; the session takes the work over, then ends the
+/// reply. So the chat shows the takeover as part of the reply.
+#[derive(Clone)]
+struct ReplyEnd {
+    autosync: Arc<AtomicBool>,
+    finished: Sender<()>,
 }
 
 fn start(
@@ -906,13 +993,27 @@ fn start(
     let stdin = Arc::new(Mutex::new(stdin));
     let (responses_tx, responses) = mpsc::channel();
     let thinking = Arc::new(Mutex::new(false));
+    let (finished_tx, finished) = mpsc::channel();
+    let reply_end = ReplyEnd {
+        autosync: Arc::new(AtomicBool::new(false)),
+        finished: finished_tx,
+    };
     let reader = {
         let emit = emit.clone();
         let stdin = Arc::clone(&stdin);
         let thinking = Arc::clone(&thinking);
         let name = harness.name.clone();
+        let reply_end = reply_end.clone();
         thread::spawn(move || {
-            read_agent(stdout, &emit, &stdin, &responses_tx, &thinking, &name);
+            read_agent(
+                stdout,
+                &emit,
+                &stdin,
+                &responses_tx,
+                &thinking,
+                &reply_end,
+                &name,
+            );
         })
     };
     let approvals = if prepared.project.ask {
@@ -934,6 +1035,8 @@ fn start(
         next_id: 0,
         approvals,
         thinking,
+        reply_end,
+        finished,
     }))
 }
 
@@ -1002,6 +1105,7 @@ fn read_agent(
     stdin: &Mutex<ChildStdin>,
     responses: &Sender<pi_rpc::Response>,
     thinking: &Mutex<bool>,
+    reply_end: &ReplyEnd,
     name: &str,
 ) {
     let mut translator = Translator::new();
@@ -1048,6 +1152,12 @@ fn read_agent(
                         },
                         other => other,
                     };
+                    if event == (AgentEvent::Done { aborted: false })
+                        && reply_end.autosync.load(Ordering::SeqCst)
+                        && reply_end.finished.send(()).is_ok()
+                    {
+                        continue;
+                    }
                     emit.event(event);
                 }
                 Output::Reply(reply) => write_line(stdin, &reply),
@@ -1109,6 +1219,9 @@ impl Agent {
     }
 
     fn prompt(&mut self, prompt: &Prompt) {
+        self.reply_end
+            .autosync
+            .store(prompt.autosync, Ordering::SeqCst);
         if let Some(model) = &prompt.model {
             match self.providers.get(&model.credential_id) {
                 Some(provider) => {
@@ -1184,6 +1297,9 @@ impl Agent {
                 Ok(Command::Close) | Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => {}
             }
+            if self.finished.try_recv().is_ok() {
+                self.autosync(shared);
+            }
             if let Ok(Some(status)) = self.child.try_wait() {
                 self.emit.closed(Some(format!(
                     "{} wurde beendet (Exit-Code {}).",
@@ -1193,6 +1309,49 @@ impl Agent {
                 return;
             }
         }
+    }
+
+    /// Takes the reply's work over, then ends the reply. Only a result worth
+    /// a look reaches the chat; a reply that changed nothing stays as it is.
+    fn autosync(&self, shared: &Shared) {
+        let step = |state| AgentEvent::Progress {
+            id: "autosync".to_owned(),
+            label: "Arbeit übernehmen (Autosync)".to_owned(),
+            state,
+            detail: None,
+        };
+        self.emit.event(step(ProgressState::Running));
+        let report = takeover::takeover(
+            &shared.config,
+            &shared.machine,
+            &self.project.name,
+            true,
+            &crate::progress::Terminal::default(),
+            &mut |_| {},
+        );
+        let failed = matches!(report.state, TakeoverState::Failed);
+        self.emit.event(step(if failed {
+            ProgressState::Failed
+        } else {
+            ProgressState::Done
+        }));
+        let quiet = report.state == TakeoverState::UpToDate
+            && report.committed.is_none()
+            && report.notes.is_empty();
+        if !quiet {
+            self.emit.event(AgentEvent::Takeover {
+                report: report.clone(),
+            });
+        }
+        say(
+            shared.mode,
+            &format!(
+                "Projekt {}: Autosync {}",
+                self.project.name,
+                outcome(&report)
+            ),
+        );
+        self.emit.event(AgentEvent::Done { aborted: false });
     }
 
     /// Ends pi: closing stdin asks it to shut down, the rest is force.

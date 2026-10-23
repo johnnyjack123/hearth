@@ -1,6 +1,7 @@
 // OpenAI-compatible mock that behaves like a model using a tool, for
 // scripts/smoke-connect.sh: a request without a tool result gets a `bash`
-// call with MOCK_COMMAND, a request with one gets the answer "fertig".
+// call with MOCK_COMMAND, a request with one gets the answer "fertig". A
+// user message that starts with "!" names the command itself.
 // Every request body is appended to MOCK_LOG if set.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -8,6 +9,12 @@ import http from 'node:http';
 const PORT = Number(process.env.MOCK_PORT ?? 8096);
 const LOG = process.env.MOCK_LOG;
 const COMMAND = process.env.MOCK_COMMAND ?? 'ls';
+
+/** Text of the newest user message; pi may send it as parts. */
+function lastUserText(messages) {
+  const content = messages.findLast((message) => message.role === 'user')?.content ?? '';
+  return typeof content === 'string' ? content : content.map((part) => part.text ?? '').join('');
+}
 
 const chunk = (delta, finish = null) =>
   `data: ${JSON.stringify({
@@ -44,8 +51,9 @@ http
         res.write(chunk({}, 'stop'));
       } else {
         const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name: 'bash', arguments: '' } };
+        const wanted = /(?:^|\n)!(.+)$/s.exec(lastUserText(messages).trim())?.[1];
         res.write(chunk({ role: 'assistant', tool_calls: [call] }));
-        res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ command: COMMAND }) } }] }));
+        res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify({ command: wanted ?? COMMAND }) } }] }));
         res.write(chunk({}, 'tool_calls'));
       }
       res.end('data: [DONE]\n\n');

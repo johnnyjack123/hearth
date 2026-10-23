@@ -387,13 +387,26 @@ pub fn merge(config: &ConfigDir, ignore_findings: bool) -> anyhow::Result<bool> 
     if !crate::review::approve(config, &repo, &branch, ignore_findings)? {
         return Ok(false);
     }
-    match repo.merge(&branch)? {
-        MergeOutcome::UpToDate => println!("Alles von {branch} ist schon im aktuellen Branch."),
+    print_merge(&repo, &branch)?;
+    Ok(true)
+}
+
+/// Merges `branch` into the current branch and says what happened. Returns
+/// whether commits came in; a conflict is no error, it leaves everything
+/// as it was.
+pub(crate) fn print_merge(repo: &HostRepo, branch: &str) -> anyhow::Result<bool> {
+    match repo.merge(branch)? {
+        MergeOutcome::UpToDate => {
+            println!("Alles von {branch} ist schon im aktuellen Branch.");
+            Ok(false)
+        }
         MergeOutcome::FastForward { commits } => {
-            println!("{commits} Commit(s) von {branch} per Fast-Forward übernommen.")
+            println!("{commits} Commit(s) von {branch} per Fast-Forward übernommen.");
+            Ok(true)
         }
         MergeOutcome::Merged { commits } => {
-            println!("{commits} Commit(s) von {branch} mit Merge-Commit übernommen.")
+            println!("{commits} Commit(s) von {branch} mit Merge-Commit übernommen.");
+            Ok(true)
         }
         MergeOutcome::Conflict { files } => {
             println!("Nicht übernommen, der Merge hätte Konflikte in:");
@@ -403,10 +416,9 @@ pub fn merge(config: &ConfigDir, ignore_findings: bool) -> anyhow::Result<bool> 
             println!(
                 "Dein Arbeitsbaum ist unverändert. Lös den Konflikt z. B. mit `git merge {branch}`."
             );
-            return Ok(false);
+            Ok(false)
         }
     }
-    Ok(true)
 }
 
 /// `harness stop`: stops instance and gateway; volumes stay.

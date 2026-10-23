@@ -157,6 +157,9 @@ export class ChunkMapper {
         this.#usage = next;
         return [];
       }
+      case 'takeover':
+        // One report per reply, replaced in place as the takeover goes on.
+        return [{ type: 'data-takeover', id: 'takeover', data: event.report }];
       case 'error':
         return [{ type: 'error', errorText: event.message }];
       case 'done':

@@ -10,6 +10,7 @@ import {
   type PairingStart,
   type ProviderCredential,
   type ServerMessage,
+  type TakeoverReport,
   TUNNEL_PATH,
   TUNNEL_VERSION,
 } from '@harness/shared';
@@ -30,6 +31,7 @@ class FakeDevice implements TunnelSocket {
   closedWith: number | undefined;
   connection: TunnelConnection | undefined;
   onPrompt: ((prompt: Extract<ServerMessage, { type: 'session.prompt' }>) => void) | undefined;
+  onTakeover: ((request: Extract<ServerMessage, { type: 'session.takeover' }>) => void) | undefined;
 
   send(data: string): void {
     const message = JSON.parse(data) as ServerMessage;
@@ -37,6 +39,9 @@ class FakeDevice implements TunnelSocket {
     if (message.type === 'session.prompt') {
       // Answers after startRun returned, like a real device would.
       setTimeout(() => this.onPrompt?.(message), 0);
+    }
+    if (message.type === 'session.takeover') {
+      setTimeout(() => this.onTakeover?.(message), 0);
     }
     if (message.type === 'vm.stop' && this.stopsVm) {
       setTimeout(() => this.say({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }), 0);
@@ -86,6 +91,7 @@ describe('ChunkMapper', () => {
       { type: 'usage', inputTokens: 5, outputTokens: 1, cost: 0.02, cachedInputTokens: 4 },
       { type: 'approval', id: 3, host: 'example.com', port: 443, state: 'pending' },
       { type: 'progress', id: 'vm', label: 'VM starten', state: 'done', detail: '21.0 s' },
+      { type: 'takeover', report: { state: 'up_to_date', auto: true, checks: [], findings: [] } },
       { type: 'turn.end' },
     ].flatMap((event) => mapper.map(event as AgentEvent));
     expect(chunks.map((chunk) => chunk.type)).toEqual([
@@ -98,6 +104,7 @@ describe('ChunkMapper', () => {
       'tool-output-available',
       'data-approval',
       'data-progress',
+      'data-takeover',
       'finish-step',
     ]);
     expect(chunks[8]).toEqual({
@@ -186,6 +193,7 @@ describe('DeviceHub', () => {
       text: 'hi',
       history: null,
       model: null,
+      autosync: false,
     };
     // Whether a project may run is the device's call, not the hub's.
     expect(() => hub.startRun('offline', prompt)).toThrow(/not connected/);
@@ -214,6 +222,35 @@ describe('DeviceHub', () => {
       types.push(event.type);
     }
     expect(types).toEqual(['text.start', 'done']);
+  });
+
+  it('asks only devices with protocol 3 to take work over', () => {
+    const hub = new DeviceHub();
+    const takeover = {
+      type: 'session.takeover' as const,
+      session: 's1',
+      project: 'demo',
+      harness: 'pi',
+      conversation: { id: 's1', title: null },
+    };
+    const old = connect(hub, 'd2');
+    old.say({ type: 'hello', version: 2, projects: [] });
+    expect(() => hub.startTakeover('d2', takeover)).toThrow(/update harness/);
+    // Older devices never see autosync, they would not act on it.
+    hub.startRun('d2', { ...takeover, session: 's0', type: 'session.prompt', text: 'hi', history: null, model: null, autosync: true });
+    expect(old.received.at(-1)).toMatchObject({ type: 'session.prompt', autosync: false });
+
+    const device = connect(hub, 'd3');
+    device.hello();
+    const run = hub.startTakeover('d3', takeover);
+    expect(device.received.at(-1)).toEqual(takeover);
+    expect(() => hub.startRun('d3', { ...takeover, type: 'session.prompt', text: 'hi', history: null, model: null, autosync: false })).toThrow(
+      /still answering/,
+    );
+    hub.abandonRun('s1', 'timeout');
+    expect(run.ended).toBe(true);
+    // Given up, the session can start again.
+    hub.startTakeover('d3', takeover);
   });
 
   it('speaks protocol 1 with older devices and sends them nothing new', async () => {
@@ -348,6 +385,7 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(((await linked.json()) as ConversationSummary).link).toEqual({
       ...link,
       deviceName: 'harness auf TEST',
+      autosync: false,
     });
 
     // Someone else's device cannot be linked.
@@ -443,7 +481,7 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     });
     expect(created.status).toBe(201);
     const conversation = (await created.json()) as ConversationSummary;
-    expect(conversation.link).toEqual({ ...link, deviceName: 'harness auf TEST' });
+    expect(conversation.link).toEqual({ ...link, deviceName: 'harness auf TEST', autosync: false });
     expect((await load(conversation.id)).link).toEqual(conversation.link);
 
     // The first message goes to the device, not to the model.
@@ -454,6 +492,79 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
       project: 'demo',
       text: 'Los',
     });
+  });
+
+  it('takes the agent work over and keeps the report with the chat', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, {
+      cookie,
+      body: { deviceId, project: 'demo', harness: 'pi' },
+    });
+    device.onPrompt = (prompt) =>
+      device.emit(
+        prompt.session,
+        { type: 'text.start', id: 't' },
+        { type: 'text.delta', id: 't', delta: 'Erledigt.' },
+        { type: 'text.end', id: 't' },
+        { type: 'done', aborted: false },
+      );
+    await (await chat(conversation.id, 'Mach was')).text();
+    await eventually(async () => (await load(conversation.id)).messages.length === 2);
+
+    const held: TakeoverReport = {
+      state: 'held',
+      auto: false,
+      commits: 2,
+      files: 3,
+      branch: 'main',
+      checks: ['feste Regeln', 'OSV'],
+      findings: [
+        { severity: 'high', rule: 'install-script', path: 'package.json', line: 4, message: 'postinstall startet beim Installieren' },
+      ],
+      request: 'K7QF2M',
+    };
+    device.onTakeover = (request) =>
+      device.emit(
+        request.session,
+        { type: 'takeover', report: { ...held, state: 'running', step: 'Prüfen', request: undefined } as TakeoverReport },
+        { type: 'takeover', report: held },
+        { type: 'done', aborted: false },
+      );
+    const response = await server.request('POST', `/api/conversations/${conversation.id}/takeover`, { cookie });
+    expect(response.status).toBe(200);
+    const message = (await response.json()) as ChatMessage;
+    expect(device.received.at(-1)).toMatchObject({ type: 'session.takeover', session: conversation.id, project: 'demo' });
+    // The card joins the reply whose work it took over.
+    const stored = (await load(conversation.id)).messages;
+    expect(stored).toHaveLength(2);
+    expect(stored[1]?.id).toBe(message.id);
+    expect(stored[1]?.parts.at(-1)).toMatchObject({ type: 'data-takeover', data: { state: 'held', request: 'K7QF2M' } });
+
+    // A device that gives up without a report says why.
+    device.onTakeover = (request) => device.say({ type: 'session.closed', session: request.session, reason: 'Projekt demo fehlt.' });
+    const failed = await server.request('POST', `/api/conversations/${conversation.id}/takeover`, { cookie });
+    expect(failed.status).toBe(502);
+    expect(((await failed.json()) as { error: { code: string; message: string } }).error).toEqual({
+      code: 'device_failed',
+      message: 'Projekt demo fehlt.',
+    });
+
+    // Autosync goes with every prompt once switched on.
+    const patched = await server.request('PATCH', `/api/conversations/${conversation.id}/link`, { cookie, body: { autosync: true } });
+    expect(((await patched.json()) as ConversationSummary).link?.autosync).toBe(true);
+    await (await chat(conversation.id, 'Weiter')).text();
+    expect(device.received.filter((m) => m.type === 'session.prompt').at(-1)).toMatchObject({ autosync: true });
+    // Relinking to the same project keeps it, another project starts without.
+    const same = await server.request('PUT', `/api/conversations/${conversation.id}/link`, {
+      cookie,
+      body: { deviceId, project: 'demo', harness: 'pi' },
+    });
+    expect(((await same.json()) as ConversationSummary).link?.autosync).toBe(true);
+    const unlinked = await server.request('POST', `/api/conversations/${(await newConversation()).id}/takeover`, { cookie });
+    expect(unlinked.status).toBe(400);
   });
 
   it('lets the owner set the idle time and stop the VM', async () => {

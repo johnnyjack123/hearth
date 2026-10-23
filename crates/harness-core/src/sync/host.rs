@@ -409,6 +409,47 @@ impl HostRepo {
         Ok(self.rev_parse(&format!("refs/heads/{branch}"))?.is_some())
     }
 
+    /// Commit the local branch points at, if it exists.
+    pub fn branch_commit(&self, branch: &str) -> Result<Option<String>> {
+        self.rev_parse(&format!("refs/heads/{branch}"))
+    }
+
+    /// Commit of `HEAD`, if there is one.
+    pub fn head_commit(&self) -> Result<Option<String>> {
+        self.rev_parse("HEAD")
+    }
+
+    /// Commits on `branch` that the checked-out branch does not have.
+    pub fn commits_ahead(&self, branch: &str) -> Result<u32> {
+        self.count(&[&format!("HEAD..refs/heads/{branch}")])
+    }
+
+    /// Name of the checked-out branch; `None` on a detached HEAD.
+    pub fn current_branch(&self) -> Result<Option<String>> {
+        let output = self.output(&["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+        Ok(output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()))
+    }
+
+    /// Moves `refs/heads/<branch>` from `expected` to `new`, e.g. the agent
+    /// branch to the merged state. Fails if the branch moved meanwhile or is
+    /// checked out.
+    pub fn set_branch(&self, branch: &str, new: &str, expected: &str) -> Result<()> {
+        let reference = format!("refs/heads/{branch}");
+        if self.checked_out(&reference)? {
+            return Err(Error::Sync(format!(
+                "{branch} ist auf dem Host ausgecheckt und bleibt deshalb, wie er ist"
+            )));
+        }
+        self.run(
+            "update-ref",
+            &["update-ref", "-m", "harness", &reference, new, expected],
+        )?;
+        Ok(())
+    }
+
     /// What merging `branch` would bring in: everything changed on it since
     /// its merge base with HEAD, with the added lines of text files. At most
     /// `max_patch_bytes` of patch are read. Diff drivers and textconv stay

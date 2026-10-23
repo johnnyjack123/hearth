@@ -150,6 +150,54 @@ export interface DeviceSelf {
   };
 }
 
+/** Longest text of added lines per file the server passes to Jev. */
+export const MAX_ASSESSED_CHARS = 12_000;
+
+/** Files assessed per request at most. */
+export const MAX_ASSESSED_FILES = 60;
+
+/** Added lines of one changed file, for Jev's merge check. */
+export const diffAssessmentFileSchema = z
+  .object({
+    path: z.string().min(1).max(1_000),
+    status: z.enum(['A', 'M', 'T']),
+    added: z.string().max(MAX_ASSESSED_CHARS),
+  })
+  .strict();
+
+/** See {@link diffAssessmentFileSchema}. */
+export type DiffAssessmentFile = z.infer<typeof diffAssessmentFileSchema>;
+
+/**
+ * Validates a computer's request to have Jev assess an agent's changes
+ * (`POST /api/device/assessments/diff`).
+ */
+export const diffAssessmentRequestSchema = z
+  .object({
+    files: z.array(diffAssessmentFileSchema).min(1).max(MAX_ASSESSED_FILES),
+  })
+  .strict();
+
+/** How dangerous Jev finds one file's change, 0 harmless to 1 malicious. */
+export interface DiffFileDanger {
+  /** File in the repository. */
+  path: string;
+  /** Danger from 0 to 1. */
+  danger: number;
+}
+
+/** Jev's answer for the merge check of a computer. */
+export interface DiffAssessment {
+  /** Jev's model, or null if Jev was not asked. */
+  model: string | null;
+  /** Danger per file; null if Jev was not asked or failed. */
+  files: DiffFileDanger[] | null;
+  /** Cost in US dollars as OpenRouter reported it. */
+  cost: number | null;
+  /** Why there are no scores: no OpenRouter key of the user, or Jev failed. */
+  reason?: 'no_helpers' | 'failed';
+}
+
 /**
  * A credential as seen by a paired device: enough to configure a harness
  * against the server's LLM pass-through, never the key itself.

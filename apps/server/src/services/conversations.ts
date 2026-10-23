@@ -14,10 +14,11 @@ type ConversationRow = Selectable<ConversationTable> & {
   linkDeviceName: string | null;
   linkProject: string | null;
   linkHarness: string | null;
+  linkAutosync: number | null;
 };
 
 function toSummary(row: ConversationRow): ConversationSummary {
-  const { linkDeviceId, linkDeviceName, linkProject, linkHarness } = row;
+  const { linkDeviceId, linkDeviceName, linkProject, linkHarness, linkAutosync } = row;
   return {
     id: row.id,
     title: row.title,
@@ -25,7 +26,13 @@ function toSummary(row: ConversationRow): ConversationSummary {
     modelId: row.modelId,
     link:
       linkDeviceId && linkDeviceName && linkProject && linkHarness
-        ? { deviceId: linkDeviceId, deviceName: linkDeviceName, project: linkProject, harness: linkHarness }
+        ? {
+            deviceId: linkDeviceId,
+            deviceName: linkDeviceName,
+            project: linkProject,
+            harness: linkHarness,
+            autosync: linkAutosync === 1,
+          }
         : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -43,6 +50,7 @@ function selectConversations(db: Kysely<DB>) {
       'device.name as linkDeviceName',
       'chatLink.project as linkProject',
       'chatLink.harness as linkHarness',
+      'chatLink.autosync as linkAutosync',
     ]);
 }
 
@@ -107,7 +115,7 @@ export async function createConversation(
     updatedAt: now,
   };
   await db.insertInto('conversation').values(row).execute();
-  return toSummary({ ...row, linkDeviceId: null, linkDeviceName: null, linkProject: null, linkHarness: null });
+  return toSummary({ ...row, linkDeviceId: null, linkDeviceName: null, linkProject: null, linkHarness: null, linkAutosync: null });
 }
 
 /**
@@ -116,19 +124,36 @@ export async function createConversation(
  * @param db - Open database.
  * @param conversationId - Conversation, already checked for ownership.
  * @param link - Device (already checked for ownership), project and harness.
+ * @param autosync - Take the agent's work over after every reply.
  */
 export async function setLink(
   db: Kysely<DB>,
   conversationId: string,
   link: { deviceId: string; project: string; harness: string },
+  autosync = false,
 ): Promise<void> {
   await db.transaction().execute(async (trx) => {
     await trx.deleteFrom('chatLink').where('conversationId', '=', conversationId).execute();
     await trx
       .insertInto('chatLink')
-      .values({ conversationId, ...link, createdAt: Date.now() })
+      .values({ conversationId, ...link, createdAt: Date.now(), autosync: autosync ? 1 : 0 })
       .execute();
   });
+}
+
+/**
+ * Switches autosync of a linked conversation.
+ *
+ * @param db - Open database.
+ * @param conversationId - Conversation, already checked for ownership.
+ * @param autosync - The new setting.
+ */
+export async function setAutosync(db: Kysely<DB>, conversationId: string, autosync: boolean): Promise<void> {
+  await db
+    .updateTable('chatLink')
+    .set({ autosync: autosync ? 1 : 0 })
+    .where('conversationId', '=', conversationId)
+    .execute();
 }
 
 /**
