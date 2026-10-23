@@ -10,6 +10,7 @@ import { riseIn, transitions } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
+import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
 import { UsageDetails } from './usage-details.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
@@ -148,6 +149,9 @@ function AssistantMessage({
         }
         if (part.type === 'data-approval') {
           return <ApprovalCard key={part.id ?? index} approval={part.data} live={streaming} onDecide={onApprove} />;
+        }
+        if (part.type === 'data-takeover') {
+          return <TakeoverCard key={part.id ?? index} report={part.data} />;
         }
         if (part.type === 'text') {
           return (

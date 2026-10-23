@@ -109,6 +109,8 @@ export interface ChatLinkTable {
   project: string;
   harness: string;
   createdAt: number;
+  /** 1: take the agent's work over after every reply; 0: only on request. */
+  autosync: number;
 }
 
 /**

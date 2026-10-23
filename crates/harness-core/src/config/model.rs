@@ -112,11 +112,18 @@ pub struct ReviewConfig {
     /// their names to api.osv.dev.
     #[serde(default = "default_true")]
     pub osv: bool,
+    /// Let Jev judge the added lines through the paired server, with the
+    /// user's OpenRouter key; sends the agent's changes there.
+    #[serde(default = "default_true")]
+    pub jev: bool,
 }
 
 impl Default for ReviewConfig {
     fn default() -> Self {
-        ReviewConfig { osv: true }
+        ReviewConfig {
+            osv: true,
+            jev: true,
+        }
     }
 }
 

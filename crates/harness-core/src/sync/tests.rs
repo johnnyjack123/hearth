@@ -483,3 +483,35 @@ fn incoming_lists_what_a_merge_brings() {
     let cut = host.incoming(BRANCH, 64).unwrap();
     assert!(cut.truncated);
 }
+
+#[test]
+fn branch_helpers_follow_a_merge() {
+    let temp = tempfile::tempdir().unwrap();
+    let host = temp.path().join("host");
+    let repo = host_repo(&host);
+    assert_eq!(repo.current_branch().unwrap().as_deref(), Some("main"));
+    git(&host, &["branch", BRANCH]);
+    git(&host, &["switch", "--quiet", BRANCH]);
+    commit(&host, "agent.txt", "a\n", "agent");
+    git(&host, &["switch", "--quiet", "main"]);
+    let checked = repo.branch_commit(BRANCH).unwrap().unwrap();
+    assert_eq!(repo.commits_ahead(BRANCH).unwrap(), 1);
+    assert!(matches!(
+        repo.merge(BRANCH).unwrap(),
+        MergeOutcome::FastForward { commits: 1 }
+    ));
+    assert_eq!(repo.commits_ahead(BRANCH).unwrap(), 0);
+    let head = repo.head_commit().unwrap().unwrap();
+    // Only from the commit that was checked, never from another.
+    assert!(
+        repo.set_branch(BRANCH, &head, "0".repeat(40).as_str())
+            .is_err()
+    );
+    repo.set_branch(BRANCH, &head, &checked).unwrap();
+    assert_eq!(
+        repo.branch_commit(BRANCH).unwrap().as_deref(),
+        Some(head.as_str())
+    );
+    git(&host, &["switch", "--quiet", "--detach"]);
+    assert_eq!(repo.current_branch().unwrap(), None);
+}

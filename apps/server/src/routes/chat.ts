@@ -164,9 +164,9 @@ const MAX_AGENT_OUTPUT_CHARS = 1_000;
  * @returns The same messages with agent tool calls as text parts.
  */
 export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map((message) => {
+  return messages.flatMap((message) => {
     if (!message.parts.some((part) => part.type === 'dynamic-tool' || part.type.startsWith('data-'))) {
-      return message;
+      return [message];
     }
     const parts = message.parts.flatMap((part): ChatMessage['parts'] => {
       if (part.type.startsWith('data-')) {
@@ -189,7 +189,9 @@ export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
         },
       ];
     });
-    return { ...message, parts };
+    // A reply of nothing but notices (a takeover card, a failed start)
+    // would be an empty message, which providers reject.
+    return parts.length > 0 ? [{ ...message, parts }] : [];
   });
 }
 

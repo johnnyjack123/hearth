@@ -18,6 +18,7 @@ export type ApiErrorCode =
   | 'device_offline'
   | 'device_outdated'
   | 'device_timeout'
+  | 'device_failed'
   | 'conflict'
   | 'internal';
 
@@ -301,7 +302,7 @@ export interface ModelCallUsage {
   /** Model of a helper call; the reply's own calls use the chat's model. */
   model?: string;
   /** What a helper call was for. */
-  purpose?: 'rank' | 'sections' | 'title';
+  purpose?: 'rank' | 'sections' | 'title' | 'review';
   /**
    * Cost in US dollars, split by kind where the prices are known; agents
    * report only the total.

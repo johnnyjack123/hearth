@@ -17,6 +17,7 @@ import type {
   SearchTestResult,
   ServerSettings,
   UpdateDeviceInput,
+  UpdateLinkInput,
   UpdateProviderCredentialInput,
   UpdateServerSettings,
   VmStopResult,
@@ -116,6 +117,9 @@ export const api = {
     link: (id: string, input: LinkConversationInput) =>
       request<ConversationSummary>('PUT', `/conversations/${encodeURIComponent(id)}/link`, input),
     unlink: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}/link`),
+    updateLink: (id: string, input: UpdateLinkInput) =>
+      request<ConversationSummary>('PATCH', `/conversations/${encodeURIComponent(id)}/link`, input),
+    takeover: (id: string) => request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/takeover`),
     approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
   },

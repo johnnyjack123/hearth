@@ -11,10 +11,17 @@ use serde_json::{Map, Value};
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 2;
+pub const TUNNEL_VERSION: u32 = 3;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
+
+/// Version that brought taking over the agent's work (`session.takeover`,
+/// the `takeover` event) and autosync.
+pub const VERSION_TAKEOVER: u32 = 3;
+
+/// Most findings a takeover report carries; the server accepts 100.
+pub const MAX_REPORTED_FINDINGS: usize = 100;
 
 /// Idle minutes until the VM stops, until the server says otherwise
 /// (`DEFAULT_IDLE_MINUTES` in `@harness/shared`).
@@ -230,12 +237,121 @@ pub enum AgentEvent {
         /// German text, truncated to [`MAX_NOTICE`].
         message: String,
     },
+    /// Taking over the agent's work: where it stands, what the check found
+    /// and how it ended; the same report updates in place (protocol 3).
+    #[serde(rename = "takeover")]
+    Takeover {
+        /// The report so far.
+        report: TakeoverReport,
+    },
     /// The agent has nothing left to do for this prompt; ends the reply.
     #[serde(rename = "done")]
     Done {
         /// Whether it was interrupted.
         aborted: bool,
     },
+}
+
+/// Where taking over the agent's work stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TakeoverState {
+    /// Under way; `step` says what happens.
+    Running,
+    /// Merged into the checked-out branch.
+    Merged,
+    /// Nothing new to take over.
+    UpToDate,
+    /// Not merged: severe findings wait for the user's approval in the
+    /// terminal (`request`).
+    Held,
+    /// Not merged: the merge would conflict.
+    Conflict,
+    /// Not merged: the host repository is not ready (uncommitted changes,
+    /// detached HEAD …); `reason` says why.
+    Refused,
+    /// Something failed; `reason` says what.
+    Failed,
+}
+
+/// A finding of the merge check, as the chat shows it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReportedFinding {
+    /// `high`, `medium` or `low`.
+    pub severity: &'static str,
+    /// Rule id, e.g. `install-script`, `osv-malware`, `jev`.
+    pub rule: String,
+    /// File in the repository; empty for findings about the whole change.
+    pub path: String,
+    /// Line in the new file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// What and why, in German.
+    pub message: String,
+    /// The line in question, shortened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+}
+
+/// Report of taking over the agent's work into the user's folder.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TakeoverReport {
+    /// Where it stands.
+    pub state: TakeoverState,
+    /// What happens right now (German), while running.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    /// Started by autosync after a reply rather than by the user.
+    pub auto: bool,
+    /// Files the agent had left uncommitted and harness committed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed: Option<u32>,
+    /// Commits brought into the user's branch, or waiting for approval.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commits: Option<u32>,
+    /// Files the merge changes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files: Option<u32>,
+    /// The user's branch on the host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Checks that ran (German), e.g. "feste Regeln", "OSV".
+    pub checks: Vec<String>,
+    /// Findings, most severe first, at most [`MAX_REPORTED_FINDINGS`].
+    pub findings: Vec<ReportedFinding>,
+    /// Id for `harness merge --approve <id>` when held.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
+    /// Files that would conflict.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<String>,
+    /// Hints along the way (German), e.g. a check that could not run.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// Why it was refused or failed (German).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl TakeoverReport {
+    /// A report that just started.
+    pub fn running(auto: bool, step: &str) -> Self {
+        TakeoverReport {
+            state: TakeoverState::Running,
+            step: Some(step.to_owned()),
+            auto,
+            committed: None,
+            commits: None,
+            files: None,
+            branch: None,
+            checks: Vec::new(),
+            findings: Vec::new(),
+            request: None,
+            conflicts: Vec::new(),
+            notes: Vec::new(),
+            reason: None,
+        }
+    }
 }
 
 impl AgentEvent {
@@ -360,6 +476,23 @@ pub struct Prompt {
     pub history: Option<String>,
     /// Model chosen in the chat.
     pub model: Option<ModelRef>,
+    /// Take the agent's work over after the reply if the check finds
+    /// nothing severe (protocol 3; older servers do not send it).
+    #[serde(default)]
+    pub autosync: bool,
+}
+
+/// A request to take over the agent's work of a session's chat.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TakeoverRequest {
+    /// Session id (the conversation id).
+    pub session: String,
+    /// Project whose work is taken over.
+    pub project: String,
+    /// Harness of the chat.
+    pub harness: String,
+    /// The chat.
+    pub conversation: ConversationRef,
 }
 
 /// The user's answer to a gateway question.
@@ -391,6 +524,9 @@ pub enum ServerMessage {
     /// A message of a linked chat.
     #[serde(rename = "session.prompt")]
     Prompt(Prompt),
+    /// Take over the agent's work into the user's folder (protocol 3).
+    #[serde(rename = "session.takeover")]
+    Takeover(TakeoverRequest),
     /// Interrupt the session's reply.
     #[serde(rename = "session.cancel")]
     Cancel {
@@ -520,6 +656,25 @@ mod tests {
             serde_json::to_value(&result).unwrap(),
             json!({ "type": "vm.result", "request": "r1", "ok": true, "message": "Die VM ist gestoppt." })
         );
+        let mut report = TakeoverReport::running(true, "Prüfen");
+        report.findings.push(ReportedFinding {
+            severity: "high",
+            rule: "install-script".into(),
+            path: "package.json".into(),
+            line: Some(3),
+            message: "postinstall".into(),
+            excerpt: None,
+        });
+        assert_eq!(
+            serde_json::to_value(AgentEvent::Takeover { report }).unwrap(),
+            json!({
+                "type": "takeover",
+                "report": {
+                    "state": "running", "step": "Prüfen", "auto": true, "checks": [],
+                    "findings": [{ "severity": "high", "rule": "install-script", "path": "package.json", "line": 3, "message": "postinstall" }]
+                }
+            })
+        );
         let approval = AgentEvent::Approval {
             id: 3,
             host: "example.com".into(),
@@ -568,6 +723,15 @@ mod tests {
                 request: "r1".into()
             }
         );
+        let takeover: ServerMessage = serde_json::from_value(json!({
+            "type": "session.takeover",
+            "session": "c1",
+            "project": "demo",
+            "harness": "pi",
+            "conversation": { "id": "c1", "title": "Hallo" }
+        }))
+        .unwrap();
+        assert!(matches!(takeover, ServerMessage::Takeover(request) if request.project == "demo"));
         let newer: ServerMessage =
             serde_json::from_value(json!({ "type": "files.list", "session": "c1" })).unwrap();
         assert_eq!(newer, ServerMessage::Unknown);

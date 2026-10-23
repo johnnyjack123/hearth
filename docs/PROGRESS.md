@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-23 (nachts) · Block „Umgebung im Web-Chat“, Schritte 1 und 2 fertig (VM im Browser, neuer Chat direkt mit Umgebung; Branch `feat/environment-ux`); nächstes: „Sichern und Übernehmen“ samt Autosync_
+_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–3 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev; Branch `feat/environment-ux`); nächstes: Tray-Symbol für `harnessd`_
 
 ## Where we are
 
@@ -11,6 +11,10 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
 **Web-Chat:**
 1. `harness login <Server>` koppelt den Rechner und richtet den Hintergrunddienst ein; `harness init` meldet ein Projekt.
 2. Im Chat „Umgebung“ → Gerät → Projekt: pi arbeitet in der VM. Schritte, Werkzeugaufrufe, Rückfragen, Kontext und Kosten erscheinen im Chat. Warnungen des pi-Schutzes zeigen aufklappbar Fundstelle und Grund.
+   - **Fortschritt sichern** im Umgebungs-Popover:
+     - committet, was der Agent offen gelassen hat, holt es, prüft es (feste Regeln, OSV, Jev) und mergt es in den ausgecheckten Branch
+     - schwere Funde halten an; eine Karte im Chat zeigt Funde und den Befehl `harness merge --approve <ID>`
+     - **Autosync** macht das nach jeder Antwort selbst
    - Ein neuer Chat kann direkt mit Umgebung starten: Knopf „Umgebung“ auf der Startseite oder „Neuer Chat in dieser Umgebung“ im Popover eines verknüpften Chats.
    - Das Umgebungs-Popover und Einstellungen → Geräte zeigen den VM-Zustand, was sie gerade nutzt und wann sie im Leerlauf stoppt. „VM stoppen“ geht aus dem Browser, die Leerlaufzeit (Standard 30 min, „nie“ möglich) ist pro Gerät einstellbar. Der Hintergrunddienst stoppt die VM danach selbst.
 3. **Ohne Umgebung** lädt das Modell Seiten über `web_fetch` im Server, als Hauptinhalt (Readability). Fremde Hosts brauchen eine Freigabe. Bei Verdacht auf Prompt-Injection zeigt die Warnung aufklappbar jede Fundstelle mit Ausschnitt und einem Satz, warum das gefährlich ist.
@@ -33,8 +37,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 1. **Block „Umgebung im Web-Chat“ samt Tray-App** (Plan des Nutzers vom 23.10., ROADMAP.md Phase 3): Vorschlag für die Reihenfolge
    1. ✅ Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst (23.10.). Der Nutzer holt es mit `cargo build`, `harness daemon stop`, `harness daemon start`; der Server auf dem Pi braucht das neue Image (`docker compose pull`, dann `docker compose up -d --no-deps server`). Die Reihenfolge ist egal (Protokoll-Aushandlung).
    2. ✅ neuer Chat direkt mit Umgebung (23.10.)
-   3. **als Nächstes:** „Fortschritt sichern“ und „Übernehmen“ im Chat (commit im Container, sync, Merge-Prüfung im Chat, merge in den ausgecheckten Branch; schwere Funde per ID nur im Terminal freigeben), dazu Autosync als Schalter. Entscheidungen des Nutzers stehen in ROADMAP Phase 3.
-   4. Tray-Symbol für `harnessd`
+   3. ✅ „Fortschritt sichern“, Freigabe per ID, Autosync, Jev für den Diff (23./24.10.)
+   4. **als Nächstes:** Tray-Symbol für `harnessd`
    5. Installer, der Podman, VM und Dienst einrichtet
    6. `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
@@ -47,6 +51,11 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
 ## In flight / half-finished
 
 Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten oder Worktrees offen.
+
+## Decisions made 23.10. (nachts, Schritt 3)
+
+- Der Agent-Branch behält seinen Namen `agent/<projekt>` und wird nach jedem Merge auf den gemergten Stand gesetzt (Nutzer).
+- Jev läuft bei jeder Merge-Prüfung mit, sobald der Rechner gekoppelt ist und das Konto einen OpenRouter-Zugang hat; abschaltbar mit `[review] jev = false`.
 
 ## Decisions made 23.10. (nachts, nach Schritt 1)
 
@@ -88,7 +97,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 
 ## Open questions for the user
 
-- Zu Autosync: Wie soll der neue Branch nach dem Merge heißen (fortlaufend `agent/<projekt>` neu aufsetzen oder `agent/<projekt>-<n>`)? Vorschlag: `agent/<projekt>` bleibt der Name und wird auf den gemergten Stand gesetzt.
+- Jev-Schwellen (ab 75 % Gefahr schwer, ab 50 % mittel) sind geschätzt; Rückmeldung nach echten Diffs.
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
@@ -108,6 +117,22 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 24.10. (Schritt 3: Fortschritt sichern, Autosync, Jev):
+- **Rust:** `cargo test` grün (harness-core 107, harness-cli 9, neu: Branch-Helfer nach Merge, Freigabe-Anträge samt ID-Prüfung, Übernahme-Ereignis im Protokoll), Clippy ohne Warnungen.
+- **Server:** 159/159, neu:
+  - nur Geräte mit Protokoll 3 übernehmen; ältere bekommen `autosync: false`
+  - Übernahme-Bericht hängt an der letzten Antwort
+  - Gerät ohne Bericht → 502 mit seinem Grund
+  - Autosync im Prompt, bleibt beim gleichen Projekt
+  - Jev-Route mit Stand-in: Key des Besitzers, Gefahr je Datei, Grenzen, nur Geräte-Token
+- **Browser-E2E:** 13/13, 0 Konsolenprobleme; Autosync-Schalter, „Fortschritt sichern“ mit angehaltenem Merge (Karte mit Funden und kopierbarem Befehl), beides nach Neuladen. Screenshot 39 angesehen.
+- **Echt:** `bash scripts/smoke-connect.sh` 47/47 gegen die VM:
+  - Sichern committet eine offene Datei und mergt in `main`; Agent-Branch in Host und VM danach gleich
+  - Autosync nach einer Antwort
+  - `.husky/pre-commit` hält den Merge an (Fund `git-hook`, ID)
+  - `harness merge --approve` ohne Terminal abgelehnt, unbekannte ID abgelehnt
+- **Nicht geprüft:** Jev gegen das echte OpenRouter (kein Key hier, nur Stand-in), `harness merge --approve` mit Bestätigung im echten Terminal, ein Konflikt oder unsauberer Arbeitsbaum beim Sichern im echten Lauf (nur über `HostRepo::merge`-Tests).
 
 Stand 23.10. (nachts, Schritt 2):
 - **Server:** 155/155, neu: Chat mit `link` anlegen (nicht angebotenes Projekt 409 und fremdes Gerät 404, jeweils ohne gespeicherten Chat; erste Nachricht geht ans Gerät).
@@ -164,6 +189,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-24 (Schritt 3)
+- Gebaut: Fortschritt sichern (Commit im Container, holen, prüfen, mergen, Agent-Branch nachziehen), Freigabe-Anträge mit `harness merge --approve`, Autosync pro Chat, Jev für Diffs über den Server, Tunnel-Protokoll 3, Übernahme-Karte im Chat.
+- Gefunden: Nach einem gescheiterten VM-Start hält gvproxy die Pipe noch Minuten; Folgestarts scheitern bis dahin (CLAUDE.md, VM-Dienst).
 
 ### 2026-10-23 (nachts, Schritt 2)
 - Gebaut: neuer Chat direkt mit Umgebung (Startseite, `link` beim Anlegen, „Neuer Chat in dieser Umgebung“).

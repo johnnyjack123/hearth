@@ -385,6 +385,7 @@ dependencies = [
  "clap",
  "harness-core",
  "native-tls",
+ "serde",
  "serde_json",
  "tempfile",
  "tungstenite",

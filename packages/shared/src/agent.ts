@@ -9,11 +9,21 @@ import type { WebFetchAnswer } from './web-fetch.ts';
  *
  * Version 2: VM activity in `status`, the idle time (`settings`) and
  * stopping the VM from the browser (`vm.stop`, `vm.result`).
+ * Version 3: taking over the agent's work into the user's folder.
  */
-export const TUNNEL_VERSION = 2;
+export const TUNNEL_VERSION = 3;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
+
+/** First protocol with VM activity, idle time and `vm.stop`. */
+export const VERSION_VM_CONTROL = 2;
+
+/**
+ * First protocol that takes over the agent's work: `session.takeover`, the
+ * `takeover` event and `autosync` in prompts.
+ */
+export const VERSION_TAKEOVER = 3;
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -50,6 +60,56 @@ const text = (max: number) => z.string().max(max);
 
 /** Longest tool output a device sends; it truncates longer ones itself. */
 export const MAX_TOOL_OUTPUT = 64_000;
+
+const count = z.number().int().nonnegative();
+
+/** A finding of the merge check, as the device reports it (German text). */
+export const reportedFindingSchema = z
+  .object({
+    severity: z.enum(['high', 'medium', 'low']),
+    rule: z.string().min(1).max(100),
+    path: text(1_000),
+    line: count.optional(),
+    message: text(2_000),
+    excerpt: text(1_000).optional(),
+  })
+  .strict();
+
+/** See {@link reportedFindingSchema}. */
+export type ReportedFinding = z.infer<typeof reportedFindingSchema>;
+
+/** How taking over the agent's work stands or ended. */
+export const TAKEOVER_STATES = ['running', 'merged', 'up_to_date', 'held', 'conflict', 'refused', 'failed'] as const;
+
+/**
+ * Report of taking over the agent's work into the user's folder: commit in
+ * the container, bring the commits home, check them, merge into the
+ * checked-out branch. Severe findings hold the merge until the user
+ * approves it in the terminal with `request`.
+ */
+export const takeoverReportSchema = z
+  .object({
+    state: z.enum(TAKEOVER_STATES),
+    step: text(200).optional(),
+    auto: z.boolean(),
+    committed: count.optional(),
+    commits: count.optional(),
+    files: count.optional(),
+    branch: text(300).optional(),
+    checks: z.array(text(100)).max(10),
+    findings: z.array(reportedFindingSchema).max(100),
+    request: z
+      .string()
+      .regex(/^[A-Z2-9]{6}$/)
+      .optional(),
+    conflicts: z.array(text(1_000)).max(50).optional(),
+    notes: z.array(text(4_000)).max(20).optional(),
+    reason: text(4_000).optional(),
+  })
+  .strict();
+
+/** See {@link takeoverReportSchema}. */
+export type TakeoverReport = z.infer<typeof takeoverReportSchema>;
 
 /**
  * What an agent does, as the device reports it: harness-independent, so the
@@ -112,6 +172,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('error'), message: text(4_000) }).strict(),
+  z.object({ type: z.literal('takeover'), report: takeoverReportSchema }).strict(),
   z.object({ type: z.literal('done'), aborted: z.boolean() }).strict(),
 ]);
 
@@ -213,6 +274,19 @@ export type ServerMessage =
       history: string | null;
       /** Model chosen in the chat; the device maps it to the harness's provider. */
       model: { credentialId: string; modelId: string } | null;
+      /** Take the work over after the reply if the check allows (protocol 3). */
+      autosync: boolean;
+    }
+  | {
+      type: 'session.takeover';
+      /** Session whose agent's work to take over; the conversation id. */
+      session: string;
+      /** Project of the chat. */
+      project: string;
+      /** Harness of the chat. */
+      harness: string;
+      /** The chat, for the device's log. */
+      conversation: { id: string; title: string | null };
     }
   | {
       type: 'session.cancel';
@@ -256,7 +330,21 @@ export interface ChatLink {
   project: string;
   /** Harness, e.g. `pi`. */
   harness: string;
+  /** Take the agent's work over after every reply if the check allows. */
+  autosync: boolean;
 }
+
+/**
+ * Validates a change of a link's settings.
+ */
+export const updateLinkSchema = z
+  .object({
+    autosync: z.boolean(),
+  })
+  .strict();
+
+/** See {@link updateLinkSchema}. */
+export type UpdateLinkInput = z.infer<typeof updateLinkSchema>;
 
 /**
  * Validates a request that links a conversation to a project on a device.
@@ -313,6 +401,8 @@ export type AgentDataParts = {
   };
   /** A step on the way to the answer; updated in place. */
   progress: { id: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };
+  /** Taking over the agent's work into the user's folder; updated in place. */
+  takeover: TakeoverReport;
 };
 
 /**

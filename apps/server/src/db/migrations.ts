@@ -156,6 +156,18 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('device').dropColumn('idleMinutes').execute();
     },
   },
+  // Autosync per linked chat.
+  '0006_link_autosync': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('chatLink')
+        .addColumn('autosync', 'integer', (col) => col.notNull().defaultTo(0))
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('chatLink').dropColumn('autosync').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

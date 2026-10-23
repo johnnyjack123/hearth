@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harness_gateway::{LlmUpstream, pem};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use ureq::Agent;
 use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
@@ -33,6 +33,49 @@ pub const LLM_PROXY_PATH: &str = "/api/llm/proxy";
 pub const DEFAULT_SERVER_URL: &str = "http://localhost:8080";
 
 const TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Time limit for Jev's assessment of a diff (several calls on the server).
+const ASSESS_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Most text of added lines per file Jev reads (server limit, characters).
+pub const MAX_ASSESSED_CHARS: usize = 12_000;
+
+/// Most files Jev assesses per merge (server limit).
+pub const MAX_ASSESSED_FILES: usize = 60;
+
+/// Added lines of one changed file, for Jev.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DiffFile {
+    /// File in the repository.
+    pub path: String,
+    /// `A`, `M` or `T`.
+    pub status: String,
+    /// The added lines, shortened to [`MAX_ASSESSED_CHARS`].
+    pub added: String,
+}
+
+/// How dangerous Jev finds one file's change.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct FileDanger {
+    /// File in the repository.
+    pub path: String,
+    /// From 0 (harmless) to 1 (malicious).
+    pub danger: f64,
+}
+
+/// Jev's answer for a merge check.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct DiffAssessment {
+    /// Jev's model, if Jev was asked.
+    pub model: Option<String>,
+    /// Danger per file; `None` if Jev was not asked or failed.
+    pub files: Option<Vec<FileDanger>>,
+    /// Cost in US dollars.
+    pub cost: Option<f64>,
+    /// `no_helpers` (no OpenRouter key on the server) or `failed`.
+    #[serde(default)]
+    pub reason: Option<String>,
+}
 
 /// Answer to a pairing start (`POST /api/pairing`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -303,6 +346,21 @@ impl ServerClient {
             Ok(response) if response.status().is_success() => Ok(()),
             other => self.read::<serde_json::Value>(other).map(drop),
         }
+    }
+
+    /// Asks Jev, through the server and with the user's OpenRouter key, how
+    /// dangerous each changed file is. Jev's calls can take a while, hence
+    /// the longer time limit.
+    pub fn assess_diff(&self, token: &str, files: &[DiffFile]) -> Result<DiffAssessment> {
+        let response = self
+            .agent
+            .post(format!("{}/api/device/assessments/diff", self.url))
+            .config()
+            .timeout_global(Some(ASSESS_TIMEOUT))
+            .build()
+            .header("authorization", format!("Bearer {token}"))
+            .send_json(serde_json::json!({ "files": files }));
+        self.read(response)
     }
 
     /// Revokes the token on the server.

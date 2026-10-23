@@ -20,6 +20,7 @@ path = "src/harnessd.rs"
 harness-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true
 native-tls.workspace = true

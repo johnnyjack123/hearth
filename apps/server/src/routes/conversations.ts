@@ -1,14 +1,20 @@
 import {
   approvalDecisionSchema,
+  type ChatLink,
   chatRequestSchema,
   type ConversationDetail,
   createConversationSchema,
   linkConversationSchema,
+  type TakeoverReport,
   updateConversationSchema,
+  updateLinkSchema,
   WEB_FETCH_DECISIONS,
   type WebFetchDecision,
 } from '@harness/shared';
 import { Hono } from 'hono';
+import type { Kysely } from 'kysely';
+import { v7 as uuidv7 } from 'uuid';
+import type { DB } from '../db/schema.ts';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
 import {
@@ -21,6 +27,7 @@ import {
   loadMessages,
   removeLink,
   saveMessage,
+  setAutosync,
   setLink,
   updateConversation,
 } from '../services/conversations.ts';
@@ -35,6 +42,38 @@ import { loadHelpers } from '../helpers/load.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
+
+/** A takeover waits this long for the device (VM start, sync, checks). */
+const TAKEOVER_TIMEOUT_MS = 5 * 60_000;
+
+/** Ways a run ends without the device's own word. */
+const LOST = new Set(['device_replaced', 'device_lost', 'device_protocol', 'chat_unlinked']);
+
+/**
+ * Adds a takeover report to the end of the chat: to the last reply if the
+ * chat ends with one, so the card sits below the work it took over.
+ *
+ * @param db - Open database.
+ * @param conversationId - Conversation, already checked for ownership.
+ * @param link - The chat's environment.
+ * @param report - The device's final report.
+ * @returns The stored message.
+ */
+async function attachTakeover(db: Kysely<DB>, conversationId: string, link: ChatLink, report: TakeoverReport): Promise<ChatMessage> {
+  const last = (await loadMessages(db, conversationId)).at(-1);
+  const part = { type: 'data-takeover' as const, id: `takeover-${uuidv7()}`, data: report };
+  const message: ChatMessage =
+    last?.role === 'assistant'
+      ? { ...last, parts: [...last.parts, part] }
+      : {
+          id: uuidv7(),
+          role: 'assistant',
+          parts: [part],
+          metadata: { createdAt: Date.now(), agent: { project: link.project, harness: link.harness } },
+        };
+  await saveMessage(db, conversationId, message);
+  return message;
+}
 
 /**
  * Routes for the signed-in user's conversations, mounted at `/api/conversations`.
@@ -133,11 +172,68 @@ export function conversationRoutes(deps: AppDeps) {
       }
       await assertOffered(input.deviceId, input.project, input.harness);
       const old = conversation.link;
-      if (old && (old.deviceId !== input.deviceId || old.project !== input.project || old.harness !== input.harness)) {
+      const same = old !== null && old.deviceId === input.deviceId && old.project === input.project && old.harness === input.harness;
+      if (old && !same) {
         hub.closeSession(old.deviceId, conversation.id);
       }
-      await setLink(db, conversation.id, input);
+      // Autosync belongs to the project the chat works in; another one starts without.
+      await setLink(db, conversation.id, input, same && old.autosync);
       return c.json(await findConversation(db, user.id, conversation.id));
+    })
+    .patch('/:id/link', async (c) => {
+      const user = c.get('user');
+      const conversation = await findConversation(db, user.id, c.req.param('id'));
+      if (!conversation?.link) {
+        throw notFound('Link');
+      }
+      const { autosync } = updateLinkSchema.parse(await c.req.json());
+      await setAutosync(db, conversation.id, autosync);
+      return c.json(await findConversation(db, user.id, conversation.id));
+    })
+    .post('/:id/takeover', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      const { link } = conversation;
+      if (!link) {
+        throw new HttpError(400, 'validation', 'The chat is not linked to an environment');
+      }
+      assertOnline(link.deviceId);
+      const run = hub.startTakeover(link.deviceId, {
+        type: 'session.takeover',
+        session: conversation.id,
+        project: link.project,
+        harness: link.harness,
+        conversation: { id: conversation.id, title: conversation.title },
+      });
+      const timer = setTimeout(() => hub.abandonRun(conversation.id, 'timeout'), TAKEOVER_TIMEOUT_MS);
+      let report: TakeoverReport | null = null;
+      let failure: string | null = null;
+      try {
+        for await (const event of run) {
+          if (event.type === 'takeover') {
+            report = event.report;
+          } else if (event.type === 'error') {
+            failure = event.message;
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!report || report.state === 'running') {
+        if (failure === 'timeout') {
+          throw new HttpError(504, 'device_timeout', 'The device did not finish the takeover in time');
+        }
+        if (failure && LOST.has(failure)) {
+          throw new HttpError(409, 'device_offline', 'The device disconnected');
+        }
+        // The device's own reason is German and shown as it is.
+        throw new HttpError(502, 'device_failed', failure ?? 'The device sent no report');
+      }
+      const message = await attachTakeover(db, conversation.id, link, report);
+      await updateConversation(db, conversation.id, {});
+      return c.json(message);
     })
     .delete('/:id/link', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
@@ -236,6 +332,7 @@ export function conversationRoutes(deps: AppDeps) {
           text,
           history: transcript(previous),
           model: { credentialId: row.id, modelId: body.modelId },
+          autosync: link.autosync,
         });
         return streamAgent({
           db,

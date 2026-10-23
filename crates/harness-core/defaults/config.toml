@@ -33,6 +33,11 @@ llm_apis = ["api.deepseek.com"]
 # Neue Abhängigkeiten mit der OSV-Datenbank bekannter Schadpakete abgleichen.
 # Schickt dafür die Paketnamen an api.osv.dev; false schaltet das ab.
 osv = true
+# Jev (über OpenRouter) bewertet die Änderungen des Agents zusätzlich, über den
+# gekoppelten Server mit deinem OpenRouter-Zugang. Schickt dafür die
+# hinzugefügten Zeilen dorthin; false schaltet das ab. Jev kann Funde nur
+# hinzufügen, nie Funde der festen Regeln aufheben.
+jev = true
 
 [defaults]
 # Harness für `harness run` ohne Angabe

@@ -10,11 +10,13 @@ mod daemon;
 mod doctor;
 mod idle;
 mod login;
+mod merge_request;
 mod net;
 mod progress;
 mod project;
 mod review;
 mod run;
+mod takeover;
 mod terminal;
 mod vm;
 mod vmd;
@@ -79,6 +81,9 @@ enum Command {
         /// Auch bei schweren Funden der Prüfung übernehmen (nach eigener Prüfung)
         #[arg(long)]
         ignore_findings: bool,
+        /// Gibt einen Merge frei, den ein Web-Chat wegen schwerer Funde angehalten hat (ID aus dem Chat)
+        #[arg(long, value_name = "ID", conflicts_with = "ignore_findings")]
+        approve: Option<String>,
     },
     /// Prüft, was `harness merge` übernehmen würde, ohne es zu übernehmen
     Review,
@@ -246,7 +251,12 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         }
         Command::Shell => run::shell(&config, &machine_name(&config, cli.machine)?),
         Command::Sync { force } => run::sync(&config, &machine_name(&config, cli.machine)?, force),
-        Command::Merge { ignore_findings } => run::merge(&config, ignore_findings),
+        Command::Merge {
+            approve: Some(id), ..
+        } => takeover::approve(&config, &machine_name(&config, cli.machine)?, &id),
+        Command::Merge {
+            ignore_findings, ..
+        } => run::merge(&config, ignore_findings),
         Command::Review => review::run(&config),
         Command::Stop => run::stop(&config, &machine_name(&config, cli.machine)?),
         Command::Status => run::status(&config, &machine_name(&config, cli.machine)?),

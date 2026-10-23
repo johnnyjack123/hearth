@@ -110,6 +110,141 @@ git status --porcelain=v1 --untracked-files=normal | head -n "$1" | sed 's/^/cha
 /// Changes [`workspace_status`] lists; more are only counted as "more".
 pub const MAX_CHANGES: usize = 20;
 
+/// Commits what the agent left uncommitted on the agent branch (`$1`) with
+/// message `$2`, unless more than `$3` files changed (build output that is
+/// missing from `.gitignore`, say). Hooks stay off: they belong to the
+/// agent and could block or rewrite the commit.
+const COMMIT_SCRIPT: &str = r#"set -eu
+export PATH=/usr/bin:/bin
+branch="$1"
+message="$2"
+limit="$3"
+cd /workspace
+if [ ! -e .git ]; then echo "result=no-workspace"; exit 0; fi
+current="$(git branch --show-current)"
+echo "branch=$current"
+if [ "$current" != "$branch" ]; then echo "result=other-branch"; exit 0; fi
+git add -A
+if git diff --cached --quiet; then echo "result=clean"; exit 0; fi
+files="$(git diff --cached --name-only | wc -l)"
+echo "files=$files"
+if [ "$files" -gt "$limit" ]; then git reset --quiet; echo "result=too-many"; exit 0; fi
+git -c core.hooksPath=/dev/null -c commit.gpgSign=false commit --quiet --no-verify -m "$message"
+echo "result=committed"
+"#;
+
+/// Moves the agent branch (`$1`) to the host's merged state `$3`, but only
+/// if it still is at `$2`, the commit the host checked and merged. `--keep`
+/// refuses instead of overwriting changes made since.
+const REFRESH_SCRIPT: &str = r#"set -eu
+export PATH=/usr/bin:/bin
+branch="$1"
+expected="$2"
+target="$3"
+cd /workspace
+if [ ! -e .git ]; then echo "result=no-workspace"; exit 0; fi
+if [ "$(git branch --show-current)" != "$branch" ]; then echo "result=other-branch"; exit 0; fi
+if [ "$(git rev-parse HEAD)" != "$expected" ]; then echo "result=moved"; exit 0; fi
+git -c core.hooksPath=/dev/null reset --quiet --keep "$target"
+echo "result=refreshed"
+"#;
+
+/// Result of [`commit_workspace`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommitOutcome {
+    /// The container has no clone yet.
+    NoWorkspace,
+    /// Another branch is checked out; nothing was committed.
+    OtherBranch {
+        /// The checked-out branch, sanitized.
+        branch: String,
+    },
+    /// Nothing uncommitted.
+    Clean,
+    /// The changes were committed on the agent branch.
+    Committed {
+        /// Files in the commit.
+        files: u32,
+    },
+    /// Too many changed files; nothing was committed.
+    TooMany {
+        /// Files that changed.
+        files: u32,
+    },
+}
+
+/// Commits uncommitted changes of the agent's clone on its branch, so
+/// [`pull_from_workspace`] carries them home. At most `max_files` files.
+pub fn commit_workspace(
+    provider: &dyn Provider,
+    container: &str,
+    name: &ProjectName,
+    message: &str,
+    max_files: u32,
+) -> Result<CommitOutcome> {
+    let limit = max_files.to_string();
+    let output = run_script(
+        provider,
+        container,
+        COMMIT_SCRIPT,
+        &[&name.agent_branch(), message, &limit],
+    )?;
+    let files = value(&output, "files")
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(0);
+    match value(&output, "result") {
+        Some("no-workspace") => Ok(CommitOutcome::NoWorkspace),
+        Some("other-branch") => Ok(CommitOutcome::OtherBranch {
+            branch: value(&output, "branch").map(sanitize).unwrap_or_default(),
+        }),
+        Some("clean") => Ok(CommitOutcome::Clean),
+        Some("committed") => Ok(CommitOutcome::Committed { files }),
+        Some("too-many") => Ok(CommitOutcome::TooMany { files }),
+        _ => Err(unexpected_output(&output)),
+    }
+}
+
+/// Result of [`refresh_workspace`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshOutcome {
+    /// The agent branch in the container is at the merged state now.
+    Refreshed,
+    /// The agent committed after the check; the branch stayed.
+    Moved,
+    /// Another branch is checked out in the container.
+    OtherBranch,
+    /// The container has no clone.
+    NoWorkspace,
+}
+
+/// After a merge on the host: brings the host's state into the container
+/// and moves the agent branch there from `expected` (the merged commit) to
+/// `target` (the host's new HEAD), so the agent continues from what the
+/// user has.
+pub fn refresh_workspace(
+    provider: &dyn Provider,
+    container: &str,
+    repo: &HostRepo,
+    name: &ProjectName,
+    expected: &str,
+    target: &str,
+) -> Result<RefreshOutcome> {
+    push_to_workspace(provider, container, repo, name)?;
+    let output = run_script(
+        provider,
+        container,
+        REFRESH_SCRIPT,
+        &[&name.agent_branch(), expected, target],
+    )?;
+    match value(&output, "result") {
+        Some("refreshed") => Ok(RefreshOutcome::Refreshed),
+        Some("moved") => Ok(RefreshOutcome::Moved),
+        Some("other-branch") => Ok(RefreshOutcome::OtherBranch),
+        Some("no-workspace") => Ok(RefreshOutcome::NoWorkspace),
+        _ => Err(unexpected_output(&output)),
+    }
+}
+
 /// What [`pull_from_workspace`] leaves behind: it carries commits on the
 /// agent branch only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

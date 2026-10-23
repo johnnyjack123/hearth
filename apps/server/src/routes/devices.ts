@@ -1,7 +1,9 @@
 import {
   type DeviceSelf,
   type DeviceSummary,
+  type DiffAssessment,
   deviceProjectsSchema,
+  diffAssessmentRequestSchema,
   pairingDecisionSchema,
   pairingTokenSchema,
   type RemoteProject,
@@ -24,6 +26,8 @@ import {
   startPairing,
   updateDevice,
 } from '../services/devices.ts';
+import { loadHelpers } from '../helpers/load.ts';
+import { assessDiff } from '../helpers/review.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
 
 /**
@@ -122,6 +126,25 @@ export function deviceSelfRoutes(deps: AppDeps) {
       const body: DeviceSelf = {
         device: withLive(deps.hub, deviceSummary(device), projects),
         user: { email: owner.email, name: owner.name },
+      };
+      return c.json(body);
+    })
+    .post('/assessments/diff', async (c) => {
+      // Jev for the merge check on the computer, billed to the user's own
+      // OpenRouter key like the helpers of their chats.
+      const { files } = diffAssessmentRequestSchema.parse(await c.req.json());
+      const helpers = await loadHelpers(db, deps.secretBox, c.get('owner').id, null, deps.helpers);
+      if (!helpers) {
+        const none: DiffAssessment = { model: null, files: null, cost: null, reason: 'no_helpers' };
+        return c.json(none);
+      }
+      const dangers = await assessDiff(helpers, files);
+      const costs = helpers.usage.map((call) => call.cost?.total);
+      const body: DiffAssessment = {
+        model: helpers.jevModel,
+        files: dangers,
+        cost: costs.length > 0 && costs.every((cost) => cost !== undefined) ? costs.reduce((sum, cost) => sum + (cost ?? 0), 0) : null,
+        ...(dangers ? {} : { reason: 'failed' as const }),
       };
       return c.json(body);
     })
