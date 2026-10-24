@@ -48,7 +48,8 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus Hintergrunddienst mit 
 - **Block „Umgebung im Web-Chat“, Schritt 1 erledigt (23.10., Branch `feat/environment-ux`):** Zustand von Gerät und VM im Chat (Umgebungs-Popover) und unter Einstellungen → Geräte, VM aus dem Browser stoppen, Leerlaufzeit pro Gerät, Stopp im Leerlauf im Hintergrunddienst. Tunnel-Protokoll 2 mit Aushandlung. Siehe Stolpersteine „VM-Leerlauf und Steuerung aus dem Browser“.
 - **Schritt 2 erledigt (23.10.):** Neuer Chat direkt mit Umgebung. Die Startseite hat den Umgebungs-Knopf, `POST /api/conversations` nimmt `link` mit und prüft ihn, bevor etwas gespeichert wird. Im Popover eines verknüpften Chats führt „Neuer Chat in dieser Umgebung“ zu `/?device=…&project=…&harness=…`. 
 - **Schritt 3 erledigt (23./24.10.):** „Fortschritt sichern“ und Autosync im Chat, schwere Funde nur per `harness merge --approve <ID>` im Terminal, Jev prüft den Diff über den Server. Tunnel-Protokoll 3. Siehe Stolpersteine „Fortschritt sichern, Autosync und Jev“.
-- **Schritt 4 erledigt (24.10.):** Tray-Symbol von `harnessd`: Zustand, Web-App, VM stoppen, Protokoll, Beenden, Benachrichtigungen bei Rückfragen und angehaltenen Merges. Siehe Stolpersteine „Hintergrunddienst“. Nächster Schritt: Installer (ROADMAP Phase 3).
+- **Schritt 4 erledigt (24.10.):** Tray-Symbol von `harnessd`: Zustand, Web-App, VM stoppen, Protokoll, Beenden, Benachrichtigungen bei Rückfragen und angehaltenen Merges. Siehe Stolpersteine „Hintergrunddienst“.
+- **Schritt 5 erledigt (24.10.):** Installer. `harness setup` prüft und richtet ein (Hyper-V, git, Podman, VM-Dienst samt neuer Machine, Images, Server, Autostart, PATH). Der Workflow `windows.yml` baut ZIPs für x64 und ARM64, `scripts/install.ps1` installiert sie nach `%LOCALAPPDATA%\Programs\llm-harness`. Siehe Stolpersteine „Installer“. Nächster Schritt: `web_fetch` für pi und fortsetzbare Streams (ROADMAP Phase 3, Schritt 6).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
 ## Arbeitsweise
@@ -77,6 +78,9 @@ cargo build                           # Rust-Workspace; 2 Jobs per .cargo/config
 cargo test                            # Unit-Tests
 cargo fmt; cargo clippy --all-targets
 target/debug/harness doctor           # Konfiguration, Machine, SSH, Freigaben, Base-Image
+target/debug/harness setup            # Einrichtungs-Assistent: prüft alles, holt Fehlendes nach Rückfrage nach (--yes, --server URL)
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Zip <zip> [-NoSetup] [-Target <ordner>]   # Release-ZIP installieren
+gh workflow run windows.yml           # Windows-Builds (x64, arm64) als Artefakte; Tags v* veröffentlichen ein Release
 target/debug/harness image build      # Base- und Gateway-Image in der VM bauen (base|gateway, --pull, --no-cache)
 target/debug/harness project add      # aktuelles Git-Repo als Projekt anlegen (show, list)
 target/debug/harness net              # Netz des Projekts; start|stop, preset open, allow/deny <domain> [--always]
@@ -382,6 +386,19 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 - **Jev für den Diff:** `POST /api/device/assessments/diff` (Geräte-Token) mit den hinzugefügten Zeilen je Datei (höchstens 60 Dateien, 12 000 Zeichen je Datei). Der Server nutzt den ältesten OpenRouter-Zugang des Besitzers (`loadHelpers` mit `chat = null`, Admin-Schalter der Hilfsmodelle gilt), Gefahr = 1 − Score. Ab 0,75 ist es ein schwerer Fund, ab 0,5 ein mittlerer. Die höchste Gefahr steht immer als Hinweis im Bericht. Jev fügt nur Funde hinzu, weil der Diff vom Agent stammt. Abschalten mit `[review] jev = false`.
 - `agentToolsAsText` lässt Antworten weg, die ohne Datenteile leer wären (z. B. nur eine Übernahme-Karte), sonst lehnen Anbieter die leere Nachricht ab.
 - **Smoke-Test:** Das Mock-LLM (`scripts/mock-agent-llm.mjs`) führt eine Nutzernachricht, die mit `!` beginnt, als Befehl aus. So prüft `smoke-connect.sh` Autosync und den angehaltenen Merge (`.husky/pre-commit` → Fund `git-hook`). Die Freigabe mit Bestätigung im Terminal ist nicht automatisiert.
+
+### Installer (`harness-cli/src/setup.rs`, `vmd.rs`, `scripts/install.ps1`, `.github/workflows/windows.yml`)
+
+- **`harness setup`** prüft der Reihe nach und tut nur, was fehlt; vor Administratorrechten und großen Downloads fragt er nach. Ohne Terminal nur mit `--yes`, sonst meldet er die Schritte nur.
+  - Hyper-V gilt als eingeschaltet, wenn der Dienst `vmms` existiert. Windows Home (`EditionID` beginnt mit `Core`) und ausgeschaltete Virtualisierung in der Firmware werden erklärt. Einschalten geht per DISM im Admin-Teil (`vmd hyperv-elevated`, Exit 3010 = Neustart nötig).
+  - git und Podman per `winget install --exact --source winget`. Danach steht der Pfad dieses Prozesses noch auf dem alten Stand; setup sucht am bekannten Ort unter Program Files und ergänzt seinen PATH.
+  - Fehlt die Machine, legt sie der Admin-Teil von `vmd install` mit `--create CPUS MIB GIB` an (`podman machine init` als erhöhter Nutzer, also wie früher von Hand im Profil des Nutzers) und übernimmt sie danach. Standard: 2–4 CPUs, bis 4096 MiB, 40 GiB.
+  - Ist der installierte `harness-vmd.exe` ein anderer Stand als der neben `harness.exe` (Bytevergleich), bietet setup das Aktualisieren an (UAC, VM startet neu). In der Entwicklung meldet er das nach fast jedem Build.
+- **Testläufe mit `HARNESS_HOME`** ändern Windows nie: Systemschritte (Hyper-V, winget, VM-Dienst) werden nur gemeldet, PATH und Autostart bleiben unangetastet, der Browser öffnet sich ohne Terminal nicht. `smoke-connect.sh` koppelt deshalb über `harness setup --yes --server …`.
+- **Admin-Teil mit Live-Protokoll:** `run_elevated` zeigt die Logdatei des erhöhten Prozesses zeilenweise an, während er läuft (Download der Machine dauert Minuten).
+- **PATH** wird roh aus `HKCU\Environment` gelesen und als `REG_EXPAND_SZ` geschrieben, danach `WM_SETTINGCHANGE`. Nicht `[Environment]::SetEnvironmentVariable` nehmen: Das schreibt `REG_SZ` und macht `%…%`-Einträge kaputt.
+- **Verteilung:** Das Repo ist privat, Releases lädt `install.ps1` deshalb über die GitHub-CLI (`gh release download`) oder aus einem ZIP bzw. dem entpackten Ordner. Ziel ist `%LOCALAPPDATA%\Programs\llm-harness` ohne Admin; `harness-vmd.exe` kopiert erst `vmd install` unter Program Files. Vor dem Kopieren stoppt das Skript den Hintergrunddienst (gesperrte Dateien), danach `Unblock-File`. Die Programme sind nicht signiert.
+- Der Workflow baut ARM64 als Cross-Build auf dem x64-Runner (MSVC-ARM64-Werkzeuge sind dort dabei, keine Abhängigkeit kompiliert C-Code). Nur der x64-Build wird auf dem Runner gestartet.
 
 ### Terminal-Relay (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`)
 

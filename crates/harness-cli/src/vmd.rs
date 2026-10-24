@@ -13,6 +13,10 @@
 //! 5. register and start the service, which then starts the VM.
 //!
 //! `uninstall` reverses 3 to 5; the machine is the user's again.
+//!
+//! For `harness setup`, the elevated half can also create the machine
+//! first (`podman machine init`, with the user's profile like a manual
+//! init in an admin PowerShell) and switch Hyper-V on.
 
 use std::fs;
 use std::io::Write as _;
@@ -52,6 +56,15 @@ pub enum VmdCommand {
         profile: PathBuf,
         #[arg(long)]
         log: PathBuf,
+        /// Legt die Machine erst an: CPUs, Arbeitsspeicher (MiB), Platte (GiB)
+        #[arg(long, num_args = 3, value_names = ["CPUS", "MIB", "GIB"])]
+        create: Option<Vec<u32>>,
+    },
+    /// Wird von `harness setup` mit Administratorrechten aufgerufen
+    #[command(hide = true)]
+    HypervElevated {
+        #[arg(long)]
+        log: PathBuf,
     },
     /// Wird von `uninstall` mit Administratorrechten aufgerufen
     #[command(hide = true)]
@@ -72,7 +85,7 @@ pub fn run(machine: &str, command: Option<VmdCommand>) -> anyhow::Result<bool> {
         VmdCommand::Start => ask(Request::Start, "Starte die VM …"),
         VmdCommand::Stop => ask(Request::Stop, "Stoppe die VM …"),
         VmdCommand::Restart => ask(Request::Restart, "Starte die VM neu …"),
-        VmdCommand::Install => install(machine),
+        VmdCommand::Install => install(machine, None),
         VmdCommand::Uninstall => uninstall(machine),
         VmdCommand::InstallElevated {
             user_sid,
@@ -80,9 +93,15 @@ pub fn run(machine: &str, command: Option<VmdCommand>) -> anyhow::Result<bool> {
             machine,
             profile,
             log,
+            create,
         } => elevated(&log, |log| {
-            install_elevated(log, &user_sid, &podman, &machine, &profile)
+            let size = create.and_then(|values| match values[..] {
+                [cpus, memory, disk] => Some(MachineSize { cpus, memory, disk }),
+                _ => None,
+            });
+            install_elevated(log, &user_sid, &podman, &machine, &profile, size)
         }),
+        VmdCommand::HypervElevated { log } => elevated(&log, enable_hyperv_elevated),
         VmdCommand::UninstallElevated {
             machine,
             profile,
@@ -139,21 +158,47 @@ fn service_exe_next_to_harness() -> anyhow::Result<PathBuf> {
     Ok(service)
 }
 
+/// Whether the installed service is another build than the one next to
+/// `harness.exe` (after an update); `None` if either is missing.
+pub fn service_outdated() -> Option<bool> {
+    let installed = fs::read(program_dir().join("harness-vmd.exe")).ok()?;
+    let here = fs::read(service_exe_next_to_harness().ok()?).ok()?;
+    Some(installed != here)
+}
+
 fn log_file(action: &str) -> PathBuf {
     std::env::temp_dir().join(format!("harness-vmd-{action}-{}.log", std::process::id()))
 }
 
-fn install(machine: &str) -> anyhow::Result<bool> {
+/// Resources of a machine `harness setup` creates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineSize {
+    /// Virtual CPUs.
+    pub cpus: u32,
+    /// Most memory in MiB; the service starts the VM with less.
+    pub memory: u32,
+    /// Disk in GiB; it grows as it is used.
+    pub disk: u32,
+}
+
+/// Sets the service up; with `create` it first creates the machine.
+pub fn install(machine: &str, create: Option<MachineSize>) -> anyhow::Result<bool> {
     let sid = vmd::current_user_sid()?;
     let podman = find_podman()?;
     service_exe_next_to_harness()?;
     let profile = harness_core::paths::home_dir()?;
     let log = log_file("install");
     println!("Richte den VM-Dienst ein. Windows fragt dafür einmal nach Administratorrechten.");
-    println!(
-        "Die VM {machine} wird dabei gestoppt und vom Dienst übernommen (Images und Volumes bleiben)."
-    );
-    let args: Vec<String> = vec![
+    if create.is_some() {
+        println!(
+            "Zuerst entsteht die VM {machine}; podman lädt dafür ihr Betriebssystem (etwa 1 GB)."
+        );
+    } else {
+        println!(
+            "Die VM {machine} wird dabei gestoppt und vom Dienst übernommen (Images und Volumes bleiben)."
+        );
+    }
+    let mut args: Vec<String> = vec![
         "vmd".into(),
         "install-elevated".into(),
         "--user-sid".into(),
@@ -167,14 +212,34 @@ fn install(machine: &str) -> anyhow::Result<bool> {
         "--log".into(),
         log.display().to_string(),
     ];
-    let code = run_elevated(&args)?;
-    print_log(&log);
+    if let Some(size) = create {
+        args.extend([
+            "--create".into(),
+            size.cpus.to_string(),
+            size.memory.to_string(),
+            size.disk.to_string(),
+        ]);
+    }
+    let code = run_elevated(&args, &log)?;
     if code != 0 {
         println!("Einrichtung fehlgeschlagen (Exit-Code {code}).");
         return Ok(false);
     }
     println!();
     status()
+}
+
+/// Switches Hyper-V on (UAC); Windows needs a restart afterwards.
+pub fn enable_hyperv() -> anyhow::Result<bool> {
+    let log = log_file("hyperv");
+    println!("Schalte Hyper-V ein. Windows fragt dafür einmal nach Administratorrechten.");
+    let args: Vec<String> = vec![
+        "vmd".into(),
+        "hyperv-elevated".into(),
+        "--log".into(),
+        log.display().to_string(),
+    ];
+    Ok(run_elevated(&args, &log)? == 0)
 }
 
 fn uninstall(machine: &str) -> anyhow::Result<bool> {
@@ -191,32 +256,38 @@ fn uninstall(machine: &str) -> anyhow::Result<bool> {
         "--log".into(),
         log.display().to_string(),
     ];
-    let code = run_elevated(&args)?;
-    print_log(&log);
+    let code = run_elevated(&args, &log)?;
     Ok(code == 0)
 }
 
-fn print_log(path: &Path) {
-    if let Ok(text) = fs::read_to_string(path) {
-        for line in text.lines() {
-            println!("  {}", harness_core::sync::sanitize(line));
-        }
+/// Prints what the elevated half wrote to `log` since `offset`, line by
+/// line, and returns the new offset. A line still being written waits.
+fn print_new(log: &Path, offset: usize) -> usize {
+    let Ok(text) = fs::read(log) else {
+        return offset;
+    };
+    let Some(end) = text.iter().rposition(|&b| b == b'\n').map(|i| i + 1) else {
+        return offset;
+    };
+    if end <= offset {
+        return offset;
     }
-    let _ = fs::remove_file(path);
+    for line in String::from_utf8_lossy(&text[offset..end]).lines() {
+        println!("  {}", harness_core::sync::sanitize(line));
+    }
+    end
 }
 
-/// Runs this binary with `args` elevated (UAC) in a hidden window and
-/// returns its exit code.
+/// Runs this binary with `args` elevated (UAC) in a hidden window, shows
+/// its `log` while it runs and returns its exit code.
 #[cfg(windows)]
-fn run_elevated(args: &[String]) -> anyhow::Result<u32> {
+fn run_elevated(args: &[String], log: &Path) -> anyhow::Result<u32> {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 
-    use windows_sys::Win32::Foundation::ERROR_CANCELLED;
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, INFINITE, WaitForSingleObject,
-    };
+    use windows_sys::Win32::Foundation::{ERROR_CANCELLED, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject};
     use windows_sys::Win32::UI::Shell::{
         SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
     };
@@ -254,16 +325,22 @@ fn run_elevated(args: &[String]) -> anyhow::Result<u32> {
     // SAFETY: SEE_MASK_NOCLOSEPROCESS hands us the process handle.
     let process = unsafe { OwnedHandle::from_raw_handle(info.hProcess) };
     let mut code = 1u32;
+    let mut shown = 0;
     // SAFETY: valid process handle.
     unsafe {
-        WaitForSingleObject(process.as_raw_handle(), INFINITE);
+        // Creating a machine downloads for minutes; the log shows progress.
+        while WaitForSingleObject(process.as_raw_handle(), 500) == WAIT_TIMEOUT {
+            shown = print_new(log, shown);
+        }
         GetExitCodeProcess(process.as_raw_handle(), &mut code);
     }
+    print_new(log, shown);
+    let _ = fs::remove_file(log);
     Ok(code)
 }
 
 #[cfg(not(windows))]
-fn run_elevated(_args: &[String]) -> anyhow::Result<u32> {
+fn run_elevated(_args: &[String], _log: &Path) -> anyhow::Result<u32> {
     bail!("Den VM-Dienst gibt es nur unter Windows")
 }
 
@@ -405,6 +482,7 @@ fn install_elevated(
     podman: &Path,
     machine: &str,
     profile: &Path,
+    create: Option<MachineSize>,
 ) -> anyhow::Result<()> {
     // The same checks the service applies, before anything changes.
     let config = format!(
@@ -429,7 +507,16 @@ fn install_elevated(
     let user_json = user_machine_json(profile, machine);
     let service_json = vmd::machine_json(machine);
     if !service_json.is_file() && !user_json.is_file() {
-        bail!("Machine {machine} nicht gefunden: {}", user_json.display());
+        let Some(size) = create else {
+            bail!("Machine {machine} nicht gefunden: {}", user_json.display());
+        };
+        create_machine(log, podman, machine, size)?;
+        if !user_json.is_file() {
+            bail!(
+                "podman hat die Machine angelegt, aber {} fehlt",
+                user_json.display()
+            );
+        }
     }
 
     // 1. The VM stops with the user's podman, which still owns it.
@@ -594,6 +681,87 @@ fn install_elevated(
         bail!("VM-Start über den Dienst: {}", answer.message);
     }
     log.line(&format!("✓ {}", answer.message));
+    Ok(())
+}
+
+/// `podman machine init` as the elevated user, so the machine lands in the
+/// user's profile as after a manual init; the service takes it over next.
+/// Its output goes to the log as it comes, so the user sees the download.
+fn create_machine(
+    log: &mut Log,
+    podman: &Path,
+    machine: &str,
+    size: MachineSize,
+) -> anyhow::Result<()> {
+    log.line(&format!(
+        "… lege die VM {machine} an ({} CPUs, bis {} MiB RAM, {} GiB Platte); das dauert ein paar Minuten",
+        size.cpus, size.memory, size.disk
+    ));
+    let mut child = Command::new(podman)
+        .args([
+            "machine",
+            "init",
+            "--cpus",
+            &size.cpus.to_string(),
+            "--memory",
+            &size.memory.to_string(),
+            "--disk-size",
+            &size.disk.to_string(),
+            machine,
+        ])
+        .env("CONTAINERS_MACHINE_PROVIDER", "hyperv")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("podman machine init: Programm nicht gestartet")?;
+    let stderr = child.stderr.take();
+    let errors = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(mut stderr) = stderr {
+            let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
+        }
+        text
+    });
+    if let Some(stdout) = child.stdout.take() {
+        for line in std::io::BufRead::lines(std::io::BufReader::new(stdout)).map_while(Result::ok) {
+            let line = line.trim();
+            if !line.is_empty() {
+                log.line(&format!("  {line}"));
+            }
+        }
+    }
+    let status = child.wait().context("podman machine init")?;
+    let errors = errors.join().unwrap_or_default();
+    if !status.success() {
+        bail!("podman machine init: {}", errors.trim());
+    }
+    log.line(&format!("✓ VM {machine} angelegt"));
+    Ok(())
+}
+
+/// Switches the Hyper-V feature on; DISM exits with 3010 when Windows
+/// needs a restart for it, which is the usual case.
+fn enable_hyperv_elevated(log: &mut Log) -> anyhow::Result<()> {
+    log.line("… schalte Hyper-V ein (DISM), das dauert eine Weile");
+    let output = Command::new(system32("dism.exe"))
+        .args([
+            "/Online",
+            "/Enable-Feature",
+            "/FeatureName:Microsoft-Hyper-V",
+            "/All",
+            "/NoRestart",
+        ])
+        .output()
+        .context("dism.exe: Programm nicht gestartet")?;
+    match output.status.code() {
+        Some(0) => log.line("✓ Hyper-V eingeschaltet"),
+        Some(3010) => log.line("✓ Hyper-V eingeschaltet; Windows muss neu starten"),
+        code => bail!(
+            "DISM endete mit {:?}: {}",
+            code,
+            String::from_utf8_lossy(&output.stdout).trim()
+        ),
+    }
     Ok(())
 }
 

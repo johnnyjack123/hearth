@@ -16,6 +16,7 @@ mod progress;
 mod project;
 mod review;
 mod run;
+mod setup;
 mod status;
 mod takeover;
 mod terminal;
@@ -51,6 +52,15 @@ struct Cli {
 enum Command {
     /// Prüft Konfiguration, Machine, SSH-Verbindung, VM-Dienst und Images
     Doctor,
+    /// Richtet harness auf diesem Rechner ein: Hyper-V, git, Podman, VM-Dienst, Images, Server, Autostart
+    Setup {
+        /// Server, mit dem dieser Rechner gekoppelt wird (sonst fragt setup)
+        #[arg(long)]
+        server: Option<String>,
+        /// Allen Schritten zustimmen, ohne zu fragen (Downloads, Administratorrechte)
+        #[arg(long)]
+        yes: bool,
+    },
     /// Images verwalten
     Image {
         #[command(subcommand)]
@@ -205,6 +215,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             | Command::Stop
             | Command::Status
             | Command::Image { .. }
+            | Command::Setup { .. }
             | Command::Net { .. },
         ) => vm::mark_in_use(&machine_name(&config, cli.machine.clone())?),
         Some(_) => None,
@@ -215,6 +226,11 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
     };
     match command {
         Command::Doctor => doctor::run(&config, cli.machine.as_deref()),
+        Command::Setup { server, yes } => setup::run(
+            &config,
+            &machine_name(&config, cli.machine)?,
+            setup::Options { server, yes },
+        ),
         Command::Image {
             command:
                 ImageCommand::Build {

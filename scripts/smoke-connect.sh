@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of Phase 4 against the real VM, from Git Bash:
 #
-#   throwaway server + tool-calling mock LLM -> harness login -> project
+#   throwaway server + tool-calling mock LLM -> harness setup (pairs) -> project
 #   -> harness connect in the foreground refuses a chat the project wants
 #   confirmed -> the background service (harness daemon start) takes over
 #   -> a web chat linked to the project over the API -> progress steps,
@@ -132,13 +132,16 @@ CREDENTIAL=$(api POST /api/providers \
   "{\"kind\":\"openai-compatible\",\"label\":\"Mock\",\"baseUrl\":\"http://127.0.0.1:$MOCK_PORT/v1\",\"apiKey\":\"sk-mock-key\"}" |
   json v.id)
 
-echo "== harness login"
-"$H" login "$URL" --no-browser > "$WORK/login.log" 2>&1 &
+echo "== harness setup (koppelt mit dem Testserver)"
+# The assistant only reports system steps under HARNESS_HOME; on this
+# machine everything else is there, so it ends in the pairing.
+"$H" setup --yes --server "$URL" > "$WORK/login.log" 2>&1 &
 LOGIN=$!
 wait_for 30 grep -qE '[A-Z2-9]{4}-[A-Z2-9]{4}' "$WORK/login.log"
 CODE=$(grep -oE '[A-Z2-9]{4}-[A-Z2-9]{4}' "$WORK/login.log" | head -1)
 api POST "/api/devices/pairing/$CODE" '{"approve":true}' > /dev/null
 check "Rechner gekoppelt" wait "$LOGIN"
+check "setup prüft Hyper-V, Podman und VM-Dienst" bash -c   "grep -q 'Hyper-V ist eingeschaltet' '$WORK/login.log' && grep -q '✓ Podman' '$WORK/login.log' && grep -q 'VM-Dienst' '$WORK/login.log'"
 
 echo "== harness init in einem Test-Repo $NAME"
 mkdir -p "$WORK/$NAME" && cd "$WORK/$NAME" || exit 1
