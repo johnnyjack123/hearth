@@ -323,7 +323,11 @@ impl Vm {
         ));
         if !ok {
             self.clean_up_failed_start();
-            return Err(format!("Start fehlgeschlagen: {}", tail(&output)));
+            return Err(format!(
+                "Start fehlgeschlagen: {}{}",
+                tail(&output),
+                start_hint(&output)
+            ));
         }
         let port = self.ssh_port().ok_or("SSH-Port der Machine unbekannt")?;
         let deadline = Instant::now() + SSH_READY_TIMEOUT;
@@ -370,9 +374,26 @@ impl Vm {
     }
 }
 
+/// A hint for Hyper-V's job error 32788, which says nothing by itself; on
+/// this machine it has always meant too little free memory (event 3030 in
+/// Hyper-V-Worker-Admin).
+fn start_hint(output: &str) -> &'static str {
+    if output.contains("32788") {
+        " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB.          Programme schließen und erneut versuchen.)"
+    } else {
+        ""
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn job_error_32788_gets_a_hint() {
+        assert!(start_hint("Job failed with error code: 32788 ()").contains("Arbeitsspeicher"));
+        assert_eq!(start_hint("ssh: handshake failed"), "");
+    }
 
     #[test]
     fn commands_run_with_a_timeout() {

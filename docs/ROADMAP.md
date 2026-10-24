@@ -464,6 +464,11 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
+- **ponytail als optionaler Skill in pi** (Idee des Nutzers, 24.10., vorgemerkt): ponytail ist ein pi-Paket („lazy senior dev“), das den Agent zu weniger und einfacherem Code drängt. Es arbeitet eine Checkliste ab: Braucht es den Code überhaupt? Deckt das die Standardbibliothek, die Plattform oder eine vorhandene Abhängigkeit schon ab? Dazu kommen Befehle wie `/ponytail lite|full|ultra|off`, `/ponytail-review` und `/ponytail-audit`.
+  - Pakete: `@dietrichgebert/ponytail` (Original), `@bacnh85/pi-ponytail` (für pi angepasst), Installation per `pi install npm:…`.
+  - Umsetzung wäre ein Schalter pro Projekt oder Chat, der das Paket bei der Installation ins Tools-Volume legt und für pi lädt.
+  - pi-Pakete führen Code aus; die Quelle vorher prüfen und die Version festlegen.
+
 - **Host-Modus** (ungesichert, Harness direkt auf dem Host, ARCHITECTURE.md §3)
 - **Host-Ausführung mit Einzelbestätigung** (Idee des Nutzers vom 13.10., noch kein konkreter Bedarf; so bauen, dass sie sich später ergänzen lässt): Der Agent darf einzelne Befehle auf Windows ausführen lassen, etwa PowerShell, MSVC/.NET, Windows-GUI oder Hardware. Jeder Befehl wird außerhalb der Sandbox bestätigt, so wie die Netz-Rückfragen. Vorschlag zur Umsetzung:
   - pro Projekt aus, solange nicht eingeschaltet, und nie für verknüpfte Remote-Chats

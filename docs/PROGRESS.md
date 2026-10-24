@@ -102,6 +102,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 ## Open questions for the user
 
 - Jev-Schwellen (ab 75 % Gefahr schwer, ab 50 % mittel) sind geschätzt; Rückmeldung nach echten Diffs.
+- Vorgemerkt (Nutzer, 24.10.): ponytail als optionaler Skill in pi (ROADMAP Phase 5).
 - Rückmeldung zur Recherche mit OpenRouter-Key (Reihung, Abschnitte, Kosten) und weiterhin zum Ablauf mit Hintergrunddienst und DeepSeek.
 - Der OpenRouter-Key aus dem Chat vom 21.10. sollte nach den Tests widerrufen werden; er steht im Gesprächsverlauf.
 
