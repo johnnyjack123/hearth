@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway", "crates/harness-vmd"]
+members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway", "crates/harness-setup", "crates/harness-vmd"]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,8 +1,11 @@
-# Builds harness for Windows (x64 and arm64) and packs it with the install
-# script: harness.exe, harnessd.exe (tray and launcher of the background
-# service), harness-vmd.exe (VM service) and install.ps1.
+# Builds harness for Windows (x64 and arm64):
+# - llm-harness-setup-<arch>.exe, the one file to download: it carries the
+#   programs below, installs them for the user and runs `harness setup`;
+# - llm-harness-windows-<arch>.zip with harness.exe, harnessd.exe (tray and
+#   launcher of the background service), harness-vmd.exe (VM service) and
+#   install.ps1, for scripted installs.
 #
-# Runs on version tags, which also publish a release with both ZIPs, and by
+# Runs on version tags, which also publish a release with all four files, and by
 # hand (`gh workflow run windows.yml`), which only keeps them as artifacts.
 # arm64 is cross-compiled on the x64 runner: the MSVC ARM64 tools are part
 # of its Visual Studio, and no dependency compiles C code.
@@ -46,6 +49,12 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p harness-cli -p harness-vmd
 
+      - name: Build the installer with these programs inside
+        shell: pwsh
+        run: |
+          $env:HARNESS_BUNDLE_DIR = Join-Path $env:GITHUB_WORKSPACE "target/${{ matrix.target }}/release"
+          cargo build --release --locked --target ${{ matrix.target }} -p harness-setup
+
       - name: Starts on the runner
         if: matrix.arch == 'x64'
         run: target/${{ matrix.target }}/release/harness.exe --help
@@ -60,11 +69,14 @@ jobs:
           }
           Copy-Item scripts/install.ps1 $name
           Compress-Archive -Path "$name/*" -DestinationPath "$name.zip"
+          Copy-Item "target/${{ matrix.target }}/release/llm-harness-setup.exe" "llm-harness-setup-${{ matrix.arch }}.exe"
 
       - uses: actions/upload-artifact@v7
         with:
           name: llm-harness-windows-${{ matrix.arch }}
-          path: llm-harness-windows-${{ matrix.arch }}.zip
+          path: |
+            llm-harness-windows-${{ matrix.arch }}.zip
+            llm-harness-setup-${{ matrix.arch }}.exe
           retention-days: 30
 
   release:
@@ -85,4 +97,4 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/*.zip dist/*.exe --repo "$GITHUB_REPOSITORY" --clobber

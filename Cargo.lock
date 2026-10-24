@@ -417,6 +417,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-setup"
+version = "0.1.0"
+
+[[package]]
 name = "harness-vmd"
 version = "0.1.0"
 dependencies = [
