@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–4 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol; Branch `feat/environment-ux`); nächstes: Installer_
+_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–5 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer; Branch `feat/environment-ux`); nächstes: `web_fetch` für pi und fortsetzbare Streams_
 
 ## Where we are
 
@@ -28,6 +28,8 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - Das Modell nennt am Ende jedes Absatzes seine Quellen; der Chat zeigt sie als Badge (Host, „+n“), beim Zeigen oder Klicken mit Liste. Links im Text sind echte Links. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
    - Die Karte einer geladenen Seite sagt, ob Abschnitte nach Bedeutung („semantisch“) oder nur nach Stichworten gewählt wurden oder ob das Modell die ganze Seite las.
 
+**Einrichtung:** `harness setup` prüft den Rechner und holt nach, was fehlt (Hyper-V, git, Podman, VM-Dienst und VM, Images, Server, Autostart, PATH). Release-ZIPs installiert `scripts/install.ps1`.
+
 **Tray-Symbol:** `harnessd` zeigt Verbindung und VM, öffnet Web-App und Protokoll, stoppt die VM, beendet den Dienst und meldet Rückfragen und angehaltene Merges als Windows-Benachrichtigung.
 
 **Server des Nutzers:** Docker-Compose mit Postgres auf seinem Raspberry Pi, `http://192.168.1.20:8085`. Das Image baut GitHub bei jedem Push auf `main`. Der Windows-Rechner war am 18.10. mit diesem Pi-Server gekoppelt (`harness doctor`).
@@ -41,8 +43,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    2. ✅ neuer Chat direkt mit Umgebung (23.10.)
    3. ✅ „Fortschritt sichern“, Freigabe per ID, Autosync, Jev für den Diff (23./24.10.)
    4. ✅ Tray-Symbol für `harnessd` (24.10.)
-   5. **als Nächstes:** Installer, der Podman, VM und Dienst einrichtet
-   6. `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
+   5. ✅ Installer: `harness setup`, Windows-Builds, `install.ps1` (24.10.)
+   6. **als Nächstes:** `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, zusammen mit `web_fetch` für pi).
@@ -119,6 +121,14 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 24.10. (Schritt 5: Installer):
+- **Rust:** Tests grün (neu: PATH-Vergleich, Größe neuer Machines), Clippy ohne Warnungen.
+- **Echt:**
+  - `harness setup` ohne Terminal auf dem eingerichteten Rechner: alles ✓, Autostart und PATH nur gemeldet
+  - `bash scripts/smoke-connect.sh` 52/52, jetzt mit `harness setup --yes --server …` als Einstieg (meldet den älteren VM-Dienst, ändert ihn im Testlauf nicht)
+  - `install.ps1` aus ZIP, aus dem Ordner und über eine bestehende Installation in einen Testordner
+- **Nicht geprüft:** frische Einrichtung (Hyper-V einschalten, winget, `podman machine init` über den Dienst), dafür fehlt ein frischer Rechner. Der Download über `gh release download` ist nur am Code geprüft.
 
 Stand 24.10. (Schritt 4: Tray-Symbol):
 - **Rust:** `cargo test` grün (neu: Statusdatei, Menütexte und -aktionen in Deutsch und Englisch, Status anderer Läufe ignoriert, gezeichnetes Symbol), Clippy ohne Warnungen.

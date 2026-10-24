@@ -284,7 +284,12 @@ Bausteine:
    - Zustand von Verbindung und VM (mit Stopp im Leerlauf), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden.
    - Benachrichtigungen bei Rückfragen des Gateways (Klick öffnet den Chat) und bei angehaltenen Merges (Menü kopiert `harness merge --approve <ID>`).
    - Der Tunnel bleibt im Kindprozess `harness daemon run`, das war die offene Frage. Der Tray liest dessen Statusdatei und steuert ihn über benannte Ereignisse.
-5. Installer
+5. ✅ **Installer** (24.10.):
+   - `harness setup` als Assistent: Hyper-V (einschalten, Neustart), git und Podman über winget, VM-Dienst samt neuer Machine, Images, Kopplung, Autostart, PATH.
+   - Er tut nur, was fehlt, und fragt vor Admin-Schritten und großen Downloads.
+   - Windows-Builds (x64, ARM64) im Workflow `windows.yml`, Tags veröffentlichen ein Release.
+   - `scripts/install.ps1` installiert ohne Admin und startet setup.
+   - Offen: signierte Programme, Windows Home über WSL, Download der Programme vom eigenen Server statt aus dem privaten Repo.
 6. `web_fetch` für pi, fortsetzbare Streams
 
 **Entschieden vom Nutzer (23.10. nachts)** – vorher „Offen“:

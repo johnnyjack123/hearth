@@ -1,0 +1,88 @@
+# Builds harness for Windows (x64 and arm64) and packs it with the install
+# script: harness.exe, harnessd.exe (tray and launcher of the background
+# service), harness-vmd.exe (VM service) and install.ps1.
+#
+# Runs on version tags, which also publish a release with both ZIPs, and by
+# hand (`gh workflow run windows.yml`), which only keeps them as artifacts.
+# arm64 is cross-compiled on the x64 runner: the MSVC ARM64 tools are part
+# of its Visual Studio, and no dependency compiles C code.
+name: Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: "1.99"
+  CARGO_TERM_COLOR: always
+  # .cargo/config.toml limits jobs for the RAM of the development machine.
+  CARGO_BUILD_JOBS: "4"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p harness-cli -p harness-vmd
+
+      - name: Starts on the runner
+        if: matrix.arch == 'x64'
+        run: target/${{ matrix.target }}/release/harness.exe --help
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "llm-harness-windows-${{ matrix.arch }}"
+          New-Item -ItemType Directory $name | Out-Null
+          foreach ($exe in 'harness.exe', 'harnessd.exe', 'harness-vmd.exe') {
+            Copy-Item "target/${{ matrix.target }}/release/$exe" $name
+          }
+          Copy-Item scripts/install.ps1 $name
+          Compress-Archive -Path "$name/*" -DestinationPath "$name.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: llm-harness-windows-${{ matrix.arch }}
+          path: llm-harness-windows-${{ matrix.arch }}.zip
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
