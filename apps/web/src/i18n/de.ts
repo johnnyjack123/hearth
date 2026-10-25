@@ -197,6 +197,7 @@ export const de = {
         title: 'Titel',
         review: 'Merge-Prüfung',
         compact: 'Verlauf zusammenfassen',
+        assess: 'Warnung bewerten',
       },
       unknown: 'unbekannt',
     },
@@ -578,6 +579,22 @@ export const de = {
     densityNormal: 'Normal',
     densityComfortable: 'Großzügig',
     language: 'Sprache',
+    autoAssess: 'Warnungen sofort von Jev bewerten lassen',
+    autoAssessHint:
+      'Bei Verdacht auf Prompt-Injection gibt Jev gleich eine Zweitmeinung (braucht einen OpenRouter-Zugang, Bruchteile eines Cents). Sonst per Knopf an der Warnung.',
+  },
+  assessment: {
+    ask: 'Von Jev bewerten lassen',
+    asking: 'Jev bewertet …',
+    result: 'Jev: {percent} % Gefahr, {level}.',
+    note: 'Die Warnung bleibt, denn der Inhalt kann auch Jev beeinflussen.',
+    model: 'Bewertet von {model}',
+    levels: {
+      attack: 'wahrscheinlich ein Angriff',
+      suspicious: 'verdächtig',
+      unclear: 'eher harmlos',
+      harmless: 'wahrscheinlich Fehlalarm',
+    },
   },
   account: {
     title: 'Konto',

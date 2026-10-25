@@ -344,7 +344,7 @@ export interface ModelCallUsage {
   /** Model of a helper call; the reply's own calls use the chat's model. */
   model?: string;
   /** What a helper call was for. */
-  purpose?: 'rank' | 'sections' | 'title' | 'review' | 'compact';
+  purpose?: 'rank' | 'sections' | 'title' | 'review' | 'compact' | 'assess';
   /**
    * Cost in US dollars, split by kind where the prices are known; agents
    * report only the total.
@@ -425,7 +425,23 @@ export const chatRequestSchema = z.object({
   research: z.boolean().optional(),
   /** Thinking effort; missing for the provider's default. */
   effort: z.enum(EFFORT_LEVELS).optional(),
+  /** Jev judges prompt injection warnings right away (needs an OpenRouter key). */
+  assess: z.boolean().optional(),
 });
+
+/**
+ * Validates a request for Jev's opinion on the prompt injection warning of
+ * one tool call in a stored reply.
+ */
+export const assessmentRequestSchema = z
+  .object({
+    messageId: z.string().min(1).max(100),
+    toolCallId: z.string().min(1).max(200),
+  })
+  .strict();
+
+/** See {@link assessmentRequestSchema}. */
+export type AssessmentRequest = z.infer<typeof assessmentRequestSchema>;
 
 /**
  * Validates the body of a request that summarizes a chat now: the model

@@ -199,6 +199,7 @@ export const en: Messages = {
         title: 'Title',
         review: 'Merge check',
         compact: 'Summarizing the chat',
+        assess: 'Judging a warning',
       },
       unknown: 'unknown',
     },
@@ -578,6 +579,22 @@ export const en: Messages = {
     densityNormal: 'Normal',
     densityComfortable: 'Comfortable',
     language: 'Language',
+    autoAssess: 'Have Jev judge warnings right away',
+    autoAssessHint:
+      'On a suspected prompt injection, Jev gives a second opinion at once (needs an OpenRouter key, fractions of a cent). Otherwise use the button on the warning.',
+  },
+  assessment: {
+    ask: 'Ask Jev to judge it',
+    asking: 'Jev is judging …',
+    result: 'Jev: {percent} % danger, {level}.',
+    note: 'The warning stays, as the content may sway Jev as well.',
+    model: 'Judged by {model}',
+    levels: {
+      attack: 'likely an attack',
+      suspicious: 'suspicious',
+      unclear: 'rather harmless',
+      harmless: 'likely a false alarm',
+    },
   },
   account: {
     title: 'Account',

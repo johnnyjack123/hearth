@@ -46,6 +46,8 @@ export interface MessageListProps {
   onRegenerate: () => void;
   /** Answers a question of the gateway in a linked chat. */
   onApprove?: (id: number, decision: ApprovalDecision) => Promise<void>;
+  /** Asks Jev about the prompt injection warning of a tool call in a stored reply. */
+  onAssess?: (messageId: string, toolCallId: string) => Promise<void>;
 }
 
 /**
@@ -54,7 +56,7 @@ export interface MessageListProps {
  * @param props - See {@link MessageListProps}.
  * @returns The message column.
  */
-export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove }: MessageListProps) {
+export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove, onAssess }: MessageListProps) {
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
   // Links of a reply are checked against everything the chat read or found.
@@ -86,6 +88,7 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
               canRegenerate={message.id === lastAssistantId && !busy}
               onRegenerate={onRegenerate}
               onApprove={onApprove}
+              onAssess={onAssess}
               known={known}
             />,
             divider,
@@ -119,6 +122,7 @@ function AssistantMessage({
   canRegenerate,
   onRegenerate,
   onApprove,
+  onAssess,
   known,
 }: {
   message: ChatMessage;
@@ -127,8 +131,11 @@ function AssistantMessage({
   canRegenerate: boolean;
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
+  onAssess: ((messageId: string, toolCallId: string) => Promise<void>) | undefined;
   known: ReadonlyMap<string, KnownSource>;
 }) {
+  // Only stored replies can be assessed; a streaming one is not saved yet.
+  const assess = (toolCallId: string) => (onAssess && !streaming ? () => onAssess(message.id, toolCallId) : undefined);
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
   return (
@@ -139,13 +146,13 @@ function AssistantMessage({
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
         }
         if (part.type === 'dynamic-tool') {
-          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} />;
+          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
         }
         if (part.type === `tool-${WEB_FETCH_TOOL}`) {
-          return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} />;
+          return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
         }
         if (part.type === `tool-${WEB_SEARCH_TOOL}`) {
-          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} />;
+          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} onAssess={assess(part.toolCallId)} />;
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;

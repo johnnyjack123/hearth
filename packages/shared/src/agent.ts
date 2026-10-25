@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { WebFetchAnswer } from './web-fetch.ts';
+import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './web-fetch.ts';
 
 /**
  * Version of the device tunnel protocol. The server greets with its version,
@@ -436,4 +436,8 @@ export interface Compaction {
 export interface AgentToolOutput {
   /** What the tool printed or returned, possibly truncated by the device. */
   text: string;
+  /** Places in {@link text} that look like a prompt injection (server's check). */
+  findings?: InjectionFinding[];
+  /** Jev's opinion on {@link findings}, if asked. */
+  assessment?: InjectionAssessment;
 }

@@ -124,6 +124,8 @@ export const api = {
     approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
     stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
+    assess: (id: string, messageId: string, toolCallId: string) =>
+      request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/assessments`, { messageId, toolCallId }),
     compact: (id: string, input: CompactRequestBody) =>
       request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/compact`, input),
   },

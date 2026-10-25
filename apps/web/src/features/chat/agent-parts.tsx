@@ -11,6 +11,7 @@ import { errorMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { InjectionWarning, isAssessment, isFinding } from './injection-findings.tsx';
 
 function stringField(input: unknown, key: string): string | undefined {
   if (input && typeof input === 'object' && key in input) {
@@ -60,7 +61,7 @@ function outputText(part: DynamicToolUIPart): string {
  * @param props - The tool part and whether its message is still streaming.
  * @returns The tool block.
  */
-export function ToolCall({ part, streaming }: { part: DynamicToolUIPart; streaming: boolean }) {
+export function ToolCall({ part, streaming, onAssess }: { part: DynamicToolUIPart; streaming: boolean; onAssess?: (() => Promise<void>) | undefined }) {
   const t = useT();
   const failed = part.state === 'output-error';
   const running =
@@ -72,6 +73,11 @@ export function ToolCall({ part, streaming }: { part: DynamicToolUIPart; streami
   const expanded = open ?? failed;
   const { icon: Icon, summary } = describeTool(part);
   const output = outputText(part);
+  // The server's own check of the output, with Jev's opinion if asked.
+  const stored = part.state === 'output-available' ? (part.output as { findings?: unknown; assessment?: unknown } | null) : null;
+  const findings = Array.isArray(stored?.findings) ? stored.findings.filter(isFinding) : [];
+  const warnings = [...new Set(findings.map((finding) => finding.kind))];
+  const assessment = isAssessment(stored?.assessment) ? stored.assessment : undefined;
   const command = stringField(part.input, 'command');
   // bash shows its command in full; other tools show their arguments.
   const input = part.toolName === 'bash' ? (command?.includes('\n') ? command : null) : JSON.stringify(part.input, null, 2);
@@ -120,6 +126,7 @@ export function ToolCall({ part, streaming }: { part: DynamicToolUIPart; streami
           </motion.div>
         ) : null}
       </AnimatePresence>
+      {warnings.length > 0 ? <InjectionWarning warnings={warnings} findings={findings} assessment={assessment} onAssess={onAssess} /> : null}
     </div>
   );
 }

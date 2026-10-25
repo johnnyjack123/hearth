@@ -37,6 +37,7 @@ import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
 import { createWebFetchTool, type WebFetchConfig } from '../webfetch/tool.ts';
 import { KnownUrls } from '../websearch/known-urls.ts';
+import { assessor } from '../assess.ts';
 import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
 import { createWebSearchTool } from '../websearch/tool.ts';
 
@@ -389,6 +390,8 @@ export interface StreamChatOptions {
   research: boolean;
   /** Helper models of the user (Jev, embeddings); null without an OpenRouter key. */
   helpers: Helpers | null;
+  /** Jev judges prompt injection warnings right away (the user's setting). */
+  assess?: boolean;
   /** The title call of a new chat, whose cost joins the first reply; null otherwise. */
   title: Promise<TitleCall | null> | null;
   /** Thinking effort for the model calls; empty for the provider's default. */
@@ -478,10 +481,11 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             config: webFetch.config,
             known,
             helpers,
+            assess: options.assess ? assessor(helpers, abortSignal) : null,
           }),
         }
       : {}),
-    ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }) } : {}),
+    ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }, options.assess ? assessor(helpers, abortSignal) : null) } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL].filter((name) => !(name in tools)));

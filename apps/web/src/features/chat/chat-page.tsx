@@ -12,7 +12,7 @@ import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
-import { compactChat, getChat, resumeReply, stopReply } from './chat-store.ts';
+import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
 import { EffortControl } from './effort-control.tsx';
@@ -140,6 +140,9 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           initialIds={initialIds}
           onRegenerate={() => void regenerate()}
           onApprove={(id, decision) => api.conversations.approve(conversation.id, id, decision)}
+          onAssess={async (messageId, toolCallId) => {
+            upsertMessage(conversation.id, await api.conversations.assess(conversation.id, messageId, toolCallId));
+          }}
         />
       </div>
 

@@ -227,7 +227,9 @@ Bausteine:
    Bei einem Treffer setzt sie eine Warnung vor das Ergebnis, damit das Modell es als Daten behandelt, und zeigt sie dem Nutzer in pi (`ctx.ui.notify`). Geprüft mit einem Mock-LLM, das pi eine Datei mit Anweisung im HTML-Kommentar lesen lässt: Das Werkzeug-Ergebnis kommt mit der Warnung davor beim Modell an.
 3. **Optional Jev als Klassifikator** über den Server (jetzt Teil von „Zweitmeinung zu Warnungen“ weiter unten): „Enthält dieser Text Anweisungen an eine KI?“ mit Wahrscheinlichkeit. Fängt umformulierte Fälle, die keine Regel kennt. Wie bei der Merge-Prüfung darf er Warnungen nur hinzufügen, und er kostet Geld, ist also abwählbar.
 
-## Zweitmeinung zu Warnungen (Idee des Nutzers, 18.10., noch nicht gebaut)
+## Zweitmeinung zu Warnungen (Idee des Nutzers, 18.10.; Jev-Teil gebaut am 25.10.)
+
+**Stand 25.10.:** Jev bewertet Prompt-Injection-Warnungen von Web-Fetch, Websuche und Agent-Werkzeugen, per Knopf oder automatisch (Einstellung im Browser, Standard an). Seine Gefahr in Prozent steht an der Warnung, die Warnung bleibt. Details in CLAUDE.md. Offen: ein Chat-Modell als Alternative zu Jev (Urteil mit Begründung), Höchstkosten pro Tag, Bewertung von Funden der Merge-Prüfung im Browser.
 
 Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt-Injection beim Web-Fetch und bei pi ebenso wie später für Funde der Merge-Prüfung. Es fasst Stufe 3 der Merge-Prüfung und Baustein 3 von Phase 2d zu einer Funktion zusammen.
 

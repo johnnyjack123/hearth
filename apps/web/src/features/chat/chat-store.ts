@@ -2,6 +2,7 @@ import { Chat } from '@ai-sdk/react';
 import type { ConversationDetail, EffortLevel, ModelSelection } from '@harness/shared';
 import { DefaultChatTransport } from 'ai';
 import { api, type ChatMessage } from '@/lib/api.ts';
+import { autoAssessEnabled } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys } from '@/lib/queries.ts';
 
@@ -96,6 +97,7 @@ export function getChat(
           credentialId: selection.current?.credentialId,
           modelId: selection.current?.modelId,
           research: research.current,
+          assess: autoAssessEnabled(),
           ...(effort.current ? { effort: effort.current } : {}),
         },
       }),

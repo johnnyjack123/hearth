@@ -346,6 +346,16 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
   - Für verknüpfte Chats offen: pi fasst selbst zusammen (RPC `compact`), der Knopf ist dort ausgeblendet.
   - Testmodelle mit kleinem Katalogfenster (mock-1: 1 000 Token) lösen das automatische Zusammenfassen schnell aus; Tests anderer Funktionen schalten es per `PATCH /api/admin/settings { compact: { enabled: false } }` ab.
 
+### Jev bewertet Prompt-Injection-Warnungen (`apps/server/src/assess.ts`, `helpers/injection.ts`, Web `injection-findings.tsx`)
+
+- **Was Jev liest:** genau den Text, den das Modell bekam (`modelText` bzw. `searchModelText`, bei Agents die Werkzeug-Ausgabe), die markierten Fundstellen und den Ort (URL, Suchanfrage, Werkzeugaufruf). Skala von „prompt injection“ bis „Fehlalarm“, Gefahr = 1 − Score. Ab 75 % „wahrscheinlich ein Angriff“, ab 50 % „verdächtig“, ab 25 % „eher harmlos“, darunter „wahrscheinlich Fehlalarm“.
+- **Die Bewertung ergänzt die Warnung nur**, sie entfernt sie nie: Der bewertete Inhalt kann Jev selbst ansprechen.
+- **Gespeichert an der Werkzeug-Ausgabe** (`output.assessment` bei `tool-web_fetch`, `tool-web_search` und `dynamic-tool`). Das Modell sieht sie nie, weil seine Texte aus `modelText`, `searchModelText` bzw. `output.text` entstehen; der Prompt-Cache bleibt also gleich. Kosten stehen in `usage.helpers` (`purpose: 'assess'`).
+- **Agent-Werkzeuge prüft der Server selbst** (`agentWarning`, dieselben Muster wie für Webseiten) und legt `output.findings` ab. Die Werkzeugkarte zeigt dann die Warnleiste wie bei Web-Fetch. Der Hinweis des pi-Schutzes kommt zusätzlich und kennt keine Werkzeug-ID.
+- **Auslöser:**
+  - Knopf „Von Jev bewerten lassen“ an der Warnung (`POST /api/conversations/:id/assessments` mit `messageId`, `toolCallId`; nur gespeicherte Antworten, braucht OpenRouter-Zugang, sonst 409).
+  - Automatisch, solange „Warnungen sofort von Jev bewerten lassen“ an ist (Einstellungen → Darstellung, Browser-Präferenz `harness.autoAssess`, Standard an). Der Chat-Request trägt dann `assess: true`. Web-Fetch und Suche fragen Jev im Werkzeug, Agent-Antworten bevor die Werkzeug-Ausgabe in den Stream geht. Das kostet je Warnung etwa eine halbe Sekunde.
+
 ### Websuche und Recherche-Modus (`apps/server/src/websearch/`, Composer `research-toggle.tsx`)
 
 - **Schalter pro Chat, neue Chats wie der zuletzt genutzte** (25.10., Wunsch des Nutzers): Ein Chat öffnet mit dem Stand seiner letzten Nutzernachricht (`metadata.research`, `lastResearch` in `chat-store.ts`). Umschalten oder Senden merkt den Stand im Browser (`preferences.tsx`, `localStorage` `harness.research`), und ein neuer Chat startet damit. Bestehende Chats ändert das nie. Den Schalter gibt es auch in Umgebungs-Chats (Agents suchen über den Server, siehe „web_search für pi“).

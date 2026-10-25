@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { InjectionFinding, WebFetchWarning } from './web-fetch.ts';
+import type { InjectionAssessment, InjectionFinding, WebFetchWarning } from './web-fetch.ts';
 
 /**
  * Name of the server-side search tool of ordinary chats in research mode.
@@ -126,6 +126,8 @@ export interface WebSearchOutput {
   warnings: WebFetchWarning[];
   /** Where the patterns of {@link warnings} matched. */
   findings: InjectionFinding[];
+  /** Jev's opinion on the warnings, if asked. */
+  assessment?: InjectionAssessment;
 }
 
 /**

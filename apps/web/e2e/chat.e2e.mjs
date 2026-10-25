@@ -275,6 +275,9 @@ try {
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
     researchPath = new URL(page.url()).pathname;
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 20_000 });
+    // The test page tries to talk to the model; with an OpenRouter key Jev
+    // judges that right away (the mock calls it a false alarm).
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 5_000 });
     // The found page loaded without a question.
     if (await page.$(text('Das Modell möchte eine Seite'))) {
       throw new Error('a found page asked for approval');
@@ -373,6 +376,16 @@ try {
     await page.$eval(text('Hilfsmodelle (über OpenRouter)'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('29-dev-usage');
+
+    // The page of the first web fetch was loaded before there was a key:
+    // Jev judges it on request, and the opinion is stored.
+    await page.goto(`${BASE}${fetchPath}`, { waitUntil: 'networkidle0' });
+    await page.click(text('Von Jev bewerten lassen'));
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('34-jev-assessment');
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 10_000 });
   });
 
   await step('a long chat condenses earlier pages for the model', async () => {

@@ -11,6 +11,7 @@ import { type Helpers, jevScores } from '../helpers/openrouter.ts';
 import { findInjections, WARNING_TEXT, warningKinds } from '../webfetch/injection.ts';
 import { rankByScores, weighByKind } from './domains.ts';
 import type { KnownUrls } from './known-urls.ts';
+import type { Assessor } from '../assess.ts';
 import { type SearchBackend, WebSearchError } from './providers.ts';
 
 /** Hits asked from the provider, so preferred sources further down can move up. */
@@ -154,9 +155,11 @@ export async function runSearch(
  *   stays defined then (for the prompt cache) and refuses.
  * @param ranking - Helper models, if the user has them, and the user's
  *   question, which Jev ranks the hits against.
+ * @param assess - Asks Jev about warnings right away; null unless the user
+ *   wants that.
  * @returns The tool, to be passed to `streamText` as `web_search`.
  */
-export function createWebSearchTool(backend: SearchBackend, known: KnownUrls | null, ranking: SearchRanking) {
+export function createWebSearchTool(backend: SearchBackend, known: KnownUrls | null, ranking: SearchRanking, assess: Assessor | null = null) {
   return tool({
     description: DESCRIPTION,
     inputSchema: z.object({
@@ -170,6 +173,17 @@ export function createWebSearchTool(backend: SearchBackend, known: KnownUrls | n
       const output = await runSearch(backend, { query, kind }, ranking, abortSignal);
       for (const result of output.results) {
         known.add(result.url);
+      }
+      if (assess && output.findings.length > 0) {
+        const assessment = await assess({
+          source: 'web search results',
+          location: `search: ${query}`,
+          content: searchModelText(output),
+          findings: output.findings,
+        });
+        if (assessment) {
+          output.assessment = assessment;
+        }
       }
       return output;
     },

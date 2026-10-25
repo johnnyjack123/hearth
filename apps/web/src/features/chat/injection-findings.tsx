@@ -1,8 +1,10 @@
-import { type InjectionFinding, WEB_FETCH_WARNINGS, type WebFetchWarning } from '@harness/shared';
-import { ChevronRight, TriangleAlert } from 'lucide-react';
+import { type InjectionAssessment, type InjectionFinding, WEB_FETCH_WARNINGS, type WebFetchWarning } from '@harness/shared';
+import { ChevronRight, Scale, TriangleAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
+import { errorMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
@@ -141,13 +143,96 @@ export function InjectionFindings({ warnings, findings }: { warnings: WebFetchWa
 }
 
 /**
- * The warning bar under a web fetch or search block: which patterns were
- * found, and on demand where and why they matter.
+ * Checks Jev's opinion read from the stored history.
  *
- * @param props - Kinds of warnings and the findings if stored.
+ * @param value - Stored value.
+ * @returns True if it has the shape of an {@link InjectionAssessment}.
+ */
+export function isAssessment(value: unknown): value is InjectionAssessment {
+  const assessment = value as Partial<InjectionAssessment> | null;
+  return typeof assessment === 'object' && assessment !== null && typeof assessment.model === 'string' && typeof assessment.danger === 'number';
+}
+
+/** Words for Jev's danger, from attack to false alarm. */
+function dangerLevel(danger: number): 'attack' | 'suspicious' | 'unclear' | 'harmless' {
+  if (danger >= 0.75) {
+    return 'attack';
+  }
+  if (danger >= 0.5) {
+    return 'suspicious';
+  }
+  return danger >= 0.25 ? 'unclear' : 'harmless';
+}
+
+/**
+ * Jev's second opinion on a warning, or the button that asks for it. The
+ * warning stays either way: the content may address Jev as well.
+ *
+ * @param props - The opinion if there is one, and how to ask for it.
+ * @returns The row, or nothing without opinion and without a way to ask.
+ */
+export function AssessmentRow({ assessment, onAssess }: { assessment: InjectionAssessment | undefined; onAssess: (() => Promise<void>) | undefined }) {
+  const t = useT();
+  const [asking, setAsking] = useState(false);
+  if (assessment) {
+    const percent = Math.round(Math.min(1, Math.max(0, assessment.danger)) * 100);
+    return (
+      <p className="ms-6 flex items-start gap-1.5 text-xs" title={t('assessment.model', { model: assessment.model })}>
+        <Scale className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0">
+          <span className="font-medium">{t('assessment.result', { percent, level: t(`assessment.levels.${dangerLevel(assessment.danger)}`) })}</span>{' '}
+          {t('assessment.note')}
+        </span>
+      </p>
+    );
+  }
+  if (!onAssess) {
+    return null;
+  }
+  async function ask() {
+    setAsking(true);
+    try {
+      await onAssess?.();
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+    } finally {
+      setAsking(false);
+    }
+  }
+  return (
+    <Button
+      variant="link"
+      size="sm"
+      loading={asking}
+      onClick={() => void ask()}
+      className="ms-6 h-auto gap-1 self-start px-0 py-1 text-warning-foreground underline"
+    >
+      <Scale aria-hidden="true" />
+      {asking ? t('assessment.asking') : t('assessment.ask')}
+    </Button>
+  );
+}
+
+/**
+ * The warning bar under a web fetch, search or agent tool block: which
+ * patterns were found, on demand where and why they matter, and Jev's
+ * second opinion.
+ *
+ * @param props - Kinds of warnings, the findings if stored, Jev's opinion
+ *   and how to ask for it.
  * @returns The warning bar.
  */
-export function InjectionWarning({ warnings, findings }: { warnings: WebFetchWarning[]; findings: InjectionFinding[] | undefined }) {
+export function InjectionWarning({
+  warnings,
+  findings,
+  assessment,
+  onAssess,
+}: {
+  warnings: WebFetchWarning[];
+  findings: InjectionFinding[] | undefined;
+  assessment?: InjectionAssessment | undefined;
+  onAssess?: (() => Promise<void>) | undefined;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   return (
@@ -183,6 +268,7 @@ export function InjectionWarning({ warnings, findings }: { warnings: WebFetchWar
           </motion.div>
         ) : null}
       </AnimatePresence>
+      <AssessmentRow assessment={assessment} onAssess={onAssess} />
     </div>
   );
 }

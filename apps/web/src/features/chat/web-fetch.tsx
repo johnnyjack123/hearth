@@ -10,7 +10,7 @@ import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { ToolText } from './agent-parts.tsx';
-import { InjectionWarning, isFinding, isWarning } from './injection-findings.tsx';
+import { InjectionWarning, isAssessment, isFinding, isWarning } from './injection-findings.tsx';
 
 /** Reads the stored output defensively: it comes from the server's history. */
 function readOutput(output: unknown): WebFetchOutput | null {
@@ -18,9 +18,10 @@ function readOutput(output: unknown): WebFetchOutput | null {
     return null;
   }
   const value = output as WebFetchOutput;
-  const { findings, focus, sections, grep, ...rest } = value;
+  const { findings, focus, sections, grep, assessment, ...rest } = value;
   return {
     ...rest,
+    ...(isAssessment(assessment) ? { assessment } : {}),
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isWarning) : [],
     // Replies stored before findings existed have none; the block then says so.
     ...(Array.isArray(findings) ? { findings: findings.filter(isFinding) } : {}),
@@ -99,7 +100,7 @@ function errorText(t: TranslateFn, raw: string): { code: string | null; text: st
  * @param props - The `tool-web_fetch` part and whether its message is still streaming.
  * @returns The web fetch block.
  */
-export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming: boolean }) {
+export function WebFetchCall({ part, streaming, onAssess }: { part: ToolUIPart; streaming: boolean; onAssess?: (() => Promise<void>) | undefined }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const output = part.state === 'output-available' ? readOutput(part.output) : null;
@@ -152,7 +153,9 @@ export function WebFetchCall({ part, streaming }: { part: ToolUIPart; streaming:
           aria-hidden="true"
         />
       </button>
-      {warnings.length > 0 ? <InjectionWarning warnings={warnings} findings={output?.findings} /> : null}
+      {warnings.length > 0 ? (
+        <InjectionWarning warnings={warnings} findings={output?.findings} assessment={output?.assessment} onAssess={onAssess} />
+      ) : null}
       {failure && !open ? <p className="border-t border-border px-3 py-2 text-muted-foreground">{failure.text}</p> : null}
       <AnimatePresence initial={false}>
         {open ? (

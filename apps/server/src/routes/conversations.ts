@@ -1,5 +1,6 @@
 import {
   approvalDecisionSchema,
+  assessmentRequestSchema,
   type ChatLink,
   chatRequestSchema,
   compactRequestSchema,
@@ -33,7 +34,7 @@ import {
   setLink,
   updateConversation,
 } from '../services/conversations.ts';
-import { findCredential, resolveCredential } from '../services/credentials.ts';
+import { type CredentialRow, findCredential, resolveCredential } from '../services/credentials.ts';
 import { findDevice, loadDeviceProjects } from '../services/devices.ts';
 import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { ActiveStreams } from '../streams.ts';
@@ -45,6 +46,7 @@ import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
 import { callUsage, withHelpers } from '../pricing.ts';
 import { loadHelpers } from '../helpers/load.ts';
+import { assessor, warnedContent, withAssessment } from '../assess.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -102,6 +104,13 @@ export function conversationRoutes(deps: AppDeps) {
   const fetchApprovals = new FetchApprovals();
   // Replies being written, for a page that reloads in the middle of one.
   const streams = new ActiveStreams();
+
+  /** Jev for an agent reply: the assessor and the helpers whose cost joins the reply. */
+  async function agentAssessor(userId: string, chat: CredentialRow, signal: AbortSignal) {
+    const helpers = await loadHelpers(db, secretBox, userId, chat, deps.helpers);
+    const assess = assessor(helpers, signal);
+    return helpers && assess ? { assessor: assess, helpers } : null;
+  }
 
   /** Rejects a project the device does not offer (as far as it reported). */
   async function assertOffered(deviceId: string, project: string, harness: string): Promise<void> {
@@ -365,6 +374,7 @@ export function conversationRoutes(deps: AppDeps) {
           selection: { credentialId: row.id, modelId: body.modelId },
           abortSignal: stop.signal,
           consumeSseStream: follow,
+          assess: body.assess ? await agentAssessor(user.id, row, stop.signal) : null,
         });
       }
 
@@ -390,6 +400,7 @@ export function conversationRoutes(deps: AppDeps) {
         research,
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
+        assess: body.assess === true,
         effort: effortOptions(row.kind, row.baseUrl, body.effort),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
       });
@@ -453,6 +464,42 @@ export function conversationRoutes(deps: AppDeps) {
         return c.body(null, 204);
       }
       return new Response(stream.pipeThrough(new TextEncoderStream()), { headers: UI_MESSAGE_STREAM_HEADERS });
+    })
+    // Jev's opinion on the prompt injection warning of one tool call, on the
+    // user's request; stored with the tool's output, which the model never
+    // gets back.
+    .post('/:id/assessments', async (c) => {
+      const user = c.get('user');
+      const conversation = await findConversation(db, user.id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      const { messageId, toolCallId } = assessmentRequestSchema.parse(await c.req.json());
+      const message = (await loadMessages(db, conversation.id)).find((candidate) => candidate.id === messageId);
+      const index = message?.parts.findIndex((part) => 'toolCallId' in part && part.toolCallId === toolCallId) ?? -1;
+      const part = message?.parts[index];
+      const warned = part ? warnedContent(part) : null;
+      if (!message || !part || !warned) {
+        throw notFound('Warning');
+      }
+      const chat = conversation.credentialId ? await findCredential(db, user.id, conversation.credentialId) : undefined;
+      const helpers = await loadHelpers(db, secretBox, user.id, chat ?? null, deps.helpers);
+      if (!helpers) {
+        throw new HttpError(409, 'conflict', 'Jev needs an OpenRouter key in the account');
+      }
+      const assessment = await assessor(helpers, c.req.raw.signal)?.(warned);
+      if (!assessment) {
+        throw new HttpError(502, 'provider_error', 'Jev did not answer');
+      }
+      const parts = message.parts.map((candidate, at) => (at === index ? withAssessment(candidate, assessment) : candidate));
+      const usage = message.metadata?.usage;
+      const updated: ChatMessage = {
+        ...message,
+        parts,
+        ...(usage && message.metadata ? { metadata: { ...message.metadata, usage: withHelpers(usage, helpers.usage) } } : {}),
+      };
+      await saveMessage(db, conversation.id, updated);
+      return c.json(updated);
     })
     .post('/:id/stop', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
