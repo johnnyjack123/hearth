@@ -36,11 +36,25 @@ const SSH_READY_TIMEOUT: Duration = Duration::from_secs(90);
 /// the host shuts down, no saved state, and no Ignition items left over
 /// from a failed start (they make every further start fail with 32773).
 /// The machine name comes from the environment, never from the script text.
+///
+/// A gvproxy of an earlier run that outlived its VM (seen after the host's
+/// standby) still holds the machine's pipe `podman-<name>`, and podman then
+/// refuses every start ("expected pipe is not available"). With the VM off
+/// it serves nothing, so it is ended.
 const PREPARE_PS: &str = r#"
 $ErrorActionPreference = 'Stop'
 $name = $env:HARNESS_VM
 $vm = Get-VM -Name $name
 if ($vm.State -eq 'Saved') { Remove-VMSavedState -VMName $name }
+if ($vm.State -eq 'Off') {
+  $pipe = 'podman-' + $name
+  Get-CimInstance Win32_Process -Filter "Name='gvproxy.exe'" |
+    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($pipe) } |
+    ForEach-Object {
+      Stop-Process -Id $_.ProcessId -Force
+      "Alter gvproxy beendet: $($_.ProcessId)"
+    }
+}
 Set-VM -Name $name -AutomaticStopAction ShutDown -AutomaticStartAction Nothing
 Set-VMMemory -VMName $name -DynamicMemoryEnabled $true `
   -StartupBytes ([int64]$env:HARNESS_STARTUP_MB * 1MB) `
@@ -57,6 +71,17 @@ if ($items.Count -gt 0) {
   Invoke-CimMethod -InputObject $vsms -MethodName RemoveKvpItems `
     -Arguments @{ TargetSystem = $cs; DataItems = [string[]]$items } | Out-Null
   "Ignition-Reste entfernt: $($items.Count)"
+}
+"#;
+
+/// Resumes a VM that Hyper-V paused, e.g. during the host's standby;
+/// podman does not know that state ("unknown state: quiesce") and refuses
+/// to start or stop it.
+const RESUME_PS: &str = r#"
+$ErrorActionPreference = 'Stop'
+if ((Get-VM -Name $env:HARNESS_VM).State -eq 'Paused') {
+  Resume-VM -Name $env:HARNESS_VM
+  'fortgesetzt'
 }
 "#;
 
@@ -296,6 +321,11 @@ impl Vm {
     /// Starts the machine unless it already answers; restarts it if it runs
     /// but SSH does not answer.
     pub fn start(&self) -> Result<String, String> {
+        let (_, resumed) = run(self.powershell(RESUME_PS), SCRIPT_TIMEOUT);
+        if resumed.contains("fortgesetzt") {
+            // Whether it still answers decides below, as for any running VM.
+            log::line("VM war pausiert (Standby?) und läuft weiter");
+        }
         match self.state() {
             VmState::Running => return Ok("Die VM läuft bereits.".to_owned()),
             VmState::Unresponsive => {
@@ -379,7 +409,8 @@ impl Vm {
 /// Hyper-V-Worker-Admin).
 fn start_hint(output: &str) -> &'static str {
     if output.contains("32788") {
-        " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB.          Programme schließen und erneut versuchen.)"
+        " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB. \
+             Programme schließen und erneut versuchen.)"
     } else {
         ""
     }
@@ -391,7 +422,9 @@ mod tests {
 
     #[test]
     fn job_error_32788_gets_a_hint() {
-        assert!(start_hint("Job failed with error code: 32788 ()").contains("Arbeitsspeicher"));
+        let hint = start_hint("Job failed with error code: 32788 ()");
+        assert!(hint.contains("Arbeitsspeicher"), "{hint}");
+        assert!(!hint.contains("  "), "{hint}");
         assert_eq!(start_hint("ssh: handshake failed"), "");
     }
 
