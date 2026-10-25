@@ -1,7 +1,7 @@
 import { Chat } from '@ai-sdk/react';
 import type { ConversationDetail, ModelSelection } from '@harness/shared';
 import { DefaultChatTransport } from 'ai';
-import type { ChatMessage } from '@/lib/api.ts';
+import { api, type ChatMessage } from '@/lib/api.ts';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys } from '@/lib/queries.ts';
 
@@ -15,6 +15,11 @@ export interface ChatEntry {
   selection: { current: ModelSelection | null };
   /** Research mode of the next request, read at request time like the model. */
   research: { current: boolean };
+  /**
+   * The server may still be writing a reply this tab never saw, e.g. after
+   * a reload; {@link resumeReply} picks it up once.
+   */
+  resumable: boolean;
 }
 
 // Chats live outside React on purpose. If useChat owned them, it would stop
@@ -77,6 +82,7 @@ export function getChat(
     messages: initialMessages,
     transport: new DefaultChatTransport<ChatMessage>({
       api: `/api/conversations/${encodeURIComponent(conversationId)}/chat`,
+      prepareReconnectToStreamRequest: () => ({ api: `/api/conversations/${encodeURIComponent(conversationId)}/stream` }),
       // The server owns the history; only the newest message is sent.
       prepareSendMessagesRequest: ({ messages }) => ({
         body: {
@@ -97,9 +103,49 @@ export function getChat(
     },
   });
 
-  const entry = { chat, selection, research };
+  // A reply runs while the newest stored message is the user's: the server
+  // stores the reply when it ends.
+  const entry = { chat, selection, research, resumable: initialMessages.at(-1)?.role === 'user' };
   entries.set(conversationId, entry);
   return entry;
+}
+
+/**
+ * Picks up a reply the server is still writing for a session this tab just
+ * created, e.g. after a reload: the server sends it again from its start.
+ * Runs once per session; a session that streams in this tab already has
+ * the reply.
+ *
+ * @param conversationId - Conversation id.
+ */
+export async function resumeReply(conversationId: string): Promise<void> {
+  const entry = entries.get(conversationId);
+  if (!entry?.resumable) {
+    return;
+  }
+  entry.resumable = false;
+  await entry.chat.resumeStream();
+  // The reply may have ended between loading the chat and asking for it.
+  if (entry.chat.status === 'ready' && entry.chat.messages.at(-1)?.role === 'user') {
+    const fresh = await api.conversations.get(conversationId).catch(() => null);
+    if (fresh && fresh.messages.length > entry.chat.messages.length) {
+      entry.chat.messages = fresh.messages;
+      queryClient.setQueryData(queryKeys.conversation(conversationId), fresh);
+    }
+  }
+}
+
+/**
+ * Stops the reply of a conversation. Closing the page does not, so the
+ * server is told; then this tab stops reading.
+ *
+ * @param conversationId - Conversation id.
+ */
+export async function stopReply(conversationId: string): Promise<void> {
+  // The reply ends anyway once this tab stops reading if the server is
+  // gone; nothing to report then.
+  await api.conversations.stop(conversationId).catch(() => undefined);
+  await entries.get(conversationId)?.chat.stop();
 }
 
 /**

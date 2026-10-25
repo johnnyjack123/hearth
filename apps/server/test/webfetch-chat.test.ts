@@ -110,6 +110,11 @@ class ChunkReader {
     }
   }
 
+  /** Stops reading, as a page that goes away. */
+  async cancel() {
+    await this.#reader.cancel();
+  }
+
   /** Reads to the end. */
   async rest() {
     try {
@@ -307,16 +312,44 @@ describe('web fetch in ordinary chats', () => {
     await eventually(async () => (await load(conversationId)).messages.length === 2);
   });
 
-  it('cleans up a question when the request ends, and denies after the timeout', async () => {
+  it('keeps a reply going when the page goes away, and the page picks it up again', async () => {
     const conversationId = await newConversation();
+    expect((await server.request('GET', `/api/conversations/${conversationId}/stream`, { cookie })).status).toBe(204);
     const controller = new AbortController();
     const reader = new ChunkReader(await chat(conversationId, 'Frage', { signal: controller.signal }));
     const question = await reader.until(pendingApproval);
+    // A reload: the request ends, the question stays open.
     controller.abort();
-    await reader.rest().catch(() => undefined);
+    await reader.cancel();
+
+    const mallory = await server.signUp('mallory@example.com');
+    expect((await server.request('GET', `/api/conversations/${conversationId}/stream`, { cookie: mallory })).status).toBe(404);
+    const resumed = await server.request('GET', `/api/conversations/${conversationId}/stream`, { cookie });
+    expect(resumed.status).toBe(200);
+    const again = new ChunkReader(resumed);
+    // From the start, so the page can rebuild the whole reply.
+    expect((await again.until(pendingApproval)).data).toEqual(question.data);
+    expect(again.chunks[0]?.type).toBe('start');
+    expect((await answer(conversationId, (question.data as { id: number }).id, 'once')).status).toBe(204);
+    const chunks = await again.rest();
+    expect(chunks.find((chunk) => chunk.type === 'text-delta')).toMatchObject({ delta: expect.stringContaining('Gelesen:') });
+    expect(fetches).toBe(1);
+    await eventually(async () => (await load(conversationId)).messages.length === 2);
+    expect((await server.request('GET', `/api/conversations/${conversationId}/stream`, { cookie })).status).toBe(204);
+  });
+
+  it('stops a reply only on the stop route, and denies after the timeout', async () => {
+    const conversationId = await newConversation();
+    const reader = new ChunkReader(await chat(conversationId, 'Frage'));
+    const question = await reader.until(pendingApproval);
+    expect((await server.request('POST', `/api/conversations/${conversationId}/stop`, { cookie })).status).toBe(204);
+    await reader.rest();
     const id = (question.data as { id: number }).id;
     await eventually(async () => (await answer(conversationId, id, 'once')).status === 404);
     expect(fetches).toBe(0);
+    // What was written so far is kept.
+    await eventually(async () => (await load(conversationId)).messages.length === 2);
+    expect((await server.request('GET', `/api/conversations/${conversationId}/stream`, { cookie })).status).toBe(204);
 
     // Nobody answers: after `approvalTimeoutMs` it counts as no.
     await server.close();

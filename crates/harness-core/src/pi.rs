@@ -15,31 +15,61 @@ use crate::provider::{ExecOutput, ExecSpec, Provider};
 use crate::server::DeviceCredential;
 use crate::{Error, Result};
 
-/// pi's guard extension against prompt injection, see `pi/guard.ts`.
-pub const GUARD_SOURCE: &str = include_str!("../pi/guard.ts");
-
-/// Where `harness run` puts the guard: in the tools volume, which instances
-/// can only read. The name follows the contents, so each harness version
-/// brings its own copy and an old one is never mistaken for it.
-pub fn guard_path() -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in GUARD_SOURCE.bytes() {
-        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!(
-        "{}/harness/pi-guard-{hash:016x}.ts",
-        crate::instance::TOOLS_DIR
-    )
+/// An extension harness loads into pi with `-e`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extension {
+    /// Warns about prompt injection in tool output, see `pi/guard.ts`.
+    Guard,
+    /// The tool `web_fetch` through the harness server, see `pi/web.ts`.
+    /// Needs a paired computer.
+    Web,
 }
 
-/// Puts the guard into the tools volume unless this version is there, and
-/// returns its path for `pi -e`.
-pub fn ensure_guard(provider: &dyn Provider, project: &crate::config::Project) -> Result<String> {
-    let path = guard_path();
-    if !crate::instance::tool_file_exists(provider, &project.name, &path)? {
-        crate::instance::write_tool_file(provider, project, &path, GUARD_SOURCE)?;
+impl Extension {
+    fn name(self) -> &'static str {
+        match self {
+            Extension::Guard => "guard",
+            Extension::Web => "web",
+        }
     }
-    Ok(path)
+
+    /// The extension's source.
+    pub fn source(self) -> &'static str {
+        match self {
+            Extension::Guard => include_str!("../pi/guard.ts"),
+            Extension::Web => include_str!("../pi/web.ts"),
+        }
+    }
+
+    /// Where harness puts it: in the tools volume, which instances can only
+    /// read, so an agent cannot change or remove it. The name follows the
+    /// contents, so each harness version brings its own copy and an old one
+    /// is never mistaken for it.
+    pub fn path(self) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in self.source().bytes() {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        format!(
+            "{}/harness/pi-{}-{hash:016x}.ts",
+            crate::instance::TOOLS_DIR,
+            self.name()
+        )
+    }
+
+    /// Puts the extension into the tools volume unless this version is
+    /// there, and returns its path for `pi -e`.
+    pub fn ensure(
+        self,
+        provider: &dyn Provider,
+        project: &crate::config::Project,
+    ) -> Result<String> {
+        let path = self.path();
+        if !crate::instance::tool_file_exists(provider, &project.name, &path)? {
+            crate::instance::write_tool_file(provider, project, &path, self.source())?;
+        }
+        Ok(path)
+    }
 }
 
 /// Placeholder key; the gateway replaces it with the device token.
@@ -363,7 +393,16 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stdout)
         );
-        assert!(guard_path().starts_with("/opt/harness-tools/harness/pi-guard-"));
+        assert!(
+            Extension::Guard
+                .path()
+                .starts_with("/opt/harness-tools/harness/pi-guard-")
+        );
+        assert!(
+            Extension::Web
+                .path()
+                .starts_with("/opt/harness-tools/harness/pi-web-")
+        );
     }
 
     #[test]

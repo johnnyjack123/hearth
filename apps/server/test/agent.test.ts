@@ -460,6 +460,53 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(device.received.at(-1)).toEqual({ type: 'approval.decide', session: conversation.id, id: 7, decision: 'session' });
   });
 
+  it('keeps the agent working when the page goes away, and cancels it only on stop', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, {
+      cookie,
+      body: { deviceId, project: 'demo', harness: 'pi' },
+    });
+    device.onPrompt = (prompt) => {
+      device.emit(prompt.session, { type: 'text.start', id: 't1' }, { type: 'text.delta', id: 't1', delta: 'Teil eins' });
+    };
+    const response = await chat(conversation.id, 'Arbeite lange');
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+    let seen = '';
+    while (!seen.includes('Teil eins')) {
+      seen += new TextDecoder().decode((await reader.read()).value);
+    }
+    // The page closes: the agent goes on.
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(device.received.some((message) => message.type === 'session.cancel')).toBe(false);
+
+    const resumed = await server.request('GET', `/api/conversations/${conversation.id}/stream`, { cookie });
+    expect(resumed.status).toBe(200);
+    const again = (resumed.body as ReadableStream<Uint8Array>).getReader();
+    let replay = '';
+    while (!replay.includes('Teil eins')) {
+      replay += new TextDecoder().decode((await again.read()).value);
+    }
+    expect(replay).toContain('"type":"start"');
+
+    expect((await server.request('POST', `/api/conversations/${conversation.id}/stop`, { cookie })).status).toBe(204);
+    expect(device.received.at(-1)).toEqual({ type: 'session.cancel', session: conversation.id });
+    device.emit(conversation.id, { type: 'text.end', id: 't1' }, { type: 'done', aborted: true });
+    for (;;) {
+      const { done, value } = await again.read();
+      if (done) {
+        break;
+      }
+      replay += new TextDecoder().decode(value);
+    }
+    expect(replay).toContain('"type":"finish"');
+    await eventually(async () => (await load(conversation.id)).messages.length === 2);
+    expect((await load(conversation.id)).messages[1]?.parts.at(-1)).toMatchObject({ type: 'text', text: 'Teil eins' });
+  });
+
   it('creates a chat that is linked from the start', async () => {
     const { deviceId, userId } = await pair();
     const device = connect(server.hub, deviceId, userId);

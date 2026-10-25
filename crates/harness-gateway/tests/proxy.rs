@@ -426,6 +426,96 @@ fn llm_requests_reach_the_server_with_the_device_token_only() {
 }
 
 #[test]
+fn web_fetch_hosts_pass_the_rules_first() {
+    let (gateway, proxy) = start(address::is_public);
+    let (port, heads) = http_server();
+    let token = "device-token-0123456789abcdef";
+    let mut control = Control::open(&gateway);
+    control.send(&format!("llm http://127.0.0.1:{port}/api/llm {token}"));
+    control.send("policy allowlist ask allowed.test -");
+    control.send("watch");
+    let fetch = |headers: &str| {
+        format!(
+            "POST http://llm.harness/_web/fetch HTTP/1.1\r\n{headers}\
+             Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"
+        )
+    };
+
+    // An allowed host: forwarded with the host the gateway checked, never
+    // the one the agent claims.
+    let response = request(
+        proxy,
+        &fetch(
+            "X-Harness-Url: https://allowed.test/page?q=1\r\n\
+             X-Harness-Approved-Host: forged.test\r\n",
+        ),
+    );
+    assert_eq!(response.status, 200);
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(head[0], "POST /api/llm/_web/fetch HTTP/1.1");
+    assert!(
+        head.contains(&"X-Harness-Url: https://allowed.test/page?q=1".to_owned()),
+        "{head:?}"
+    );
+    assert!(
+        head.contains(&"X-Harness-Approved-Host: allowed.test".to_owned()),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|h| h.contains("forged")), "{head:?}");
+    assert!(
+        head.contains(&format!("Authorization: Bearer {token}")),
+        "{head:?}"
+    );
+    let logged = control.event();
+    assert!(
+        logged.starts_with("event log ") && logged.contains(" allowed allowed.test 443 allowlist"),
+        "{logged}"
+    );
+    assert!(control.event().ends_with(" allowed llm.harness 80 llm"));
+
+    // Any other host asks the user like a direct connection, and the server
+    // hears nothing of a refused one.
+    let waiting =
+        thread::spawn(move || request(proxy, &fetch("X-Harness-Url: http://ask.test/secret\r\n")));
+    assert_eq!(control.event(), "event pending 1 ask.test 80");
+    control.send("decide 1 deny");
+    let refused = waiting.join().unwrap();
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.headers["x-harness-gateway"], "denied-by-user");
+    assert!(heads.recv_timeout(Duration::from_millis(300)).is_err());
+
+    // The URL must be there once and read the same everywhere.
+    for headers in [
+        "",
+        "X-Harness-Url: https://allowed.test/\r\nX-Harness-Url: https://ask.test/\r\n",
+        "X-Harness-Url: https://user@allowed.test/\r\n",
+        "X-Harness-Url: allowed.test\r\n",
+    ] {
+        assert_eq!(request(proxy, &fetch(headers)).status, 400, "{headers:?}");
+    }
+    // Other paths of harness, also with a query, do not exist.
+    for path in ["/_web/other", "/_web/fetch?x=1", "/_x"] {
+        let response = request(
+            proxy,
+            &format!(
+                "POST http://llm.harness{path} HTTP/1.1\r\n\
+                 X-Harness-Url: https://allowed.test/\r\nContent-Length: 0\r\n\r\n"
+            ),
+        );
+        assert_eq!(response.status, 404, "{path}");
+    }
+    // A model request cannot smuggle an approved host either.
+    let chat = request(
+        proxy,
+        "POST http://llm.harness/c1/chat/completions HTTP/1.1\r\n\
+         X-Harness-Approved-Host: forged.test\r\nContent-Length: 0\r\n\r\n",
+    );
+    assert_eq!(chat.status, 200);
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(!head.iter().any(|h| h.contains("forged")), "{head:?}");
+}
+
+#[test]
 fn direct_requests_get_an_explanation() {
     let (_gateway, proxy) = start(allow_loopback);
     let response = request(proxy, "GET / HTTP/1.1\r\nHost: gateway\r\n\r\n");

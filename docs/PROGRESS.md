@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-24 · Block „Umgebung im Web-Chat“, Schritte 1–5 fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer; Branch `feat/environment-ux`); nächstes: `web_fetch` für pi und fortsetzbare Streams_
+_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); nächstes: Test des Nutzers im Verbund, dann Kontext-Kompaktierung und Effort-Regler_
 
 ## Where we are
 
@@ -28,7 +28,9 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
    - Das Modell nennt am Ende jedes Absatzes seine Quellen; der Chat zeigt sie als Badge (Host, „+n“), beim Zeigen oder Klicken mit Liste. Links im Text sind echte Links. Links, die auf keine gelesene Seite und keinen Treffer des Chats zeigen, listet die Antwort als „Ungeprüfte Links“.
    - Die Karte einer geladenen Seite sagt, ob Abschnitte nach Bedeutung („semantisch“) oder nur nach Stichworten gewählt wurden oder ob das Modell die ganze Seite las.
 
-**Einrichtung:** `harness setup` prüft den Rechner und holt nach, was fehlt (Hyper-V, git, Podman, VM-Dienst und VM, Images, Server, Autostart, PATH). Release-ZIPs installiert `scripts/install.ps1`.
+**Einrichtung:** `harness setup` prüft den Rechner und holt nach, was fehlt (Hyper-V, git, Podman, VM-Dienst und VM, Images, Server, Autostart, PATH). Das Release v0.1.0 auf GitHub hat dafür je Architektur eine Datei `llm-harness-setup-<arch>.exe`, die die Programme mitbringt und setup startet. Daneben liegen die ZIPs für `scripts/install.ps1`.
+
+**pi im Web-Chat und im Terminal** hat `web_fetch`: Der Server lädt die Seite, das Gateway fragt vorher nach dem Host wie bei jeder Verbindung.
 
 **Tray-Symbol:** `harnessd` zeigt Verbindung und VM, öffnet Web-App und Protokoll, stoppt die VM, beendet den Dienst und meldet Rückfragen und angehaltene Merges als Windows-Benachrichtigung.
 
@@ -44,10 +46,11 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    3. ✅ „Fortschritt sichern“, Freigabe per ID, Autosync, Jev für den Diff (23./24.10.)
    4. ✅ Tray-Symbol für `harnessd` (24.10.)
    5. ✅ Installer: `harness setup`, Windows-Builds, `install.ps1` (24.10.)
-   6. **als Nächstes:** `web_fetch` für pi (ROADMAP Phase 4, Recherche → Offen), fortsetzbare Streams
+   6. ✅ `web_fetch` für pi (24.10.), fortsetzbare Antworten (25.10.): Neuladen beendet keine Antwort mehr, nur „Stopp“.
+   **Als Nächstes:** Test des Nutzers im Verbund mit dem Release (Einrichtungsprogramm), danach Kontext-Kompaktierung und Thinking-Effort-Regler im Web, abgeglichen mit pi (Wunsch vom 23.10., ROADMAP Phase 3).
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
-3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, zusammen mit `web_fetch` für pi).
+3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, derselbe Weg wie `web_fetch` für pi).
 4. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
 5. Zum Schluss (Entscheidung des Nutzers): Secrets mit dem Passwort verschlüsseln (ROADMAP Phase 5).
 6. Vorgemerkt: DeepSeeks Websuche (`api.deepseek.com/v1/tools/search`) als weiteren Suchanbieter prüfen (ROADMAP, Phase 4 „Recherche“ → Offen).
@@ -112,7 +115,8 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Mittel:** Jev (`/api/alpha/decisions`, Alpha-API) und Embeddings über OpenRouter nur gegen Stand-ins geprüft; beide Endpunkte antworten ohne Key mit 401 (also vorhanden). Schlägt ein Hilfsmodell fehl, läuft der Chat ohne weiter.
 - **Niedrig:** Die Kosten des Titels zählen erst ab jetzt zur ersten Antwort; Embedding-Preise ohne `usage.cost` kommen aus OpenRouters Modellliste (24 h im Speicher).
 - **Mittel:** Readability braucht für 1–2-MB-Seiten hier ~1 s, auf dem Pi vermutlich mehrere Sekunden.
-- **Mittel:** Neuladen oder Schließen des Tabs während einer Agent-Antwort bricht sie ab (fortsetzbare Streams fehlen).
+- **Mittel:** Laufende Antworten liegen nur im Speicher des Servers; ein Neustart beendet sie (gespeichert ist dann nur die Nachricht des Nutzers).
+- **Mittel:** Die VM-Tests (`instance_vm`, `gateway_vm`) und der Smoke-Test mit der Korrektur der Rückfragen (Host nach der Antwort) liefen am 25.10. nicht mehr: Die VM startete nach dem Standby nicht (alter `gvproxy`, siehe CLAUDE.md „VM-Dienst“). Der Smoke-Test mit `web_fetch` für pi war vorher grün. Nach `harness vmd install` und einem VM-Start wiederholen.
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
 - **Mittel:** pis Sitzungen aller Projekte liegen gemeinsam in `harness-cfg-pi`.
 - **Mittel:** VM-RAM knapp (Start 1 GB; am 18.10. 183 MiB frei); ~350–500 ms pro podman-Aufruf.

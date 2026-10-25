@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::gateway::{Gateway, Verdict};
 use crate::http::{self, HeadError, RequestHead, Target};
-use crate::llm::{CREDENTIAL_HEADERS, LLM_HOST};
+use crate::llm::{CREDENTIAL_HEADERS, LLM_HOST, URL_HEADER, WEB_FETCH_PATH, web_fetch_target};
 use crate::pattern::Host;
 use crate::policy::Reason;
 use crate::upstream::Upstream;
@@ -83,15 +83,7 @@ fn handle(gateway: &Gateway, client: TcpStream) {
         return;
     }
 
-    let decision = match gateway.check(host, port) {
-        Verdict::Allow(reason) => Ok(reason),
-        Verdict::Deny(reason) => Err(reason),
-        Verdict::Ask(pending) => match gateway.await_decision(&pending) {
-            (true, reason) => Ok(reason),
-            (false, reason) => Err(reason),
-        },
-    };
-    let reason = match decision {
+    let reason = match decide(gateway, host, port) {
         Ok(reason) => reason,
         Err(reason) => {
             gateway.record(false, host, port, reason);
@@ -128,6 +120,52 @@ fn handle(gateway: &Gateway, client: TcpStream) {
     }
 }
 
+/// What the project's rules say about `host`, asking the user if they
+/// say so.
+fn decide(gateway: &Gateway, host: &Host, port: u16) -> Result<Reason, Reason> {
+    match gateway.check(host, port) {
+        Verdict::Allow(reason) => Ok(reason),
+        Verdict::Deny(reason) => Err(reason),
+        Verdict::Ask(pending) => match gateway.await_decision(&pending) {
+            (true, reason) => Ok(reason),
+            (false, reason) => Err(reason),
+        },
+    }
+}
+
+/// `web_fetch` of an agent: the server loads the page, but only for a host
+/// that passed the project's rules here, exactly like a direct connection.
+/// Returns that host, or answers the client itself and returns `None`.
+fn check_web_fetch(gateway: &Gateway, client: &TcpStream, head: &RequestHead) -> Option<Host> {
+    let mut urls = head
+        .headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(URL_HEADER))
+        .map(|(_, value)| value.as_str());
+    let target = match (urls.next(), urls.next()) {
+        (Some(url), None) => web_fetch_target(url),
+        _ => Err(format!("web_fetch braucht genau einen Header {URL_HEADER}")),
+    };
+    let (host, port) = match target {
+        Ok(target) => target,
+        Err(message) => {
+            let _ = http::write_response(&mut &*client, 400, &[], &format!("{message}\n"));
+            return None;
+        }
+    };
+    match decide(gateway, &host, port) {
+        Ok(reason) => {
+            gateway.record(true, &host, port, reason);
+            Some(host)
+        }
+        Err(reason) => {
+            gateway.record(false, &host, port, reason);
+            refuse(client, &host, reason, None);
+            None
+        }
+    }
+}
+
 /// A request to `llm.harness`: forwarded to the server's LLM endpoint with
 /// the device token instead of whatever credentials the client sent.
 ///
@@ -137,6 +175,9 @@ fn handle(gateway: &Gateway, client: TcpStream) {
 /// always speak plain HTTP here; for an `https://` server the gateway
 /// encrypts itself, which is the only way the token stays out of the
 /// instance.
+///
+/// [`WEB_FETCH_PATH`] is the one path that names another target, the page
+/// the server should load; its host has to pass the project's rules first.
 fn forward_llm(
     gateway: &Gateway,
     client: &TcpStream,
@@ -180,6 +221,12 @@ fn forward_llm(
     let Target::Forward { path, .. } = &head.target else {
         return;
     };
+    // Paths below `/_` belong to harness, not to a credential.
+    let is_web_fetch = path == WEB_FETCH_PATH;
+    if path.starts_with("/_") && !is_web_fetch {
+        let _ = http::write_response(&mut &*client, 404, &[], "Unbekannter Pfad.\n");
+        return;
+    }
     let Some((upstream, connector)) = gateway.llm() else {
         gateway.record(false, host, port, Reason::NoLlm);
         refuse(client, host, Reason::NoLlm, None);
@@ -188,6 +235,15 @@ fn forward_llm(
     let Some(upstream_path) = upstream.path(path) else {
         let _ = http::write_response(&mut &*client, 400, &[], "Pfad nicht erlaubt.\n");
         return;
+    };
+    // Asks only once the request could go through otherwise.
+    let web_fetch = if is_web_fetch {
+        match check_web_fetch(gateway, client, head) {
+            Some(host) => Some(host.to_string()),
+            None => return,
+        }
+    } else {
+        None
     };
     let options = gateway.options();
     let addresses = match upstream.host() {
@@ -219,12 +275,16 @@ fn forward_llm(
     gateway.record(true, host, port, Reason::Llm);
 
     let bearer = format!("Bearer {}", upstream.token());
+    let mut add = vec![("Authorization", bearer.as_str())];
+    if let Some(host) = &web_fetch {
+        add.push(("X-Harness-Approved-Host", host));
+    }
     let text = http::rewrite_head(
         head,
         &upstream_path,
         &upstream.host_header(),
         CREDENTIAL_HEADERS,
-        &[("Authorization", &bearer)],
+        &add,
     );
     let _ = client.set_read_timeout(None);
     if server.writer.write_all(text.as_bytes()).is_ok() {

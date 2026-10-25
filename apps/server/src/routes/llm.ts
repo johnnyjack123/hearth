@@ -3,7 +3,12 @@ import { Hono } from 'hono';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
 import { ProviderRequestError } from '../llm.ts';
+import { loadHelpers } from '../helpers/load.ts';
 import { findCredential, listCredentialRows, resolveCredential } from '../services/credentials.ts';
+import { getServerSettings } from '../services/settings.ts';
+import { agentFetch, APPROVED_HOST_HEADER, URL_HEADER } from '../webfetch/agent.ts';
+import { WebFetchError } from '../webfetch/errors.ts';
+import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
 /**
@@ -86,6 +91,7 @@ function authHeaders(protocol: Protocol, apiKey: string | null): Record<string, 
 export function llmRoutes(deps: AppDeps) {
   const { db } = deps.database;
   const { secretBox, llm } = deps;
+  const webFetchConfig = { ...DEFAULT_WEB_FETCH_CONFIG, ...deps.webFetch };
 
   return new Hono<DeviceEnv>()
     .use(requireDevice(db))
@@ -111,6 +117,30 @@ export function llmRoutes(deps: AppDeps) {
         }),
       );
       return c.json(credentials);
+    })
+    // `web_fetch` of agents. Under the proxy path because that is all the
+    // gateway reaches (`http://llm.harness/_web/fetch`); credential ids are
+    // UUIDs, never `_web`. Only the gateway sets the approved host, see
+    // `webfetch/agent.ts`.
+    .post('/proxy/_web/fetch', async (c) => {
+      const url = c.req.header(URL_HEADER);
+      const approvedHost = c.req.header(APPROVED_HOST_HEADER);
+      if (!url || !approvedHost) {
+        throw new HttpError(400, 'validation', `${URL_HEADER} and ${APPROVED_HOST_HEADER} are required`);
+      }
+      if (!(await getServerSettings(db)).webFetch) {
+        return c.json({ error: 'Loading web pages is switched off on the harness server.' }, 403);
+      }
+      const request = pageRequestSchema.strict().parse(await c.req.json());
+      const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
+      try {
+        return c.json(await agentFetch(url, approvedHost, request, { config: webFetchConfig, helpers, signal: c.req.raw.signal }));
+      } catch (error) {
+        if (error instanceof WebFetchError) {
+          return c.json({ error: error.message }, 422);
+        }
+        throw error;
+      }
     })
     .all('/proxy/:credentialId/*', async (c) => {
       const owner = c.get('owner');

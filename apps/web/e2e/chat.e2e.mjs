@@ -176,6 +176,11 @@ try {
     await page.waitForSelector(text('http://127.0.0.1:8091/testseite'));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('21-web-fetch-approval');
+    // A reload in the middle of the reply: the server keeps writing it, and
+    // the page picks it up again with the open question. The resumed
+    // stream stays open, so the network never goes idle here.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector(text('Das Modell möchte eine Seite von 127.0.0.1 laden'), { timeout: 15_000 });
     await page.click(text('Einmal erlauben'));
     await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'), { timeout: 15_000 });
     await page.waitForSelector(text('Möglicher Prompt-Injection-Versuch'), { timeout: 5_000 });

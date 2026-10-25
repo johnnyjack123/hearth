@@ -15,14 +15,31 @@ use crate::pem;
 pub const LLM_HOST: &str = "llm.harness";
 
 /// Headers a client might use to send its own credentials; they are dropped
-/// so only the device token reaches the server.
+/// so only the device token reaches the server. The approved host of
+/// `web_fetch` counts as one: only the gateway may set it.
 pub const CREDENTIAL_HEADERS: &[&str] = &[
     "authorization",
     "x-api-key",
     "api-key",
     "x-goog-api-key",
     "cookie",
+    APPROVED_HOST_HEADER,
 ];
+
+/// Path of `web_fetch` below `llm.harness`: the server loads the page named
+/// in [`URL_HEADER`] once its host passed the project's rules here. Paths
+/// starting with `/_` belong to harness; credential ids never do.
+pub const WEB_FETCH_PATH: &str = "/_web/fetch";
+
+/// Header with the URL an agent wants `web_fetch` to load.
+pub const URL_HEADER: &str = "x-harness-url";
+
+/// Header with the host the gateway allowed for `web_fetch`; the server
+/// loads nothing else.
+pub const APPROVED_HOST_HEADER: &str = "x-harness-approved-host";
+
+/// Longest URL `web_fetch` takes, as on the server.
+const MAX_URL_LENGTH: usize = 2048;
 
 /// How the gateway talks to the server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,31 +100,8 @@ impl LlmUpstream {
             Some(index) => rest.split_at(index),
             None => (rest, ""),
         };
-        // `[v6]:port`, `host:port` or just the host.
-        let split = match authority.strip_prefix('[') {
-            Some(_) => authority.find(']').and_then(|end| {
-                let (host, rest) = authority.split_at(end + 1);
-                match rest.strip_prefix(':') {
-                    Some(port) => Some((host, Some(port))),
-                    None if rest.is_empty() => Some((host, None)),
-                    None => None,
-                }
-            }),
-            None => Some(match authority.split_once(':') {
-                Some((host, port)) => (host, Some(port)),
-                None => (authority, None),
-            }),
-        };
-        let (host, port) = split.ok_or_else(|| invalid("ungültiger Host"))?;
-        let port = match port {
-            None => scheme.default_port(),
-            Some(port) => port
-                .parse::<u16>()
-                .ok()
-                .filter(|p| *p > 0 && port.bytes().all(|b| b.is_ascii_digit()))
-                .ok_or_else(|| invalid("ungültiger Port"))?,
-        };
-        let host = Host::parse(host).map_err(|e| invalid(&e))?;
+        let (host, port) =
+            parse_authority(authority, scheme.default_port()).map_err(|e| invalid(&e))?;
         let prefix = prefix.trim_end_matches('/');
         if !safe_path(prefix) && !prefix.is_empty() {
             return Err(invalid("ungültiger Pfad"));
@@ -216,6 +210,62 @@ impl LlmUpstream {
             None => format!("{}{path}", self.prefix),
         })
     }
+}
+
+/// Host and port of `host`, `host:port`, `[v6]` or `[v6]:port`.
+fn parse_authority(authority: &str, default_port: u16) -> Result<(Host, u16), String> {
+    let split = match authority.strip_prefix('[') {
+        Some(_) => authority.find(']').and_then(|end| {
+            let (host, rest) = authority.split_at(end + 1);
+            match rest.strip_prefix(':') {
+                Some(port) => Some((host, Some(port))),
+                None if rest.is_empty() => Some((host, None)),
+                None => None,
+            }
+        }),
+        None => Some(match authority.split_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }),
+    };
+    let (host, port) = split.ok_or("ungültiger Host")?;
+    let port = match port {
+        None => default_port,
+        Some(port) => port
+            .parse::<u16>()
+            .ok()
+            .filter(|p| *p > 0 && port.bytes().all(|b| b.is_ascii_digit()))
+            .ok_or("ungültiger Port")?,
+    };
+    Ok((Host::parse(host)?, port))
+}
+
+/// Host and port of a URL an agent wants `web_fetch` to load. The server
+/// parses the URL again (WHATWG) and loads it only if it finds the same
+/// host, so this parser is strict instead of clever: lowercase `http://` or
+/// `https://`, printable ASCII only (a browser-style parser drops tabs and
+/// reads `\` as `/`), no user info. Agents send `new URL(…).href`, which
+/// always passes.
+pub fn web_fetch_target(url: &str) -> Result<(Host, u16), String> {
+    let invalid = |reason: &str| format!("web_fetch-Adresse: {reason}");
+    if url.len() > MAX_URL_LENGTH {
+        return Err(invalid("zu lang"));
+    }
+    if !url.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(invalid("Leer-, Steuer- oder Nicht-ASCII-Zeichen"));
+    }
+    let (default_port, rest) = if let Some(rest) = url.strip_prefix("http://") {
+        (80, rest)
+    } else if let Some(rest) = url.strip_prefix("https://") {
+        (443, rest)
+    } else {
+        return Err(invalid("erwartet http:// oder https://"));
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    if authority.contains(['@', '\\']) {
+        return Err(invalid("Zugangsdaten oder \\ im Host"));
+    }
+    parse_authority(authority, default_port).map_err(|e| invalid(&e))
 }
 
 /// Absolute path of plain segments: no `..` or `.`, no empty segments, no
@@ -371,6 +421,59 @@ mod tests {
         ] {
             assert_eq!(up.path(bad), None, "{bad:?} accepted");
         }
+    }
+
+    #[test]
+    fn web_fetch_targets() {
+        let target = |url: &str| web_fetch_target(url).map(|(host, port)| format!("{host} {port}"));
+        assert_eq!(
+            target("https://example.com/a?b#c").unwrap(),
+            "example.com 443"
+        );
+        assert_eq!(target("http://Example.COM.").unwrap(), "example.com 80");
+        assert_eq!(
+            target("http://example.com:8080?x").unwrap(),
+            "example.com 8080"
+        );
+        assert_eq!(
+            target("https://xn--bcher-kva.de/").unwrap(),
+            "xn--bcher-kva.de 443"
+        );
+        assert_eq!(
+            target("https://93.184.215.14/").unwrap(),
+            "93.184.215.14 443"
+        );
+        assert_eq!(
+            target("https://[2606:4700::1]:443/").unwrap(),
+            "[2606:4700::1] 443"
+        );
+        // Backslashes outside the host do not change it.
+        assert_eq!(
+            target("https://example.com/a\\b").unwrap(),
+            "example.com 443"
+        );
+        for bad in [
+            "HTTPS://example.com/",
+            "ftp://example.com/",
+            "example.com",
+            "https://user@example.com/",
+            "https://evil.test\\@example.com/",
+            "https://evil.test\\.example.com/",
+            "https://exa mple.com/",
+            "https://exa	mple.com/",
+            "https://bücher.de/",
+            "https://127.1/",
+            "https://0x7f000001/",
+            "https://[::1/",
+            "https://example.com:0/",
+            "https://example.com:99999/",
+            "https://example.com:+80/",
+            "https:///path",
+        ] {
+            assert!(web_fetch_target(bad).is_err(), "{bad:?} accepted");
+        }
+        let long = format!("https://example.com/{}", "a".repeat(MAX_URL_LENGTH));
+        assert!(web_fetch_target(&long).is_err());
     }
 
     #[test]
