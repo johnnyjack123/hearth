@@ -45,11 +45,12 @@ pub fn add(config: &ConfigDir) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// `harness init [name]`: makes the current folder a project (with a git
-/// repository, if it has none yet), offers it to the account's web chats
-/// and makes sure the background service runs. `name` replaces the folder
-/// name as the project's (and environment's) name.
-pub fn init(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<bool> {
+/// `harness init [path] [name]`: makes a folder (by default the current
+/// one) a project, with a git repository if it has none yet, offers it to
+/// the account's web chats and makes sure the background service runs.
+/// `name` replaces the folder name as the project's (and environment's)
+/// name.
+pub fn init(config: &ConfigDir, path: Option<&Path>, name: Option<&str>) -> anyhow::Result<bool> {
     let wanted = name.map(|text| {
         let name = ProjectName::slug(text);
         if name.as_str() != text.trim() {
@@ -57,7 +58,15 @@ pub fn init(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<bool> {
         }
         name
     });
-    let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
+    let cwd = match path {
+        Some(path) if !path.is_dir() => bail!(
+            "Den Ordner {} gibt es nicht. Für einen eigenen Namen im aktuellen Ordner: \
+             `harness init . <name>`",
+            path.display()
+        ),
+        Some(path) => std::path::absolute(path).context("Ordner bestimmen")?,
+        None => env::current_dir().context("Aktuellen Ordner bestimmen")?,
+    };
     let repo = match find_repo_root(&cwd) {
         Some(root) => root,
         None => {
@@ -82,7 +91,7 @@ pub fn init(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<bool> {
             if let Some(wanted) = wanted.as_ref().filter(|wanted| **wanted != project.name) {
                 bail!(
                     "{} ist schon das Projekt {}. Einen anderen Namen bekommt es mit \
-                     `harness project remove` und danach `harness init {wanted}`",
+                     `harness project remove` und danach `harness init . {wanted}`",
                     repo.display(),
                     project.name
                 );

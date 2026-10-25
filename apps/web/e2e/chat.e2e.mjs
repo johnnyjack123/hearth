@@ -343,7 +343,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
-    // The switch stays as last used, in this chat after a reload and in others.
+    // The chat opens with the switch as last used in it.
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
 
@@ -401,12 +401,15 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('30-condensed');
 
-    // One switch for all chats: a new chat starts with it as last used.
+    // A new chat starts as the chat used last; switching it does not change
+    // existing chats.
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
     await page.click('[aria-label="Recherche"]');
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 10_000 });
+    await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {

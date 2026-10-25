@@ -16,7 +16,10 @@ interface PreferencesValue {
   resolvedTheme: 'light' | 'dark';
   density: Density;
   locale: Locale;
-  /** Research mode for the next messages, the same in every chat. */
+  /**
+   * Research mode of the chat used last; a new chat starts with it.
+   * Existing chats keep their own.
+   */
   research: boolean;
   setTheme: (theme: ThemePreference) => void;
   setDensity: (density: Density) => void;

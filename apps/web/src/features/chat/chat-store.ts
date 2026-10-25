@@ -60,15 +60,15 @@ export function upsertMessage(conversationId: string, message: ChatMessage): voi
  * @param conversationId - Conversation id; also the chat id.
  * @param initialMessages - Stored messages, used only when the session is created.
  * @param initialSelection - Model for the first request, used only when the session is created.
- * @param initialResearch - Research mode for the first request; the chat view
- *   sets it from the preference before every request.
+ * @param initialResearch - Research mode for the first request; by default as
+ *   in the newest user message.
  * @returns The session entry.
  */
 export function getChat(
   conversationId: string,
   initialMessages: ChatMessage[],
   initialSelection: ModelSelection | null,
-  initialResearch = false,
+  initialResearch = lastResearch(initialMessages),
 ): ChatEntry {
   const existing = entries.get(conversationId);
   if (existing) {
@@ -148,6 +148,17 @@ export async function stopReply(conversationId: string): Promise<void> {
   await entries.get(conversationId)?.chat.stop();
 }
 
+
+/**
+ * Whether the newest user message was sent in research mode; the server
+ * stores the flag with the message, so a chat opens as it was left.
+ *
+ * @param messages - Stored messages.
+ * @returns True if research mode was on.
+ */
+export function lastResearch(messages: ChatMessage[]): boolean {
+  return messages.findLast((message) => message.role === 'user')?.metadata?.research === true;
+}
 
 /**
  * Stops and forgets a conversation's session, e.g. after deleting it.
