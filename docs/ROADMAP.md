@@ -291,6 +291,8 @@ Bausteine:
    - `scripts/install.ps1` installiert ohne Admin und startet setup.
    - Offen: signierte Programme, Windows Home über WSL, Download der Programme vom eigenen Server statt aus dem privaten Repo.
 6. `web_fetch` für pi, fortsetzbare Streams
+   - ✅ **`web_fetch` für pi** (24.10.): pi-Erweiterung `pi/web.ts` → `http://llm.harness/_web/fetch`. Das Gateway prüft den Host nach den Netzregeln (Rückfrage wie bei direkten Verbindungen) und reicht ihn als geprüft weiter. Der Server lädt nur diesen Host, Weiterleitungen auf andere Hosts gehen zurück an pi und durchs Gateway. Verarbeitung wie im Web-Chat. Nebenbei behoben: Beantwortete Rückfragen zeigten im Chat „?:1“ statt Host und Port.
+   - ✅ **fortsetzbare Antworten** (25.10.): Neuladen oder Schließen der Seite beendet eine Antwort nicht mehr (Modell wie Agent). Der Server liest sie selbst zu Ende und speichert sie, die Seite holt die laufende Antwort ab ihrem Anfang wieder ab (`GET …/stream`), offene Rückfragen bleiben offen. Nur „Stopp“ bricht ab (`POST …/stop`). Im Speicher, ein Neustart des Servers beendet laufende Antworten.
 
 **Entschieden vom Nutzer (23.10. nachts)** – vorher „Offen“:
 - **Übernehmen mergt direkt in den ausgecheckten Branch** (wie `harness merge`, nur bei sauberem Arbeitsbaum).
@@ -352,8 +354,8 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - `web_search` mit SearXNG, Brave oder Tavily, Schalter im Composer, Trefferblock und Quellen unter der Antwort
   - **Offen:**
     - echter Suchlauf gegen SearXNG auf dem Pi (Nutzer)
-    - Suche für Agents in der VM
-    - **`web_fetch` für pi** (Frage des Nutzers, 23.10.): eine pi-Erweiterung (wie der Guard per `-e`) bringt ein Werkzeug `web_fetch` mit `focus`, `grep`, `sections` und `fullPage`. Es ruft über `http://llm.harness/…` einen neuen Server-Pfad mit dem Geräte-Token. Der Server lädt die Seite wie im Web-Chat (Adressfilter, Readability, Abschnitte, Embeddings mit dem OpenRouter-Key des Nutzers, Prompt-Injection-Funde). Das Gateway prüft den Ziel-Host der Anfrage gegen die Netzregeln des Projekts und fragt wie bei direkten Verbindungen, sonst wäre der Server ein Umweg um die Regeln.
+    - Suche für Agents in der VM (über denselben Weg wie `web_fetch` für pi)
+    - ✅ **`web_fetch` für pi** (Frage des Nutzers, 23.10., gebaut 24.10.): eine pi-Erweiterung (wie der Guard per `-e`) bringt ein Werkzeug `web_fetch` mit `focus`, `grep`, `sections` und `fullPage`. Es ruft über `http://llm.harness/…` einen neuen Server-Pfad mit dem Geräte-Token. Der Server lädt die Seite wie im Web-Chat (Adressfilter, Readability, Abschnitte, Embeddings mit dem OpenRouter-Key des Nutzers, Prompt-Injection-Funde). Das Gateway prüft den Ziel-Host der Anfrage gegen die Netzregeln des Projekts und fragt wie bei direkten Verbindungen, sonst wäre der Server ein Umweg um die Regeln.
     - **DeepSeek als weiterer Suchanbieter prüfen** (Hinweis des Nutzers vom 18.10.): DeepSeek bietet laut seiner Website neuerdings eine Websuche unter `https://api.deepseek.com/v1/tools/search` an, vermutlich auf Sprachmodelle zugeschnitten. Noch ungeprüft:
       - Antwortformat und Preis
       - ob der normale API-Key reicht
@@ -459,7 +461,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
   - Dialoge von pi-Erweiterungen im Web (heute abgelehnt)
-  - fortsetzbare Streams: Neuladen während einer Antwort bricht sie ab
+  - ✅ fortsetzbare Streams (25.10., siehe Phase 3 Schritt 6)
   - Verbrauch und Limits pro Gerät
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
