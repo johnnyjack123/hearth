@@ -301,7 +301,7 @@ Bausteine:
 - **Autosync als Schalter:** Ist er an, mergt der Dienst nach jeder fertigen Antwort eines Agents den Stand in den ausgecheckten Branch auf dem Host, sofern alle Prüfungen grün sind. Sonst mergt er nicht und zeigt die Funde. Nach dem Merge macht er vom aktuellen Stand einen neuen Branch und gibt ihn wieder in die VM, damit es übersichtlich bleibt. Inhaltlich ändert sich in der VM dabei nichts, außer der Nutzer hat inzwischen selbst etwas geändert.
 
 **Neu gewünscht (23.10. nachts):**
-- **Kontext-Kompaktierung im Web-Chat** (Zusammenfassen älterer Verläufe, nicht nur das Eindampfen von Seiten) und ein **Regler für den Thinking-Effort**. Beides muss mit pi abgeglichen werden: pi hat eigene Denkstufen und automatische Kompaktierung, ein verknüpfter Chat soll dieselben Einstellungen nutzen.
+- ✅ **Kontext-Kompaktierung im Web-Chat** (Zusammenfassen älterer Verläufe, nicht nur das Eindampfen von Seiten) und ein **Regler für den Thinking-Effort**, für normale Chats (25.10.): Denktiefe mit pis Stufen pro Chat, Zusammenfassen automatisch wie pi (unter 16k Token frei, die letzten 20k Token bleiben) und auf Wunsch im Kontext-Ring. Offen ist der Abgleich mit pi in verknüpften Chats: Stufe per `set_thinking_level`, Zusammenfassen per RPC `compact`; dort sind Regler und Knopf bisher ausgeblendet.
 - **Einstellungen zwischen pi und Web gleich halten** (Modell, Effort, Kompaktierung, Netzfreigaben).
 
 ## Phase 4 – Chat ↔ Umgebung
