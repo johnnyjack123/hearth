@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); nächstes: Kontext-Kompaktierung und Effort-Regler_
+_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); dazu am 25.10. Denktiefe und Zusammenfassen im Web-Chat, Aufräumen der VM, Jev-Schalter pro Gerät, Jev für Prompt-Injection-Warnungen, `harness ssh <projekt>`; nächstes: Abgleich mit pi, dann App-Katalog_
 
 ## Where we are
 
@@ -48,10 +48,19 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    5. ✅ Installer: `harness setup`, Windows-Builds, `install.ps1` (24.10.)
    6. ✅ `web_fetch` für pi (24.10.), fortsetzbare Antworten (25.10.): Neuladen beendet keine Antwort mehr, nur „Stopp“.
    Test des Nutzers mit dem Release v0.1.1 am 25.10.: Einrichtung, Projekt, Verbinden und Agent liefen ohne Probleme; Übernehmen testet er noch. Nachgereicht am selben Tag: `harness init <name>`, `harness project list/remove`, Recherche-Schalter auch in Umgebungs-Chats (`web_search` für pi) und ein gemerkter Schalter für alle Chats.
-   **Als Nächstes:** Kontext-Kompaktierung und Thinking-Effort-Regler im Web, abgeglichen mit pi (Wunsch vom 23.10., ROADMAP Phase 3). Vorgemerkt: Gedächtnis für Agents und Chats, englische CLI (ROADMAP Phase 5).
+   Denktiefe und Zusammenfassen im Web-Chat für normale Chats gebaut (25.10., Hilfsagent): Regler mit pis Stufen, Zusammenfassen automatisch und per Knopf im Kontext-Ring.
+   Am 25.10. außerdem:
+   - `harness vmd clean` räumt die VM auf (alte Image-Stände, Bau-Images, Reste gelöschter Projekte) und lässt den VM-Dienst die Festplatte verkleinern; neue Builds entfernen ihren Vorgänger selbst. Das Verkleinern ist ungeprüft, bis der Nutzer den neuen Dienst installiert hat.
+   - Jev-Schalter pro Gerät (Einstellungen → Geräte).
+   - Jev bewertet Prompt-Injection-Warnungen (Knopf an der Warnung, automatisch per Einstellung).
+   - `harness ssh <projekt>` (Alias von `shell`), `micro` und `nano` im Base-Image; `harness init [pfad] [name]`; Tray-Benachrichtigungen der Smoke-Tests stummgeschaltet.
+   **Als Nächstes:**
+   1. Abgleich mit pi in verknüpften Chats: Denkstufe per `set_thinking_level`, Zusammenfassen per RPC `compact`, pis eigenes Zusammenfassen im Chat anzeigen (ROADMAP Phase 3).
+   2. **App-Katalog pro Projekt** (Wunsch des Nutzers, 25.10., Entwurf in ROADMAP Phase 3).
+   Vorgemerkt: Gedächtnis für Agents und Chats, englische CLI (ROADMAP Phase 5).
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
-3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, derselbe Weg wie `web_fetch` für pi).
+3. **Zweitmeinung zu Warnungen:** Jev-Teil gebaut (25.10.); offen ist ein Chat-Modell als Alternative mit Begründung (ROADMAP, eigener Abschnitt).
 4. Später (ROADMAP Phase 5): Dokumente per markitdown, Bilder für Vision-Modelle, Windows-Builds auf GitHub.
 5. Zum Schluss (Entscheidung des Nutzers): Secrets mit dem Passwort verschlüsseln (ROADMAP Phase 5).
 6. Vorgemerkt: DeepSeeks Websuche (`api.deepseek.com/v1/tools/search`) als weiteren Suchanbieter prüfen (ROADMAP, Phase 4 „Recherche“ → Offen).

@@ -1,4 +1,4 @@
-import type { CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
+import type { CompactSettings, CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -27,7 +27,7 @@ export function ServerPanel() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: queryKeys.serverSettings, queryFn: api.settings.get });
   const update = useMutation({
-    mutationFn: (patch: Omit<UpdateServerSettings, 'search' | 'condense'>) => api.settings.update(patch),
+    mutationFn: (patch: Omit<UpdateServerSettings, 'search' | 'condense' | 'compact'>) => api.settings.update(patch),
     onMutate: async (patch) => {
       // Optimistic: switches react instantly and roll back on failure.
       await queryClient.cancelQueries({ queryKey: queryKeys.serverSettings });
@@ -102,6 +102,9 @@ export function ServerPanel() {
       </Section>
       <Section title={t('admin.condense.title')} description={t('admin.condense.description')}>
         {settings.data ? <CondenseSettingsCard condense={settings.data.condense} /> : <Skeleton className="h-40 w-full rounded-xl" />}
+      </Section>
+      <Section title={t('admin.compact.title')} description={t('admin.compact.description')}>
+        {settings.data ? <CompactSettingsCard compact={settings.data.compact} /> : <Skeleton className="h-40 w-full rounded-xl" />}
       </Section>
     </div>
   );
@@ -194,6 +197,80 @@ function CondenseSettingsCard({ condense }: { condense: CondenseSettings }) {
         <div>
           <Button type="submit" variant="primary" loading={save.isPending} disabled={!dirty}>
             {t('admin.condense.save')}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+/**
+ * Thresholds for summarizing long chats: the free room in the context
+ * window below which a chat is summarized, and how much of the latest turns
+ * the model keeps reading word for word.
+ *
+ * @param props - The stored thresholds.
+ * @returns The card.
+ */
+function CompactSettingsCard({ compact }: { compact: CompactSettings }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [enabled, setEnabled] = useState(compact.enabled);
+  const [reserve, setReserve] = useState(String(compact.reserveTokens));
+  const [keep, setKeep] = useState(String(compact.keepRecentTokens));
+  const [submitted, setSubmitted] = useState(false);
+  const reserveTokens = numberIn(reserve, 1_000, 1_000_000);
+  const keepRecentTokens = numberIn(keep, 0, 1_000_000);
+  const next = { enabled, reserveTokens: reserveTokens ?? 0, keepRecentTokens: keepRecentTokens ?? 0 };
+  const dirty = enabled !== compact.enabled || next.reserveTokens !== compact.reserveTokens || next.keepRecentTokens !== compact.keepRecentTokens;
+
+  const save = useMutation({
+    mutationFn: () => api.settings.update({ compact: next }),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(queryKeys.serverSettings, settings);
+      setSubmitted(false);
+      toast.success(t('admin.saved'));
+    },
+    onError: (error) => toast.error(errorMessage(t, error)),
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitted(true);
+    if (reserveTokens !== null && keepRecentTokens !== null) {
+      save.mutate();
+    }
+  }
+
+  return (
+    <Card>
+      <form onSubmit={submit} className="flex flex-col gap-4 p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-sm font-medium text-foreground">{t('admin.compact.enabled')}</span>
+            <span className="text-sm text-muted-foreground">{t('admin.compact.enabledHint')}</span>
+          </div>
+          <Switch aria-label={t('admin.compact.enabled')} checked={enabled} onCheckedChange={setEnabled} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label={t('admin.compact.reserve')}
+            hint={t('admin.compact.reserveHint')}
+            error={submitted && reserveTokens === null ? t('admin.compact.reserveInvalid') : undefined}
+          >
+            {(control) => <Input {...control} inputMode="numeric" value={reserve} onChange={(event) => setReserve(event.target.value)} />}
+          </Field>
+          <Field
+            label={t('admin.compact.keep')}
+            hint={t('admin.compact.keepHint')}
+            error={submitted && keepRecentTokens === null ? t('admin.compact.keepInvalid') : undefined}
+          >
+            {(control) => <Input {...control} inputMode="numeric" value={keep} onChange={(event) => setKeep(event.target.value)} />}
+          </Field>
+        </div>
+        <div>
+          <Button type="submit" variant="primary" loading={save.isPending} disabled={!dirty}>
+            {t('admin.compact.save')}
           </Button>
         </div>
       </form>

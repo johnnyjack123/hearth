@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { DiffAssessment, PairingPoll, PairingStart } from '@harness/shared';
+import type { DeviceSummary, DiffAssessment, PairingPoll, PairingStart } from '@harness/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestServer, DIALECTS, type TestServer } from './helpers.ts';
 
@@ -100,6 +100,29 @@ describe.each(DIALECTS)('Jev for the merge check on %s', (kind) => {
     expect(seen[0]?.authorization).toBe('Bearer sk-or-test-0123456789abcdef');
     expect(Object.keys(seen[0]?.body.questions ?? {})).toHaveLength(2);
     expect(seen[0]?.body.state.files[0]).toMatchObject({ path: '.husky/pre-commit', added: files[0]?.added });
+  });
+
+  it('asks Jev only while the owner leaves it on for the device', async () => {
+    await server.request('POST', '/api/providers', {
+      cookie,
+      body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-test-0123456789abcdef' },
+    });
+    const listed = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    const device = listed[0] as DeviceSummary;
+    expect(device.jevReview).toBe(true);
+
+    const off = await server.request('PATCH', `/api/devices/${device.id}`, { cookie, body: { jevReview: false } });
+    expect(off.status).toBe(200);
+    expect((await off.json()) as DeviceSummary).toMatchObject({ jevReview: false, idleMinutes: device.idleMinutes });
+    expect(await (await assess({ files })).json()).toEqual({ model: null, files: null, cost: null, reason: 'disabled' });
+    expect(seen).toHaveLength(0);
+
+    // Back on, and the idle time can still change alone.
+    await server.request('PATCH', `/api/devices/${device.id}`, { cookie, body: { jevReview: true } });
+    expect((await server.request('PATCH', `/api/devices/${device.id}`, { cookie, body: { idleMinutes: 60 } })).status).toBe(200);
+    expect((await server.request('PATCH', `/api/devices/${device.id}`, { cookie, body: {} })).status).toBe(400);
+    levels = [3, 3];
+    expect(((await (await assess({ files })).json()) as DiffAssessment).files).toHaveLength(2);
   });
 
   it('accepts only devices and well-formed diffs', async () => {

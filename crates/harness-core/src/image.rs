@@ -7,7 +7,7 @@ use std::io;
 use std::path::Path;
 
 use crate::paths::local_data_dir;
-use crate::provider::{ImageBuild, Labels, Provider};
+use crate::provider::{ImageBuild, ImageInfo, Labels, Provider};
 use crate::{Error, Result};
 
 /// Image label holding [`ImageDefinition::context_hash`], used to detect an
@@ -53,6 +53,15 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
         },
     ],
 };
+
+/// Images only the builds need (the stages `FROM … AS …` in the
+/// Containerfiles); the finished images do not use them. `harness vmd
+/// clean` removes them, the next build downloads them again.
+pub const BUILD_ONLY_IMAGES: &[&str] = &[
+    "docker.io/library/rust:",
+    "docker.io/library/node:",
+    "ghcr.io/astral-sh/uv:",
+];
 
 /// The egress gateway (`images/gateway`), compiled from the
 /// `harness-gateway` crate inside the VM. Every file in that crate's `src/`
@@ -224,10 +233,16 @@ impl ImageDefinition {
 
     /// Builds the image in the VM. The context is written to
     /// `%LOCALAPPDATA%\llm-harness\build\<name>` and uploaded by podman.
+    ///
+    /// The version it replaces is removed afterwards if it is left without
+    /// a name and no container uses it: every update of harness rebuilds the
+    /// images, and the old versions were what made the VM's disk grow. An
+    /// old version someone gave another name (to switch back to it) stays.
     pub fn build(&self, provider: &dyn Provider, options: BuildOptions) -> Result<()> {
         let context = local_data_dir()?.join("build").join(self.name);
         self.write_context(&context)?;
         let labels: Labels = [(CONTEXT_HASH_LABEL.to_owned(), self.context_hash())].into();
+        let previous = self.current(provider)?;
         provider.build_image(&ImageBuild {
             tag: self.tag.to_owned(),
             context,
@@ -235,7 +250,29 @@ impl ImageDefinition {
             pull: options.pull,
             no_cache: options.no_cache,
             ..ImageBuild::default()
-        })
+        })?;
+        if let Some(previous) = previous {
+            let left = provider
+                .images()?
+                .into_iter()
+                .find(|image| image.id == previous.id);
+            if let Some(left) = left
+                && left.tags.is_empty()
+                && left.containers == 0
+            {
+                // Failing is harmless: `harness vmd clean` gets it later.
+                let _ = provider.remove_image(&left.id);
+            }
+        }
+        Ok(())
+    }
+
+    fn current(&self, provider: &dyn Provider) -> Result<Option<ImageInfo>> {
+        let tag = self.tag;
+        Ok(provider
+            .images()?
+            .into_iter()
+            .find(|image| image.tags.iter().any(|t| t == tag)))
     }
 }
 

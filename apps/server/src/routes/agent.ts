@@ -1,10 +1,13 @@
-import type { AgentEvent, ChatLink, MessageMetadata } from '@harness/shared';
+import type { AgentEvent, AgentToolOutput, ChatLink, MessageMetadata } from '@harness/shared';
 import { createUIMessageStream, createUIMessageStreamResponse, type InferUIMessageChunk } from 'ai';
 import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { AgentRun } from '../tunnel/hub.ts';
+import { agentWarning, type Assessor } from '../assess.ts';
+import type { Helpers } from '../helpers/openrouter.ts';
+import { withHelpers } from '../pricing.ts';
 
 type Chunk = InferUIMessageChunk<ChatMessage>;
 
@@ -41,7 +44,8 @@ export function transcript(messages: ChatMessage[]): string | null {
  * calls, because the AI SDK rejects output for a call it has not seen.
  */
 export class ChunkMapper {
-  readonly #tools = new Set<string>();
+  // Open tool calls with their name and arguments.
+  readonly #tools = new Map<string, { name: string; input: unknown }>();
   #usage: NonNullable<MessageMetadata['usage']> | undefined;
 
   /**
@@ -53,10 +57,28 @@ export class ChunkMapper {
   }
 
   /**
+   * @param id - Id of an open tool call.
+   * @returns Its tool's name, if the call is open.
+   */
+  toolName(id: string): string | undefined {
+    return this.#tools.get(id)?.name;
+  }
+
+  /**
+   * @param id - Id of an open tool call.
+   * @returns Its arguments, if the call is open.
+   */
+  toolInput(id: string): unknown {
+    return this.#tools.get(id)?.input;
+  }
+
+  /**
    * @param event - Event from the device.
+   * @param extra - More for the output of a finished tool call: the
+   *   server's findings and Jev's opinion.
    * @returns The chunks to write, possibly none.
    */
-  map(event: AgentEvent): Chunk[] {
+  map(event: AgentEvent, extra?: Partial<AgentToolOutput>): Chunk[] {
     switch (event.type) {
       case 'turn.start':
         return [{ type: 'start-step' }];
@@ -75,7 +97,7 @@ export class ChunkMapper {
       case 'reasoning.end':
         return [{ type: 'reasoning-end', id: event.id }];
       case 'tool.start':
-        this.#tools.add(event.id);
+        this.#tools.set(event.id, { name: event.name, input: event.input });
         return [
           { type: 'tool-input-available', toolCallId: event.id, toolName: event.name, input: event.input, dynamic: true },
         ];
@@ -97,7 +119,7 @@ export class ChunkMapper {
         }
         return event.isError
           ? [{ type: 'tool-output-error', toolCallId: event.id, errorText: event.output || 'Error', dynamic: true }]
-          : [{ type: 'tool-output-available', toolCallId: event.id, output: { text: event.output }, dynamic: true }];
+          : [{ type: 'tool-output-available', toolCallId: event.id, output: { ...extra, text: event.output }, dynamic: true }];
       case 'progress':
         // Same id, so a finished step replaces the running one in place.
         return [
@@ -174,7 +196,7 @@ export class ChunkMapper {
    * @returns Error chunks for the open calls.
    */
   closeOpenTools(): Chunk[] {
-    const chunks: Chunk[] = [...this.#tools].map((id) => ({
+    const chunks: Chunk[] = [...this.#tools.keys()].map((id) => ({
       type: 'tool-output-error' as const,
       toolCallId: id,
       errorText: 'interrupted',
@@ -205,6 +227,11 @@ export interface StreamAgentOptions {
   abortSignal: AbortSignal;
   /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
   consumeSseStream?: (stream: ReadableStream<string>) => void;
+  /**
+   * Asks Jev about tool output that looks like a prompt injection, before it
+   * is shown; null unless the user wants that. Its cost joins the reply.
+   */
+  assess?: { assessor: Assessor; helpers: Helpers } | null;
 }
 
 /**
@@ -224,6 +251,19 @@ export function streamAgent(options: StreamAgentOptions): Response {
     agent: { project: link.project, harness: link.harness },
   };
   const mapper = new ChunkMapper();
+  // The server checks tool output itself: the device's guard only reports
+  // a notice, without the places.
+  async function toolExtras(event: AgentEvent): Promise<Partial<AgentToolOutput> | undefined> {
+    if (event.type !== 'tool.end' || event.isError) {
+      return undefined;
+    }
+    const warned = agentWarning(mapper.toolName(event.id) ?? 'tool', mapper.toolInput(event.id), event.output);
+    if (!warned) {
+      return undefined;
+    }
+    const assessment = options.assess ? await options.assess.assessor(warned) : null;
+    return { findings: warned.findings, ...(assessment ? { assessment } : {}) };
+  }
   // Stop in the chat interrupts the agent; it then reports `done`.
   abortSignal.addEventListener('abort', () => run.cancel(), { once: true });
 
@@ -233,14 +273,15 @@ export function streamAgent(options: StreamAgentOptions): Response {
     execute: async ({ writer }) => {
       writer.write({ type: 'start', messageMetadata: metadata });
       for await (const event of run) {
-        for (const chunk of mapper.map(event)) {
+        for (const chunk of mapper.map(event, await toolExtras(event))) {
           writer.write(chunk);
         }
       }
       for (const chunk of mapper.closeOpenTools()) {
         writer.write(chunk);
       }
-      writer.write({ type: 'finish', messageMetadata: { ...metadata, ...(mapper.usage ? { usage: mapper.usage } : {}) } });
+      const usage = mapper.usage && options.assess ? withHelpers(mapper.usage, options.assess.helpers.usage) : mapper.usage;
+      writer.write({ type: 'finish', messageMetadata: { ...metadata, ...(usage ? { usage } : {}) } });
     },
     onError: (error) => {
       console.error('[agent] stream failed', error);

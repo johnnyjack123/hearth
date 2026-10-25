@@ -1,7 +1,8 @@
 import { Chat } from '@ai-sdk/react';
-import type { ConversationDetail, ModelSelection } from '@harness/shared';
+import type { ConversationDetail, EffortLevel, ModelSelection } from '@harness/shared';
 import { DefaultChatTransport } from 'ai';
 import { api, type ChatMessage } from '@/lib/api.ts';
+import { autoAssessEnabled } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys } from '@/lib/queries.ts';
 
@@ -15,6 +16,8 @@ export interface ChatEntry {
   selection: { current: ModelSelection | null };
   /** Research mode of the next request, read at request time like the model. */
   research: { current: boolean };
+  /** Thinking effort of the next request; null for the provider's default. */
+  effort: { current: EffortLevel | null };
   /**
    * The server may still be writing a reply this tab never saw, e.g. after
    * a reload; {@link resumeReply} picks it up once.
@@ -62,6 +65,8 @@ export function upsertMessage(conversationId: string, message: ChatMessage): voi
  * @param initialSelection - Model for the first request, used only when the session is created.
  * @param initialResearch - Research mode for the first request; by default as
  *   in the newest user message.
+ * @param initialEffort - Thinking effort for the first request; by default as
+ *   in the newest user message.
  * @returns The session entry.
  */
 export function getChat(
@@ -69,6 +74,7 @@ export function getChat(
   initialMessages: ChatMessage[],
   initialSelection: ModelSelection | null,
   initialResearch = lastResearch(initialMessages),
+  initialEffort = lastEffort(initialMessages),
 ): ChatEntry {
   const existing = entries.get(conversationId);
   if (existing) {
@@ -77,6 +83,7 @@ export function getChat(
 
   const selection = { current: initialSelection };
   const research = { current: initialResearch };
+  const effort = { current: initialEffort };
   const chat: Chat<ChatMessage> = new Chat<ChatMessage>({
     id: conversationId,
     messages: initialMessages,
@@ -90,6 +97,8 @@ export function getChat(
           credentialId: selection.current?.credentialId,
           modelId: selection.current?.modelId,
           research: research.current,
+          assess: autoAssessEnabled(),
+          ...(effort.current ? { effort: effort.current } : {}),
         },
       }),
     }),
@@ -105,7 +114,7 @@ export function getChat(
 
   // A reply runs while the newest stored message is the user's: the server
   // stores the reply when it ends.
-  const entry = { chat, selection, research, resumable: initialMessages.at(-1)?.role === 'user' };
+  const entry = { chat, selection, research, effort, resumable: initialMessages.at(-1)?.role === 'user' };
   entries.set(conversationId, entry);
   return entry;
 }
@@ -158,6 +167,28 @@ export async function stopReply(conversationId: string): Promise<void> {
  */
 export function lastResearch(messages: ChatMessage[]): boolean {
   return messages.findLast((message) => message.role === 'user')?.metadata?.research === true;
+}
+
+/**
+ * The thinking effort the newest user message was sent with; the server
+ * stores it with the message, so a chat opens as it was left.
+ *
+ * @param messages - Stored messages.
+ * @returns The level, or null for the provider's default.
+ */
+export function lastEffort(messages: ChatMessage[]): EffortLevel | null {
+  return messages.findLast((message) => message.role === 'user')?.metadata?.effort ?? null;
+}
+
+/**
+ * Summarizes a chat now, on the user's request, and puts the stored summary
+ * into the open chat.
+ *
+ * @param conversationId - Conversation id.
+ * @param selection - Model that writes the summary.
+ */
+export async function compactChat(conversationId: string, selection: ModelSelection): Promise<void> {
+  upsertMessage(conversationId, await api.conversations.compact(conversationId, selection));
 }
 
 /**

@@ -227,7 +227,9 @@ Bausteine:
    Bei einem Treffer setzt sie eine Warnung vor das Ergebnis, damit das Modell es als Daten behandelt, und zeigt sie dem Nutzer in pi (`ctx.ui.notify`). Geprüft mit einem Mock-LLM, das pi eine Datei mit Anweisung im HTML-Kommentar lesen lässt: Das Werkzeug-Ergebnis kommt mit der Warnung davor beim Modell an.
 3. **Optional Jev als Klassifikator** über den Server (jetzt Teil von „Zweitmeinung zu Warnungen“ weiter unten): „Enthält dieser Text Anweisungen an eine KI?“ mit Wahrscheinlichkeit. Fängt umformulierte Fälle, die keine Regel kennt. Wie bei der Merge-Prüfung darf er Warnungen nur hinzufügen, und er kostet Geld, ist also abwählbar.
 
-## Zweitmeinung zu Warnungen (Idee des Nutzers, 18.10., noch nicht gebaut)
+## Zweitmeinung zu Warnungen (Idee des Nutzers, 18.10.; Jev-Teil gebaut am 25.10.)
+
+**Stand 25.10.:** Jev bewertet Prompt-Injection-Warnungen von Web-Fetch, Websuche und Agent-Werkzeugen, per Knopf oder automatisch (Einstellung im Browser, Standard an). Seine Gefahr in Prozent steht an der Warnung, die Warnung bleibt. Details in CLAUDE.md. Offen: ein Chat-Modell als Alternative zu Jev (Urteil mit Begründung), Höchstkosten pro Tag, Bewertung von Funden der Merge-Prüfung im Browser.
 
 Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt-Injection beim Web-Fetch und bei pi ebenso wie später für Funde der Merge-Prüfung. Es fasst Stufe 3 der Merge-Prüfung und Baustein 3 von Phase 2d zu einer Funktion zusammen.
 
@@ -249,6 +251,17 @@ Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt
 - **Einstellungen:** welche Warnungen automatisch bewertet werden, mit welchem Modell, Höchstkosten pro Tag.
 
 ## Phase 3 – Tray-App und Einrichtung (statt Desktop-App)
+
+### App-Katalog pro Projekt (Wunsch des Nutzers, 25.10., Entwurf)
+
+Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projekt per Schalter an und aus, dazu eigene Programme und Vorlagen.
+
+- **Entscheidungen des Nutzers (25.10.):**
+  - Eigene Anwendungen sind beides: Paketnamen oder ein Installationsbefehl (apt, npm, pip, Skript) **und** Linux-Programmdateien vom Rechner per Dateipfad (Binary, AppImage, `.deb`). Das passt auch zu einem späteren Linux-Build der App.
+  - Katalog-Programme und Paketnamen gehen direkt aus dem Browser. Eigene Dateien vom Rechner bestätigt der Nutzer einmal am Rechner (Terminal oder Tray): Sonst könnte jemand mit Zugriff auf das Konto beliebige Dateien des Rechners (z. B. SSH-Schlüssel) in die Reichweite des Agents holen.
+  - Kein eigenes Image pro Projekt (Platz, Neuinstallation bei jedem Umschalten). Stattdessen die Idee des Nutzers, angepasst: **ein gemeinsamer Programm-Speicher in der VM** (Volume wie das Tools-Volume, in dem pi liegt), nicht ein Host-Ordner. Host-Ordner in der VM sind langsam und eine Sicherheitslücke (9p, siehe Stolpersteine). Jedes Programm liegt dort einmal; ein Projekt sieht nur die eingeschalteten, ihre Pfade kommen über Umgebungsvariablen (`PATH` usw.) in die Instanz. Umschalten legt nur die Instanz neu an (Sekunden), installiert wird einmal.
+- **Offen beim Bau:** Programme, die nur als apt-Paket existieren, brauchen ein eigenes Präfix (`dpkg -x` plus `LD_LIBRARY_PATH`) oder statische Builds. Katalog-Einträge deshalb als Rezept, das ein in sich geschlossenes Verzeichnis `/opt/harness-apps/<app>/<version>` erzeugt. Vorlagen speichert der Server pro Konto, die Einstellungen gelten pro Projekt. Der Browser bekommt unter Einstellungen eine Ansicht aller Projekte mit ihren Programmen.
+- **Verwandt:** `build-essential` (~250 MB) aus dem Base-Image in den Katalog verschieben, das Gateway fertig gebaut ausliefern statt in der VM zu kompilieren (spart das Rust-Image und beim ersten Einrichten den Download).
 
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
 
@@ -301,7 +314,7 @@ Bausteine:
 - **Autosync als Schalter:** Ist er an, mergt der Dienst nach jeder fertigen Antwort eines Agents den Stand in den ausgecheckten Branch auf dem Host, sofern alle Prüfungen grün sind. Sonst mergt er nicht und zeigt die Funde. Nach dem Merge macht er vom aktuellen Stand einen neuen Branch und gibt ihn wieder in die VM, damit es übersichtlich bleibt. Inhaltlich ändert sich in der VM dabei nichts, außer der Nutzer hat inzwischen selbst etwas geändert.
 
 **Neu gewünscht (23.10. nachts):**
-- **Kontext-Kompaktierung im Web-Chat** (Zusammenfassen älterer Verläufe, nicht nur das Eindampfen von Seiten) und ein **Regler für den Thinking-Effort**. Beides muss mit pi abgeglichen werden: pi hat eigene Denkstufen und automatische Kompaktierung, ein verknüpfter Chat soll dieselben Einstellungen nutzen.
+- ✅ **Kontext-Kompaktierung im Web-Chat** (Zusammenfassen älterer Verläufe, nicht nur das Eindampfen von Seiten) und ein **Regler für den Thinking-Effort**, für normale Chats (25.10.): Denktiefe mit pis Stufen pro Chat, Zusammenfassen automatisch wie pi (unter 16k Token frei, die letzten 20k Token bleiben) und auf Wunsch im Kontext-Ring. Offen ist der Abgleich mit pi in verknüpften Chats: Stufe per `set_thinking_level`, Zusammenfassen per RPC `compact`; dort sind Regler und Knopf bisher ausgeblendet.
 - **Einstellungen zwischen pi und Web gleich halten** (Modell, Effort, Kompaktierung, Netzfreigaben).
 
 ## Phase 4 – Chat ↔ Umgebung

@@ -26,7 +26,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
 use clap::Subcommand;
+use harness_core::config::ConfigDir;
+use harness_core::image::BUILD_ONLY_IMAGES;
 use harness_core::podman::find_podman;
+use harness_core::project::ProjectName;
+use harness_core::provider::{ImageInfo, Provider as _};
 use harness_core::vmd::{self, Request, Response, SERVICE_NAME, VmState};
 
 #[derive(Subcommand)]
@@ -39,6 +43,12 @@ pub enum VmdCommand {
     Stop,
     /// Startet die VM neu, z. B. wenn SSH nicht mehr antwortet
     Restart,
+    /// Räumt die VM auf (alte Image-Stände, Bau-Images, Daten gelöschter Projekte) und verkleinert ihre Festplatte
+    Clean {
+        /// Ohne Nachfrage
+        #[arg(long)]
+        yes: bool,
+    },
     /// Richtet den Dienst ein (fragt einmal nach Administratorrechten)
     Install,
     /// Entfernt den Dienst wieder (fragt einmal nach Administratorrechten)
@@ -79,8 +89,9 @@ pub enum VmdCommand {
 }
 
 /// `harness vmd …`.
-pub fn run(machine: &str, command: Option<VmdCommand>) -> anyhow::Result<bool> {
+pub fn run(config: &ConfigDir, machine: &str, command: Option<VmdCommand>) -> anyhow::Result<bool> {
     match command.unwrap_or(VmdCommand::Status) {
+        VmdCommand::Clean { yes } => clean(config, machine, yes),
         VmdCommand::Status => status(),
         VmdCommand::Start => ask(Request::Start, "Starte die VM …"),
         VmdCommand::Stop => ask(Request::Stop, "Stoppe die VM …"),
@@ -128,6 +139,114 @@ fn status() -> anyhow::Result<bool> {
         }
         Err(error) => {
             println!("{error}");
+            Ok(false)
+        }
+    }
+}
+
+/// Whether a volume belongs to a project that no longer exists here.
+fn orphaned(volume: &str, projects: &[String]) -> Option<String> {
+    let name = volume
+        .strip_prefix("harness-ws-")
+        .or_else(|| volume.strip_prefix("harness-home-"))?;
+    (!projects.iter().any(|project| project == name)).then(|| name.to_owned())
+}
+
+/// `harness vmd clean`: removes what the VM keeps without need, then has
+/// the service shrink the VM's disk file, which never shrinks by itself.
+fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
+    let provider = crate::vm::provider(machine)?;
+    let images = provider.images()?;
+    let unnamed = images
+        .iter()
+        .filter(|image| image.tags.is_empty() && image.containers == 0)
+        .count();
+    let builders: Vec<&ImageInfo> = images
+        .iter()
+        .filter(|image| {
+            image.containers == 0
+                && image.tags.iter().any(|tag| {
+                    BUILD_ONLY_IMAGES
+                        .iter()
+                        .any(|prefix| tag.starts_with(prefix))
+                })
+        })
+        .collect();
+    let projects: Vec<String> = config
+        .project_names()?
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut gone: Vec<String> = provider
+        .volumes()?
+        .iter()
+        .filter_map(|volume| orphaned(volume, &projects))
+        .collect();
+    gone.sort();
+    gone.dedup();
+
+    println!("Aufräumen in der VM:");
+    println!("- {unnamed} alte Image-Stände und Zwischenstufen von Builds");
+    if !builders.is_empty() {
+        let size: u64 = builders.iter().map(|image| image.size).sum();
+        println!(
+            "- Images, die nur zum Bauen dienen ({} GB; ein späterer Bau lädt sie neu): {}",
+            format!("{:.1}", size as f64 / 1e9).replace('.', ","),
+            builders
+                .iter()
+                .flat_map(|image| image.tags.first())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if !gone.is_empty() {
+        println!(
+            "- Container und Daten gelöschter Projekte: {}",
+            gone.join(", ")
+        );
+    }
+    println!("Danach gibt der VM-Dienst den Platz an Windows zurück; die VM ist dabei kurz aus.");
+    if !yes {
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            bail!("Ohne Terminal nur mit --yes");
+        }
+        if !crate::project::confirm("Aufräumen?", true)? {
+            println!("Abgebrochen.");
+            return Ok(false);
+        }
+    }
+    provider.prune_images()?;
+    for image in builders {
+        if let Err(error) = provider.remove_image(&image.id) {
+            println!("{} bleibt: {error}", image.tags.join(", "));
+        }
+    }
+    for name in &gone {
+        let Ok(project) = ProjectName::new(name) else {
+            continue;
+        };
+        let removed = [project.instance(), project.installer(), project.gateway()]
+            .iter()
+            .try_for_each(|container| provider.remove_container(container))
+            .and_then(|()| provider.remove_network(&project.network()))
+            .and_then(|()| provider.remove_volume(&project.workspace_volume()))
+            .and_then(|()| provider.remove_volume(&project.home_volume()));
+        if let Err(error) = removed {
+            println!("{name}: {error}");
+        }
+    }
+    println!("Gebe den Platz an Windows zurück (kann einige Minuten dauern) …");
+    match vmd::request(Request::Compact) {
+        Ok(answer) => {
+            println!("{}", answer.message);
+            Ok(answer.ok)
+        }
+        Err(error) => {
+            println!(
+                "Der VM-Dienst kann die Festplatte nicht verkleinern ({error}). Ältere Dienste kennen \
+                 das noch nicht: `harness vmd install` aktualisiert ihn (Administratorrechte)."
+            );
             Ok(false)
         }
     }
@@ -789,4 +908,26 @@ fn uninstall_elevated(log: &mut Log, machine: &str, profile: &Path) -> anyhow::R
     let _ = fs::remove_file(program_dir().join("harness-vmd.exe"));
     log.line("✓ Die VM startest du jetzt wieder selbst (Admin-PowerShell: podman machine start)");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_data_of_removed_projects() {
+        let projects = vec!["shop".to_owned()];
+        assert_eq!(
+            orphaned("harness-ws-old", &projects).as_deref(),
+            Some("old")
+        );
+        assert_eq!(
+            orphaned("harness-home-old", &projects).as_deref(),
+            Some("old")
+        );
+        assert_eq!(orphaned("harness-ws-shop", &projects), None);
+        // Shared by all projects.
+        assert_eq!(orphaned("harness-tools", &projects), None);
+        assert_eq!(orphaned("harness-cfg-pi", &projects), None);
+    }
 }

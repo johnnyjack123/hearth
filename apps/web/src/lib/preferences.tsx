@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS, type EffortLevel } from '@harness/shared';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { detectLocale, type Locale, translate, type TranslateFn } from '@/i18n/index.ts';
 
@@ -21,10 +22,16 @@ interface PreferencesValue {
    * Existing chats keep their own.
    */
   research: boolean;
+  /** Thinking effort of the chat used last (null: the provider's default); a new chat starts with it. */
+  effort: EffortLevel | null;
+  /** Jev judges prompt injection warnings right away, see {@link autoAssessEnabled}. */
+  autoAssess: boolean;
   setTheme: (theme: ThemePreference) => void;
   setDensity: (density: Density) => void;
   setLocale: (locale: Locale) => void;
   setResearch: (on: boolean) => void;
+  setEffort: (effort: EffortLevel | null) => void;
+  setAutoAssess: (on: boolean) => void;
   t: TranslateFn;
 }
 
@@ -35,9 +42,22 @@ const STORAGE = {
   density: 'harness.density',
   locale: 'harness.locale',
   research: 'harness.research',
+  effort: 'harness.effort',
+  autoAssess: 'harness.autoAssess',
 } as const;
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
+
+/**
+ * Whether Jev should judge prompt injection warnings as soon as they come
+ * up (on unless switched off in the settings); read by the chat transport
+ * at request time.
+ *
+ * @returns True unless switched off.
+ */
+export function autoAssessEnabled(): boolean {
+  return read(STORAGE.autoAssess, ['on', 'off'], 'on') === 'on';
+}
 
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -75,6 +95,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   );
   const [locale, setLocaleState] = useState<Locale>(() => read(STORAGE.locale, ['de', 'en'], detectLocale()));
   const [research, setResearchState] = useState(() => read(STORAGE.research, ['on', 'off'], 'off') === 'on');
+  const [effort, setEffortState] = useState<EffortLevel | null>(() => {
+    const stored = read(STORAGE.effort, ['default', ...EFFORT_LEVELS], 'default');
+    return stored === 'default' ? null : stored;
+  });
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
   useEffect(() => {
@@ -115,9 +139,18 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.locale, next);
     setLocaleState(next);
   }, []);
+  const setEffort = useCallback((next: EffortLevel | null) => {
+    write(STORAGE.effort, next ?? 'default');
+    setEffortState(next);
+  }, []);
   const setResearch = useCallback((on: boolean) => {
     write(STORAGE.research, on ? 'on' : 'off');
     setResearchState(on);
+  }, []);
+  const [autoAssess, setAutoAssessState] = useState(autoAssessEnabled);
+  const setAutoAssess = useCallback((on: boolean) => {
+    write(STORAGE.autoAssess, on ? 'on' : 'off');
+    setAutoAssessState(on);
   }, []);
 
   const value = useMemo<PreferencesValue>(
@@ -127,13 +160,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       density,
       locale,
       research,
+      effort,
+      autoAssess,
       setTheme,
       setDensity,
       setLocale,
       setResearch,
+      setEffort,
+      setAutoAssess,
       t: (key, params) => translate(locale, key, params),
     }),
-    [theme, resolvedTheme, density, locale, research, setTheme, setDensity, setLocale, setResearch],
+    [theme, resolvedTheme, density, locale, research, effort, autoAssess, setTheme, setDensity, setLocale, setResearch, setEffort, setAutoAssess],
   );
 
   return <PreferencesContext value={value}>{children}</PreferencesContext>;

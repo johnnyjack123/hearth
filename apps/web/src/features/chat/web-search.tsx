@@ -11,7 +11,7 @@ import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { pageKey } from './citations.ts';
-import { InjectionWarning, isFinding, isWarning, RevealedText } from './injection-findings.tsx';
+import { InjectionWarning, isAssessment, isFinding, isWarning, RevealedText } from './injection-findings.tsx';
 
 function isResult(value: unknown): value is WebSearchResult {
   const result = value as Partial<WebSearchResult> | null;
@@ -38,6 +38,7 @@ function readOutput(output: unknown): WebSearchOutput | null {
     results: value.results.filter(isResult),
     warnings: Array.isArray(value.warnings) ? value.warnings.filter(isWarning) : [],
     findings: Array.isArray(value.findings) ? value.findings.filter(isFinding) : [],
+    ...(isAssessment(value.assessment) ? { assessment: value.assessment } : {}),
   };
 }
 
@@ -119,7 +120,17 @@ function ExternalLink({ url, title, children }: { url: string; title: string; ch
  *   streaming, and the pages the reply read (see {@link readPages}).
  * @returns The search block.
  */
-export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; streaming: boolean; read: ReadPage[] }) {
+export function WebSearchCall({
+  part,
+  streaming,
+  read,
+  onAssess,
+}: {
+  part: ToolUIPart;
+  streaming: boolean;
+  read: ReadPage[];
+  onAssess?: (() => Promise<void>) | undefined;
+}) {
   const t = useT();
   /** Number of a hit among the sources, or 0 if the model did not read it. */
   const sourceNumber = (url: string) => {
@@ -186,7 +197,9 @@ export function WebSearchCall({ part, streaming, read }: { part: ToolUIPart; str
           aria-hidden="true"
         />
       </button>
-      {output && output.warnings.length > 0 ? <InjectionWarning warnings={output.warnings} findings={output.findings} /> : null}
+      {output && output.warnings.length > 0 ? (
+        <InjectionWarning warnings={output.warnings} findings={output.findings} assessment={output.assessment} onAssess={onAssess} />
+      ) : null}
       {failureText !== null ? <p className="border-t border-border px-3 py-2 text-muted-foreground">{failureText}</p> : null}
       <AnimatePresence initial={false}>
         {open && output && output.results.length > 0 ? (

@@ -85,7 +85,9 @@ export function deviceRoutes(deps: AppDeps) {
     .patch('/:id', async (c) => {
       const input = updateDeviceSchema.parse(await c.req.json());
       const row = await updateDevice(db, c.get('user').id, c.req.param('id'), input);
-      deps.hub.configure(row.id, { idleMinutes: input.idleMinutes });
+      if (input.idleMinutes !== undefined) {
+        deps.hub.configure(row.id, { idleMinutes: input.idleMinutes });
+      }
       const projects = (await loadDeviceProjects(db, [row.id])).get(row.id) ?? [];
       return c.json(withLive(deps.hub, deviceSummary(row), projects));
     })
@@ -133,6 +135,11 @@ export function deviceSelfRoutes(deps: AppDeps) {
       // Jev for the merge check on the computer, billed to the user's own
       // OpenRouter key like the helpers of their chats.
       const { files } = diffAssessmentRequestSchema.parse(await c.req.json());
+      // Switched off for this device in the web app (Settings → Devices).
+      if (c.get('device').jevReview === 0) {
+        const off: DiffAssessment = { model: null, files: null, cost: null, reason: 'disabled' };
+        return c.json(off);
+      }
       const helpers = await loadHelpers(db, deps.secretBox, c.get('owner').id, null, deps.helpers);
       if (!helpers) {
         const none: DiffAssessment = { model: null, files: null, cost: null, reason: 'no_helpers' };

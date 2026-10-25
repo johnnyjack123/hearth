@@ -85,6 +85,22 @@ if ((Get-VM -Name $env:HARNESS_VM).State -eq 'Paused') {
 }
 "#;
 
+/// Shrinks the VM's disk file to what the guest uses: `Optimize-VHD -Mode
+/// Full` reclaims the blocks the guest trimmed before. It needs the VM off.
+/// The path comes from the environment, never from the script text.
+const COMPACT_PS: &str = r#"
+$ErrorActionPreference = 'Stop'
+$path = $env:HARNESS_DISK
+$before = (Get-Item -LiteralPath $path).Length
+Optimize-VHD -Path $path -Mode Full
+$after = (Get-Item -LiteralPath $path).Length
+"$before $after"
+"#;
+
+/// How long TRIM inside the VM and the compaction may take.
+const TRIM_TIMEOUT: Duration = Duration::from_secs(300);
+const COMPACT_TIMEOUT: Duration = Duration::from_secs(900);
+
 /// Hard power-off after a failed start or stop.
 const TURN_OFF_PS: &str = r#"
 Stop-VM -Name $env:HARNESS_VM -TurnOff -Force -ErrorAction SilentlyContinue
@@ -385,6 +401,45 @@ impl Vm {
         let _ = run(self.powershell(PREPARE_PS), SCRIPT_TIMEOUT);
     }
 
+    /// Gives the space of deleted files back to Windows: TRIM inside the VM
+    /// (started for that if needed), the VM off, its disk file compacted,
+    /// and the VM on again if it ran before.
+    pub fn compact(&self) -> Result<String, String> {
+        let disk = MachineConfig::from_path(&vmd::machine_json(&self.config.machine))
+            .ok()
+            .and_then(|machine| machine.disk)
+            .ok_or("Festplatte der VM unbekannt (die Machine-JSON nennt keine)")?;
+        let was_running = self.state() == VmState::Running;
+        if !was_running {
+            self.start()?;
+        }
+        let (ok, output) = run(
+            self.podman(&["machine", "ssh", &self.config.machine, "sudo fstrim -av"]),
+            TRIM_TIMEOUT,
+        );
+        log::line(&format!("fstrim: {}", tail(&output)));
+        if !ok {
+            return Err(format!(
+                "Freigeben in der VM fehlgeschlagen: {}",
+                tail(&output)
+            ));
+        }
+        self.stop()?;
+        let mut command = self.powershell(COMPACT_PS);
+        command.env("HARNESS_DISK", &disk);
+        let (ok, output) = run(command, COMPACT_TIMEOUT);
+        log::line(&format!("Optimize-VHD: {}", tail(&output)));
+        let result = if ok {
+            Ok(compacted(&output))
+        } else {
+            Err(format!("Verkleinern fehlgeschlagen: {}", tail(&output)))
+        };
+        if was_running {
+            self.start()?;
+        }
+        result
+    }
+
     /// Stops the machine; powers it off if podman cannot.
     pub fn stop(&self) -> Result<String, String> {
         let (ok, output) = run(
@@ -401,6 +456,22 @@ impl Vm {
         } else {
             Err(format!("Stopp fehlgeschlagen: {}", tail(&output)))
         }
+    }
+}
+
+/// The message for a compacted disk, from the script's `<before> <after>`
+/// (bytes).
+fn compacted(output: &str) -> String {
+    let sizes: Vec<f64> = output
+        .split_whitespace()
+        .rev()
+        .take(2)
+        .filter_map(|word| word.parse::<f64>().ok())
+        .collect();
+    let gb = |bytes: f64| format!("{:.1} GB", bytes / 1e9).replace('.', ",");
+    match sizes[..] {
+        [after, before] => format!("Festplatte der VM: {} → {}.", gb(before), gb(after)),
+        _ => "Festplatte der VM verkleinert.".to_owned(),
     }
 }
 
@@ -422,6 +493,11 @@ mod tests {
 
     #[test]
     fn job_error_32788_gets_a_hint() {
+        assert_eq!(
+            compacted("7881299968 3328599654\r\n"),
+            "Festplatte der VM: 7,9 GB → 3,3 GB."
+        );
+        assert_eq!(compacted("oops"), "Festplatte der VM verkleinert.");
         let hint = start_hint("Job failed with error code: 32788 ()");
         assert!(hint.contains("Arbeitsspeicher"), "{hint}");
         assert!(!hint.contains("  "), "{hint}");

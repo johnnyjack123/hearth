@@ -72,7 +72,8 @@ pub struct DiffAssessment {
     pub files: Option<Vec<FileDanger>>,
     /// Cost in US dollars.
     pub cost: Option<f64>,
-    /// `no_helpers` (no OpenRouter key on the server) or `failed`.
+    /// `no_helpers` (no OpenRouter key on the server), `disabled` (switched
+    /// off for this device in the web app) or `failed`.
     #[serde(default)]
     pub reason: Option<String>,
 }

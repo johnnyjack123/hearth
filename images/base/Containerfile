@@ -30,6 +30,8 @@ RUN apt-get update \
       git \
       jq \
       less \
+      micro \
+      nano \
       procps \
       python3 \
       python3-venv \

@@ -27,7 +27,7 @@ pub use machine::{DEFAULT_MACHINE, MachineConfig, MachineMount};
 use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
     ContainerInfo, ContainerSpec, ContainerStatus, ExecOutput, ExecSpec, GatewaySpec, HostInfo,
-    ImageBuild, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
+    ImageBuild, ImageInfo, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
     validate_resource_name,
 };
 use crate::{Error, Result};
@@ -237,6 +237,43 @@ impl Provider for PodmanProvider {
                 .and_then(|i| i.labels)
                 .unwrap_or_default(),
         ))
+    }
+
+    fn images(&self) -> Result<Vec<ImageInfo>> {
+        let json = self.run("images", &["images", "--all", "--format", "json"])?;
+        let images: Vec<RawImageEntry> =
+            serde_json::from_str(&json).map_err(|e| unexpected("images", e))?;
+        Ok(images
+            .into_iter()
+            .map(|image| ImageInfo {
+                id: image.id,
+                tags: image.names.or(image.repo_tags).unwrap_or_default(),
+                size: image.size,
+                containers: image.containers,
+            })
+            .collect())
+    }
+
+    fn remove_image(&self, id: &str) -> Result<()> {
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(Error::invalid("Image-ID", id, "nur Hex-Ziffern erlaubt"));
+        }
+        self.run("rmi", &["rmi", id]).map(drop)
+    }
+
+    fn prune_images(&self) -> Result<()> {
+        self.run("image prune", &["image", "prune", "--force"])
+            .map(drop)
+    }
+
+    fn volumes(&self) -> Result<Vec<String>> {
+        let names = self.run("volume ls", &["volume", "ls", "--format", "{{.Name}}"])?;
+        Ok(names
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect())
     }
 
     fn build_image(&self, build: &ImageBuild) -> Result<()> {
@@ -651,6 +688,23 @@ struct RawImage {
     labels: Option<BTreeMap<String, String>>,
 }
 
+/// One entry of `podman images --format json`.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RawImageEntry {
+    id: String,
+    // Missing or `null` for an image without a name; podman 5 reports the
+    // names here and leaves `RepoTags` null.
+    #[serde(default)]
+    names: Option<Vec<String>>,
+    #[serde(default)]
+    repo_tags: Option<Vec<String>>,
+    #[serde(default)]
+    size: u64,
+    #[serde(default)]
+    containers: u32,
+}
+
 #[derive(Deserialize)]
 struct RawNetwork {
     #[serde(default)]
@@ -718,6 +772,7 @@ mod tests {
             uid: 0,
             rootful: true,
             mounts: vec![],
+            disk: None,
         };
         let err =
             PodmanProvider::new(machine, PathBuf::from("podman"), Path::new("state")).unwrap_err();

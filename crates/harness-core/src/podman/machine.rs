@@ -37,6 +37,8 @@ pub struct MachineConfig {
     /// their data through `podman cp`, and by default podman shares all of
     /// `C:\` and the user profile.
     pub mounts: Vec<MachineMount>,
+    /// The VM's disk file (`.vhdx` under Hyper-V), if the JSON names it.
+    pub disk: Option<PathBuf>,
 }
 
 /// A host folder shared into the VM.
@@ -112,6 +114,7 @@ impl MachineConfig {
                     read_only: m.read_only,
                 })
                 .collect(),
+            disk: raw.image_path.map(|image| image.path),
         })
     }
 
@@ -146,6 +149,14 @@ struct RawMachine {
     // `null` when the machine has no shares, so not just `#[serde(default)]`.
     #[serde(default)]
     mounts: Option<Vec<RawMount>>,
+    #[serde(default)]
+    image_path: Option<RawImagePath>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RawImagePath {
+    path: PathBuf,
 }
 
 #[derive(Deserialize)]

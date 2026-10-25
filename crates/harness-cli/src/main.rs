@@ -79,8 +79,12 @@ enum Command {
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// Öffnet eine Shell in der Instanz des Projekts
-    Shell,
+    /// Öffnet eine Shell in der Instanz des Projekts (/workspace, mit micro und nano), auch als `harness ssh <projekt>`
+    #[command(visible_alias = "ssh")]
+    Shell {
+        /// Projektname (Standard: Projekt des aktuellen Ordners)
+        project: Option<String>,
+    },
     /// Holt die Commits des Agents als Branch agent/<projekt> ins Repository
     Sync {
         /// Auch einen umgeschriebenen Agent-Branch übernehmen
@@ -226,7 +230,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         None
         | Some(
             Command::Run { .. }
-            | Command::Shell
+            | Command::Shell { .. }
             | Command::Sync { .. }
             | Command::Stop
             | Command::Status
@@ -296,7 +300,11 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             let machine = machine_name(&config, cli.machine)?;
             run::run(&config, &machine, harness.as_deref(), args)
         }
-        Command::Shell => run::shell(&config, &machine_name(&config, cli.machine)?),
+        Command::Shell { project } => run::shell(
+            &config,
+            &machine_name(&config, cli.machine)?,
+            project.as_deref(),
+        ),
         Command::Sync { force } => run::sync(&config, &machine_name(&config, cli.machine)?, force),
         Command::Merge {
             approve: Some(id), ..
@@ -314,7 +322,9 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Daemon { command } => {
             daemon::run(&config, &machine_name(&config, cli.machine)?, command)
         }
-        Command::Vmd { command } => vmd::run(&machine_name(&config, cli.machine)?, command),
+        Command::Vmd { command } => {
+            vmd::run(&config, &machine_name(&config, cli.machine)?, command)
+        }
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;
             net::run(&config, &machine, project.as_deref(), command)

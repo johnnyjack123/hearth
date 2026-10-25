@@ -18,6 +18,7 @@ import { grantedHosts, hostKey, mentionedHosts, parseTarget } from './target.ts'
 import { condensedPages } from '../condense.ts';
 import type { Helpers } from '../helpers/openrouter.ts';
 import type { KnownUrls } from '../websearch/known-urls.ts';
+import type { Assessor } from '../assess.ts';
 import { grepMatcher, grepPage } from './grep.ts';
 import { SHORT_PAGE_CHARS, selectSections } from './sections.ts';
 
@@ -72,6 +73,8 @@ export interface WebFetchContext {
   known: KnownUrls | null;
   /** Helper models of the user; the embedding model helps pick sections. */
   helpers: Helpers | null;
+  /** Asks Jev about warnings right away; null unless the user wants that. */
+  assess?: Assessor | null;
 }
 
 /**
@@ -358,6 +361,13 @@ export function createWebFetchTool(context: WebFetchContext) {
     });
     // Only links the model actually gets to see.
     known?.addLinks(output.text);
+    const findings = output.findings ?? [];
+    if (context.assess && findings.length > 0) {
+      const assessment = await context.assess({ source: 'a web page', location: output.url, content: modelText(output), findings });
+      if (assessment) {
+        output.assessment = assessment;
+      }
+    }
     return output;
   }
 

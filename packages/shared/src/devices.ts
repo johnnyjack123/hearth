@@ -29,6 +29,11 @@ export interface DeviceSummary {
   activity: DeviceActivity | null;
   /** Idle minutes until the device stops its VM; 0: never. */
   idleMinutes: number;
+  /**
+   * Whether Jev checks the agent's changes for malicious code before the
+   * device takes them over (with an OpenRouter key in the account).
+   */
+  jevReview: boolean;
 }
 
 /**
@@ -51,9 +56,11 @@ export interface DeviceActivity {
  */
 export const updateDeviceSchema = z
   .object({
-    idleMinutes: z.number().int().min(0).max(MAX_IDLE_MINUTES),
+    idleMinutes: z.number().int().min(0).max(MAX_IDLE_MINUTES).optional(),
+    jevReview: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((input) => input.idleMinutes !== undefined || input.jevReview !== undefined, 'Nothing to change');
 
 /** See {@link updateDeviceSchema}. */
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
@@ -194,8 +201,8 @@ export interface DiffAssessment {
   files: DiffFileDanger[] | null;
   /** Cost in US dollars as OpenRouter reported it. */
   cost: number | null;
-  /** Why there are no scores: no OpenRouter key of the user, or Jev failed. */
-  reason?: 'no_helpers' | 'failed';
+  /** Why there are no scores: no OpenRouter key of the user, switched off for the device, or Jev failed. */
+  reason?: 'no_helpers' | 'failed' | 'disabled';
 }
 
 /**

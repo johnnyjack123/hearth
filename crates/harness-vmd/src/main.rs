@@ -54,12 +54,13 @@ fn serve() -> Result<(), String> {
     let handler = move |request: Request| {
         let outcome = match request {
             Request::Status => Ok(String::new()),
-            Request::Start | Request::Stop | Request::Restart => {
+            Request::Start | Request::Stop | Request::Restart | Request::Compact => {
                 let _guard = busy.lock().unwrap_or_else(|p| p.into_inner());
                 log::line(&format!("Anfrage: {request:?}"));
                 let outcome = match request {
                     Request::Start => vm.start(),
                     Request::Stop => vm.stop(),
+                    Request::Compact => vm.compact(),
                     _ => vm.stop().and_then(|_| vm.start()),
                 };
                 log::line(&format!("Ergebnis: {outcome:?}"));

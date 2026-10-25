@@ -275,6 +275,9 @@ try {
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
     researchPath = new URL(page.url()).pathname;
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 20_000 });
+    // The test page tries to talk to the model; with an OpenRouter key Jev
+    // judges that right away (the mock calls it a false alarm).
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 5_000 });
     // The found page loaded without a question.
     if (await page.$(text('Das Modell möchte eine Seite'))) {
       throw new Error('a found page asked for approval');
@@ -373,6 +376,16 @@ try {
     await page.$eval(text('Hilfsmodelle (über OpenRouter)'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('29-dev-usage');
+
+    // The page of the first web fetch was loaded before there was a key:
+    // Jev judges it on request, and the opinion is stored.
+    await page.goto(`${BASE}${fetchPath}`, { waitUntil: 'networkidle0' });
+    await page.click(text('Von Jev bewerten lassen'));
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('34-jev-assessment');
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 10_000 });
   });
 
   await step('a long chat condenses earlier pages for the model', async () => {
@@ -410,6 +423,59 @@ try {
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 10_000 });
     await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+  });
+
+  await step('thinking effort and summarizing a chat on request', async () => {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 10_000 });
+    await page.click('[aria-label="Denktiefe: Standard"]');
+    await page.waitForSelector('[role=slider]');
+    await page.focus('[role=slider]');
+    // Standard, Aus, Minimal, Niedrig, Mittel, Hoch.
+    for (let press = 0; press < 5; press += 1) {
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+    await waitForText('Gründlich: langsamer und mehr Token.', 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('31-effort');
+    await page.keyboard.press('Escape');
+    await page.focus('textarea');
+    await page.type('textarea', 'Wie viel denkst du?');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    // The level reaches the provider as reasoning_effort.
+    await page.waitForSelector(text('Denkstufe laut Anfrage: high.'), { timeout: 15_000 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await page.type('textarea', 'Und noch eine Frage dazu');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector(text('Punkt zwei'), { timeout: 15_000 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // Everything but the latest turn becomes a summary, on request.
+    await page.click('button[aria-label*="Kontext:"]');
+    await page.waitForSelector(text('Verlauf jetzt zusammenfassen'), { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('32-compact-popover');
+    await page.click(text('Verlauf jetzt zusammenfassen'));
+    await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 15_000 });
+    await page.click(text('Zusammenfassung zeigen'));
+    await page.waitForSelector(text('Es ging um die Denkstufe des Modells'), { timeout: 5_000 });
+    await page.$eval(text('Bis hier zusammengefasst'), (element) => element.scrollIntoView({ block: 'center' }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('33-compaction');
+
+    // Stored: after a reload the divider and the chat's level are still there.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 10_000 });
+    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+    // Back to the default, which later chats start with.
+    await page.click('[aria-label="Denktiefe: Hoch"]');
+    await page.waitForSelector('[role=slider]');
+    await page.focus('[role=slider]');
+    await page.keyboard.press('Home');
+    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
+    await page.keyboard.press('Escape');
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {

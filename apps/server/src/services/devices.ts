@@ -94,6 +94,7 @@ function toSummary(row: DeviceRow): DeviceSummary {
     vm: null,
     activity: null,
     idleMinutes: row.idleMinutes ?? DEFAULT_IDLE_MINUTES,
+    jevReview: row.jevReview !== 0,
   };
 }
 
@@ -365,7 +366,10 @@ export async function findDevice(db: Kysely<DB>, userId: string, id: string): Pr
 export async function updateDevice(db: Kysely<DB>, userId: string, id: string, input: UpdateDeviceInput): Promise<DeviceRow> {
   const result = await db
     .updateTable('device')
-    .set({ idleMinutes: input.idleMinutes })
+    .set({
+      ...(input.idleMinutes !== undefined ? { idleMinutes: input.idleMinutes } : {}),
+      ...(input.jevReview !== undefined ? { jevReview: input.jevReview ? 1 : 0 } : {}),
+    })
     .where('id', '=', id)
     .where('userId', '=', userId)
     .executeTakeFirst();

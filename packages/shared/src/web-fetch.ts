@@ -57,6 +57,22 @@ export interface InjectionFinding {
 }
 
 /**
+ * Jev's second opinion on a prompt injection warning, stored with the tool
+ * output it is about. It stands next to the warning and never replaces it:
+ * the content may address Jev as well.
+ */
+export interface InjectionAssessment {
+  /** Jev's model. */
+  model: string;
+  /** How likely it is an attack, from 0 (false alarm) to 1. */
+  danger: number;
+  /** Cost in US dollars, if OpenRouter reported it. */
+  cost: number | null;
+  /** When it was asked, epoch milliseconds. */
+  at: number;
+}
+
+/**
  * Why a web fetch failed. The error text of a failed `web_fetch` call starts
  * with `[code]` or `[code:detail]`, followed by an English explanation for
  * the model; see {@link parseWebFetchError}.
@@ -109,6 +125,8 @@ export interface WebFetchOutput {
    * stored before 2026-10-18.
    */
   findings?: InjectionFinding[];
+  /** Jev's opinion on the warnings, if asked. */
+  assessment?: InjectionAssessment;
   /** What the model looked for, when it asked for matching sections only. */
   focus?: string;
   /** Set when the model asked for the lines with certain words only. */
