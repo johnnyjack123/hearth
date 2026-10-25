@@ -1,9 +1,10 @@
-import { type ApprovalDecision, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { type ApprovalDecision, type Compaction, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Tooltip } from '@/components/ui/menu.tsx';
+import { Spinner } from '@/components/ui/spinner.tsx';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
@@ -62,17 +63,21 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
   const current = knownSources(messages);
   const signature = sourcesSignature(current);
   const known = useMemo(() => current, [signature]);
+  // A summary sits where it ends, wherever the chat stored it.
+  const summaries = finishedCompactions(messages);
 
   return (
     <div className="mx-auto flex w-full max-w-(--content-width) flex-col gap-8 px-4 py-8" aria-live="polite" aria-busy={busy}>
       {messages.map((message, index) => {
         const animate = !initialIds.has(message.id);
+        const summary = summaries.get(message.id);
+        const divider = summary ? <CompactionDivider key={`${message.id}-summary`} compaction={summary} /> : null;
         if (message.role === 'user') {
-          return <UserMessage key={message.id} message={message} animate={animate} />;
+          return [<UserMessage key={message.id} message={message} animate={animate} />, divider];
         }
         if (message.role === 'assistant') {
           const isLast = index === messages.length - 1;
-          return (
+          return [
             <AssistantMessage
               key={message.id}
               message={message}
@@ -82,8 +87,9 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
               onRegenerate={onRegenerate}
               onApprove={onApprove}
               known={known}
-            />
-          );
+            />,
+            divider,
+          ];
         }
         return null;
       })}
@@ -153,6 +159,10 @@ function AssistantMessage({
         if (part.type === 'data-takeover') {
           return <TakeoverCard key={part.id ?? index} report={part.data} />;
         }
+        if (part.type === 'data-compaction') {
+          // A finished summary shows as a divider where it ends.
+          return part.data.state === 'done' ? null : <CompactionStatus key={part.id ?? index} compaction={part.data} />;
+        }
         if (part.type === 'text') {
           return (
             <Suspense key={index} fallback={<p className="whitespace-pre-wrap text-base leading-7">{part.text}</p>}>
@@ -168,6 +178,91 @@ function AssistantMessage({
       {!streaming ? <UnsourcedLinks links={unsourcedLinks(message, known)} /> : null}
       {!streaming ? <MessageActions message={message} canRegenerate={canRegenerate} onRegenerate={onRegenerate} /> : null}
     </motion.div>
+  );
+}
+
+/**
+ * Finished summaries by the id of the last message they cover; a newer one
+ * ending at the same place wins.
+ *
+ * @param messages - The conversation.
+ * @returns The summaries.
+ */
+function finishedCompactions(messages: ChatMessage[]): Map<string, Compaction> {
+  const found = new Map<string, Compaction>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === 'data-compaction' && part.data.state === 'done' && part.data.through) {
+        found.set(part.data.through, part.data);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Marks where a summary ends: the model reads it instead of everything
+ * above. The summary itself unfolds on demand.
+ */
+function CompactionDivider({ compaction }: { compaction: Compaction }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col gap-3" role="note">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+        <FoldVertical className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="text-center">
+          {t('chat.compaction.divider')} · {t(compaction.trigger === 'manual' ? 'chat.compaction.manual' : 'chat.compaction.auto')}
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-(length:--focus-ring-width) focus-visible:ring-ring"
+        >
+          {open ? t('chat.compaction.hide') : t('chat.compaction.show')}
+          <ChevronRight
+            className={cn('size-3.5 transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}
+            aria-hidden="true"
+          />
+        </button>
+        <span className="h-px flex-1 bg-border" aria-hidden="true" />
+      </div>
+      <AnimatePresence initial={false}>
+        {open && compaction.summary ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: transitions.enter }}
+            exit={{ opacity: 0, transition: transitions.exit }}
+            className="rounded-xl bg-muted px-4 py-3 text-sm"
+          >
+            <Suspense fallback={<p className="whitespace-pre-wrap">{compaction.summary}</p>}>
+              <Markdown animating={false}>{compaction.summary}</Markdown>
+            </Suspense>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** A summary being written at the start of a reply, or one that failed. */
+function CompactionStatus({ compaction }: { compaction: Compaction }) {
+  const t = useT();
+  if (compaction.state === 'running') {
+    return (
+      <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+        <Spinner className="size-3.5" />
+        {t('chat.compaction.running')}
+      </p>
+    );
+  }
+  return (
+    <p className="flex items-start gap-2 text-xs text-muted-foreground">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      {t('chat.compaction.failed', { error: compaction.error ?? '' })}
+    </p>
   );
 }
 

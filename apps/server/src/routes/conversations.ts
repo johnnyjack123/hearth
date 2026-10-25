@@ -2,6 +2,7 @@ import {
   approvalDecisionSchema,
   type ChatLink,
   chatRequestSchema,
+  compactRequestSchema,
   type ConversationDetail,
   createConversationSchema,
   linkConversationSchema,
@@ -39,7 +40,10 @@ import { ActiveStreams } from '../streams.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
+import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
+import { effortOptions } from '../effort.ts';
+import { callUsage, withHelpers } from '../pricing.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { streamAgent, transcript } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
@@ -321,6 +325,7 @@ export function conversationRoutes(deps: AppDeps) {
           createdAt: Date.now(),
           ...(link ? {} : { date }),
           ...(research ? { research } : {}),
+          ...(body.effort ? { effort: body.effort } : {}),
           ...(note ? { note } : {}),
           ...(condensed ? { condensed } : {}),
         },
@@ -364,6 +369,12 @@ export function conversationRoutes(deps: AppDeps) {
       }
 
       const settings = await getServerSettings(db);
+      const pricing = await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId);
+      // The window the last reply reported, else the catalog's.
+      const contextWindow =
+        previous.findLast((message) => message.metadata?.usage?.contextWindow)?.metadata?.usage?.contextWindow ?? pricing?.contextWindow;
+      // Decided now and stored with the reply, so later requests start the same way.
+      const compact = shouldCompact(previous, stored, settings.compact, contextWindow);
       return streamChat({
         db,
         conversationId: conversation.id,
@@ -371,7 +382,7 @@ export function conversationRoutes(deps: AppDeps) {
         model,
         modelId: body.modelId,
         credentialId: row.id,
-        pricing: await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId),
+        pricing,
         abortSignal: stop.signal,
         consumeSseStream: follow,
         webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
@@ -379,7 +390,57 @@ export function conversationRoutes(deps: AppDeps) {
         research,
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
+        effort: effortOptions(row.kind, row.baseUrl, body.effort),
+        compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
       });
+    })
+    // Summarizes the chat now, on the user's request: everything but the
+    // latest turn. The summary joins the last reply, like an automatic one.
+    .post('/:id/compact', async (c) => {
+      const user = c.get('user');
+      const conversation = await findConversation(db, user.id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      if (conversation.link) {
+        // The agent keeps its own history; pi summarizes it on the computer.
+        throw new HttpError(409, 'conflict', 'Linked chats cannot be summarized here');
+      }
+      if (streams.has(conversation.id)) {
+        throw new HttpError(409, 'conflict', 'A reply is still being written');
+      }
+      const body = compactRequestSchema.parse(await c.req.json());
+      const row = await findCredential(db, user.id, body.credentialId);
+      if (!row) {
+        throw notFound('Credential');
+      }
+      await assertEndpointAllowed(db, user, row.kind, row.baseUrl);
+      const messages = await loadMessages(db, conversation.id);
+      const last = messages.at(-1);
+      const range = compactionRange(messages, 0, true);
+      if (!range || last?.role !== 'assistant') {
+        throw new HttpError(409, 'conflict', 'Nothing to summarize yet');
+      }
+      let written: Awaited<ReturnType<typeof summarize>>;
+      try {
+        written = await summarize(llm.createModel(resolveCredential(secretBox, row), body.modelId), messages, range, 'manual', c.req.raw.signal);
+      } catch (error) {
+        throw new HttpError(502, 'provider_error', `The summary could not be written: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      const pricing = await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId);
+      const call = { ...callUsage(written.usage, pricing, [], written.billed), model: body.modelId, purpose: 'compact' as const };
+      const usage = last.metadata?.usage;
+      const message: ChatMessage = {
+        ...last,
+        parts: [...last.parts, { type: 'data-compaction', id: `compaction-${uuidv7()}`, data: written.compaction }],
+        metadata: {
+          ...last.metadata,
+          usage: usage ? withHelpers(usage, [call]) : { helpers: [call], ...(call.cost ? { cost: call.cost.total } : {}) },
+        },
+      };
+      await saveMessage(db, conversation.id, message);
+      await updateConversation(db, conversation.id, {});
+      return c.json(message);
     })
     .get('/:id/stream', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));

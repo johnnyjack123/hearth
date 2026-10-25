@@ -1,3 +1,4 @@
+import type { EffortLevel } from '@harness/shared';
 import { Bell, Copy, Inbox, Moon, Plus, Settings, Sun, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
@@ -22,10 +23,12 @@ import {
   PopoverTrigger,
   Tooltip,
 } from '@/components/ui/menu.tsx';
+import { Slider } from '@/components/ui/slider.tsx';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { SegmentedControl, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { type Density, usePreferences } from '@/lib/preferences.tsx';
+import { EffortControl } from '@/features/chat/effort-control.tsx';
 
 const COLOR_PAIRS: [string, string | null][] = [
   ['background', 'foreground'],
@@ -75,6 +78,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export function DesignPage() {
   const { t, resolvedTheme, setTheme, density, setDensity } = usePreferences();
   const [checked, setChecked] = useState(true);
+  const [level, setLevel] = useState(3);
+  const [effort, setEffort] = useState<EffortLevel | null>('medium');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [segment, setSegment] = useState<'a' | 'b' | 'c'>('a');
   const [radio, setRadio] = useState('30');
@@ -176,6 +181,16 @@ export function DesignPage() {
             <Switch checked={!checked} onCheckedChange={(value) => setChecked(!value)} aria-label="off" />
             <Switch disabled checked aria-label={t('design.disabled')} />
             <Switch disabled aria-label={t('design.disabled')} />
+          </Row>
+          <Row label="Slider">
+            <div className="flex w-full max-w-64 flex-col gap-2">
+              <Slider label="level" min={0} max={7} step={1} value={[level]} onValueChange={([value]) => setLevel(value ?? 0)} />
+              <Slider label={t('design.disabled')} min={0} max={7} step={1} value={[2]} disabled />
+            </div>
+          </Row>
+          <Row label="EffortControl">
+            <EffortControl effort={effort} onEffortChange={setEffort} />
+            <EffortControl effort={null} onEffortChange={() => undefined} />
           </Row>
           <Row label="SegmentedControl">
             <SegmentedControl

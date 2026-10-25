@@ -1,19 +1,21 @@
 import { useChat } from '@ai-sdk/react';
-import type { ConversationDetail } from '@harness/shared';
+import type { ConversationDetail, EffortLevel } from '@harness/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { EmptyState, Skeleton } from '@/components/ui/display.tsx';
-import { ApiError, type ChatMessage } from '@/lib/api.ts';
+import { ApiError, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
-import { getChat, resumeReply, stopReply } from './chat-store.ts';
+import { compactChat, getChat, resumeReply, stopReply } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
+import { EffortControl } from './effort-control.tsx';
 import { EnvironmentButton, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
@@ -77,11 +79,13 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   // Each chat keeps its own switch; the one used last is the default for
   // new chats.
   const [research, setChatResearch] = useState(entry.research.current);
-  const { setResearch: setLastResearch } = usePreferences();
+  const [effort, setChatEffort] = useState(entry.effort.current);
+  const { setResearch: setLastResearch, setEffort: setLastEffort } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
   entry.research.current = research;
+  entry.effort.current = effort;
   const [draft, setDraft] = useState('');
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
@@ -101,10 +105,28 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
     setLastResearch(on);
   }
 
+  function setEffort(next: EffortLevel | null) {
+    setChatEffort(next);
+    setLastEffort(next);
+  }
+
+  async function compact() {
+    if (!selection) {
+      return;
+    }
+    try {
+      await compactChat(conversation.id, selection);
+      toast.success(t('chat.compact.done'));
+    } catch (failure) {
+      toast.error(errorMessage(t, failure));
+    }
+  }
+
   function submit(text: string) {
     setDraft('');
     scrollToBottom('auto');
     setLastResearch(research);
+    setLastEffort(effort);
     void sendMessage({ text });
   }
 
@@ -153,13 +175,21 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
             placeholder={link ? t('agent.placeholder', { harness: link.harness, project: link.project }) : undefined}
-            status={<ContextMeter messages={messages} />}
+            status={
+              <ContextMeter
+                messages={messages}
+                // An agent keeps its own history; pi summarizes it on the computer.
+                {...(link ? {} : { onCompact: compact, busy })}
+              />
+            }
             toolbar={
               <>
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
                 <EnvironmentButton conversation={conversation} online={online} />
                 {/* Agents in an environment search through the server as well. */}
                 {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
+                {/* pi has thinking levels of its own; they are not linked to this one yet. */}
+                {link ? null : <EffortControl effort={effort} onEffortChange={setEffort} />}
               </>
             }
           />

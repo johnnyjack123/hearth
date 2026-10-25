@@ -864,6 +864,9 @@ describe('research mode', () => {
 
   it('condenses earlier pages once the chat is long, at a fixed place, and loads them again without asking', async () => {
     const long = `http://other.test:${pagePort}/long.md`;
+    // The test catalog's window of 1,000 tokens would summarize the chat
+    // first; this test is about condensing alone.
+    await server.request('PATCH', '/api/admin/settings', { cookie, body: { compact: { enabled: false } } });
     // A page the user allows once; the reply leaves a long conversation.
     script = [{ tool: 'web_fetch', input: { url: long } }, { text: 'Gelesen.', inputTokens: 210_000 }];
     const conversationId = await newConversation();

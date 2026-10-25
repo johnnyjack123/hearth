@@ -1,4 +1,5 @@
 import {
+  type CompactSettings,
   type CondenseSettings,
   KEYED_SEARCH_PROVIDERS,
   type KeyedSearchProvider,
@@ -33,6 +34,9 @@ const DEFAULTS: ServerSettings = {
   // half the window guards models with 128k. Six hours: DeepSeek keeps its
   // cache for hours, OpenAI and Anthropic for minutes.
   condense: { enabled: true, atTokens: 200_000, atWindowShare: 0.5, afterIdleHours: 6 },
+  // As pi does it: summarize once fewer than 16,384 tokens of the window are
+  // left, and keep the latest 20,000 tokens of the chat word for word.
+  compact: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
 };
 
 type SettingKey = keyof ServerSettings;
@@ -60,6 +64,7 @@ export async function getServerSettings(db: Kysely<DB>): Promise<ServerSettings>
   // Stored before a field existed: the defaults fill it in.
   settings.search = { ...DEFAULTS.search, ...settings.search, helpers: { ...DEFAULTS.search.helpers, ...settings.search.helpers } };
   settings.condense = { ...DEFAULTS.condense, ...settings.condense };
+  settings.compact = { ...DEFAULTS.compact, ...settings.compact };
   return settings;
 }
 
@@ -72,10 +77,18 @@ export async function getServerSettings(db: Kysely<DB>): Promise<ServerSettings>
  */
 export async function updateServerSettings(
   db: Kysely<DB>,
-  patch: Omit<Partial<ServerSettings>, 'condense'> & { condense?: Partial<CondenseSettings> },
+  patch: Omit<Partial<ServerSettings>, 'condense' | 'compact'> & {
+    condense?: Partial<CondenseSettings>;
+    compact?: Partial<CompactSettings>;
+  },
 ): Promise<ServerSettings> {
   // A partial change keeps the other thresholds.
-  const merged = patch.condense ? { ...patch, condense: { ...(await getServerSettings(db)).condense, ...patch.condense } } : patch;
+  const current = patch.condense || patch.compact ? await getServerSettings(db) : null;
+  const merged = {
+    ...patch,
+    ...(current && patch.condense ? { condense: { ...current.condense, ...patch.condense } } : {}),
+    ...(current && patch.compact ? { compact: { ...current.compact, ...patch.compact } } : {}),
+  };
   const entries = Object.entries(merged) as [SettingKey, ServerSettings[SettingKey]][];
   for (const [key, value] of entries) {
     if (value === undefined) {

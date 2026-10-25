@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   ApiErrorCode,
   ApprovalDecision,
+  CompactRequestBody,
   ConversationDetail,
   ConversationSummary,
   CreateConversationInput,
@@ -123,6 +124,8 @@ export const api = {
     approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
     stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
+    compact: (id: string, input: CompactRequestBody) =>
+      request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/compact`, input),
   },
 };
 
