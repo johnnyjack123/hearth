@@ -493,8 +493,19 @@ fn web_fetch_hosts_pass_the_rules_first() {
     ] {
         assert_eq!(request(proxy, &fetch(headers)).status, 400, "{headers:?}");
     }
+    // Searches name no target; the server decides about them.
+    let search = request(
+        proxy,
+        "POST http://llm.harness/_web/search HTTP/1.1\r\n\
+         X-Harness-Approved-Host: forged.test\r\nContent-Length: 0\r\n\r\n",
+    );
+    assert_eq!(search.status, 200);
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(head[0], "POST /api/llm/_web/search HTTP/1.1");
+    assert!(!head.iter().any(|h| h.contains("forged")), "{head:?}");
+
     // Other paths of harness, also with a query, do not exist.
-    for path in ["/_web/other", "/_web/fetch?x=1", "/_x"] {
+    for path in ["/_web/other", "/_web/fetch?x=1", "/_web/search?x=1", "/_x"] {
         let response = request(
             proxy,
             &format!(

@@ -1,8 +1,13 @@
 /**
- * harness web_fetch for pi: reads web pages through the harness server,
- * the same way the web chat does. The server returns the readable text
- * (or only the sections or lines the model asks for), marked as untrusted
- * data, with prompt injection warnings.
+ * harness web_fetch and web_search for pi: reads web pages through the
+ * harness server, the same way the web chat does. The server returns the
+ * readable text (or only the sections or lines the model asks for), marked
+ * as untrusted data, with prompt injection warnings.
+ *
+ * web_search goes to `http://llm.harness/_web/search`. It names no target;
+ * the server asks the search provider the admin set up, and only while a
+ * reply of this computer runs with research mode switched on in the web
+ * chat. Reading the results goes through web_fetch and its checks.
  *
  * Requests go to `http://llm.harness/_web/fetch` with the URL in a header.
  * The project's gateway checks its host against the network rules first,
@@ -15,10 +20,12 @@
  * `harness run` and the web chat load this file with `-e` from the tools
  * volume once the computer is paired with a server.
  */
+import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const ENDPOINT = "http://llm.harness/_web/fetch";
+const SEARCH_ENDPOINT = "http://llm.harness/_web/search";
 /** Redirects to other hosts followed per call; the server handles the rest. */
 const MAX_HOPS = 5;
 
@@ -61,6 +68,23 @@ const parameters = Type.Object({
   ),
 });
 
+const SEARCH_DESCRIPTION =
+  "Search the web through the harness server. It works only while the user has research mode switched on in the web chat; " +
+  "otherwise it says so, and you answer without searching. Returns the titles, URLs and short snippets of the top results. " +
+  "Write focused queries like you would type into a search engine; search again with other terms if the results do not fit. " +
+  "Name the kind of question to move suitable sources up: facts (science, health, law, statistics), learning (explanations), " +
+  "experiences (opinions, reviews, reports of problems), tech (software and its documentation) or news (current events). " +
+  "When the snippets are not enough, read the most promising results with web_fetch; their hosts follow the project's network rules.";
+
+const searchParameters = Type.Object({
+  query: Type.String({ minLength: 1, maxLength: 400, description: "Search terms" }),
+  kind: Type.Optional(
+    StringEnum(["facts", "learning", "experiences", "tech", "news"] as const, {
+      description: "Kind of question; suitable sources move up",
+    }),
+  ),
+});
+
 /** What the server tells about a loaded page besides the model's text. */
 interface PageDetails {
   url: string;
@@ -71,7 +95,8 @@ interface PageDetails {
   warnings: string[];
 }
 
-type Answer = { text: string; page: PageDetails } | { redirect: string } | { error: string };
+// A page has `page`; a search only its text for the model.
+type Answer = { text: string; page?: PageDetails } | { redirect: string } | { error: string };
 
 /** The URL as the gateway and the server expect it: absolute, http(s), ASCII. */
 function normalize(raw: string): string {
@@ -88,13 +113,18 @@ function normalize(raw: string): string {
   return url.href;
 }
 
-async function request(url: string, options: Record<string, unknown>, signal: AbortSignal | undefined): Promise<Answer> {
+async function request(
+  endpoint: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+): Promise<Answer> {
   let response: Response;
   try {
-    response = await fetch(ENDPOINT, {
+    response = await fetch(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-harness-url": url },
-      body: JSON.stringify(options),
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
       ...(signal ? { signal } : {}),
     });
   } catch (error) {
@@ -134,7 +164,7 @@ export default function web(pi: ExtensionAPI): void {
       const { url: raw, ...options } = params;
       let url = normalize(raw);
       for (let hop = 0; hop <= MAX_HOPS; hop += 1) {
-        const answer = await request(url, options, signal);
+        const answer = await request(ENDPOINT, { "x-harness-url": url }, options, signal);
         if ("error" in answer) {
           throw new Error(answer.error);
         }
@@ -145,6 +175,24 @@ export default function web(pi: ExtensionAPI): void {
         return { content: [{ type: "text", text: answer.text }], details: answer.page };
       }
       throw new Error(`Gave up after ${MAX_HOPS} redirects to other hosts.`);
+    },
+  });
+
+  pi.registerTool({
+    name: "web_search",
+    label: "Web search",
+    description: SEARCH_DESCRIPTION,
+    promptSnippet: "Search the web when the user switched research mode on in the web chat",
+    parameters: searchParameters,
+    async execute(_toolCallId, params, signal) {
+      const answer = await request(SEARCH_ENDPOINT, {}, params, signal);
+      if ("error" in answer) {
+        throw new Error(answer.error);
+      }
+      if (!("text" in answer)) {
+        throw new Error("The harness server answered without results.");
+      }
+      return { content: [{ type: "text", text: answer.text }], details: undefined };
     },
   });
 }

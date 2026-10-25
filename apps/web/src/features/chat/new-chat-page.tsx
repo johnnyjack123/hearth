@@ -11,7 +11,7 @@ import { Card, EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import type { MessageKey } from '@/i18n/index.ts';
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { durations, riseIn, transitions } from '@/lib/motion.ts';
-import { useT } from '@/lib/preferences.tsx';
+import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys, useProviders, usePublicSettings, useSession } from '@/lib/queries.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
@@ -42,7 +42,7 @@ export function NewChatPage() {
   const { selection, select, models } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
-  const [research, setResearch] = useState(false);
+  const { research, setResearch } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   const search = useSearch({ from: '/app/' });
   const [environment, setEnvironment] = useState<LinkConversationInput | null>(() => environmentFromSearch(search));
@@ -70,7 +70,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research && !environment).chat.sendMessage({ text });
+      void getChat(conversation.id, [], selection, research).chat.sendMessage({ text });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -154,7 +154,7 @@ export function NewChatPage() {
                   <>
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
                     <NewChatEnvironment value={environment} onChange={setEnvironment} />
-                    {!environment && publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
+                    {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
                   </>
                 }
               />

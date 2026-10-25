@@ -16,14 +16,23 @@ interface PreferencesValue {
   resolvedTheme: 'light' | 'dark';
   density: Density;
   locale: Locale;
+  /** Research mode for the next messages, the same in every chat. */
+  research: boolean;
   setTheme: (theme: ThemePreference) => void;
   setDensity: (density: Density) => void;
   setLocale: (locale: Locale) => void;
+  setResearch: (on: boolean) => void;
   t: TranslateFn;
 }
 
-// Keys and values must match public/theme-init.js, which applies them before first paint.
-const STORAGE = { theme: 'harness.theme', density: 'harness.density', locale: 'harness.locale' } as const;
+// Keys and values of theme, density and locale must match public/theme-init.js,
+// which applies them before first paint.
+const STORAGE = {
+  theme: 'harness.theme',
+  density: 'harness.density',
+  locale: 'harness.locale',
+  research: 'harness.research',
+} as const;
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
 
@@ -49,9 +58,9 @@ function systemPrefersDark(): boolean {
 }
 
 /**
- * Provides per-browser preferences (theme, density, language, developer
- * mode) and the
- * translation function, and keeps the `<html>` element in sync with them.
+ * Provides per-browser preferences (theme, density, language, research
+ * mode) and the translation function, and keeps the `<html>` element in
+ * sync with them.
  *
  * @param props - Children to render.
  * @returns The provider element.
@@ -62,6 +71,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     read(STORAGE.density, ['compact', 'normal', 'comfortable'], 'normal'),
   );
   const [locale, setLocaleState] = useState<Locale>(() => read(STORAGE.locale, ['de', 'en'], detectLocale()));
+  const [research, setResearchState] = useState(() => read(STORAGE.research, ['on', 'off'], 'off') === 'on');
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
   useEffect(() => {
@@ -102,6 +112,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.locale, next);
     setLocaleState(next);
   }, []);
+  const setResearch = useCallback((on: boolean) => {
+    write(STORAGE.research, on ? 'on' : 'off');
+    setResearchState(on);
+  }, []);
 
   const value = useMemo<PreferencesValue>(
     () => ({
@@ -109,12 +123,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       resolvedTheme,
       density,
       locale,
+      research,
       setTheme,
       setDensity,
       setLocale,
+      setResearch,
       t: (key, params) => translate(locale, key, params),
     }),
-    [theme, resolvedTheme, density, locale, setTheme, setDensity, setLocale],
+    [theme, resolvedTheme, density, locale, research, setTheme, setDensity, setLocale, setResearch],
   );
 
   return <PreferencesContext value={value}>{children}</PreferencesContext>;

@@ -31,6 +31,11 @@ pub const CREDENTIAL_HEADERS: &[&str] = &[
 /// starting with `/_` belong to harness; credential ids never do.
 pub const WEB_FETCH_PATH: &str = "/_web/fetch";
 
+/// Path of `web_search` below `llm.harness`. It names no target: the server
+/// asks the search provider the admin set up, and only while a reply of
+/// this computer runs in research mode, so the gateway passes it on.
+pub const WEB_SEARCH_PATH: &str = "/_web/search";
+
 /// Header with the URL an agent wants `web_fetch` to load.
 pub const URL_HEADER: &str = "x-harness-url";
 

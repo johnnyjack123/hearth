@@ -343,7 +343,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('27-research-reply');
 
-    // The chat opens with the switch as last used.
+    // The switch stays as last used, in this chat after a reload and in others.
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
 
@@ -400,6 +400,13 @@ try {
     await page.$eval(text('Der Chat ist lang geworden'), (element) => element.scrollIntoView({ block: 'center' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('30-condensed');
+
+    // One switch for all chats: a new chat starts with it as last used.
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+    await page.click('[aria-label="Recherche"]');
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 10_000 });
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {
@@ -567,6 +574,8 @@ try {
       await shot('16-link-dialog');
       await page.click(`[role=dialog] ${text('Verbinden')}`);
       await page.waitForSelector(text('pi in demo'), { timeout: 10_000 });
+      // Agents search through the server too, so the switch stays.
+      await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 5_000 });
 
       await page.focus('textarea');
       await page.keyboard.down('Control');

@@ -13,7 +13,7 @@
 #   for the terminal -> pi's web_fetch: the gateway asks for the host in the
 #   chat, the server loads the page -> VM activity and idle time in the web app, a terminal
 #   command keeps the VM busy -> the tray icon of harnessd and its status
-#   file -> harness daemon stop
+#   file -> harness daemon stop -> harness project remove
 #
 # VM_STOP=1 also stops the VM: from the browser (API), from the tray icon
 # (its named event) and because it sat idle for a minute. Takes about four
@@ -267,6 +267,16 @@ check "Werkzeug web_fetch aufgerufen" grep -q '"toolName":"web_fetch"' "$WORK/m4
 check "Seite als markierte, fremde Daten" bash -c "grep -q 'Example Domain' '$WORK/m4.log' && grep -q 'untrusted data' '$WORK/m4.log'"
 check "Gateway hat den Host geprüft" bash -c "'$H' net status 2> /dev/null | grep -q 'example.com'"
 
+echo "== Recherche im Umgebungs-Chat (web_search von pi)"
+api PATCH /api/admin/settings "{\"search\":{\"provider\":\"searxng\",\"searxngUrl\":\"http://127.0.0.1:$MOCK_PORT\"}}" > /dev/null
+say_in_chat m5 '?search kaffee rösten'
+check "ohne Recherche abgelehnt" grep -q 'research_off' "$WORK/m5.log"
+printf '%s' "{\"message\":{\"id\":\"m6\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"?search kaffee\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"research\":true}" > "$WORK/m6.json"
+curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m6.log"
+check "Werkzeug web_search aufgerufen" grep -q '"toolName":"web_search"' "$WORK/m6.log"
+check "Treffer der Suche beim Agent" grep -q 'example.com/roesten' "$WORK/m6.log"
+check "Hinweis auf den Recherche-Modus bei pi" grep -q 'Research mode is on' "$WORK/mock-requests.log"
+
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null
 check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HARNESS_HOME/daemon.log"
@@ -311,6 +321,13 @@ check "Dienst beendet" grep -q "Hintergrunddienst beendet" "$WORK/daemon-stop.lo
 check "Statusdatei aufgeräumt" test ! -e "$HARNESS_HOME/daemon-status.json"
 check "harnessd samt Tray-Symbol beendet" wait_for 10 bash -c \
   "! tasklist //FI 'PID eq $TRAY_PID' | grep -q harnessd"
+
+echo "== Projekt entfernen"
+"$H" project remove --yes > "$WORK/remove.log" 2>&1
+check "Projekt entfernt" grep -q "Projekt $NAME entfernt" "$WORK/remove.log"
+check "Container und Volumes in der VM weg" bash -c \
+  "! '$PM' container exists 'harness-$NAME' && ! '$PM' volume exists 'harness-ws-$NAME'"
+check "nicht mehr im Konto" test "$(api GET /api/devices | json "v[0].projects.length")" = 0
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures Prüfung(en) fehlgeschlagen. Protokolle:"
