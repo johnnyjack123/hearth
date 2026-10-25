@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 3;
+pub const TUNNEL_VERSION: u32 = 4;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -19,6 +19,15 @@ pub const VERSION_VM_CONTROL: u32 = 2;
 /// Version that brought taking over the agent's work (`session.takeover`,
 /// the `takeover` event) and autosync.
 pub const VERSION_TAKEOVER: u32 = 3;
+
+/// Version that brought pi's settings from the chat: the thinking level
+/// with each prompt, summarizing on request (`session.compact`) and the
+/// `compaction` event for pi's summaries.
+pub const VERSION_PI_SETTINGS: u32 = 4;
+
+/// Longest summary of pi a `compaction` event carries; the server accepts
+/// 100,000 characters.
+pub const MAX_SUMMARY: usize = 60_000;
 
 /// Most findings a takeover report carries; the server accepts 100.
 pub const MAX_REPORTED_FINDINGS: usize = 100;
@@ -97,6 +106,28 @@ pub enum ApprovalState {
     Pending,
     /// Answered (here, in the terminal or by timeout).
     Resolved,
+}
+
+/// Progress of a summary of the harness, see [`AgentEvent::Compaction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionState {
+    /// Being written.
+    Running,
+    /// Written.
+    Done,
+    /// Failed or aborted.
+    Failed,
+}
+
+/// Why the harness summarized its context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompactionTrigger {
+    /// The context ran full.
+    Auto,
+    /// The user asked (in the chat or in pi).
+    Manual,
 }
 
 /// What an agent does, independent of the harness.
@@ -244,6 +275,36 @@ pub enum AgentEvent {
         /// The report so far.
         report: TakeoverReport,
     },
+    /// The harness summarized its context: `running`, then `done` or
+    /// `failed` (protocol 4; older servers get a notice instead).
+    #[serde(rename = "compaction")]
+    Compaction {
+        /// How far it is.
+        state: CompactionState,
+        /// Because the context ran full, or because the user asked.
+        trigger: CompactionTrigger,
+        /// The summary, truncated to [`MAX_SUMMARY`].
+        #[serde(skip_serializing_if = "Option::is_none")]
+        summary: Option<String>,
+        /// Tokens of the context before.
+        #[serde(rename = "tokensBefore", skip_serializing_if = "Option::is_none")]
+        tokens_before: Option<u64>,
+        /// Estimated tokens after.
+        #[serde(rename = "tokensAfter", skip_serializing_if = "Option::is_none")]
+        tokens_after: Option<u64>,
+        /// Prompt tokens of the call that wrote the summary.
+        #[serde(rename = "inputTokens", skip_serializing_if = "Option::is_none")]
+        input_tokens: Option<u64>,
+        /// Completion tokens of that call.
+        #[serde(rename = "outputTokens", skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
+        /// Cost of writing the summary in US dollars.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cost: Option<f64>,
+        /// Why it failed, German.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// The agent has nothing left to do for this prompt; ends the reply.
     #[serde(rename = "done")]
     Done {
@@ -371,6 +432,39 @@ impl AgentEvent {
     }
 }
 
+impl DeviceMessage {
+    /// The message as a server speaking `version` understands it: a server
+    /// before protocol 4 knows no `compaction` event and would drop the
+    /// connection, so it gets a notice instead.
+    pub fn for_version(self, version: u32) -> DeviceMessage {
+        match self {
+            DeviceMessage::SessionEvent {
+                session,
+                event: AgentEvent::Compaction { state, error, .. },
+            } if version < VERSION_PI_SETTINGS => {
+                let event = match state {
+                    CompactionState::Running => AgentEvent::notice(
+                        NoticeLevel::Info,
+                        "pi fasst den bisherigen Verlauf zusammen …",
+                    ),
+                    CompactionState::Done => {
+                        AgentEvent::notice(NoticeLevel::Info, "pi hat den Verlauf zusammengefasst.")
+                    }
+                    CompactionState::Failed => AgentEvent::notice(
+                        NoticeLevel::Warning,
+                        format!(
+                            "pi konnte den Verlauf nicht zusammenfassen: {}",
+                            error.as_deref().unwrap_or("unbekannter Fehler")
+                        ),
+                    ),
+                };
+                DeviceMessage::SessionEvent { session, event }
+            }
+            other => other,
+        }
+    }
+}
+
 /// Messages to the server.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type")]
@@ -480,6 +574,41 @@ pub struct Prompt {
     /// nothing severe (protocol 3; older servers do not send it).
     #[serde(default)]
     pub autosync: bool,
+    /// pi's thinking level chosen in the chat (`off` … `max`); none for
+    /// pi's own setting (protocol 4).
+    #[serde(default)]
+    pub thinking: Option<String>,
+}
+
+/// A request to summarize the agent's context of a session's chat.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CompactRequest {
+    /// Session id (the conversation id).
+    pub session: String,
+    /// Project of the chat.
+    pub project: String,
+    /// Harness of the chat.
+    pub harness: String,
+    /// The chat.
+    pub conversation: ConversationRef,
+}
+
+impl CompactRequest {
+    /// A prompt without a message, to start the chat's session for the
+    /// summary when none runs.
+    pub fn as_prompt(&self) -> Prompt {
+        Prompt {
+            session: self.session.clone(),
+            project: self.project.clone(),
+            harness: self.harness.clone(),
+            conversation: self.conversation.clone(),
+            text: String::new(),
+            history: None,
+            model: None,
+            autosync: false,
+            thinking: None,
+        }
+    }
 }
 
 /// A request to take over the agent's work of a session's chat.
@@ -527,6 +656,9 @@ pub enum ServerMessage {
     /// Take over the agent's work into the user's folder (protocol 3).
     #[serde(rename = "session.takeover")]
     Takeover(TakeoverRequest),
+    /// Have the harness summarize its context now (protocol 4).
+    #[serde(rename = "session.compact")]
+    Compact(CompactRequest),
     /// Interrupt the session's reply.
     #[serde(rename = "session.cancel")]
     Cancel {
@@ -589,6 +721,46 @@ mod tests {
 
     #[test]
     fn events_serialize_like_the_server_expects() {
+        // pi's summaries: an event for servers of protocol 4, a notice for older ones.
+        let done = DeviceMessage::SessionEvent {
+            session: "s".into(),
+            event: AgentEvent::Compaction {
+                state: CompactionState::Done,
+                trigger: CompactionTrigger::Manual,
+                summary: Some("kurz".into()),
+                tokens_before: Some(10),
+                tokens_after: Some(2),
+                input_tokens: None,
+                output_tokens: None,
+                cost: None,
+                error: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(done.clone().for_version(4)).unwrap()["event"],
+            json!({ "type": "compaction", "state": "done", "trigger": "manual", "summary": "kurz", "tokensBefore": 10, "tokensAfter": 2 })
+        );
+        assert_eq!(
+            serde_json::to_value(done.for_version(3)).unwrap()["event"],
+            json!({ "type": "notice", "level": "info", "text": "pi hat den Verlauf zusammengefasst." })
+        );
+        // The thinking level and the request to summarize from the server.
+        let prompt: ServerMessage = serde_json::from_value(json!({
+            "type": "session.prompt", "session": "s", "project": "p", "harness": "pi",
+            "conversation": { "id": "s", "title": null }, "text": "hi", "history": null, "model": null,
+            "autosync": false, "thinking": "high"
+        }))
+        .unwrap();
+        assert!(
+            matches!(prompt, ServerMessage::Prompt(p) if p.thinking.as_deref() == Some("high"))
+        );
+        let compact: ServerMessage = serde_json::from_value(json!({
+            "type": "session.compact", "session": "s", "project": "p", "harness": "pi",
+            "conversation": { "id": "s", "title": null }
+        }))
+        .unwrap();
+        assert!(matches!(compact, ServerMessage::Compact(r) if r.as_prompt().text.is_empty()));
+
         let tool = AgentEvent::ToolEnd {
             id: "c1".into(),
             output: "ok".into(),

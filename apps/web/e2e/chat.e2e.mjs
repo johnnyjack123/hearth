@@ -354,7 +354,7 @@ try {
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
     await page.click('[aria-label="Token-Details zeigen"]');
     await page.waitForSelector(text('Chat-Modell mock-model: Tokens und Kosten je Aufruf'), { timeout: 5_000 });
-    await page.waitForSelector(text('Hilfsmodelle (über OpenRouter)'), { timeout: 5_000 });
+    await page.waitForSelector(text('Hilfsaufrufe'), { timeout: 5_000 });
     const results = await page.$$eval('table td', (cells) => cells.map((cell) => cell.textContent));
     for (const expected of [
       'web_search',
@@ -373,7 +373,7 @@ try {
     // The context ring lists the chat's totals.
     await page.hover('button[aria-label*="Kontext:"]');
     await page.waitForSelector(text('Gesamt:'), { timeout: 5_000 });
-    await page.$eval(text('Hilfsmodelle (über OpenRouter)'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
+    await page.$eval(text('Hilfsaufrufe'), (element) => element.closest('div').scrollIntoView({ block: 'center' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('29-dev-usage');
 
@@ -576,6 +576,46 @@ try {
           device.send(JSON.stringify({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }));
         }, 300);
       }
+      if (message.type === 'session.compact') {
+        // pi summarizes its history on request (protocol 4).
+        const s = message.session;
+        sendEvent(s, { type: 'compaction', state: 'running', trigger: 'manual' });
+        setTimeout(() => {
+          sendEvent(s, {
+            type: 'compaction',
+            state: 'done',
+            trigger: 'manual',
+            summary: '## Ziel\nProjekt ansehen.\n\n## Stand\nREADME gelesen, example.com erreichbar.',
+            tokensBefore: 1400,
+            tokensAfter: 420,
+            inputTokens: 1500,
+            outputTokens: 120,
+            cost: 0.0011,
+          });
+          sendEvent(s, { type: 'done', aborted: false });
+        }, 300);
+        return;
+      }
+      if (message.type === 'session.prompt' && message.text === 'Denk gründlich nach') {
+        // The chat's level reaches pi; pi summarizes on its own when full.
+        const s = message.session;
+        sendEvent(s, { type: 'compaction', state: 'running', trigger: 'auto' });
+        sendEvent(s, {
+          type: 'compaction',
+          state: 'done',
+          trigger: 'auto',
+          summary: 'Bisher: Projekt angesehen.',
+          tokensBefore: 120_000,
+          tokensAfter: 18_000,
+          cost: 0.004,
+        });
+        sendEvent(s, { type: 'text.start', id: 'k1' });
+        sendEvent(s, { type: 'text.delta', id: 'k1', delta: `Denkstufe auf dem Rechner: ${message.thinking}.` });
+        sendEvent(s, { type: 'text.end', id: 'k1' });
+        sendEvent(s, { type: 'usage', inputTokens: 1400, outputTokens: 30, cost: 0.001, contextWindow: 128000 });
+        sendEvent(s, { type: 'done', aborted: false });
+        return;
+      }
       if (message.type === 'session.prompt' && message.text === 'Neu mit Umgebung') {
         const s = message.session;
         sendEvent(s, { type: 'text.start', id: 'n1' });
@@ -680,6 +720,52 @@ try {
       await page.reload({ waitUntil: 'networkidle0' });
       await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 10_000 });
       await page.waitForSelector(text('Beantwortet'), { timeout: 5_000 });
+
+      // pi's thinking level and summaries come from the chat as well.
+      await page.click('[aria-label="Denktiefe: Standard"]');
+      await page.waitForSelector('[role=slider]');
+      await waitForText('Wie pi ab Werk: Mittel.', 5_000);
+      await page.focus('[role=slider]');
+      for (let press = 0; press < 5; press += 1) {
+        await page.keyboard.press('ArrowRight');
+      }
+      await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+      await waitForText('Gilt ab der nächsten Nachricht für pi in dieser Umgebung.', 5_000);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('19-agent-effort');
+      await page.keyboard.press('Escape');
+      await page.focus('textarea');
+      await page.type('textarea', 'Denk gründlich nach');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector(text('Denkstufe auf dem Rechner: high.'), { timeout: 15_000 });
+      await waitForText('pi hat seinen Verlauf hier zusammengefasst', 5_000);
+      await waitForText('120.000 → 18.000 Token', 5_000);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await page.click('button[aria-label*="Kontext:"]');
+      await waitForText('pi fasst seinen bisherigen Verlauf zusammen und liest danach die Zusammenfassung', 5_000);
+      await shot('19-agent-compact-popover');
+      await page.click(text('Verlauf jetzt zusammenfassen'));
+      await waitForText('auf deinen Wunsch', 15_000);
+      if (!received.some((message) => message.type === 'session.compact')) {
+        throw new Error('device got no session.compact');
+      }
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+      // Focus is back on the context ring, whose tooltip covers the new divider.
+      await page.keyboard.press('Escape');
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const dividers = await page.$$(text('Zusammenfassung zeigen'));
+      await dividers.at(-1).click();
+      await waitForText('README gelesen, example.com erreichbar.', 5_000);
+      await page.$eval(text('README gelesen, example.com erreichbar.'), (element) => element.scrollIntoView({ block: 'center' }));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await shot('19-agent-compaction');
+      // The default again, which later chats start with.
+      await page.click('[aria-label="Denktiefe: Hoch"]');
+      await page.waitForSelector('[role=slider]');
+      await page.focus('[role=slider]');
+      await page.keyboard.press('Home');
+      await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
+      await page.keyboard.press('Escape');
 
       // The VM in the chat: state, when it stops by itself, the idle time.
       if (!received.some((message) => message.type === 'settings' && message.idleMinutes === 30)) {

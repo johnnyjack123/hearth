@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EffortLevel } from './api.ts';
 import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './web-fetch.ts';
 
 /**
@@ -10,8 +11,11 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * Version 2: VM activity in `status`, the idle time (`settings`) and
  * stopping the VM from the browser (`vm.stop`, `vm.result`).
  * Version 3: taking over the agent's work into the user's folder.
+ * Version 4: pi's settings from the chat: the thinking level with each
+ * prompt, summarizing on request (`session.compact`) and the `compaction`
+ * event for pi's own summaries.
  */
-export const TUNNEL_VERSION = 3;
+export const TUNNEL_VERSION = 4;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -24,6 +28,12 @@ export const VERSION_VM_CONTROL = 2;
  * `takeover` event and `autosync` in prompts.
  */
 export const VERSION_TAKEOVER = 3;
+
+/**
+ * First protocol with pi's settings from the chat: `thinking` in prompts,
+ * `session.compact` and the `compaction` event.
+ */
+export const VERSION_PI_SETTINGS = 4;
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -173,6 +183,20 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('error'), message: text(4_000) }).strict(),
   z.object({ type: z.literal('takeover'), report: takeoverReportSchema }).strict(),
+  z
+    .object({
+      type: z.literal('compaction'),
+      state: z.enum(['running', 'done', 'failed']),
+      trigger: z.enum(['auto', 'manual']),
+      summary: text(100_000).optional(),
+      tokensBefore: z.number().int().nonnegative().optional(),
+      tokensAfter: z.number().int().nonnegative().optional(),
+      inputTokens: z.number().int().nonnegative().optional(),
+      outputTokens: z.number().int().nonnegative().optional(),
+      cost: z.number().nonnegative().optional(),
+      error: text(4_000).optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('done'), aborted: z.boolean() }).strict(),
 ]);
 
@@ -276,6 +300,19 @@ export type ServerMessage =
       model: { credentialId: string; modelId: string } | null;
       /** Take the work over after the reply if the check allows (protocol 3). */
       autosync: boolean;
+      /** pi's thinking level chosen in the chat; missing for pi's own setting (protocol 4). */
+      thinking?: EffortLevel;
+    }
+  | {
+      type: 'session.compact';
+      /** Session whose agent summarizes its context; the conversation id. */
+      session: string;
+      /** Project of the chat. */
+      project: string;
+      /** Harness of the chat. */
+      harness: string;
+      /** The chat, for the device's log. */
+      conversation: { id: string; title: string | null };
     }
   | {
       type: 'session.takeover';
@@ -426,6 +463,15 @@ export interface Compaction {
   messages?: number;
   /** Estimated tokens of the covered turns. */
   tokens?: number;
+  /** Tokens of the context after the summary; pi's estimate. */
+  tokensAfter?: number;
+  /** Cost of writing it in US dollars, if the agent reported it. */
+  cost?: number;
+  /**
+   * Written by the agent (pi) of a linked chat for its own context. It has
+   * no {@link through}: the chat itself is not shortened for any model.
+   */
+  agent?: boolean;
   /** Why it failed, for the chat. */
   error?: string;
 }

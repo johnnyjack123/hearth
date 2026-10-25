@@ -181,8 +181,10 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             status={
               <ContextMeter
                 messages={messages}
+                onCompact={compact}
+                busy={busy}
                 // An agent keeps its own history; pi summarizes it on the computer.
-                {...(link ? {} : { onCompact: compact, busy })}
+                {...(link ? { agent: link.harness } : {})}
               />
             }
             toolbar={
@@ -191,8 +193,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
                 <EnvironmentButton conversation={conversation} online={online} />
                 {/* Agents in an environment search through the server as well. */}
                 {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
-                {/* pi has thinking levels of its own; they are not linked to this one yet. */}
-                {link ? null : <EffortControl effort={effort} onEffortChange={setEffort} />}
+                {/* In a linked chat the level goes to pi. */}
+                <EffortControl effort={effort} onEffortChange={setEffort} {...(link ? { agent: link.harness } : {})} />
               </>
             }
           />

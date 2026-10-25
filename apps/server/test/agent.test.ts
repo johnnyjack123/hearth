@@ -33,6 +33,7 @@ class FakeDevice implements TunnelSocket {
   connection: TunnelConnection | undefined;
   onPrompt: ((prompt: Extract<ServerMessage, { type: 'session.prompt' }>) => void) | undefined;
   onTakeover: ((request: Extract<ServerMessage, { type: 'session.takeover' }>) => void) | undefined;
+  onCompact: ((request: Extract<ServerMessage, { type: 'session.compact' }>) => void) | undefined;
 
   send(data: string): void {
     const message = JSON.parse(data) as ServerMessage;
@@ -43,6 +44,9 @@ class FakeDevice implements TunnelSocket {
     }
     if (message.type === 'session.takeover') {
       setTimeout(() => this.onTakeover?.(message), 0);
+    }
+    if (message.type === 'session.compact') {
+      setTimeout(() => this.onCompact?.(message), 0);
     }
     if (message.type === 'vm.stop' && this.stopsVm) {
       setTimeout(() => this.say({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }), 0);
@@ -129,6 +133,45 @@ describe('ChunkMapper', () => {
         { input: 5, cacheRead: 4, cacheWrite: 0, output: 1, tools: [], cost: { total: 0.02 } },
       ],
     });
+  });
+
+  it("shows the agent's summaries in place and counts what they cost", () => {
+    const mapper = new ChunkMapper('mock-1');
+    mapper.map({ type: 'usage', inputTokens: 100, outputTokens: 10, cost: 0.01 });
+    expect(mapper.map({ type: 'compaction', state: 'running', trigger: 'auto' })).toEqual([
+      { type: 'data-compaction', id: 'compaction-agent-1', data: { state: 'running', trigger: 'auto', agent: true } },
+    ]);
+    // The finished summary replaces the running one.
+    expect(
+      mapper.map({
+        type: 'compaction',
+        state: 'done',
+        trigger: 'auto',
+        summary: 'Bisher: README gelesen.',
+        tokensBefore: 150_000,
+        tokensAfter: 32_000,
+        inputTokens: 151_000,
+        outputTokens: 900,
+        cost: 0.03,
+      }),
+    ).toEqual([
+      {
+        type: 'data-compaction',
+        id: 'compaction-agent-1',
+        data: { state: 'done', trigger: 'auto', agent: true, summary: 'Bisher: README gelesen.', tokens: 150_000, tokensAfter: 32_000, cost: 0.03 },
+      },
+    ]);
+    // A failure without a start still gets a place of its own.
+    expect(mapper.map({ type: 'compaction', state: 'failed', trigger: 'auto', error: 'model down' })).toMatchObject([
+      { id: 'compaction-agent-2', data: { state: 'failed', error: 'model down' } },
+    ]);
+    // Writing the summary was a model call; later calls keep it.
+    mapper.map({ type: 'usage', inputTokens: 40, outputTokens: 5, cost: 0.005 });
+    expect(mapper.usage).toMatchObject({
+      contextTokens: 45,
+      helpers: [{ input: 151_000, cacheRead: 0, cacheWrite: 0, output: 900, tools: [], model: 'mock-1', purpose: 'compact', cost: { total: 0.03 } }],
+    });
+    expect(mapper.usage?.cost).toBeCloseTo(0.045);
   });
 
   it('drops output for unknown tool calls and closes calls left open', () => {
@@ -252,6 +295,37 @@ describe('DeviceHub', () => {
     expect(run.ended).toBe(true);
     // Given up, the session can start again.
     hub.startTakeover('d3', takeover);
+  });
+
+  it("gives pi's settings only to devices with protocol 4", () => {
+    const hub = new DeviceHub();
+    const prompt = {
+      type: 'session.prompt' as const,
+      session: 's1',
+      project: 'demo',
+      harness: 'pi',
+      conversation: { id: 's1', title: null },
+      text: 'hi',
+      history: null,
+      model: null,
+      autosync: false,
+      thinking: 'high' as const,
+    };
+    const compact = { type: 'session.compact' as const, session: 's2', project: 'demo', harness: 'pi', conversation: { id: 's2', title: null } };
+    const old = connect(hub, 'd1');
+    old.say({ type: 'hello', version: 3, projects: [] });
+    hub.startRun('d1', prompt);
+    expect(old.received.at(-1)).toEqual({ ...prompt, thinking: undefined });
+    expect(old.received.at(-1)).not.toHaveProperty('thinking');
+    expect(() => hub.startCompaction('d1', compact)).toThrow(/update harness/);
+
+    const device = connect(hub, 'd2');
+    device.hello();
+    hub.startRun('d2', { ...prompt, session: 's3' });
+    expect(device.received.at(-1)).toEqual({ ...prompt, session: 's3' });
+    hub.startCompaction('d2', compact);
+    expect(device.received.at(-1)).toEqual(compact);
+    expect(() => hub.startCompaction('d2', compact)).toThrow(/still answering/);
   });
 
   it('speaks protocol 1 with older devices and sends them nothing new', async () => {
@@ -731,6 +805,98 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(((await same.json()) as ConversationSummary).link?.autosync).toBe(true);
     const unlinked = await server.request('POST', `/api/conversations/${(await newConversation()).id}/takeover`, { cookie });
     expect(unlinked.status).toBe(400);
+  });
+
+  it("passes the chat's thinking level to pi and has pi summarize on request", async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, {
+      cookie,
+      body: { deviceId, project: 'demo', harness: 'pi' },
+    });
+    device.onPrompt = (prompt) =>
+      device.emit(
+        prompt.session,
+        { type: 'text.start', id: 't' },
+        { type: 'text.delta', id: 't', delta: 'Gelesen.' },
+        { type: 'text.end', id: 't' },
+        { type: 'usage', inputTokens: 1000, outputTokens: 20, cost: 0.01, contextWindow: 128_000 },
+        { type: 'done', aborted: false },
+      );
+    const first = await server.request('POST', `/api/conversations/${conversation.id}/chat`, {
+      cookie,
+      body: {
+        message: { id: 'm-effort', role: 'user', parts: [{ type: 'text', text: 'Lies das README' }] },
+        credentialId: credential.id,
+        modelId: 'mock-1',
+        effort: 'high',
+      },
+    });
+    await first.text();
+    expect(device.received.filter((m) => m.type === 'session.prompt').at(-1)).toMatchObject({ thinking: 'high' });
+    // Back to the default, pi has to hear about it too.
+    await (await chat(conversation.id, 'Und weiter')).text();
+    expect(device.received.filter((m) => m.type === 'session.prompt').at(-1)).toMatchObject({ thinking: 'medium' });
+    await eventually(async () => (await load(conversation.id)).messages.length === 4);
+
+    device.onCompact = (request) =>
+      device.emit(
+        request.session,
+        { type: 'progress', id: 'instance', label: 'Instanz harness-demo', state: 'done' },
+        { type: 'compaction', state: 'running', trigger: 'manual' },
+        {
+          type: 'compaction',
+          state: 'done',
+          trigger: 'manual',
+          summary: 'Bisher: README gelesen.',
+          tokensBefore: 1020,
+          tokensAfter: 300,
+          inputTokens: 1100,
+          outputTokens: 80,
+          cost: 0.002,
+        },
+        { type: 'done', aborted: false },
+      );
+    const response = await server.request('POST', `/api/conversations/${conversation.id}/compact`, {
+      cookie,
+      body: { credentialId: credential.id, modelId: 'mock-1' },
+    });
+    expect(response.status).toBe(200);
+    expect(device.received.at(-1)).toEqual({
+      type: 'session.compact',
+      session: conversation.id,
+      project: 'demo',
+      harness: 'pi',
+      conversation: { id: conversation.id, title: expect.anything() as unknown },
+    });
+    const stored = (await load(conversation.id)).messages;
+    expect(stored).toHaveLength(4);
+    // pi's summary joins the last reply, its cost the reply's.
+    expect(stored[3]?.parts.at(-1)).toMatchObject({
+      type: 'data-compaction',
+      data: { state: 'done', trigger: 'manual', agent: true, summary: 'Bisher: README gelesen.', tokens: 1020, tokensAfter: 300, cost: 0.002 },
+    });
+    expect(stored[3]?.metadata?.usage?.helpers).toEqual([
+      { input: 1100, cacheRead: 0, cacheWrite: 0, output: 80, tools: [], model: 'mock-1', purpose: 'compact', cost: { total: 0.002 } },
+    ]);
+    expect(stored[3]?.metadata?.usage?.cost).toBeCloseTo(0.012);
+
+    // pi refuses (too little to summarize): the chat says why and stays as it was.
+    device.onCompact = (request) =>
+      device.emit(
+        request.session,
+        { type: 'compaction', state: 'failed', trigger: 'manual', error: 'Nothing to compact' },
+        { type: 'done', aborted: false },
+      );
+    const refused = await server.request('POST', `/api/conversations/${conversation.id}/compact`, { cookie, body: {} });
+    expect(refused.status).toBe(502);
+    expect(((await refused.json()) as { error: { code: string; message: string } }).error).toEqual({
+      code: 'device_failed',
+      message: 'Nothing to compact',
+    });
+    expect((await load(conversation.id)).messages[3]?.parts.filter((part) => part.type === 'data-compaction')).toHaveLength(1);
   });
 
   it('lets the owner set the idle time and stop the VM', async () => {
