@@ -152,6 +152,10 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
     let Some(dangers) = assessment.files else {
         checked.notes.push(
             match assessment.reason.as_deref() {
+                Some("disabled") => {
+                    "Jev übersprungen: für diesen Rechner in der Web-App abgeschaltet \
+                     (Einstellungen → Geräte)."
+                }
                 Some("no_helpers") => {
                     "Jev übersprungen: kein OpenRouter-Zugang im Konto (oder Hilfsmodelle vom Admin \
                      abgeschaltet)."

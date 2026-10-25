@@ -440,6 +440,9 @@ export const de = {
     paired: 'Gekoppelt am {date}',
     lastUsed: 'zuletzt genutzt am {date}',
     neverUsed: 'noch nicht genutzt',
+    jevReview: 'Jev prüft Änderungen vor dem Übernehmen',
+    jevReviewHint:
+      'Ein Hilfsmodell sucht in den Diffs des Agents nach Schadcode, bevor sie in deinen Ordner kommen (braucht einen OpenRouter-Zugang, Bruchteile eines Cents je Prüfung).',
     online: 'verbunden',
     removeTitle: 'Gerät entfernen?',
     removeBody: '„{name}“ verliert sofort den Zugang. Für eine neue Kopplung dort erneut „harness login“ ausführen.',

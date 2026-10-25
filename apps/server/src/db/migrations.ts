@@ -168,6 +168,18 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('chatLink').dropColumn('autosync').execute();
     },
   },
+  // Whether Jev checks the agent's changes before a device takes them over.
+  '0007_device_review': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('device')
+        .addColumn('jevReview', 'integer', (col) => col.notNull().defaultTo(1))
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').dropColumn('jevReview').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

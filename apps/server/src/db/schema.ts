@@ -1,4 +1,5 @@
 import type { ProviderKind } from '@harness/shared';
+import type { Generated } from 'kysely';
 
 /**
  * Row of the Better Auth `user` table, limited to the columns this app reads.
@@ -76,6 +77,8 @@ export interface DeviceTable {
   lastUsedAt: number | null;
   /** Idle minutes until the device stops its VM; null: the default. */
   idleMinutes: number | null;
+  /** 1 if Jev checks the agent's changes before they are taken over, else 0. */
+  jevReview: Generated<number>;
 }
 
 /**

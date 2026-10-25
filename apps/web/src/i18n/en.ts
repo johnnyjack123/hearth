@@ -440,6 +440,9 @@ export const en: Messages = {
     paired: 'Paired on {date}',
     lastUsed: 'last used on {date}',
     neverUsed: 'not used yet',
+    jevReview: 'Jev checks changes before taking them over',
+    jevReviewHint:
+      'A helper model looks for malicious code in the agent’s diffs before they reach your folder (needs an OpenRouter key, fractions of a cent per check).',
     online: 'connected',
     removeTitle: 'Remove device?',
     removeBody: '“{name}” loses access immediately. To pair it again, run “harness login” there.',

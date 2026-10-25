@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { ConfirmDialog } from '@/components/ui/dialog.tsx';
 import { Badge, Card, EmptyState, Separator, Skeleton } from '@/components/ui/display.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
 import { api, errorMessage } from '@/lib/api.ts';
 import { springs } from '@/lib/motion.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
@@ -63,6 +64,22 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
   const [removing, setRemoving] = useState(false);
   const date = (epoch: number) => new Date(epoch).toLocaleDateString(locale);
 
+  async function setJevReview(jevReview: boolean) {
+    // Shown at once; the answer of the server replaces it.
+    queryClient.setQueryData<DeviceSummary[]>(queryKeys.devices, (devices) =>
+      devices?.map((candidate) => (candidate.id === device.id ? { ...candidate, jevReview } : candidate)),
+    );
+    try {
+      const updated = await api.devices.update(device.id, { jevReview });
+      queryClient.setQueryData<DeviceSummary[]>(queryKeys.devices, (devices) =>
+        devices?.map((candidate) => (candidate.id === device.id ? updated : candidate)),
+      );
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.devices });
+    }
+  }
+
   async function remove() {
     try {
       await api.devices.remove(device.id);
@@ -93,6 +110,13 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
           {device.lastUsedAt ? t('devices.lastUsed', { date: date(device.lastUsedAt) }) : t('devices.neverUsed')}
         </span>
         <DeviceVm device={device} />
+        <label className="flex cursor-pointer items-start gap-3 pt-2">
+          <Switch checked={device.jevReview} onCheckedChange={(checked) => void setJevReview(checked)} />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm text-foreground">{t('devices.jevReview')}</span>
+            <span className="text-xs text-muted-foreground">{t('devices.jevReviewHint')}</span>
+          </span>
+        </label>
       </div>
       <Button variant="ghost" size="icon-sm" aria-label={t('common.delete')} onClick={() => setRemoving(true)}>
         <Trash2 />
