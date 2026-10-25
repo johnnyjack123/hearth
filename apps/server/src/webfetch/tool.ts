@@ -173,8 +173,11 @@ const DESCRIPTION =
   'Only public hosts on ports 80 and 443 work. Hosts the user named in this chat load at once; ' +
   'any other URL waits until the user allows it in the chat. If the user declines, do not try again.';
 
-const inputSchema = z.object({
-  url: z.string().describe('Absolute http:// or https:// URL of the page'),
+/**
+ * What the model may ask of a page besides its URL; agents on a paired
+ * computer send the same through the gateway.
+ */
+export const pageRequestSchema = z.object({
   fullPage: z
     .boolean()
     .optional()
@@ -196,7 +199,97 @@ const inputSchema = z.object({
     .describe('Numbers of sections to return, from the outline of an earlier call with focus'),
 });
 
+/** See {@link pageRequestSchema}. */
+export type PageRequest = z.infer<typeof pageRequestSchema>;
+
+const inputSchema = pageRequestSchema.extend({
+  url: z.string().describe('Absolute http:// or https:// URL of the page'),
+});
+
 type Input = z.infer<typeof inputSchema>;
+
+/**
+ * How {@link loadPage} fetches.
+ */
+export interface LoadPageOptions {
+  /** See {@link WebFetchConfig}. */
+  config: WebFetchConfig;
+  /** Helper models of the user; the embedding model helps pick sections. */
+  helpers: Helpers | null;
+  /** Ends the fetch, e.g. with the request. */
+  signal?: AbortSignal;
+  /** Called before each redirect, see `FetchPageOptions.onRedirect`. */
+  onRedirect?: (next: URL, from: URL) => Promise<void>;
+}
+
+/**
+ * Loads a URL that `parseTarget` accepted and the caller allowed, and
+ * turns it into what the model gets: the readable text, or the sections or
+ * lines it asked for, plus prompt injection findings on the whole page.
+ *
+ * @param start - Validated URL.
+ * @param request - See {@link pageRequestSchema}.
+ * @param options - See {@link LoadPageOptions}.
+ * @returns The tool output; {@link modelText} makes the model's text of it.
+ * @throws {WebFetchError} As `fetchPage`.
+ */
+export async function loadPage(start: URL, request: PageRequest, options: LoadPageOptions): Promise<WebFetchOutput> {
+  const { config, helpers, signal } = options;
+  const page = await fetchPage(start, config, {
+    ...(signal ? { signal } : {}),
+    ...(options.onRedirect ? { onRedirect: options.onRedirect } : {}),
+  });
+  const isHtml = page.contentType === 'text/html' || page.contentType === 'application/xhtml+xml';
+  const raw = decodeBody(page.body, page.charset, isHtml);
+  const converted = isHtml ? pageToMarkdown(raw, page.url, request.fullPage === true) : { markdown: raw, mainContent: false };
+  const readable = tidy(converted.markdown);
+  const focus = request.focus?.trim() || null;
+  const pattern = request.grep && grepMatcher(request.grep) ? request.grep.trim() : null;
+  // Sections asked for by number come first, then grep, then focus.
+  const grepped = pattern && !request.sections?.length && readable.length > SHORT_PAGE_CHARS ? grepPage(readable, pattern) : null;
+  const selection =
+    !grepped && (focus || request.sections?.length)
+      ? await selectSections(readable, { focus, sections: request.sections ?? null, maxChars: config.maxChars }, helpers, signal)
+      : null;
+  const { text, truncated } = grepped
+    ? { text: grepped.text, truncated: false }
+    : selection
+      ? { text: selection.text, truncated: false }
+      : truncate(readable, config.maxChars);
+  // Readable text first: its excerpts are what the user can make sense of.
+  const findings = findInjections(readable, raw);
+  return {
+    url: page.url.href,
+    status: page.status,
+    contentType: page.contentType,
+    title: isHtml ? htmlTitle(raw) : null,
+    text,
+    truncated: truncated || page.truncated,
+    mainContent: converted.mainContent,
+    warnings: warningKinds(findings),
+    findings,
+    ...(focus && !grepped ? { focus } : {}),
+    ...(pattern && !request.sections?.length
+      ? {
+          grep: {
+            pattern,
+            lines: grepped?.lines ?? null,
+            truncated: grepped?.truncated ?? false,
+            ...(grepped?.ignored.length ? { ignored: grepped.ignored } : {}),
+          },
+        }
+      : {}),
+    ...(selection ? {
+          sections: {
+            total: selection.total,
+            shown: selection.shown,
+            outline: selection.outline,
+            matched: selection.matched,
+            ...(selection.ranking ? { ranking: selection.ranking } : {}),
+          },
+        } : {}),
+  };
+}
 
 /**
  * Builds the `web_fetch` tool for one chat request.
@@ -251,7 +344,9 @@ export function createWebFetchTool(context: WebFetchContext) {
     if (!found) {
       await authorize(start, signal);
     }
-    const page = await fetchPage(start, config, {
+    const output = await loadPage(start, input, {
+      config,
+      helpers,
       ...(signal ? { signal } : {}),
       onRedirect: async (next, from) => {
         // A redirect within the host the user allowed belongs to the same
@@ -261,58 +356,9 @@ export function createWebFetchTool(context: WebFetchContext) {
         }
       },
     });
-    const isHtml = page.contentType === 'text/html' || page.contentType === 'application/xhtml+xml';
-    const raw = decodeBody(page.body, page.charset, isHtml);
-    const converted = isHtml ? pageToMarkdown(raw, page.url, input.fullPage === true) : { markdown: raw, mainContent: false };
-    const readable = tidy(converted.markdown);
-    const focus = input.focus?.trim() || null;
-    const pattern = input.grep && grepMatcher(input.grep) ? input.grep.trim() : null;
-    // Sections asked for by number come first, then grep, then focus.
-    const grepped = pattern && !input.sections?.length && readable.length > SHORT_PAGE_CHARS ? grepPage(readable, pattern) : null;
-    const selection =
-      !grepped && (focus || input.sections?.length)
-        ? await selectSections(readable, { focus, sections: input.sections ?? null, maxChars: config.maxChars }, helpers, signal)
-        : null;
-    const { text, truncated } = grepped
-      ? { text: grepped.text, truncated: false }
-      : selection
-        ? { text: selection.text, truncated: false }
-        : truncate(readable, config.maxChars);
     // Only links the model actually gets to see.
-    known?.addLinks(text);
-    // Readable text first: its excerpts are what the user can make sense of.
-    const findings = findInjections(readable, raw);
-    return {
-      url: page.url.href,
-      status: page.status,
-      contentType: page.contentType,
-      title: isHtml ? htmlTitle(raw) : null,
-      text,
-      truncated: truncated || page.truncated,
-      mainContent: converted.mainContent,
-      warnings: warningKinds(findings),
-      findings,
-      ...(focus && !grepped ? { focus } : {}),
-      ...(pattern && !input.sections?.length
-        ? {
-            grep: {
-              pattern,
-              lines: grepped?.lines ?? null,
-              truncated: grepped?.truncated ?? false,
-              ...(grepped?.ignored.length ? { ignored: grepped.ignored } : {}),
-            },
-          }
-        : {}),
-      ...(selection ? {
-            sections: {
-              total: selection.total,
-              shown: selection.shown,
-              outline: selection.outline,
-              matched: selection.matched,
-              ...(selection.ranking ? { ranking: selection.ranking } : {}),
-            },
-          } : {}),
-    };
+    known?.addLinks(output.text);
+    return output;
   }
 
   return tool({

@@ -10,7 +10,8 @@
 #   with tool call and text is streamed and stored -> harness sync brings
 #   the commit home -> "save progress" commits, checks and merges the
 #   agent's work, autosync does it after a reply, a git hook holds the merge
-#   for the terminal -> VM activity and idle time in the web app, a terminal
+#   for the terminal -> pi's web_fetch: the gateway asks for the host in the
+#   chat, the server loads the page -> VM activity and idle time in the web app, a terminal
 #   command keeps the VM busy -> the tray icon of harnessd and its status
 #   file -> harness daemon stop
 #
@@ -207,7 +208,7 @@ APPROVAL=$(grep -oE '"id":"approval-[0-9]+"' "$WORK/stream.log" | head -1 | grep
 api POST "/api/conversations/$CONVERSATION/approvals/$APPROVAL" '{"decision":"once"}' > /dev/null
 wait_for 120 bash -c "! kill -0 $CHAT 2> /dev/null"
 check "Umlaute kommen beim Modell an" grep -q 'prüfe example.com' "$WORK/mock-requests.log"
-check "Frage als beantwortet markiert" grep -q '"state":"resolved"' "$WORK/stream.log"
+check "Frage als beantwortet markiert, mit Host" grep -q '"host":"example.com","port":443,"state":"resolved"' "$WORK/stream.log"
 check "Werkzeugaufruf gestreamt" grep -q '"type":"tool-input-available"' "$WORK/stream.log"
 check "example.com nach Freigabe erreicht" grep -q 'status=200' "$WORK/stream.log"
 check "Antwort des Modells gestreamt" grep -q '"delta":"fertig"' "$WORK/stream.log"
@@ -254,6 +255,17 @@ check "Freigabe nur mit Terminal" grep -q "braucht ein Terminal" "$WORK/approve.
 check "Freigabe bleibt offen" test -f "$HARNESS_HOME/merge-requests/$REQUEST.json"
 check "unbekannte ID abgelehnt" bash -c "! '$H' merge --approve ZZZZZZ < /dev/null > /dev/null 2>&1"
 api PATCH "/api/conversations/$CONVERSATION/link" '{"autosync":false}' > /dev/null
+
+echo "== web_fetch von pi über den Server"
+say_in_chat m4 '?https://example.com/' &
+FETCH=$!
+check "Rückfrage für den Host von web_fetch" wait_for 120 grep -q '"host":"example.com"' "$WORK/m4.log"
+APPROVAL=$(grep -oE '"id":"approval-[0-9]+"' "$WORK/m4.log" | head -1 | grep -oE '[0-9]+')
+api POST "/api/conversations/$CONVERSATION/approvals/$APPROVAL" '{"decision":"once"}' > /dev/null
+wait_for 120 bash -c "! kill -0 $FETCH 2> /dev/null"
+check "Werkzeug web_fetch aufgerufen" grep -q '"toolName":"web_fetch"' "$WORK/m4.log"
+check "Seite als markierte, fremde Daten" bash -c "grep -q 'Example Domain' '$WORK/m4.log' && grep -q 'untrusted data' '$WORK/m4.log'"
+check "Gateway hat den Host geprüft" bash -c "'$H' net status 2> /dev/null | grep -q 'example.com'"
 
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null

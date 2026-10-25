@@ -223,9 +223,17 @@ pub(crate) fn ready_harness(
     let mut command = base;
     if harness.guard == Some(GuardKind::Pi) {
         // A warning, not a stop: pi without the guard still beats no pi.
-        match pi::ensure_guard(&prepared.provider, &prepared.project) {
+        match pi::Extension::Guard.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
             Err(error) => println!("Schutz gegen Prompt-Injection nicht geladen: {error}"),
+        }
+    }
+    // web_fetch goes through the server like the model does, so only pi
+    // wired to a server gets it.
+    if models.is_some() {
+        match pi::Extension::Web.ensure(&prepared.provider, &prepared.project) {
+            Ok(path) => command.extend(["-e".to_owned(), path]),
+            Err(error) => println!("pi: web_fetch nicht geladen: {error}"),
         }
     }
     if let Some(flag) = &harness.prompt_flag {

@@ -182,9 +182,12 @@ fn instances_install_harnesses_and_keep_their_volumes() {
 
     // The guard against prompt injection lands in the tools volume, where
     // the agent can read but not change it.
-    let guard = pi::ensure_guard(&provider, &project).unwrap();
+    let guard = pi::Extension::Guard.ensure(&provider, &project).unwrap();
     assert!(instance::tool_file_exists(&provider, &name, &guard).unwrap());
-    assert_eq!(run(&format!("cat {guard}")).stdout, pi::GUARD_SOURCE);
+    assert_eq!(
+        run(&format!("cat {guard}")).stdout,
+        pi::Extension::Guard.source()
+    );
     let tamper = run(&format!("echo x > {guard}"));
     assert_ne!(tamper.code, 0, "guard writable from the instance");
     assert!(instance::write_tool_file(&provider, &project, "/workspace/x", "x").is_err());
