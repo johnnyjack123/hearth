@@ -107,7 +107,9 @@ bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, log
 bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync, VM-Aktivität (~1 min)
 VM_STOP=1 bash scripts/smoke-connect.sh   # zusätzlich VM-Stopp aus dem Browser und nach 1 min Leerlauf (~4 min, zwei VM-Starts)
 bash scripts/gateway-lock.sh          # images/gateway/Cargo.lock neu aus Cargo.lock (nach cargo update / neuen Gateway-Abhängigkeiten)
-target/debug/harness init             # Ordner als Projekt anlegen (mit Git), beim Server melden, Dienst sicherstellen
+target/debug/harness init [name]      # Ordner als Projekt anlegen (mit Git), beim Server melden, Dienst sicherstellen; name statt Ordnername
+target/debug/harness project list     # alle Projekte mit Freigabe für Web-Chats und Ordner
+target/debug/harness project remove [name] [--keep-data] [--yes]   # Projekt vergessen, Instanz/Gateway (und ohne --keep-data die Volumes) in der VM löschen
 target/debug/harness daemon [status|start|stop|install|uninstall]   # Hintergrunddienst für Web-Chats (Protokoll: ~/.harness/daemon.log)
 target/debug/harness connect          # dasselbe im Terminal zum Zuschauen (nur ohne laufenden Dienst; bestätigt Chats bei confirm = true)
 target/debug/harness project remote on|off [--confirm|--no-confirm]   # Projekt für Web-Chats an- oder abmelden
@@ -133,6 +135,7 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 
 ### Dateien schreiben (Claude Code)
 
+- **Backslashes in Python-Skripten, die Dateien ändern:** In Werkzeug-Eingaben gehen `\\` und Zeilenfortsetzungen leicht verloren (am 24./25.10. landeten so zehn Leerzeichen mitten in Rust-Strings). Backslashes deshalb per Platzhalter und `chr(92)` einsetzen. `source.test.ts` meldet Rust-Strings mit langen Leerzeichen-Folgen.
 - **Heredocs mit Backticks im Bash-Werkzeug scheitern** („unexpected EOF while looking for matching `'`“) oder laufen still nicht, auch mit `<<'EOF'`. Python-Skripte mit Backticks (Template-Strings, Markdown) deshalb per Write in `$CLAUDE_JOB_DIR/tmp/` ablegen und mit `python -I <datei>` ausführen.
 
 - **Unicode-Escapes in Werkzeug-Eingaben:** Vierstellige Escapes wie `\u` + `200B` kommen als echtes, unsichtbares Zeichen in der Datei an, und `\\` wird zu `\`. Im Code deshalb immer die Klammerform `\u{200B}` schreiben (in Regex mit Flag `u`), und Zeilen mit vierstelligen Escapes nicht per Edit anfassen (der Vergleich scheitert), sondern per Skript nach Zeilennummer. `apps/server/test/source.test.ts` meldet rohe unsichtbare Zeichen und Steuerzeichen in allen versionierten Textdateien („Trojan Source“), auch aus Merges von Agents.
@@ -318,8 +321,14 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
   - Verarbeitung wie im Web-Chat (`loadPage` in `tool.ts`), Antwort `{text, page}` mit `modelText`. Hilfsmodelle laufen über den OpenRouter-Zugang des Nutzers (`loadHelpers` ohne Chat). Der Admin-Schalter „Webseiten laden“ gilt auch hier (403).
 - Die Seite holt der Server, also von dessen IP (beim Nutzer: der Pi), nicht vom Rechner des Nutzers.
 - Der pi-Schutz läuft auch über `web_fetch`-Ergebnisse. Das Modell bekommt dann zwei Warnhinweise (Server und Schutz), dafür sieht der Nutzer die Fundstellen in pi bzw. im Chat.
+- **`web_search` für pi** (25.10., dieselbe Erweiterung): `POST http://llm.harness/_web/search` mit `{query, kind}`. Das Gateway reicht den Pfad ohne Host-Prüfung durch, weil er kein Ziel nennt. Der Server (`/api/llm/proxy/_web/search`) sucht nur, solange auf dem Gerät eine Antwort mit eingeschaltetem Recherche-Schalter läuft (`DeviceHub.researchQuestion`). Das gilt pro Gerät, nicht pro Chat, weil die Anfrage keine Sitzung kennt. Sonst antwortet er `[research_off]`.
+  - Der Agent erfährt den Modus über einen Hinweis vor seiner Nachricht (`AGENT_RESEARCH_NOTE` in `conversations.ts`). Reihung und Prüfung wie im Web-Chat (`runSearch` in `websearch/tool.ts`, Jev mit dem OpenRouter-Zugang des Nutzers).
+  - Anders als im Web-Chat laden Treffer nicht ohne Rückfrage: Das Gateway prüft jeden Host beim Lesen nach den Netzregeln.
+  - pi-Erweiterungen nehmen für Aufzählungen `StringEnum` aus `@earendil-works/pi-ai` (Google-kompatibel). Der Smoke-Test prüft die Erweiterung in echtem pi (`?search …` an `mock-agent-llm.mjs`, das auch SearXNG spielt).
 
 ### Websuche und Recherche-Modus (`apps/server/src/websearch/`, Composer `research-toggle.tsx`)
+
+- **Ein Schalter für alle Chats** (25.10., Wunsch des Nutzers): Er liegt im Browser (`preferences.tsx`, `localStorage` `harness.research`) und gilt auch in Umgebungs-Chats (Agents suchen über den Server, siehe „web_search für pi“). `metadata.research` an der Nutzernachricht speichert der Server weiter, die Web-App öffnet einen Chat aber nicht mehr danach.
 
 - **Anbieter** hinter `SearchBackend` (`providers.ts`): SearXNG (`/search?format=json`), Brave, Tavily. Treffer werden vereinheitlicht: nur http(s), jede URL einmal, Titel und Ausschnitt als Text ohne Tags, begrenzt. Fehler sind `WebSearchError` mit Code wie bei Web-Fetch (`[rejected:403] …`), die Web-App übersetzt sie (`webSearch.errors`).
 - **Quellen je Absatz:** Der System-Prompt (`CITATION_INSTRUCTIONS` in `routes/chat.ts`, Teil der Web-Fetch-Anweisungen bzw. im Recherche-Teil, wenn Web-Fetch aus ist) verlangt am Ende jedes Absatzes bzw. Listenpunkts mit Wissen aus dem Web die Quellen als Links in Klammern (`([Titel](url), [Titel](url))`), keine Quellen-Links mitten im Satz und keine Links aus dem Gedächtnis. Die Web-App macht daraus ein Badge am Absatzende (`rehypeSourceBadges` in `citations.ts`, `SourceBadge`): Gruppen von Links in Klammern oder ganz am Ende, sofern mindestens einer auf eine gelesene Seite oder einen Treffer des Chats zeigt, wandern ins Badge; Links mitten im Satz bleiben stehen (bekannte stehen zusätzlich im Badge). Das Badge zeigt den Host der ersten Quelle und „+n“, beim Zeigen (Maus, nach kurzer Verzögerung) oder Klicken die Liste mit Titel, Host und „nur Suchtreffer“ bzw. „ungeprüft“. Ein Klick hält die per Hover geöffnete Liste offen. Die Karte der bekannten Seiten (`knownSources`) bleibt beim Streamen dieselbe (`sourcesSignature`), sonst würde jeder Chunk alle Blöcke neu rendern. Die Web-App vergleicht die Links einer Antwort mit allen gelesenen Seiten und Suchtreffern des Chats (`citations.ts`: Host ohne `www.` plus Pfad ohne Schrägstrich am Ende, Parameter egal) und listet fremde unter der Antwort als „Ungeprüfte Links“. Hat der Chat nichts gelesen oder gefunden, gibt es keinen Hinweis.

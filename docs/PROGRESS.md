@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); nächstes: Test des Nutzers im Verbund, dann Kontext-Kompaktierung und Effort-Regler_
+_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); nächstes: Kontext-Kompaktierung und Effort-Regler_
 
 ## Where we are
 
@@ -47,7 +47,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    4. ✅ Tray-Symbol für `harnessd` (24.10.)
    5. ✅ Installer: `harness setup`, Windows-Builds, `install.ps1` (24.10.)
    6. ✅ `web_fetch` für pi (24.10.), fortsetzbare Antworten (25.10.): Neuladen beendet keine Antwort mehr, nur „Stopp“.
-   **Als Nächstes:** Test des Nutzers im Verbund mit dem Release (Einrichtungsprogramm), danach Kontext-Kompaktierung und Thinking-Effort-Regler im Web, abgeglichen mit pi (Wunsch vom 23.10., ROADMAP Phase 3).
+   Test des Nutzers mit dem Release v0.1.1 am 25.10.: Einrichtung, Projekt, Verbinden und Agent liefen ohne Probleme; Übernehmen testet er noch. Nachgereicht am selben Tag: `harness init <name>`, `harness project list/remove`, Recherche-Schalter auch in Umgebungs-Chats (`web_search` für pi) und ein gemerkter Schalter für alle Chats.
+   **Als Nächstes:** Kontext-Kompaktierung und Thinking-Effort-Regler im Web, abgeglichen mit pi (Wunsch vom 23.10., ROADMAP Phase 3). Vorgemerkt: Gedächtnis für Agents und Chats, englische CLI (ROADMAP Phase 5).
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
 3. Danach: **Zweitmeinung zu Warnungen** (ROADMAP, eigener Abschnitt): Jev oder ein Chat-Modell bewertet Warnungen mit frischem Kontext. Die Fundstellen (`InjectionFinding`) sind die natürliche Eingabe dafür. Außerdem Suche für Agents in der VM (über den Server, derselbe Weg wie `web_fetch` für pi).
@@ -116,7 +117,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Niedrig:** Die Kosten des Titels zählen erst ab jetzt zur ersten Antwort; Embedding-Preise ohne `usage.cost` kommen aus OpenRouters Modellliste (24 h im Speicher).
 - **Mittel:** Readability braucht für 1–2-MB-Seiten hier ~1 s, auf dem Pi vermutlich mehrere Sekunden.
 - **Mittel:** Laufende Antworten liegen nur im Speicher des Servers; ein Neustart beendet sie (gespeichert ist dann nur die Nachricht des Nutzers).
-- **Mittel:** Die VM-Tests (`instance_vm`, `gateway_vm`) und der Smoke-Test mit der Korrektur der Rückfragen (Host nach der Antwort) liefen am 25.10. nicht mehr: Die VM startete nach dem Standby nicht (alter `gvproxy`, siehe CLAUDE.md „VM-Dienst“). Der Smoke-Test mit `web_fetch` für pi war vorher grün. Nach `harness vmd install` und einem VM-Start wiederholen.
+- **Niedrig:** Recherche im Umgebungs-Chat fragt beim Lesen jedes neuen Treffer-Hosts nach (Gateway), anders als im Web-Chat (ROADMAP Phase 5).
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut; pis Sitzung enthält die alte Runde noch.
 - **Mittel:** pis Sitzungen aller Projekte liegen gemeinsam in `harness-cfg-pi`.
 - **Mittel:** VM-RAM knapp (Start 1 GB; am 18.10. 183 MiB frei); ~350–500 ms pro podman-Aufruf.

@@ -466,6 +466,13 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
+- **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., nicht dringend): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.
+  - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.harness` wie `web_fetch`.
+  - Einbinden: als Block vor der ersten Nutzernachricht oder im System-Prompt. Für den Cache muss der Block fest bleiben, bis sich eine Erinnerung ändert.
+  - Vorsicht Prompt-Injection: Eine gekaperte Seite könnte das Modell dazu bringen, sich etwas „zu merken“, das dann in jedem Chat wirkt. Neue Erinnerungen deshalb sichtbar im Chat anzeigen (wie eine Rückfrage, mit Bestätigung oder wenigstens Hinweis) und den Text vor dem Speichern auf Injection-Muster prüfen.
+- **Englische Texte in CLI und Einrichtung** (Frage des Nutzers, 25.10.): `harness`, `harness setup` und das Einrichtungsprogramm sprechen nur Deutsch, die Web-App Deutsch und Englisch. Sprache nach Windows-Einstellung (`GetUserDefaultUILanguage`), Texte in einer Tabelle wie `apps/web/src/i18n`.
+- **Recherche für Agents ohne Rückfrage je Treffer:** Im Web-Chat laden Suchtreffer ohne Frage, beim Agent prüft das Gateway jeden Host. Idee: Das Gateway fragt den Server (mit dem Geräte-Token), ob eine URL ein Treffer einer laufenden Recherche-Antwort ist, und lässt sie dann ohne Rückfrage durch; die deny-Liste gilt weiter.
+
 - **ponytail als optionaler Skill in pi** (Idee des Nutzers, 24.10., vorgemerkt): ponytail ist ein pi-Paket („lazy senior dev“), das den Agent zu weniger und einfacherem Code drängt. Es arbeitet eine Checkliste ab: Braucht es den Code überhaupt? Deckt das die Standardbibliothek, die Plattform oder eine vorhandene Abhängigkeit schon ab? Dazu kommen Befehle wie `/ponytail lite|full|ultra|off`, `/ponytail-review` und `/ponytail-audit`.
   - Pakete: `@dietrichgebert/ponytail` (Original), `@bacnh85/pi-ponytail` (für pi angepasst), Installation per `pi install npm:…`.
   - Umsetzung wäre ein Schalter pro Projekt oder Chat, der das Paket bei der Installation ins Tools-Volume legt und für pi lädt.
