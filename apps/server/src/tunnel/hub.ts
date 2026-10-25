@@ -170,6 +170,8 @@ interface Connection {
 interface ActiveRun {
   deviceId: string;
   run: AgentRun;
+  /** The user's question while the reply runs in research mode. */
+  research?: { question: string };
 }
 
 /**
@@ -298,13 +300,39 @@ export class DeviceHub {
    *
    * @param deviceId - Device the session runs on.
    * @param prompt - The prompt.
+   * @param research - Set when the user switched research mode on: while
+   *   the reply runs, the device's agents may search the web
+   *   ({@link DeviceHub.researchQuestion}).
    * @returns The run.
    * @throws {HttpError} 409 if the device is offline or the session is still
    *   answering. Whether the project may run is the device's decision; it
    *   refuses with a reason the chat shows.
    */
-  startRun(deviceId: string, prompt: PromptMessage): AgentRun {
-    return this.#start(deviceId, prompt);
+  startRun(deviceId: string, prompt: PromptMessage, research?: { question: string }): AgentRun {
+    const run = this.#start(deviceId, prompt);
+    const active = this.#runs.get(prompt.session);
+    if (active && research) {
+      active.research = research;
+    }
+    return run;
+  }
+
+  /**
+   * Whether an agent on a device may search the web: only while one of its
+   * replies runs in research mode. Searches come through the gateway with
+   * the device token and no session, so the device as a whole counts.
+   *
+   * @param deviceId - Device id.
+   * @returns The user's question of that reply, which ranks the hits; null
+   *   if no such reply runs.
+   */
+  researchQuestion(deviceId: string): string | null {
+    for (const active of this.#runs.values()) {
+      if (active.deviceId === deviceId && active.research) {
+        return active.research.question;
+      }
+    }
+    return null;
   }
 
   /**

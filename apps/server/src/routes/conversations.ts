@@ -77,6 +77,11 @@ async function attachTakeover(db: Kysely<DB>, conversationId: string, link: Chat
   return message;
 }
 
+/** Put in front of a message to an agent while research mode is on. */
+const AGENT_RESEARCH_NOTE =
+  '[LLM Harness: Research mode is on. Search the web with web_search for current or uncertain facts, ' +
+  'read the most promising results with web_fetch and name your sources.]';
+
 /**
  * Routes for the signed-in user's conversations, mounted at `/api/conversations`.
  *
@@ -301,9 +306,9 @@ export function conversationRoutes(deps: AppDeps) {
       // A known message id means "regenerate" or "edit": the old branch is replaced.
       await discardFrom(db, conversation.id, userMessage.id);
       const previous = await loadMessages(db, conversation.id);
-      // Research mode belongs to ordinary chats with a search provider; the
-      // flag on the message lets the chat open with the switch as it was.
-      const search = link ? null : await loadSearchBackend(db, secretBox, searchEndpoints);
+      // Research mode needs a search provider; agents search through the
+      // server as well (`/api/llm/proxy/_web/search`).
+      const search = await loadSearchBackend(db, secretBox, searchEndpoints);
       const research = search !== null && body.research === true;
       const date = localDate(new Date());
       // Linked chats talk to an agent with its own prompt and get no notes.
@@ -339,11 +344,13 @@ export function conversationRoutes(deps: AppDeps) {
           project: link.project,
           harness: link.harness,
           conversation: { id: conversation.id, title: conversation.title },
-          text,
+          // The agent learns about research mode with the message; the
+          // server lets its searches through only while this reply runs.
+          text: research ? `${AGENT_RESEARCH_NOTE}\n\n${text}` : text,
           history: transcript(previous),
           model: { credentialId: row.id, modelId: body.modelId },
           autosync: link.autosync,
-        });
+        }, research ? { question: text } : undefined);
         return streamAgent({
           db,
           conversationId: conversation.id,

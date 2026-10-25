@@ -87,6 +87,25 @@ fn create_and_find_project() {
         "my-app-2"
     );
     assert_eq!(f.config.project_names().unwrap().len(), 2);
+
+    // A chosen name instead of the folder's, but never one that is taken.
+    let named = repo(&f.base, "repos/third");
+    let shop = ProjectName::new("shop").unwrap();
+    assert_eq!(
+        f.config
+            .create_project_named(&named, Some(&shop))
+            .unwrap()
+            .name,
+        shop
+    );
+    let fourth = repo(&f.base, "repos/fourth");
+    assert!(f.config.create_project_named(&fourth, Some(&shop)).is_err());
+
+    // Removing forgets the project, not the repository.
+    f.config.remove_project(&shop).unwrap();
+    assert_eq!(f.config.find_project(&named).unwrap(), None);
+    assert!(named.join(".git").exists());
+    assert!(f.config.remove_project(&shop).is_err());
 }
 
 #[cfg(windows)]

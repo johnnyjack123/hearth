@@ -1,4 +1,5 @@
 import type { AddressInfo } from 'node:net';
+import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
 import {
   type AgentEvent,
@@ -345,13 +346,14 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     return (await (await server.request('POST', '/api/conversations', { cookie, body: {} })).json()) as ConversationSummary;
   }
 
-  function chat(conversationId: string, text: string, id = `m-${Math.random().toString(36).slice(2)}`) {
+  function chat(conversationId: string, text: string, id = `m-${Math.random().toString(36).slice(2)}`, research = false) {
     return server.request('POST', `/api/conversations/${conversationId}/chat`, {
       cookie,
       body: {
         message: { id, role: 'user', parts: [{ type: 'text', text }] },
         credentialId: credential.id,
         modelId: 'mock-1',
+        ...(research ? { research } : {}),
       },
     });
   }
@@ -505,6 +507,59 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(replay).toContain('"type":"finish"');
     await eventually(async () => (await load(conversation.id)).messages.length === 2);
     expect((await load(conversation.id)).messages[1]?.parts.at(-1)).toMatchObject({ type: 'text', text: 'Teil eins' });
+  });
+
+  it('lets the agent search only while a reply runs in research mode', async () => {
+    const searxng = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ results: [{ title: 'Kaffee rösten', url: 'https://kaffee.example/roesten', content: 'Bei 200 °C' }] }));
+    });
+    await new Promise<void>((resolve) => searxng.listen(0, '127.0.0.1', resolve));
+    try {
+      const patched = await server.request('PATCH', '/api/admin/settings', {
+        cookie,
+        body: { search: { provider: 'searxng', searxngUrl: `http://127.0.0.1:${(searxng.address() as AddressInfo).port}` } },
+      });
+      expect(patched.status).toBe(200);
+      const { token, deviceId, userId } = await pair();
+      const device = connect(server.hub, deviceId, userId);
+      device.hello();
+      const conversation = await newConversation();
+      await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
+      const search = () =>
+        server.request('POST', '/api/llm/proxy/_web/search', {
+          body: { query: 'kaffee rösten' },
+          headers: { ...CLI, authorization: `Bearer ${token}` },
+        });
+
+      // Without research mode, or without a reply, the server refuses.
+      expect((await search()).status).toBe(403);
+      device.onPrompt = (prompt) => device.emit(prompt.session, { type: 'done', aborted: false });
+      await (await chat(conversation.id, 'Ohne Recherche')).text();
+      expect(device.received.filter((m) => m.type === 'session.prompt').at(-1)).toMatchObject({ text: 'Ohne Recherche' });
+
+      let prompted: (text: string) => void = () => undefined;
+      const prompt = new Promise<string>((resolve) => {
+        prompted = resolve;
+      });
+      device.onPrompt = (message) => prompted(message.text);
+      const reply = chat(conversation.id, 'Wie röstet man Kaffee?', undefined, true);
+      expect(await prompt).toMatch(/^\[LLM Harness: Research mode is on\..*\]\n\nWie röstet man Kaffee\?$/s);
+      const found = await search();
+      expect(found.status).toBe(200);
+      const body = (await found.json()) as { text: string; results: number };
+      expect(body.results).toBe(1);
+      expect(body.text).toContain('https://kaffee.example/roesten');
+      expect(body.text).toContain('untrusted data');
+
+      device.emit(conversation.id, { type: 'done', aborted: false });
+      await (await reply).text();
+      const after = await search();
+      expect(after.status).toBe(403);
+      expect(((await after.json()) as { error: string }).error).toMatch(/^\[research_off\]/);
+    } finally {
+      await new Promise((resolve) => searxng.close(resolve));
+    }
   });
 
   it('creates a chat that is linked from the start', async () => {

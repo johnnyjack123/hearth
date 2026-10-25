@@ -2,7 +2,8 @@
 // scripts/smoke-connect.sh: a request without a tool result gets a `bash`
 // call with MOCK_COMMAND, a request with one gets the answer "fertig". A
 // user message that starts with "!" names the command itself, one that
-// starts with "?" a URL for `web_fetch` instead.
+// starts with "?" a URL for `web_fetch` instead, and "?search <terms>" calls
+// `web_search`. It also answers like SearXNG (`/search?format=json`).
 // Every request body is appended to MOCK_LOG if set.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -33,6 +34,11 @@ http
       body += part;
     });
     req.on('end', () => {
+      if (req.method === 'GET' && req.url.startsWith('/search?')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ results: [{ title: 'Kaffee rösten', url: 'https://example.com/roesten', content: 'Bei etwa 200 °C' }] }));
+        return;
+      }
       if (req.method === 'GET' && req.url.endsWith('/models')) {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ object: 'list', data: [{ id: 'mock-model', object: 'model' }] }));
@@ -52,9 +58,14 @@ http
         res.write(chunk({}, 'stop'));
       } else {
         const text = lastUserText(messages).trim();
+        const query = /(?:^|\n)\?search (.+)$/.exec(text)?.[1];
         const url = /(?:^|\n)\?(\S+)$/.exec(text)?.[1];
         const wanted = /(?:^|\n)!(.+)$/s.exec(text)?.[1];
-        const [name, input] = url ? ['web_fetch', { url }] : ['bash', { command: wanted ?? COMMAND }];
+        const [name, input] = query
+          ? ['web_search', { query }]
+          : url
+            ? ['web_fetch', { url }]
+            : ['bash', { command: wanted ?? COMMAND }];
         const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name, arguments: '' } };
         res.write(chunk({ role: 'assistant', tool_calls: [call] }));
         res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(input) } }] }));

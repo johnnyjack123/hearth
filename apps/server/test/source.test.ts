@@ -53,4 +53,25 @@ describe('source files', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('have no Rust strings whose line continuation got lost', () => {
+    // A lost `\` at the end of a string line leaves the next line's
+    // indentation in the text (seen after edits through tools).
+    const files = execFileSync('git', ['ls-files', '-z', '*.rs'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
+    const offenders: string[] = [];
+    for (const file of files) {
+      let text: string;
+      try {
+        text = readFileSync(path.join(ROOT, file), 'utf8');
+      } catch {
+        continue;
+      }
+      text.split('\n').forEach((line, index) => {
+        if (/"[^"]*\S {10,}\S[^"]*"/.test(line)) {
+          offenders.push(`${file}:${index + 1}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
 });

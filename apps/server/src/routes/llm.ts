@@ -1,15 +1,23 @@
-import { type DeviceCredential, PROVIDERS, type ProviderKind } from '@harness/shared';
+import { type DeviceCredential, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
 import { ProviderRequestError } from '../llm.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { findCredential, listCredentialRows, resolveCredential } from '../services/credentials.ts';
-import { getServerSettings } from '../services/settings.ts';
+import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { agentFetch, APPROVED_HOST_HEADER, URL_HEADER } from '../webfetch/agent.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
 import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts';
+import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers.ts';
+import { runSearch, searchModelText } from '../websearch/tool.ts';
 import { assertEndpointAllowed } from './providers.ts';
+
+/** What an agent sends to search: the same as the web chat's tool. */
+const searchRequestSchema = z
+  .object({ query: z.string().trim().min(1).max(400), kind: z.enum(SEARCH_KINDS).optional() })
+  .strict();
 
 /**
  * Wire protocol a provider kind speaks; decides allowed paths and how the key
@@ -92,6 +100,7 @@ export function llmRoutes(deps: AppDeps) {
   const { db } = deps.database;
   const { secretBox, llm } = deps;
   const webFetchConfig = { ...DEFAULT_WEB_FETCH_CONFIG, ...deps.webFetch };
+  const searchEndpoints = { ...DEFAULT_SEARCH_ENDPOINTS, ...deps.webSearch };
 
   return new Hono<DeviceEnv>()
     .use(requireDevice(db))
@@ -137,6 +146,32 @@ export function llmRoutes(deps: AppDeps) {
         return c.json(await agentFetch(url, approvedHost, request, { config: webFetchConfig, helpers, signal: c.req.raw.signal }));
       } catch (error) {
         if (error instanceof WebFetchError) {
+          return c.json({ error: error.message }, 422);
+        }
+        throw error;
+      }
+    })
+    // `web_search` of agents, only while a reply of the device runs in
+    // research mode: the switch in the chat decides, not the agent.
+    .post('/proxy/_web/search', async (c) => {
+      const input = searchRequestSchema.parse(await c.req.json());
+      const question = deps.hub.researchQuestion(c.get('device').id);
+      if (question === null) {
+        return c.json(
+          { error: '[research_off] Research mode is off; the user can switch it on in the web chat. Answer without searching.' },
+          403,
+        );
+      }
+      const backend = await loadSearchBackend(db, secretBox, searchEndpoints);
+      if (!backend) {
+        return c.json({ error: '[not_configured] No search provider is set up on the harness server.' }, 403);
+      }
+      const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
+      try {
+        const output = await runSearch(backend, input, { helpers, question }, c.req.raw.signal);
+        return c.json({ text: searchModelText(output), results: output.results.length, warnings: output.warnings });
+      } catch (error) {
+        if (error instanceof WebSearchError) {
           return c.json({ error: error.message }, 422);
         }
         throw error;

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button.tsx';
 import { EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { ApiError, type ChatMessage } from '@/lib/api.ts';
 import { fade } from '@/lib/motion.ts';
-import { useT } from '@/lib/preferences.tsx';
+import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
 import { getChat, resumeReply, stopReply } from './chat-store.ts';
@@ -74,7 +74,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const t = useT();
   const { selection, select, models } = useModelSelection(conversation);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
-  const [research, setResearch] = useState(entry.research.current);
+  // One switch for every chat, kept in the browser.
+  const { research, setResearch } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
@@ -149,8 +150,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
               <>
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
                 <EnvironmentButton conversation={conversation} online={online} />
-                {/* Agents in an environment have their own tools. */}
-                {!link && publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
+                {/* Agents in an environment search through the server as well. */}
+                {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
               </>
             }
           />

@@ -1,4 +1,4 @@
-//! `harness project`: show, add and list projects.
+//! `harness project`: show, add, list and remove projects.
 
 use std::env;
 use std::io::IsTerminal as _;
@@ -8,6 +8,7 @@ use std::process::Command;
 use anyhow::{Context as _, bail};
 use harness_core::config::{ConfigDir, Project};
 use harness_core::project::{ProjectName, find_repo_root};
+use harness_core::provider::Provider as _;
 
 /// Prints the effective settings of the project for the current directory.
 pub fn show(config: &ConfigDir) -> anyhow::Result<bool> {
@@ -44,10 +45,18 @@ pub fn add(config: &ConfigDir) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-/// `harness init`: makes the current folder a project (with a git
+/// `harness init [name]`: makes the current folder a project (with a git
 /// repository, if it has none yet), offers it to the account's web chats
-/// and makes sure the background service runs.
-pub fn init(config: &ConfigDir) -> anyhow::Result<bool> {
+/// and makes sure the background service runs. `name` replaces the folder
+/// name as the project's (and environment's) name.
+pub fn init(config: &ConfigDir, name: Option<&str>) -> anyhow::Result<bool> {
+    let wanted = name.map(|text| {
+        let name = ProjectName::slug(text);
+        if name.as_str() != text.trim() {
+            println!("Name der Umgebung: {name} (aus „{}“)", text.trim());
+        }
+        name
+    });
     let cwd = env::current_dir().context("Aktuellen Ordner bestimmen")?;
     let repo = match find_repo_root(&cwd) {
         Some(root) => root,
@@ -70,11 +79,19 @@ pub fn init(config: &ConfigDir) -> anyhow::Result<bool> {
     }
     let project = match config.find_project(&repo)? {
         Some(project) => {
+            if let Some(wanted) = wanted.as_ref().filter(|wanted| **wanted != project.name) {
+                bail!(
+                    "{} ist schon das Projekt {}. Einen anderen Namen bekommt es mit \
+                     `harness project remove` und danach `harness init {wanted}`",
+                    repo.display(),
+                    project.name
+                );
+            }
             println!("{} ist schon das Projekt {}.", repo.display(), project.name);
             project
         }
         None => {
-            let project = config.create_project(&repo)?;
+            let project = config.create_project_named(&repo, wanted.as_ref())?;
             println!(
                 "Projekt {} angelegt (Netz: {}): {}",
                 project.name,
@@ -146,7 +163,8 @@ pub fn remote(
             );
         } else {
             println!(
-                "Neue Chats starten ohne Bestätigung. Wer dein Server-Konto nutzt, kann hier                  Agents starten."
+                "Neue Chats starten ohne Bestätigung. Wer dein Server-Konto nutzt, kann hier \
+                 Agents starten."
             );
         }
     } else {
@@ -158,17 +176,31 @@ pub fn remote(
     Ok(true)
 }
 
-/// Lists all projects with their repositories.
+/// Lists all projects with their repositories and whether web chats may
+/// use them.
 pub fn list(config: &ConfigDir) -> anyhow::Result<bool> {
     let names = config.project_names()?;
     if names.is_empty() {
-        println!("Noch keine Projekte. `harness project add` im Repository legt eins an.");
+        println!("Noch keine Projekte. `harness init` im Ordner legt eins an.");
         return Ok(true);
     }
     let mut all_valid = true;
     for name in names {
         match config.project(&name) {
-            Ok(project) => println!("{:<24} {}", project.name, project.path.display()),
+            Ok(project) => {
+                let web = match config.project_config(&name).map(|c| c.remote) {
+                    Ok(remote) if remote.enabled && remote.confirm => "Web-Chats mit Bestätigung",
+                    Ok(remote) if remote.enabled => "Web-Chats",
+                    Ok(_) => "nur Terminal",
+                    Err(_) => "?",
+                };
+                println!(
+                    "{:<24} {:<26} {}",
+                    project.name,
+                    web,
+                    project.path.display()
+                );
+            }
             Err(error) => {
                 all_valid = false;
                 println!("{name:<24} ✗ {error}");
@@ -176,6 +208,68 @@ pub fn list(config: &ConfigDir) -> anyhow::Result<bool> {
         }
     }
     Ok(all_valid)
+}
+
+/// `harness project remove [name]`: forgets a project. Its instance and
+/// gateway go, and unless `keep_data` the agent's clone and home in the VM
+/// too; the repository on the host stays as it is. Web chats no longer
+/// offer it.
+pub fn remove(
+    config: &ConfigDir,
+    machine: &str,
+    name: Option<&str>,
+    keep_data: bool,
+    yes: bool,
+) -> anyhow::Result<bool> {
+    let project = resolve(config, name)?;
+    println!("Projekt {} ({})", project.name, project.path.display());
+    if keep_data {
+        println!(
+            "Instanz und Gateway werden entfernt, Arbeitskopie und Home des Agents bleiben in der VM."
+        );
+    } else {
+        println!(
+            "Instanz, Gateway und die Daten des Agents in der VM (Arbeitskopie, Home) werden \
+             gelöscht. Was der Agent noch nicht übergeben hat, ist dann weg (vorher `harness sync`)."
+        );
+    }
+    println!("Dein Ordner und seine Branches bleiben, wie sie sind.");
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("Ohne Terminal nur mit --yes");
+        }
+        if !confirm("Projekt entfernen?", false)? {
+            println!("Abgebrochen.");
+            return Ok(false);
+        }
+    }
+    let cleaned = remove_from_vm(machine, &project.name, keep_data);
+    config.remove_project(&project.name)?;
+    crate::login::announce_projects(config);
+    match cleaned {
+        Ok(()) => println!("Projekt {} entfernt.", project.name),
+        Err(error) => println!(
+            "Projekt {} entfernt. In der VM ist noch etwas übrig ({error:#}); ein neues Projekt \
+             mit diesem Namen übernimmt es.",
+            project.name
+        ),
+    }
+    Ok(true)
+}
+
+/// Removes what a project has in the VM, starting the VM if needed.
+fn remove_from_vm(machine: &str, name: &ProjectName, keep_data: bool) -> anyhow::Result<()> {
+    let provider = crate::vm::provider(machine)?;
+    for container in [name.instance(), name.installer(), name.gateway()] {
+        provider.remove_container(&container)?;
+    }
+    provider.remove_network(&name.network())?;
+    if !keep_data {
+        for volume in [name.workspace_volume(), name.home_volume()] {
+            provider.remove_volume(&volume)?;
+        }
+    }
+    Ok(())
 }
 
 /// The project named on the command line, else the one of the current
