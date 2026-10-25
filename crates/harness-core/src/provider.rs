@@ -43,6 +43,20 @@ pub trait Provider {
     /// to the user as it happens.
     fn build_image(&self, build: &ImageBuild) -> Result<()>;
 
+    /// All images, including unnamed ones left by builds.
+    fn images(&self) -> Result<Vec<ImageInfo>>;
+
+    /// Removes an image by id. Fails while a container uses it or another
+    /// name still points to it.
+    fn remove_image(&self, id: &str) -> Result<()>;
+
+    /// Removes all images without a name: older versions of rebuilt images
+    /// and the intermediate stages of builds.
+    fn prune_images(&self) -> Result<()>;
+
+    /// Names of all volumes.
+    fn volumes(&self) -> Result<Vec<String>>;
+
     /// Creates the volume unless it exists.
     fn ensure_volume(&self, volume: &VolumeSpec) -> Result<()>;
 
@@ -109,6 +123,20 @@ pub trait Provider {
     /// Address under which containers in normal networks (the gateway)
     /// reach services on the host's loopback interface, if any.
     fn host_address(&self) -> Option<&str>;
+}
+
+/// An image in the engine's store, from [`Provider::images`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageInfo {
+    /// Image id.
+    pub id: String,
+    /// Names such as `localhost/harness/base:latest`; empty for an image
+    /// without a name.
+    pub tags: Vec<String>,
+    /// Size in bytes, counting layers it shares with other images.
+    pub size: u64,
+    /// Containers created from it.
+    pub containers: u32,
 }
 
 /// Facts about the VM, reported by [`Provider::ping`].

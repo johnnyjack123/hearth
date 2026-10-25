@@ -314,7 +314,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Daemon { command } => {
             daemon::run(&config, &machine_name(&config, cli.machine)?, command)
         }
-        Command::Vmd { command } => vmd::run(&machine_name(&config, cli.machine)?, command),
+        Command::Vmd { command } => vmd::run(&config, &machine_name(&config, cli.machine)?, command),
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;
             net::run(&config, &machine, project.as_deref(), command)

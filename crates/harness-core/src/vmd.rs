@@ -37,6 +37,9 @@ pub enum Request {
     Stop,
     /// Stop and start, e.g. when SSH stopped answering.
     Restart,
+    /// Give the space of deleted files back to Windows: TRIM inside the VM,
+    /// then shrink its disk file while it is off. Starts it again if it ran.
+    Compact,
 }
 
 /// State of the machine as the service sees it.
