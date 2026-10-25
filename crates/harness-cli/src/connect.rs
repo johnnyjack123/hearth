@@ -31,9 +31,10 @@ use harness_core::provider::ExecSpec;
 use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
-    AgentEvent, ApprovalState, Decision, DeviceMessage, NoticeLevel, ProgressState, Prompt,
-    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest,
-    TakeoverState, VERSION_VM_CONTROL, VmStatus, truncate,
+    AgentEvent, ApprovalState, CompactionState, CompactionTrigger, Decision, DeviceMessage,
+    MAX_NOTICE, NoticeLevel, ProgressState, Prompt, RemoteProject, ServerMessage, TUNNEL_PATH,
+    TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState, VERSION_VM_CONTROL, VmStatus,
+    truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
@@ -443,7 +444,7 @@ fn serve(
         }
         let mut failed = None;
         while let Ok(message) = outgoing.try_recv() {
-            if let Err(error) = send(&mut socket, &message) {
+            if let Err(error) = send(&mut socket, &message.for_version(version)) {
                 failed = Some(error);
                 break;
             }
@@ -580,6 +581,8 @@ fn send(socket: &mut Socket, message: &DeviceMessage) -> anyhow::Result<()> {
 /// Commands from the connection to a session thread.
 enum Command {
     Prompt(Box<Prompt>),
+    /// Summarize the harness's context now.
+    Compact,
     Cancel,
     Decide(u64, Decision),
     Close,
@@ -603,63 +606,8 @@ fn dispatch(
         ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
         ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, Some(request)),
-        ServerMessage::Prompt(prompt) => {
-            // First sign of life in the chat: the computer has the message.
-            let _ = out.send(DeviceMessage::SessionEvent {
-                session: prompt.session.clone(),
-                event: AgentEvent::Progress {
-                    id: "received".to_owned(),
-                    label: "Auf dem Rechner angekommen".to_owned(),
-                    state: ProgressState::Done,
-                    detail: None,
-                },
-            });
-            // The device decides what runs here, whatever the server says;
-            // read fresh, so a project from `harness init` works at once.
-            let released = offered(&shared.config)
-                .iter()
-                .any(|p| p.name == prompt.project && p.harnesses.contains(&prompt.harness));
-            if !released {
-                let _ = out.send(DeviceMessage::SessionClosed {
-                    session: prompt.session.clone(),
-                    reason: Some(format!(
-                        "Projekt {} ist auf diesem Rechner nicht für Web-Chats mit {} freigegeben.",
-                        prompt.project, prompt.harness
-                    )),
-                });
-                return;
-            }
-            // Until `done`, an error or the session's end (see `Emitter`).
-            shared.idle.begin(&prompt.session);
-            if let Some(session) = sessions.get(&prompt.session) {
-                if session.project == prompt.project && session.harness == prompt.harness {
-                    if session
-                        .commands
-                        .send(Command::Prompt(Box::new(prompt.clone())))
-                        .is_ok()
-                    {
-                        return;
-                    }
-                } else {
-                    let _ = session.commands.send(Command::Close);
-                }
-            }
-            let (commands, receiver) = mpsc::channel();
-            let id = prompt.session.clone();
-            let handle = SessionHandle {
-                project: prompt.project.clone(),
-                harness: prompt.harness.clone(),
-                commands,
-                thread: {
-                    let shared = Arc::clone(shared);
-                    let out = out.clone();
-                    thread::spawn(move || session(&shared, prompt, &receiver, &out))
-                },
-            };
-            if let Some(old) = sessions.insert(id, handle) {
-                let _ = old.thread.join();
-            }
-        }
+        ServerMessage::Prompt(prompt) => route(shared, sessions, out, prompt, false),
+        ServerMessage::Compact(request) => route(shared, sessions, out, request.as_prompt(), true),
         ServerMessage::Cancel { session } => {
             if let Some(s) = sessions.get(&session) {
                 let _ = s.commands.send(Command::Cancel);
@@ -679,6 +627,73 @@ fn dispatch(
                 let _ = s.commands.send(Command::Decide(id, decision));
             }
         }
+    }
+}
+
+/// Hands a prompt (or, with `compact`, a request to summarize) to the
+/// chat's session, starting one if none runs.
+fn route(
+    shared: &Arc<Shared>,
+    sessions: &mut HashMap<String, SessionHandle>,
+    out: &Sender<DeviceMessage>,
+    prompt: Prompt,
+    compact: bool,
+) {
+    // First sign of life in the chat: the computer has the message.
+    let _ = out.send(DeviceMessage::SessionEvent {
+        session: prompt.session.clone(),
+        event: AgentEvent::Progress {
+            id: "received".to_owned(),
+            label: "Auf dem Rechner angekommen".to_owned(),
+            state: ProgressState::Done,
+            detail: None,
+        },
+    });
+    // The device decides what runs here, whatever the server says;
+    // read fresh, so a project from `harness init` works at once.
+    let released = offered(&shared.config)
+        .iter()
+        .any(|p| p.name == prompt.project && p.harnesses.contains(&prompt.harness));
+    if !released {
+        let _ = out.send(DeviceMessage::SessionClosed {
+            session: prompt.session.clone(),
+            reason: Some(format!(
+                "Projekt {} ist auf diesem Rechner nicht für Web-Chats mit {} freigegeben.",
+                prompt.project, prompt.harness
+            )),
+        });
+        return;
+    }
+    // Until `done`, an error or the session's end (see `Emitter`).
+    shared.idle.begin(&prompt.session);
+    if let Some(session) = sessions.get(&prompt.session) {
+        if session.project == prompt.project && session.harness == prompt.harness {
+            let command = if compact {
+                Command::Compact
+            } else {
+                Command::Prompt(Box::new(prompt.clone()))
+            };
+            if session.commands.send(command).is_ok() {
+                return;
+            }
+        } else {
+            let _ = session.commands.send(Command::Close);
+        }
+    }
+    let (commands, receiver) = mpsc::channel();
+    let id = prompt.session.clone();
+    let handle = SessionHandle {
+        project: prompt.project.clone(),
+        harness: prompt.harness.clone(),
+        commands,
+        thread: {
+            let shared = Arc::clone(shared);
+            let out = out.clone();
+            thread::spawn(move || session(&shared, prompt, compact, &receiver, &out))
+        },
+    };
+    if let Some(old) = sessions.insert(id, handle) {
+        let _ = old.thread.join();
     }
 }
 
@@ -930,10 +945,12 @@ impl Progress for ChatProgress<'_> {
 }
 
 /// A session: environment, pi in RPC mode, until the chat is unlinked, pi
-/// exits or the connection ends.
+/// exits or the connection ends. With `compact`, the first thing it does is
+/// summarize instead of answering `first`, which then has no message.
 fn session(
     shared: &Shared,
     first: Prompt,
+    compact: bool,
     commands: &Receiver<Command>,
     out: &Sender<DeviceMessage>,
 ) {
@@ -959,7 +976,11 @@ fn session(
                     agent.project.name
                 ),
             );
-            agent.prompt(&first);
+            if compact {
+                agent.compact();
+            } else {
+                agent.prompt(&first);
+            }
             agent.serve(shared, commands);
             agent.stop();
             say(
@@ -992,6 +1013,8 @@ struct Agent {
     /// pi provider per server credential, for the model chosen in the chat.
     providers: HashMap<String, String>,
     model: Option<(String, String)>,
+    /// Thinking level set from the chat; none: pi's own setting.
+    thinking_level: Option<String>,
     first_prompt: bool,
     next_id: u64,
     approvals: Option<ApprovalBridge>,
@@ -1116,6 +1139,7 @@ fn start(
         reader,
         providers,
         model: None,
+        thinking_level: None,
         first_prompt: true,
         next_id: 0,
         approvals,
@@ -1259,6 +1283,9 @@ fn read_agent(
                             context_window = window;
                         }
                         let _ = responses.send(response);
+                    } else if response.command == "compact" {
+                        // The session waits for it; `compaction_end` told the chat why.
+                        let _ = responses.send(response);
                     } else if response.command == "prompt" {
                         emit.event(AgentEvent::error(format!(
                             "pi hat die Nachricht abgelehnt: {}",
@@ -1324,6 +1351,13 @@ impl Agent {
                 )),
             }
         }
+        if let Some(level) = &prompt.thinking
+            && self.thinking_level.as_ref() != Some(level)
+        {
+            let id = self.id("thinking");
+            self.send(&pi_rpc::set_thinking_level(&id, level));
+            self.thinking_level = Some(level.clone());
+        }
         let mut text = prompt.text.clone();
         if self.first_prompt {
             self.first_prompt = false;
@@ -1345,6 +1379,43 @@ impl Agent {
             detail: None,
         });
         self.send(&pi_rpc::prompt(&id, &text, false));
+    }
+
+    /// Has pi summarize its context now. pi reports it with the same events
+    /// as an automatic summary, which reach the chat; the reply ends with
+    /// pi's answer to the command.
+    fn compact(&mut self) {
+        let id = self.id("compact");
+        self.send(&pi_rpc::compact(&id));
+        let deadline = Instant::now() + Duration::from_secs(600);
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match self.responses.recv_timeout(left) {
+                Ok(response) if response.id.as_deref() == Some(id.as_str()) => {
+                    // Refused before it began (e.g. too little to summarize):
+                    // no `compaction_end` says why.
+                    if !response.success {
+                        self.emit.event(AgentEvent::Compaction {
+                            state: CompactionState::Failed,
+                            trigger: CompactionTrigger::Manual,
+                            summary: None,
+                            tokens_before: None,
+                            tokens_after: None,
+                            input_tokens: None,
+                            output_tokens: None,
+                            cost: None,
+                            error: Some(truncate(
+                                response.error.as_deref().unwrap_or("unbekannter Fehler"),
+                                MAX_NOTICE,
+                            )),
+                        });
+                    }
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        self.emit.event(AgentEvent::Done { aborted: false });
     }
 
     /// Whether pi's session for this chat has no messages yet, so the chat's
@@ -1373,6 +1444,7 @@ impl Agent {
         loop {
             match commands.recv_timeout(Duration::from_millis(500)) {
                 Ok(Command::Prompt(prompt)) => self.prompt(&prompt),
+                Ok(Command::Compact) => self.compact(),
                 Ok(Command::Cancel) => self.send(&pi_rpc::abort()),
                 Ok(Command::Decide(id, decision)) => {
                     if let Some(bridge) = &self.approvals {

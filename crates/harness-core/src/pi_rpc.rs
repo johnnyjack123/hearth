@@ -11,7 +11,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use crate::tunnel::{AgentEvent, MAX_TOOL_OUTPUT, NoticeLevel, truncate};
+use crate::tunnel::{
+    AgentEvent, CompactionState, CompactionTrigger, MAX_NOTICE, MAX_SUMMARY, MAX_TOOL_OUTPUT,
+    NoticeLevel, truncate,
+};
 
 /// Arguments that give each chat its own pi session, continued across
 /// restarts of `harness connect`: pi creates the session on first use.
@@ -40,6 +43,17 @@ pub fn abort() -> String {
 /// `set_model`.
 pub fn set_model(id: &str, provider: &str, model: &str) -> String {
     json!({ "id": id, "type": "set_model", "provider": provider, "modelId": model }).to_string()
+}
+
+/// `set_thinking_level`: pi's level for the next model calls.
+pub fn set_thinking_level(id: &str, level: &str) -> String {
+    json!({ "id": id, "type": "set_thinking_level", "level": level }).to_string()
+}
+
+/// `compact`: summarizes the session's context now; pi reports it with
+/// `compaction_start` and `compaction_end` like an automatic one.
+pub fn compact(id: &str) -> String {
+    json!({ "id": id, "type": "compact" }).to_string()
 }
 
 /// `get_state`, answered with the session's message count among others.
@@ -110,6 +124,16 @@ fn text_of(content: &Value) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         _ => String::new(),
+    }
+}
+
+/// Why pi summarized: `manual` when asked, otherwise automatic
+/// (`threshold`, `overflow`).
+fn compaction_trigger(record: &Value) -> CompactionTrigger {
+    if str_field(record, "reason") == Some("manual") {
+        CompactionTrigger::Manual
+    } else {
+        CompactionTrigger::Auto
     }
 }
 
@@ -224,10 +248,67 @@ impl Translator {
                     ),
                 ))
             }
-            "compaction_start" => event(AgentEvent::notice(
-                NoticeLevel::Info,
-                "pi fasst den bisherigen Verlauf zusammen …",
-            )),
+            "compaction_start" => event(AgentEvent::Compaction {
+                state: CompactionState::Running,
+                trigger: compaction_trigger(&record),
+                summary: None,
+                tokens_before: None,
+                tokens_after: None,
+                input_tokens: None,
+                output_tokens: None,
+                cost: None,
+                error: None,
+            }),
+            "compaction_end" => {
+                let trigger = compaction_trigger(&record);
+                match record.get("result").filter(|result| result.is_object()) {
+                    Some(result) => {
+                        let usage = result.get("usage");
+                        event(AgentEvent::Compaction {
+                            state: CompactionState::Done,
+                            trigger,
+                            summary: str_field(result, "summary")
+                                .map(|summary| truncate(summary, MAX_SUMMARY)),
+                            tokens_before: result.get("tokensBefore").and_then(Value::as_u64),
+                            tokens_after: result
+                                .get("estimatedTokensAfter")
+                                .and_then(Value::as_u64),
+                            input_tokens: usage
+                                .and_then(|usage| usage.get("input"))
+                                .and_then(Value::as_u64),
+                            output_tokens: usage
+                                .and_then(|usage| usage.get("output"))
+                                .and_then(Value::as_u64),
+                            cost: usage
+                                .and_then(|usage| usage.get("cost"))
+                                .and_then(|cost| cost.get("total"))
+                                .and_then(Value::as_f64),
+                            error: None,
+                        })
+                    }
+                    None => event(AgentEvent::Compaction {
+                        state: CompactionState::Failed,
+                        trigger,
+                        summary: None,
+                        tokens_before: None,
+                        tokens_after: None,
+                        input_tokens: None,
+                        output_tokens: None,
+                        cost: None,
+                        error: Some(
+                            if record.get("aborted").and_then(Value::as_bool) == Some(true) {
+                                "abgebrochen".to_owned()
+                            } else {
+                                truncate(
+                                    str_field(&record, "errorMessage")
+                                        .unwrap_or("unbekannter Fehler"),
+                                    MAX_NOTICE,
+                                )
+                            },
+                        ),
+                    }),
+                }
+            }
             "extension_error" => event(AgentEvent::notice(
                 NoticeLevel::Warning,
                 format!(
@@ -381,6 +462,75 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn compactions_reach_the_chat() {
+        let mut translator = Translator::new();
+        let found = events(
+            &mut translator,
+            &[
+                json!({ "type": "compaction_start", "reason": "threshold" }),
+                json!({
+                    "type": "compaction_end",
+                    "reason": "threshold",
+                    "result": {
+                        "summary": "Bisher: README gelesen.",
+                        "tokensBefore": 150000,
+                        "estimatedTokensAfter": 32000,
+                        "usage": { "input": 151000, "output": 900, "cost": { "total": 0.03 } }
+                    },
+                    "aborted": false
+                }),
+                json!({ "type": "compaction_start", "reason": "manual" }),
+                json!({ "type": "compaction_end", "reason": "manual", "aborted": false, "errorMessage": "model down" }),
+                json!({ "type": "compaction_end", "reason": "manual", "aborted": true }),
+            ],
+        );
+        assert_eq!(
+            found[0],
+            AgentEvent::Compaction {
+                state: CompactionState::Running,
+                trigger: CompactionTrigger::Auto,
+                summary: None,
+                tokens_before: None,
+                tokens_after: None,
+                input_tokens: None,
+                output_tokens: None,
+                cost: None,
+                error: None,
+            }
+        );
+        assert_eq!(
+            found[1],
+            AgentEvent::Compaction {
+                state: CompactionState::Done,
+                trigger: CompactionTrigger::Auto,
+                summary: Some("Bisher: README gelesen.".to_owned()),
+                tokens_before: Some(150_000),
+                tokens_after: Some(32_000),
+                input_tokens: Some(151_000),
+                output_tokens: Some(900),
+                cost: Some(0.03),
+                error: None,
+            }
+        );
+        assert!(matches!(
+            &found[3],
+            AgentEvent::Compaction { state: CompactionState::Failed, trigger: CompactionTrigger::Manual, error: Some(e), .. } if e == "model down"
+        ));
+        assert!(matches!(
+            &found[4],
+            AgentEvent::Compaction { state: CompactionState::Failed, error: Some(e), .. } if e == "abgebrochen"
+        ));
+        assert_eq!(
+            set_thinking_level("t-1", "high"),
+            json!({ "id": "t-1", "type": "set_thinking_level", "level": "high" }).to_string()
+        );
+        assert_eq!(
+            compact("c-1"),
+            json!({ "id": "c-1", "type": "compact" }).to_string()
+        );
     }
 
     #[test]
