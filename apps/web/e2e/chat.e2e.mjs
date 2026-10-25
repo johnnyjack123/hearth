@@ -412,6 +412,59 @@ try {
     await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
   });
 
+  await step('thinking effort and summarizing a chat on request', async () => {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 10_000 });
+    await page.click('[aria-label="Denktiefe: Standard"]');
+    await page.waitForSelector('[role=slider]');
+    await page.focus('[role=slider]');
+    // Standard, Aus, Minimal, Niedrig, Mittel, Hoch.
+    for (let press = 0; press < 5; press += 1) {
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+    await waitForText('Gründlich: langsamer und mehr Token.', 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('31-effort');
+    await page.keyboard.press('Escape');
+    await page.focus('textarea');
+    await page.type('textarea', 'Wie viel denkst du?');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    // The level reaches the provider as reasoning_effort.
+    await page.waitForSelector(text('Denkstufe laut Anfrage: high.'), { timeout: 15_000 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await page.type('textarea', 'Und noch eine Frage dazu');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector(text('Punkt zwei'), { timeout: 15_000 });
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    // Everything but the latest turn becomes a summary, on request.
+    await page.click('button[aria-label*="Kontext:"]');
+    await page.waitForSelector(text('Verlauf jetzt zusammenfassen'), { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('32-compact-popover');
+    await page.click(text('Verlauf jetzt zusammenfassen'));
+    await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 15_000 });
+    await page.click(text('Zusammenfassung zeigen'));
+    await page.waitForSelector(text('Es ging um die Denkstufe des Modells'), { timeout: 5_000 });
+    await page.$eval(text('Bis hier zusammengefasst'), (element) => element.scrollIntoView({ block: 'center' }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('33-compaction');
+
+    // Stored: after a reload the divider and the chat's level are still there.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 10_000 });
+    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+    // Back to the default, which later chats start with.
+    await page.click('[aria-label="Denktiefe: Hoch"]');
+    await page.waitForSelector('[role=slider]');
+    await page.focus('[role=slider]');
+    await page.keyboard.press('Home');
+    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
+    await page.keyboard.press('Escape');
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };

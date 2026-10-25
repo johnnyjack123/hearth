@@ -97,6 +97,15 @@ function researchStep(payload) {
   return { text: 'Laut der Recherche röstet man Kaffee bei etwa 200 °C ([Kaffee-Testseite](http://127.0.0.1:8091/testseite)), mehr zu Röstgraden steht [hier](https://example.org/roestgrade-erfunden).' };
 }
 
+/** Says which thinking effort the request asked for, when the user asks. */
+function effortStep(payload) {
+  const last = payload.messages?.at(-1);
+  if (last?.role === 'user' && textOf(last.content).includes('Wie viel denkst du')) {
+    return { text: `Denkstufe laut Anfrage: ${payload.reasoning_effort ?? 'Standard'}.` };
+  }
+  return null;
+}
+
 /** The reply of a tool-using model, or null to answer as usual. */
 function webFetchStep(payload) {
   const research = researchStep(payload);
@@ -191,6 +200,8 @@ http
         const payload = JSON.parse(body || '{}');
         console.log(`[mock] #${requestCount} stream=${Boolean(payload.stream)} messages=${payload.messages?.length}`);
         if (!payload.stream) {
+          // A summary of the chat, or else a title.
+          const summary = JSON.stringify(payload.messages ?? []).includes('You summarize the earlier part of a chat');
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(
             JSON.stringify({
@@ -198,14 +209,23 @@ http
               object: 'chat.completion',
               created: 0,
               model: 'mock-model',
-              choices: [{ index: 0, message: { role: 'assistant', content: 'Testgespräch mit Mock' }, finish_reason: 'stop' }],
-              usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+              choices: [
+                {
+                  index: 0,
+                  message: {
+                    role: 'assistant',
+                    content: summary ? '**Bisher:** Es ging um die Denkstufe des Modells und eine weitere Frage.' : 'Testgespräch mit Mock',
+                  },
+                  finish_reason: 'stop',
+                },
+              ],
+              usage: summary ? { prompt_tokens: 300, completion_tokens: 40, total_tokens: 340 } : { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
             }),
           );
           return;
         }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-        const step = webFetchStep(payload);
+        const step = effortStep(payload) ?? webFetchStep(payload);
         if (step?.call) {
           const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));
