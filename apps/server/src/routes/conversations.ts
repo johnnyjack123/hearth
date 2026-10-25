@@ -5,6 +5,7 @@ import {
   chatRequestSchema,
   compactRequestSchema,
   type ConversationDetail,
+  type EffortLevel,
   createConversationSchema,
   linkConversationSchema,
   type TakeoverReport,
@@ -47,12 +48,16 @@ import { effortOptions } from '../effort.ts';
 import { callUsage, withHelpers } from '../pricing.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
-import { streamAgent, transcript } from './agent.ts';
+import { agentCompaction, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
 /** A takeover waits this long for the device (VM start, sync, checks). */
 const TAKEOVER_TIMEOUT_MS = 5 * 60_000;
+/** Longest an agent may take to summarize its context (it may start the VM first). */
+const COMPACT_TIMEOUT_MS = 10 * 60_000;
+/** pi's thinking level out of the box, for a linked chat without one. */
+const AGENT_DEFAULT_THINKING: EffortLevel = 'medium';
 
 /** Ways a run ends without the device's own word. */
 const LOST = new Set(['device_replaced', 'device_lost', 'device_protocol', 'chat_unlinked']);
@@ -104,6 +109,71 @@ export function conversationRoutes(deps: AppDeps) {
   const fetchApprovals = new FetchApprovals();
   // Replies being written, for a page that reloads in the middle of one.
   const streams = new ActiveStreams();
+
+  /**
+   * Has the agent of a linked chat summarize its context and stores pi's
+   * summary with the last reply, like a takeover report.
+   */
+  async function compactAgent(conversationId: string, title: string | null, link: ChatLink): Promise<ChatMessage> {
+    assertOnline(link.deviceId);
+    const run = hub.startCompaction(link.deviceId, {
+      type: 'session.compact',
+      session: conversationId,
+      project: link.project,
+      harness: link.harness,
+      conversation: { id: conversationId, title },
+    });
+    const timer = setTimeout(() => hub.abandonRun(conversationId, 'timeout'), COMPACT_TIMEOUT_MS);
+    let result: CompactionEvent | null = null;
+    let failure: string | null = null;
+    try {
+      for await (const event of run) {
+        if (event.type === 'compaction' && event.state !== 'running') {
+          result = { ...event, trigger: 'manual' };
+        } else if (event.type === 'error') {
+          failure = event.message;
+        }
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    if (result?.state === 'failed') {
+      // Nothing to keep: the chat says why and stays as it was.
+      throw new HttpError(502, 'device_failed', result.error ?? 'The agent wrote no summary');
+    }
+    if (!result) {
+      if (failure === 'timeout') {
+        throw new HttpError(504, 'device_timeout', 'The device did not finish the summary in time');
+      }
+      if (failure && LOST.has(failure)) {
+        throw new HttpError(409, 'device_offline', 'The device disconnected');
+      }
+      throw new HttpError(502, 'device_failed', failure ?? 'The agent wrote no summary');
+    }
+    const last = (await loadMessages(db, conversationId)).at(-1);
+    const part = { type: 'data-compaction' as const, id: `compaction-${uuidv7()}`, data: agentCompaction(result) };
+    const call = result.state === 'done' ? compactionCall(result, last?.metadata?.modelId) : null;
+    const message: ChatMessage =
+      last?.role === 'assistant'
+        ? {
+            ...last,
+            parts: [...last.parts, part],
+            ...(call ? { metadata: { ...last.metadata, usage: withCall(last.metadata?.usage, call) } } : {}),
+          }
+        : {
+            id: uuidv7(),
+            role: 'assistant',
+            parts: [part],
+            metadata: {
+              createdAt: Date.now(),
+              agent: { project: link.project, harness: link.harness },
+              ...(call ? { usage: withCall(undefined, call) } : {}),
+            },
+          };
+    await saveMessage(db, conversationId, message);
+    await updateConversation(db, conversationId, {});
+    return message;
+  }
 
   /** Jev for an agent reply: the assessor and the helpers whose cost joins the reply. */
   async function agentAssessor(userId: string, chat: CredentialRow, signal: AbortSignal) {
@@ -361,6 +431,9 @@ export function conversationRoutes(deps: AppDeps) {
           // The agent learns about research mode with the message; the
           // server lets its searches through only while this reply runs.
           text: research ? `${AGENT_RESEARCH_NOTE}\n\n${text}` : text,
+          // pi's levels are the chat's. pi keeps a level for the whole
+          // session, so the chat's "default" has to be named, too.
+          thinking: body.effort ?? AGENT_DEFAULT_THINKING,
           history: transcript(previous),
           model: { credentialId: row.id, modelId: body.modelId },
           autosync: link.autosync,
@@ -413,12 +486,12 @@ export function conversationRoutes(deps: AppDeps) {
       if (!conversation) {
         throw notFound('Conversation');
       }
-      if (conversation.link) {
-        // The agent keeps its own history; pi summarizes it on the computer.
-        throw new HttpError(409, 'conflict', 'Linked chats cannot be summarized here');
-      }
       if (streams.has(conversation.id)) {
         throw new HttpError(409, 'conflict', 'A reply is still being written');
+      }
+      if (conversation.link) {
+        // The agent keeps its own history: pi summarizes it on the computer.
+        return c.json(await compactAgent(conversation.id, conversation.title, conversation.link));
       }
       const body = compactRequestSchema.parse(await c.req.json());
       const row = await findCredential(db, user.id, body.credentialId);

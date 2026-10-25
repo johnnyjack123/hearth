@@ -10,6 +10,7 @@ import {
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
+  VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
   VERSION_VM_CONTROL,
   type VmState,
@@ -74,6 +75,23 @@ export type PromptMessage = Extract<ServerMessage, { type: 'session.prompt' }>;
 
 /** Request to take over a session's work, as {@link DeviceHub.startTakeover} sends it. */
 export type TakeoverMessage = Extract<ServerMessage, { type: 'session.takeover' }>;
+
+/** Request to summarize an agent's context, as {@link DeviceHub.startCompaction} sends it. */
+export type CompactMessage = Extract<ServerMessage, { type: 'session.compact' }>;
+
+/**
+ * A prompt as a device of `version` understands it: protocol 1 and 2 know
+ * no autosync (the field would only confuse a reader of their logs), and
+ * before protocol 4 there is no thinking level.
+ */
+function forVersion(message: PromptMessage, version: number): PromptMessage {
+  const { thinking, ...rest } = message;
+  return {
+    ...rest,
+    ...(version < VERSION_TAKEOVER ? { autosync: false } : {}),
+    ...(thinking && version >= VERSION_PI_SETTINGS ? { thinking } : {}),
+  };
+}
 
 // Close codes in the private range 4000-4999.
 const CLOSE_REPLACED = 4000;
@@ -354,6 +372,24 @@ export class DeviceHub {
   }
 
   /**
+   * Asks a device to have the agent of a session summarize its context now;
+   * the run reports pi's `compaction` events and ends with `done`.
+   *
+   * @param deviceId - Device the session runs on.
+   * @param message - The request.
+   * @returns The run.
+   * @throws {HttpError} 409 if the device is offline, too old for it, or the
+   *   session is still answering.
+   */
+  startCompaction(deviceId: string, message: CompactMessage): AgentRun {
+    const connection = this.#devices.get(deviceId);
+    if (connection?.greeted && connection.version < VERSION_PI_SETTINGS) {
+      throw new HttpError(409, 'device_outdated', 'The device cannot summarize the agent yet; update harness');
+    }
+    return this.#start(deviceId, message);
+  }
+
+  /**
    * Gives up on a run the device does not finish, so the session can start
    * a new one.
    *
@@ -365,7 +401,7 @@ export class DeviceHub {
     this.#runs.delete(session);
   }
 
-  #start(deviceId: string, message: PromptMessage | TakeoverMessage): AgentRun {
+  #start(deviceId: string, message: PromptMessage | TakeoverMessage | CompactMessage): AgentRun {
     const connection = this.#devices.get(deviceId);
     if (!connection?.greeted) {
       throw new HttpError(409, 'device_offline', 'The device is not connected');
@@ -375,11 +411,7 @@ export class DeviceHub {
     }
     const run = new AgentRun(() => this.#send(connection, { type: 'session.cancel', session: message.session }));
     this.#runs.set(message.session, { deviceId, run });
-    // Protocol 1 and 2 devices know no autosync; the field would only confuse a reader of their logs.
-    this.#send(
-      connection,
-      message.type === 'session.prompt' && connection.version < VERSION_TAKEOVER ? { ...message, autosync: false } : message,
-    );
+    this.#send(connection, message.type === 'session.prompt' ? forVersion(message, connection.version) : message);
     return run;
   }
 

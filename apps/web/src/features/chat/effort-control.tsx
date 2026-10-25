@@ -10,13 +10,26 @@ import { cn } from '@/lib/utils.ts';
 const STOPS: readonly (EffortLevel | null)[] = [null, ...EFFORT_LEVELS];
 
 /**
+ * Props of {@link EffortControl}.
+ */
+export interface EffortControlProps {
+  /** The level; null for the default. */
+  effort: EffortLevel | null;
+  /** Changes it. */
+  onEffortChange: (effort: EffortLevel | null) => void;
+  /** Harness of a linked chat, which gets the level instead of the provider. */
+  agent?: string;
+}
+
+/**
  * Thinking effort in the composer toolbar: a button with the current level
- * that opens a slider. Without a level the provider decides, as before.
+ * that opens a slider. Without a level the provider decides, as before; in
+ * a linked chat the agent starts from its own default.
  *
- * @param props - The level (null for the provider's default) and how to change it.
+ * @param props - See {@link EffortControlProps}.
  * @returns The control.
  */
-export function EffortControl({ effort, onEffortChange }: { effort: EffortLevel | null; onEffortChange: (effort: EffortLevel | null) => void }) {
+export function EffortControl({ effort, onEffortChange, agent }: EffortControlProps) {
   const t = useT();
   const name = t(`chat.effort.levels.${effort ?? 'default'}`);
   const index = Math.max(0, STOPS.indexOf(effort));
@@ -57,8 +70,10 @@ export function EffortControl({ effort, onEffortChange }: { effort: EffortLevel 
           <span>{t('chat.effort.levels.default')}</span>
           <span>{t('chat.effort.levels.max')}</span>
         </div>
-        <p className="text-sm text-foreground">{t(`chat.effort.hints.${effort ?? 'default'}`)}</p>
-        <p className="text-xs text-muted-foreground">{t('chat.effort.note')}</p>
+        <p className="text-sm text-foreground">
+          {agent && effort === null ? t('chat.effort.agentDefault', { harness: agent }) : t(`chat.effort.hints.${effort ?? 'default'}`)}
+        </p>
+        <p className="text-xs text-muted-foreground">{agent ? t('chat.effort.agentNote', { harness: agent }) : t('chat.effort.note')}</p>
       </PopoverContent>
     </Popover>
   );

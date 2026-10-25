@@ -138,6 +138,7 @@ function AssistantMessage({
   const assess = (toolCallId: string) => (onAssess && !streaming ? () => onAssess(message.id, toolCallId) : undefined);
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
+  const harness = message.metadata?.agent?.harness ?? 'pi';
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
       {message.metadata?.condensed ? <CondensedNote /> : null}
@@ -167,8 +168,12 @@ function AssistantMessage({
           return <TakeoverCard key={part.id ?? index} report={part.data} />;
         }
         if (part.type === 'data-compaction') {
-          // A finished summary shows as a divider where it ends.
-          return part.data.state === 'done' ? null : <CompactionStatus key={part.id ?? index} compaction={part.data} />;
+          if (part.data.state !== 'done') {
+            return <CompactionStatus key={part.id ?? index} compaction={part.data} harness={harness} />;
+          }
+          // The chat's own summary shows as a divider where it ends; an
+          // agent's covers its own history, so it stays where it happened.
+          return part.data.agent ? <CompactionDivider key={part.id ?? index} compaction={part.data} harness={harness} /> : null;
         }
         if (part.type === 'text') {
           return (
@@ -211,16 +216,21 @@ function finishedCompactions(messages: ChatMessage[]): Map<string, Compaction> {
  * Marks where a summary ends: the model reads it instead of everything
  * above. The summary itself unfolds on demand.
  */
-function CompactionDivider({ compaction }: { compaction: Compaction }) {
-  const t = useT();
+function CompactionDivider({ compaction, harness = 'pi' }: { compaction: Compaction; harness?: string }) {
+  const { t, locale } = usePreferences();
   const [open, setOpen] = useState(false);
+  const tokens = new Intl.NumberFormat(locale);
   return (
     <div className="flex flex-col gap-3" role="note">
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span className="h-px flex-1 bg-border" aria-hidden="true" />
         <FoldVertical className="size-3.5 shrink-0" aria-hidden="true" />
         <span className="text-center">
-          {t('chat.compaction.divider')} · {t(compaction.trigger === 'manual' ? 'chat.compaction.manual' : 'chat.compaction.auto')}
+          {compaction.agent ? t('chat.compaction.agentDivider', { harness }) : t('chat.compaction.divider')} ·{' '}
+          {t(compaction.trigger === 'manual' ? 'chat.compaction.manual' : 'chat.compaction.auto')}
+          {compaction.agent && compaction.tokens !== undefined && compaction.tokensAfter !== undefined
+            ? ` · ${t('chat.compaction.tokens', { before: tokens.format(compaction.tokens), after: tokens.format(compaction.tokensAfter) })}`
+            : null}
         </span>
         <button
           type="button"
@@ -254,21 +264,22 @@ function CompactionDivider({ compaction }: { compaction: Compaction }) {
   );
 }
 
-/** A summary being written at the start of a reply, or one that failed. */
-function CompactionStatus({ compaction }: { compaction: Compaction }) {
+/** A summary being written (by the chat or its agent), or one that failed. */
+function CompactionStatus({ compaction, harness }: { compaction: Compaction; harness: string }) {
   const t = useT();
   if (compaction.state === 'running') {
     return (
       <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
         <Spinner className="size-3.5" />
-        {t('chat.compaction.running')}
+        {compaction.agent ? t('chat.compaction.agentRunning', { harness }) : t('chat.compaction.running')}
       </p>
     );
   }
+  const error = compaction.error ?? '';
   return (
     <p className="flex items-start gap-2 text-xs text-muted-foreground">
       <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-      {t('chat.compaction.failed', { error: compaction.error ?? '' })}
+      {compaction.agent ? t('chat.compaction.agentFailed', { harness, error }) : t('chat.compaction.failed', { error })}
     </p>
   );
 }

@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentToolOutput, ChatLink, MessageMetadata } from '@harness/shared';
+import type { AgentEvent, AgentToolOutput, ChatLink, Compaction, MessageMetadata, ModelCallUsage } from '@harness/shared';
 import { createUIMessageStream, createUIMessageStreamResponse, type InferUIMessageChunk } from 'ai';
 import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
@@ -46,7 +46,15 @@ export function transcript(messages: ChatMessage[]): string | null {
 export class ChunkMapper {
   // Open tool calls with their name and arguments.
   readonly #tools = new Map<string, { name: string; input: unknown }>();
+  // Summaries of the agent in this reply; each one updates in place.
+  #compactions = 0;
+  #compacting = false;
   #usage: NonNullable<MessageMetadata['usage']> | undefined;
+
+  /**
+   * @param model - Model chosen in the chat; pi writes its summaries with it.
+   */
+  constructor(readonly model?: string) {}
 
   /**
    * Usage reported so far: tokens and cost summed over the agent's model
@@ -160,6 +168,9 @@ export class ChunkMapper {
         if (window !== undefined) {
           next.contextWindow = window;
         }
+        if (before?.helpers) {
+          next.helpers = before.helpers;
+        }
         if (event.cost !== undefined || before?.cost !== undefined) {
           next.cost = (before?.cost ?? 0) + (event.cost ?? 0);
         }
@@ -182,6 +193,19 @@ export class ChunkMapper {
       case 'takeover':
         // One report per reply, replaced in place as the takeover goes on.
         return [{ type: 'data-takeover', id: 'takeover', data: event.report }];
+      case 'compaction': {
+        // A finished one without a start (an older pi) gets its own place.
+        if (event.state === 'running' || !this.#compacting) {
+          this.#compactions += 1;
+        }
+        this.#compacting = event.state === 'running';
+        // Writing the summary is a model call of its own; it costs like one.
+        const call = event.state === 'done' ? compactionCall(event, this.model) : null;
+        if (call) {
+          this.#usage = withCall(this.#usage, call);
+        }
+        return [{ type: 'data-compaction', id: `compaction-agent-${this.#compactions}`, data: agentCompaction(event) }];
+      }
       case 'error':
         return [{ type: 'error', errorText: event.message }];
       case 'done':
@@ -205,6 +229,63 @@ export class ChunkMapper {
     this.#tools.clear();
     return chunks;
   }
+}
+
+/** A `compaction` event of an agent. */
+export type CompactionEvent = Extract<AgentEvent, { type: 'compaction' }>;
+
+/**
+ * An agent's summary as the chat stores it.
+ *
+ * @param event - pi's report.
+ * @returns The `data-compaction` part's data.
+ */
+export function agentCompaction(event: CompactionEvent): Compaction {
+  return {
+    state: event.state,
+    trigger: event.trigger,
+    agent: true,
+    ...(event.summary ? { summary: event.summary } : {}),
+    ...(event.tokensBefore !== undefined ? { tokens: event.tokensBefore } : {}),
+    ...(event.tokensAfter !== undefined ? { tokensAfter: event.tokensAfter } : {}),
+    ...(event.cost !== undefined ? { cost: event.cost } : {}),
+    ...(event.error ? { error: event.error } : {}),
+  };
+}
+
+/**
+ * The model call that wrote an agent's summary, as a helper call of the
+ * reply.
+ *
+ * @param event - pi's report of a finished summary.
+ * @param model - Model chosen in the chat, if known.
+ * @returns The call, or null if pi said nothing about tokens or cost.
+ */
+export function compactionCall(event: CompactionEvent, model: string | undefined): ModelCallUsage | null {
+  if (event.cost === undefined && event.inputTokens === undefined && event.outputTokens === undefined) {
+    return null;
+  }
+  return {
+    input: event.inputTokens ?? 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    output: event.outputTokens ?? 0,
+    tools: [],
+    ...(model ? { model } : {}),
+    purpose: 'compact',
+    ...(event.cost !== undefined ? { cost: { total: event.cost } } : {}),
+  };
+}
+
+/**
+ * Adds a helper call to a reply's usage, which may not have any yet.
+ *
+ * @param usage - The reply's usage so far.
+ * @param call - The call.
+ * @returns The usage with the call and its cost.
+ */
+export function withCall(usage: NonNullable<MessageMetadata['usage']> | undefined, call: ModelCallUsage): NonNullable<MessageMetadata['usage']> {
+  return usage ? withHelpers(usage, [call]) : { helpers: [call], ...(call.cost ? { cost: call.cost.total } : {}) };
 }
 
 /**
@@ -250,7 +331,7 @@ export function streamAgent(options: StreamAgentOptions): Response {
     credentialId: selection.credentialId,
     agent: { project: link.project, harness: link.harness },
   };
-  const mapper = new ChunkMapper();
+  const mapper = new ChunkMapper(selection.modelId);
   // The server checks tool output itself: the device's guard only reports
   // a notice, without the places.
   async function toolExtras(event: AgentEvent): Promise<Partial<AgentToolOutput> | undefined> {

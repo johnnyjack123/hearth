@@ -3,7 +3,8 @@
 // call with MOCK_COMMAND, a request with one gets the answer "fertig". A
 // user message that starts with "!" names the command itself, one that
 // starts with "?" a URL for `web_fetch` instead, and "?search <terms>" calls
-// `web_search`. It also answers like SearXNG (`/search?format=json`).
+// `web_search`. A request without tools (pi summarizing its history) gets a
+// summary. It also answers like SearXNG (`/search?format=json`).
 // Every request body is appended to MOCK_LOG if set.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -53,7 +54,10 @@ http
       // starts the next tool call.
       const answered = messages.at(-1)?.role === 'tool';
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      if (answered) {
+      if (!request.tools?.length) {
+        res.write(chunk({ role: 'assistant', content: '## Ziel\nMock-Projekt\n\n## Stand\nagent.txt angelegt.' }));
+        res.write(chunk({}, 'stop'));
+      } else if (answered) {
         res.write(chunk({ role: 'assistant', content: 'fertig' }));
         res.write(chunk({}, 'stop'));
       } else {

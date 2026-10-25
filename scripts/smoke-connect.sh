@@ -279,6 +279,24 @@ check "Werkzeug web_search aufgerufen" grep -q '"toolName":"web_search"' "$WORK/
 check "Treffer der Suche beim Agent" grep -q 'example.com/roesten' "$WORK/m6.log"
 check "Hinweis auf den Recherche-Modus bei pi" grep -q 'Research mode is on' "$WORK/mock-requests.log"
 
+echo "== Denktiefe und Zusammenfassen bei pi (Protokoll 4)"
+printf '%s' "{\"message\":{\"id\":\"m7\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"!echo sieben\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"effort\":\"high\"}" > "$WORK/m7.json"
+curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m7.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m7.log"
+check "Antwort mit Denkstufe" grep -q '"delta":"fertig"' "$WORK/m7.log"
+check "pi nimmt die Denkstufen an" bash -c "! grep -q 'set_thinking_level gescheitert' '$WORK/stream.log' '$WORK/m7.log'"
+# pi keeps the newest 20 000 tokens (4 characters each) and summarizes only
+# what is older; each of these outputs is cut to about 50 KB.
+for id in m7a m7b m7c; do
+  say_in_chat "$id" '!seq -s , 100000 109999'
+done
+api POST "/api/conversations/$CONVERSATION/compact" "{\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\"}" > "$WORK/compact.log"
+check "pi fasst seinen Verlauf zusammen" test \
+  "$(json "v.parts.at(-1).type + ' ' + v.parts.at(-1).data.agent + ' ' + v.parts.at(-1).data.summary.includes('agent.txt angelegt')" < "$WORK/compact.log")" = "data-compaction true true"
+check "Zusammenfassung am Chat gespeichert" test \
+  "$(api GET "/api/conversations/$CONVERSATION" | json "v.messages.at(-1).parts.at(-1).data.state")" = done
+say_in_chat m8 '!echo acht'
+check "pi antwortet nach dem Zusammenfassen" grep -q '"delta":"fertig"' "$WORK/m8.log"
+
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null
 check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HARNESS_HOME/daemon.log"

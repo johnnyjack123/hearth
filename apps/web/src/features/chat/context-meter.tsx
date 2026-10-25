@@ -66,13 +66,12 @@ export function conversationUsage(messages: ChatMessage[]) {
 export interface ContextMeterProps {
   /** The conversation's messages. */
   messages: ChatMessage[];
-  /**
-   * Summarizes the chat now; without it (linked chats) the meter only shows
-   * the numbers.
-   */
+  /** Summarizes the chat now; without it the meter only shows the numbers. */
   onCompact?: () => Promise<void>;
   /** A reply is being written; summarizing waits for it. */
   busy?: boolean;
+  /** Harness of a linked chat, which summarizes its own history. */
+  agent?: string;
 }
 
 /**
@@ -83,7 +82,7 @@ export interface ContextMeterProps {
  * @param props - See {@link ContextMeterProps}.
  * @returns The meter, or nothing before the first reply.
  */
-export function ContextMeter({ messages, onCompact, busy = false }: ContextMeterProps) {
+export function ContextMeter({ messages, onCompact, busy = false, agent }: ContextMeterProps) {
   const { t, locale } = usePreferences();
   const [open, setOpen] = useState(false);
   const [compacting, setCompacting] = useState(false);
@@ -126,8 +125,10 @@ export function ContextMeter({ messages, onCompact, busy = false }: ContextMeter
   if (!onCompact) {
     return <Tooltip content={lines}>{meter}</Tooltip>;
   }
-  // A summary covers everything but the latest turn, so it needs two.
+  // A summary covers everything but the latest turn, so it needs two. An
+  // agent decides itself what it keeps word for word.
   const turns = messages.filter((message) => message.role === 'user').length;
+  const tooShort = !agent && turns < 2;
 
   async function compact(run: () => Promise<void>) {
     setCompacting(true);
@@ -154,13 +155,15 @@ export function ContextMeter({ messages, onCompact, busy = false }: ContextMeter
           variant="secondary"
           size="sm"
           loading={compacting}
-          disabled={busy || turns < 2}
+          disabled={busy || tooShort}
           onClick={() => void compact(onCompact)}
         >
           <FoldVertical />
           {t('chat.compact.now')}
         </Button>
-        <p className="text-xs text-muted-foreground">{turns < 2 ? t('chat.compact.tooShort') : t('chat.compact.hint')}</p>
+        <p className="text-xs text-muted-foreground">
+          {tooShort ? t('chat.compact.tooShort') : agent ? t('chat.compact.agentHint', { harness: agent }) : t('chat.compact.hint')}
+        </p>
       </PopoverContent>
     </Popover>
   );
