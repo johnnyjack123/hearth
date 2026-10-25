@@ -375,8 +375,10 @@ export interface StreamChatOptions {
   credentialId: string;
   /** Prices of the model, for cost and context window; null if unknown. */
   pricing: ModelPricing | null;
-  /** Aborts generation, e.g. when the client presses stop or disconnects. */
+  /** Aborts generation when the user presses stop; a disconnect does not. */
   abortSignal: AbortSignal;
+  /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
+  consumeSseStream?: (stream: ReadableStream<string>) => void;
   /** Web fetch for the model; null when an admin switched it off. */
   webFetch: { approvals: FetchApprovals; config: WebFetchConfig } | null;
   /** The configured search provider; null when none is set up. */
@@ -563,5 +565,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
 
   // Comments keep proxies from cutting the idle stream while a web fetch
   // waits for the user's answer.
-  return createUIMessageStreamResponse({ stream, keepAliveMs: 15_000 });
+  return createUIMessageStreamResponse({
+    stream,
+    keepAliveMs: 15_000,
+    ...(options.consumeSseStream ? { consumeSseStream: ({ stream: copy }) => options.consumeSseStream?.(copy) } : {}),
+  });
 }

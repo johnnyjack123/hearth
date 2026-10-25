@@ -11,6 +11,7 @@ import {
   WEB_FETCH_DECISIONS,
   type WebFetchDecision,
 } from '@harness/shared';
+import { UI_MESSAGE_STREAM_HEADERS } from 'ai';
 import { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
@@ -34,6 +35,7 @@ import {
 import { findCredential, resolveCredential } from '../services/credentials.ts';
 import { findDevice, loadDeviceProjects } from '../services/devices.ts';
 import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
+import { ActiveStreams } from '../streams.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
@@ -89,6 +91,8 @@ export function conversationRoutes(deps: AppDeps) {
   // Questions of web fetches in ordinary chats, answered through the same
   // route as the gateway's questions in linked chats.
   const fetchApprovals = new FetchApprovals();
+  // Replies being written, for a page that reloads in the middle of one.
+  const streams = new ActiveStreams();
 
   /** Rejects a project the device does not offer (as far as it reported). */
   async function assertOffered(deviceId: string, project: string, harness: string): Promise<void> {
@@ -157,6 +161,8 @@ export function conversationRoutes(deps: AppDeps) {
       if (conversation.link) {
         hub.closeSession(conversation.link.deviceId, conversation.id);
       }
+      // A reply no page reads any more would otherwise run on.
+      streams.stop(conversation.id);
       await deleteConversation(db, conversation.id);
       return c.body(null, 204);
     })
@@ -319,6 +325,10 @@ export function conversationRoutes(deps: AppDeps) {
 
       const model = llm.createModel(credential, body.modelId);
       const text = userMessage.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+      // Only the stop route ends the reply: a closed or reloaded page is a
+      // disconnect, and the page picks the reply up again (`GET …/stream`).
+      const stop = new AbortController();
+      const follow = (stream: ReadableStream<string>) => streams.add(conversation.id, stream, () => stop.abort());
       // Its cost joins the first reply of an ordinary chat.
       const title = conversation.title ? null : assignTitle(db, conversation.id, model, text);
 
@@ -341,7 +351,8 @@ export function conversationRoutes(deps: AppDeps) {
           messages: [...previous, stored],
           run,
           selection: { credentialId: row.id, modelId: body.modelId },
-          abortSignal: c.req.raw.signal,
+          abortSignal: stop.signal,
+          consumeSseStream: follow,
         });
       }
 
@@ -354,12 +365,34 @@ export function conversationRoutes(deps: AppDeps) {
         modelId: body.modelId,
         credentialId: row.id,
         pricing: await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId),
-        abortSignal: c.req.raw.signal,
+        abortSignal: stop.signal,
+        consumeSseStream: follow,
         webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
         search,
         research,
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
       });
+    })
+    .get('/:id/stream', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      // The reply being written from its start; the page rebuilds it from that.
+      const stream = streams.resume(conversation.id);
+      if (!stream) {
+        return c.body(null, 204);
+      }
+      return new Response(stream.pipeThrough(new TextEncoderStream()), { headers: UI_MESSAGE_STREAM_HEADERS });
+    })
+    .post('/:id/stop', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      // The reply ends as after an error: what was written so far is stored.
+      streams.stop(conversation.id);
+      return c.body(null, 204);
     });
 }

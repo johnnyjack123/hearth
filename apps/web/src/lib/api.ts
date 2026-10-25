@@ -122,6 +122,7 @@ export const api = {
     takeover: (id: string) => request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/takeover`),
     approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
+    stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
   },
 };
 

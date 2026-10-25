@@ -201,8 +201,10 @@ export interface StreamAgentOptions {
   run: AgentRun;
   /** Model chosen in the chat, stored in the reply's metadata. */
   selection: { credentialId: string; modelId: string };
-  /** Aborted when the client presses stop or disconnects. */
+  /** Aborted when the user presses stop; a disconnect does not. */
   abortSignal: AbortSignal;
+  /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
+  consumeSseStream?: (stream: ReadableStream<string>) => void;
 }
 
 /**
@@ -255,5 +257,8 @@ export function streamAgent(options: StreamAgentOptions): Response {
       await updateConversation(db, conversationId, {});
     },
   });
-  return createUIMessageStreamResponse({ stream });
+  return createUIMessageStreamResponse({
+    stream,
+    ...(options.consumeSseStream ? { consumeSseStream: ({ stream: copy }) => options.consumeSseStream?.(copy) } : {}),
+  });
 }

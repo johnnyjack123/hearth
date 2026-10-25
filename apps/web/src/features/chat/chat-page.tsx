@@ -3,7 +3,7 @@ import type { ConversationDetail } from '@harness/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { ApiError, type ChatMessage } from '@/lib/api.ts';
@@ -11,7 +11,7 @@ import { fade } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
-import { getChat } from './chat-store.ts';
+import { getChat, resumeReply, stopReply } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
 import { EnvironmentButton, useLinkOnline } from './environment.tsx';
@@ -83,7 +83,11 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
 
-  const { messages, sendMessage, regenerate, stop, status, error } = useChat<ChatMessage>({ chat: entry.chat });
+  const { messages, sendMessage, regenerate, status, error } = useChat<ChatMessage>({ chat: entry.chat });
+  // After a reload the server may still be writing the reply.
+  useEffect(() => {
+    void resumeReply(conversation.id);
+  }, [conversation.id]);
 
   const busy = status === 'submitted' || status === 'streaming';
   const { link } = conversation;
@@ -135,7 +139,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             value={draft}
             onValueChange={setDraft}
             onSubmit={submit}
-            onStop={() => void stop()}
+            onStop={() => void stopReply(conversation.id)}
             busy={busy}
             blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
