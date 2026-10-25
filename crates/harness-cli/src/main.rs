@@ -114,6 +114,8 @@ enum Command {
     Logout,
     /// Macht den aktuellen Ordner zum Projekt (mit Git, falls nötig) und bietet ihn den Web-Chats deines Kontos an
     Init {
+        /// Ordner des Projekts (Standard: der aktuelle)
+        path: Option<std::path::PathBuf>,
         /// Name der Umgebung in der Web-App (Standard: Ordnername); wird zu Kleinbuchstaben, Ziffern und '-'
         name: Option<String>,
     },
@@ -308,7 +310,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
         Command::Connect => connect::connect(&config, &machine_name(&config, cli.machine)?),
-        Command::Init { name } => project::init(&config, name.as_deref()),
+        Command::Init { path, name } => project::init(&config, path.as_deref(), name.as_deref()),
         Command::Daemon { command } => {
             daemon::run(&config, &machine_name(&config, cli.machine)?, command)
         }
