@@ -252,6 +252,17 @@ Jede Warnung lässt sich von einem zweiten Modell bewerten. Das gilt für Prompt
 
 ## Phase 3 – Tray-App und Einrichtung (statt Desktop-App)
 
+### App-Katalog pro Projekt (Wunsch des Nutzers, 25.10., Entwurf)
+
+Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projekt per Schalter an und aus, dazu eigene Programme und Vorlagen.
+
+- **Entscheidungen des Nutzers (25.10.):**
+  - Eigene Anwendungen sind beides: Paketnamen oder ein Installationsbefehl (apt, npm, pip, Skript) **und** Linux-Programmdateien vom Rechner per Dateipfad (Binary, AppImage, `.deb`). Das passt auch zu einem späteren Linux-Build der App.
+  - Katalog-Programme und Paketnamen gehen direkt aus dem Browser. Eigene Dateien vom Rechner bestätigt der Nutzer einmal am Rechner (Terminal oder Tray): Sonst könnte jemand mit Zugriff auf das Konto beliebige Dateien des Rechners (z. B. SSH-Schlüssel) in die Reichweite des Agents holen.
+  - Kein eigenes Image pro Projekt (Platz, Neuinstallation bei jedem Umschalten). Stattdessen die Idee des Nutzers, angepasst: **ein gemeinsamer Programm-Speicher in der VM** (Volume wie das Tools-Volume, in dem pi liegt), nicht ein Host-Ordner. Host-Ordner in der VM sind langsam und eine Sicherheitslücke (9p, siehe Stolpersteine). Jedes Programm liegt dort einmal; ein Projekt sieht nur die eingeschalteten, ihre Pfade kommen über Umgebungsvariablen (`PATH` usw.) in die Instanz. Umschalten legt nur die Instanz neu an (Sekunden), installiert wird einmal.
+- **Offen beim Bau:** Programme, die nur als apt-Paket existieren, brauchen ein eigenes Präfix (`dpkg -x` plus `LD_LIBRARY_PATH`) oder statische Builds. Katalog-Einträge deshalb als Rezept, das ein in sich geschlossenes Verzeichnis `/opt/harness-apps/<app>/<version>` erzeugt. Vorlagen speichert der Server pro Konto, die Einstellungen gelten pro Projekt. Der Browser bekommt unter Einstellungen eine Ansicht aller Projekte mit ihren Programmen.
+- **Verwandt:** `build-essential` (~250 MB) aus dem Base-Image in den Katalog verschieben, das Gateway fertig gebaut ausliefern statt in der VM zu kompilieren (spart das Rust-Image und beim ersten Einrichten den Download).
+
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
 
 Ablauf aus Sicht des Nutzers:
