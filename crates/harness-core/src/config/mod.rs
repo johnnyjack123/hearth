@@ -244,6 +244,16 @@ impl ConfigDir {
     /// commented template. The name is derived from the folder name, with a
     /// numeric suffix if another project already uses it.
     pub fn create_project(&self, repo_root: &Path) -> Result<Project> {
+        self.create_project_named(repo_root, None)
+    }
+
+    /// [`ConfigDir::create_project`] with a name the user chose instead of
+    /// the folder's; fails if another project has it.
+    pub fn create_project_named(
+        &self,
+        repo_root: &Path,
+        name: Option<&ProjectName>,
+    ) -> Result<Project> {
         let path = canonical(repo_root)?;
         if !path.join(".git").exists() {
             return Err(Error::Unsupported(format!(
@@ -260,13 +270,23 @@ impl ConfigDir {
             )));
         }
         let global = self.global()?;
-        let base = ProjectName::derive(&path);
-        let name = std::iter::once(base.clone())
-            .chain((2..100).map(|n| base.with_suffix(n)))
-            .find(|name| !self.project_file(name).exists())
-            .ok_or_else(|| {
-                Error::Unsupported(format!("Kein freier Projektname für {base} gefunden"))
-            })?;
+        let name = match name {
+            Some(name) if self.project_file(name).exists() => {
+                return Err(Error::Unsupported(format!(
+                    "Ein Projekt {name} gibt es schon; bitte einen anderen Namen wählen"
+                )));
+            }
+            Some(name) => name.clone(),
+            None => {
+                let base = ProjectName::derive(&path);
+                std::iter::once(base.clone())
+                    .chain((2..100).map(|n| base.with_suffix(n)))
+                    .find(|name| !self.project_file(name).exists())
+                    .ok_or_else(|| {
+                        Error::Unsupported(format!("Kein freier Projektname für {base} gefunden"))
+                    })?
+            }
+        };
 
         let template = PROJECT_TEMPLATE.replace("{name}", name.as_str());
         let mut doc: DocumentMut = template
@@ -280,6 +300,15 @@ impl ConfigDir {
             .map_err(|e| Error::io(format!("{} anlegen", self.projects_dir().display()), e))?;
         write_atomic(&file, &doc.to_string(), false)?;
         self.resolve(&name, config, &global)
+    }
+
+    /// Deletes a project's file; the repository and anything in the VM stay.
+    pub fn remove_project(&self, name: &ProjectName) -> Result<()> {
+        let file = self.project_file(name);
+        if !file.exists() {
+            return Err(Error::ProjectUnknown(name.to_string()));
+        }
+        fs::remove_file(&file).map_err(|e| Error::io(format!("{} löschen", file.display()), e))
     }
 
     /// Changes a project file in place, keeping comments and formatting. The

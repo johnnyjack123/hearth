@@ -113,7 +113,10 @@ enum Command {
     /// Entfernt die Kopplung mit dem Server
     Logout,
     /// Macht den aktuellen Ordner zum Projekt (mit Git, falls nötig) und bietet ihn den Web-Chats deines Kontos an
-    Init,
+    Init {
+        /// Name der Umgebung in der Web-App (Standard: Ordnername); wird zu Kleinbuchstaben, Ziffern und '-'
+        name: Option<String>,
+    },
     /// Hintergrunddienst für Web-Chats: Status, Start, Stopp, Autostart
     Daemon {
         #[command(subcommand)]
@@ -165,8 +168,19 @@ enum ProjectCommand {
     Show,
     /// Legt das aktuelle Git-Repository als Projekt an
     Add,
-    /// Listet alle Projekte
+    /// Listet alle Projekte mit Ordner und Freigabe für Web-Chats
     List,
+    /// Entfernt ein Projekt: Instanz, Gateway und (ohne --keep-data) die Daten des Agents in der VM; der Ordner bleibt
+    Remove {
+        /// Projektname (Standard: Projekt des aktuellen Git-Repositorys)
+        name: Option<String>,
+        /// Arbeitskopie und Home des Agents in der VM behalten
+        #[arg(long)]
+        keep_data: bool,
+        /// Ohne Nachfrage
+        #[arg(long)]
+        yes: bool,
+    },
     /// Für Web-Chats freigeben (harness connect) oder die Freigabe zurücknehmen
     Remote {
         /// on oder off; ohne Angabe nur anzeigen
@@ -216,7 +230,10 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             | Command::Status
             | Command::Image { .. }
             | Command::Setup { .. }
-            | Command::Net { .. },
+            | Command::Net { .. }
+            | Command::Project {
+                command: Some(ProjectCommand::Remove { .. }),
+            },
         ) => vm::mark_in_use(&machine_name(&config, cli.machine.clone())?),
         Some(_) => None,
     };
@@ -252,6 +269,17 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             ProjectCommand::Show => project::show(&config),
             ProjectCommand::Add => project::add(&config),
             ProjectCommand::List => project::list(&config),
+            ProjectCommand::Remove {
+                name,
+                keep_data,
+                yes,
+            } => project::remove(
+                &config,
+                &machine_name(&config, cli.machine)?,
+                name.as_deref(),
+                keep_data,
+                yes,
+            ),
             ProjectCommand::Remote {
                 state,
                 no_confirm,
@@ -280,7 +308,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Login { url, no_browser } => login::login(&config, url, !no_browser),
         Command::Logout => login::logout(&config),
         Command::Connect => connect::connect(&config, &machine_name(&config, cli.machine)?),
-        Command::Init => project::init(&config),
+        Command::Init { name } => project::init(&config, name.as_deref()),
         Command::Daemon { command } => {
             daemon::run(&config, &machine_name(&config, cli.machine)?, command)
         }

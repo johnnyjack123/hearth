@@ -41,13 +41,19 @@ impl ProjectName {
         Ok(ProjectName(name.to_owned()))
     }
 
-    /// Derives a name from a folder name: lowercase, German umlauts
-    /// transliterated, everything else that is not allowed becomes `-`.
+    /// Derives a name from a folder name, see [`ProjectName::slug`].
     pub fn derive(folder: &Path) -> Self {
         let raw = folder
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        Self::slug(&raw)
+    }
+
+    /// Derives a valid name from free text such as a folder name or a name
+    /// the user typed: lowercase, German umlauts transliterated, everything
+    /// else that is not allowed becomes `-`.
+    pub fn slug(raw: &str) -> Self {
         let mut name = String::with_capacity(raw.len());
         for c in raw.chars().flat_map(char::to_lowercase) {
             match c {
@@ -168,6 +174,15 @@ mod tests {
         for name in ["/x/a-b", "/x/My Cool.App", "/x/Übungen"] {
             assert!(ProjectName::new(&derive(name)).is_ok());
         }
+    }
+
+    #[test]
+    fn slugs_from_typed_names() {
+        let slug = |s: &str| ProjectName::slug(s).0;
+        assert_eq!(slug("Mein Projekt"), "mein-projekt");
+        assert_eq!(slug("Kaffee-Röster 2"), "kaffee-roester-2");
+        assert_eq!(slug("shop"), "shop");
+        assert_eq!(slug("  "), "project");
     }
 
     #[test]
