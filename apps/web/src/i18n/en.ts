@@ -158,6 +158,7 @@ export const en: Messages = {
         sections: 'Picking sections',
         title: 'Title',
         review: 'Merge check',
+        compact: 'Summarizing the chat',
       },
       unknown: 'unknown',
     },

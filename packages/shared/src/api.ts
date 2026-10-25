@@ -68,7 +68,43 @@ export interface ServerSettings {
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
   condense: CondenseSettings;
+  /** When long chats get their older turns summarized. */
+  compact: CompactSettings;
 }
+
+/**
+ * How hard a model thinks before it answers, named as in pi. A chat without
+ * a level ("Standard") sends nothing and gets the provider's default.
+ */
+export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/** See {@link EFFORT_LEVELS}. */
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/**
+ * When a chat gets its older turns summarized, like pi does it: once fewer
+ * than {@link reserveTokens} of the model's context window are left, the
+ * turns before the most recent {@link keepRecentTokens} become a summary
+ * the model reads instead. The user can also ask for it at any time.
+ */
+export interface CompactSettings {
+  /** Whether chats are summarized automatically; asking for it works anyway. */
+  enabled: boolean;
+  /** Tokens of the context window that stay free; less left starts a summary. */
+  reserveTokens: number;
+  /** Tokens of the latest turns that the model keeps reading word for word. */
+  keepRecentTokens: number;
+}
+
+/** Validates a change of {@link CompactSettings}. */
+export const updateCompactSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    reserveTokens: z.number().int().min(1_000).max(1_000_000),
+    keepRecentTokens: z.number().int().min(0).max(1_000_000),
+  })
+  .partial()
+  .strict();
 
 /**
  * When a new message condenses a chat: earlier pages then reach the model as
@@ -108,6 +144,7 @@ export const updateServerSettingsSchema = z
     webFetch: z.boolean(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
+    compact: updateCompactSettingsSchema,
   })
   .partial()
   .strict();
@@ -226,6 +263,11 @@ export interface MessageMetadata {
    * switch as it was last used.
    */
   research?: boolean;
+  /**
+   * Thinking effort a user message was sent with; missing for the
+   * provider's default. The chat opens with it.
+   */
+  effort?: EffortLevel;
   /** Date (YYYY-MM-DD) a user message of an ordinary chat was sent on, for the notes. */
   date?: string;
   /**
@@ -302,7 +344,7 @@ export interface ModelCallUsage {
   /** Model of a helper call; the reply's own calls use the chat's model. */
   model?: string;
   /** What a helper call was for. */
-  purpose?: 'rank' | 'sections' | 'title' | 'review';
+  purpose?: 'rank' | 'sections' | 'title' | 'review' | 'compact';
   /**
    * Cost in US dollars, split by kind where the prices are known; agents
    * report only the total.
@@ -381,7 +423,23 @@ export const chatRequestSchema = z.object({
    * the user's messages and links on loaded pages load without asking.
    */
   research: z.boolean().optional(),
+  /** Thinking effort; missing for the provider's default. */
+  effort: z.enum(EFFORT_LEVELS).optional(),
 });
+
+/**
+ * Validates the body of a request that summarizes a chat now: the model
+ * that writes the summary, as in a chat request.
+ */
+export const compactRequestSchema = z
+  .object({
+    credentialId: z.string().min(1).max(100),
+    modelId: z.string().min(1).max(200),
+  })
+  .strict();
+
+/** See {@link compactRequestSchema}. */
+export type CompactRequestBody = z.infer<typeof compactRequestSchema>;
 
 /**
  * Body of a chat request.

@@ -156,6 +156,7 @@ export const de = {
         sections: 'Abschnitte wählen',
         title: 'Titel',
         review: 'Merge-Prüfung',
+        compact: 'Verlauf zusammenfassen',
       },
       unknown: 'unbekannt',
     },

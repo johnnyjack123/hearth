@@ -403,7 +403,32 @@ export type AgentDataParts = {
   progress: { id: string; label: string; state: 'running' | 'done' | 'failed'; detail?: string };
   /** Taking over the agent's work into the user's folder; updated in place. */
   takeover: TakeoverReport;
+  /** Older turns of the chat summarized for the model; updated in place. */
+  compaction: Compaction;
 };
+
+/**
+ * A summary of the older turns of a chat. The model reads it instead of
+ * every message up to {@link through}; the chat keeps them all. Decided
+ * once and stored, so later requests start the same way and the provider's
+ * cache keeps working.
+ */
+export interface Compaction {
+  /** `running` while the summary is written. */
+  state: 'running' | 'done' | 'failed';
+  /** Automatically because the context ran full, or asked for by the user. */
+  trigger: 'auto' | 'manual';
+  /** Id of the last message the summary covers. */
+  through?: string;
+  /** The summary, Markdown; it includes earlier summaries. */
+  summary?: string;
+  /** Messages covered, earlier summaries included. */
+  messages?: number;
+  /** Estimated tokens of the covered turns. */
+  tokens?: number;
+  /** Why it failed, for the chat. */
+  error?: string;
+}
 
 /**
  * Output of a tool call in an agent reply.

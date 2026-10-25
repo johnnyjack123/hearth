@@ -27,7 +27,9 @@ import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
+import { compactionRange, latestCompaction, summarize, withCompaction } from '../compact.ts';
 import { condenseHistory } from '../condense.ts';
+import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
@@ -389,6 +391,13 @@ export interface StreamChatOptions {
   helpers: Helpers | null;
   /** The title call of a new chat, whose cost joins the first reply; null otherwise. */
   title: Promise<TitleCall | null> | null;
+  /** Thinking effort for the model calls; empty for the provider's default. */
+  effort?: EffortOptions;
+  /**
+   * Set when the chat ran full: the reply starts by summarizing the older
+   * turns, keeping this many tokens of the latest ones word for word.
+   */
+  compaction?: { keepRecentTokens: number } | null;
 }
 
 /**
@@ -483,17 +492,25 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(search ? [researchInstructions(webFetch !== null)] : []),
   ].join(' ');
 
-  // Reasoning from earlier turns is display-only. Sending it back breaks when the
-  // user switches providers mid-conversation (signatures are provider-specific).
-  // The tools turn stored results back into what the model saw; a call cut
-  // off by stop has no result and is left out.
-  const modelMessages = pruneMessages({
-    messages: await convertToModelMessages(agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(messages)), missing)), {
-      ...(hasTools ? { tools } : {}),
-      ignoreIncompleteToolCalls: true,
-    }),
-    reasoning: 'all',
-  });
+  /**
+   * The conversation as the model reads it, after the latest summary.
+   * Reasoning from earlier turns is display-only: sending it back breaks
+   * when the user switches providers mid-conversation (signatures are
+   * provider-specific). The tools turn stored results back into what the
+   * model saw; a call cut off by stop has no result and is left out.
+   */
+  async function modelMessagesFor(latest: { through: string; summary: string } | null) {
+    return pruneMessages({
+      messages: await convertToModelMessages(
+        agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(withCompaction(messages, latest))), missing)),
+        {
+          ...(hasTools ? { tools } : {}),
+          ignoreIncompleteToolCalls: true,
+        },
+      ),
+      reasoning: 'all',
+    });
+  }
 
   const startedAt = Date.now();
   const baseMetadata: MessageMetadata = {
@@ -508,26 +525,60 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   // Every call of the reply with the tools it asked for, for the usage details.
   const calls: ModelCallUsage[] = [];
   let stepTools: string[] = [];
+  // The summary at the start of the reply, if the chat ran full.
+  const compactCalls: ModelCallUsage[] = [];
+
+  /**
+   * Summarizes the older turns before the model answers and writes the
+   * summary into the reply. A failed summary is shown and the reply goes on
+   * without it.
+   */
+  async function compactFirst(streamWriter: UIMessageStreamWriter<ChatMessage>, keepRecentTokens: number) {
+    const previous = messages.slice(0, -1);
+    const range = compactionRange(previous, keepRecentTokens, false);
+    if (!range) {
+      return null;
+    }
+    const id = `compaction-${uuidv7()}`;
+    streamWriter.write({ type: 'data-compaction', id, data: { state: 'running', trigger: 'auto' } });
+    try {
+      const written = await summarize(model, previous, range, 'auto', abortSignal);
+      streamWriter.write({ type: 'data-compaction', id, data: written.compaction });
+      compactCalls.push({ ...callUsage(written.usage, pricing, [], written.billed), model: modelId, purpose: 'compact' });
+      const { through, summary } = written.compaction;
+      return through && summary ? { through, summary } : null;
+    } catch (error) {
+      if (abortSignal.aborted) {
+        throw error;
+      }
+      console.warn('[chat] summary failed:', error instanceof Error ? error.message : error);
+      streamWriter.write({ type: 'data-compaction', id, data: { state: 'failed', trigger: 'auto', error: describeStreamError(error) } });
+      return null;
+    }
+  }
 
   const stream = createUIMessageStream<ChatMessage>({
     originalMessages: messages,
     generateId: uuidv7,
-    execute: ({ writer: streamWriter }) => {
+    execute: async ({ writer: streamWriter }) => {
       writer = streamWriter;
+      // Started here rather than by the model's stream, so a summary can
+      // come first.
+      streamWriter.write({ type: 'start', messageMetadata: baseMetadata });
+      const fresh = options.compaction ? await compactFirst(streamWriter, options.compaction.keepRecentTokens) : null;
       const result = streamText({
         model,
         instructions,
-        messages: modelMessages,
+        messages: await modelMessagesFor(fresh ?? latestCompaction(messages)),
         ...(hasTools ? { tools, stopWhen: isStepCount(research ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
+        ...options.effort,
         abortSignal,
       });
       streamWriter.merge(
         toUIMessageStream({
           stream: result.stream,
+          sendStart: false,
           messageMetadata: ({ part }) => {
-            if (part.type === 'start') {
-              return baseMetadata;
-            }
             if (part.type === 'tool-call') {
               stepTools.push(part.toolName);
               return undefined;
@@ -539,7 +590,10 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               return undefined;
             }
             if (part.type === 'finish') {
-              return { ...baseMetadata, usage: withHelpers(usageMetadata(part.totalUsage, lastStep, pricing, calls), [...(helpers?.usage ?? [])]) };
+              return {
+                ...baseMetadata,
+                usage: withHelpers(usageMetadata(part.totalUsage, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]),
+              };
             }
             return undefined;
           },

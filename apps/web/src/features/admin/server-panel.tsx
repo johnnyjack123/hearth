@@ -27,7 +27,7 @@ export function ServerPanel() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: queryKeys.serverSettings, queryFn: api.settings.get });
   const update = useMutation({
-    mutationFn: (patch: Omit<UpdateServerSettings, 'search' | 'condense'>) => api.settings.update(patch),
+    mutationFn: (patch: Omit<UpdateServerSettings, 'search' | 'condense' | 'compact'>) => api.settings.update(patch),
     onMutate: async (patch) => {
       // Optimistic: switches react instantly and roll back on failure.
       await queryClient.cancelQueries({ queryKey: queryKeys.serverSettings });
