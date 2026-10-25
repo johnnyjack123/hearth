@@ -1460,8 +1460,16 @@ impl Agent {
 /// answers from the chat go back the same way.
 struct ApprovalBridge {
     decisions: Sender<(u64, Option<Scope>)>,
-    questions: Arc<Mutex<HashMap<u64, Question>>>,
+    questions: Arc<Mutex<HashMap<u64, Asked>>>,
     thread: Option<JoinHandle<()>>,
+}
+
+/// An open question of the gateway. It stays until the gateway reports it
+/// resolved, so that event can still name the host.
+struct Asked {
+    question: Question,
+    /// Answered from the chat; a second answer is ignored.
+    answered: bool,
 }
 
 impl ApprovalBridge {
@@ -1494,7 +1502,8 @@ impl ApprovalBridge {
     }
 
     fn decide(&self, config: &ConfigDir, project: &Project, id: u64, decision: Decision) {
-        let Some(question) = lock(&self.questions).remove(&id) else {
+        let mut questions = lock(&self.questions);
+        let Some(asked) = questions.get_mut(&id).filter(|asked| !asked.answered) else {
             return;
         };
         // The same answers as in `harness net watch`; "always" also writes
@@ -1506,9 +1515,11 @@ impl ApprovalBridge {
             Decision::Always => "i",
             Decision::Deny => "n",
         };
-        let Some((scope, note)) = net::decide(config, project, &question, key) else {
+        let Some((scope, note)) = net::decide(config, project, &asked.question, key) else {
             return;
         };
+        asked.answered = true;
+        drop(questions);
         if let Some(note) = note {
             println!("{note}");
         }
@@ -1530,7 +1541,7 @@ impl Drop for ApprovalBridge {
 fn watch_gateway(
     mut watch: Watch,
     emit: &Emitter,
-    questions: &Mutex<HashMap<u64, Question>>,
+    questions: &Mutex<HashMap<u64, Asked>>,
     decisions: &Receiver<(u64, Option<Scope>)>,
 ) {
     let mut last_ping = Instant::now();
@@ -1558,12 +1569,19 @@ fn watch_gateway(
                     port,
                     state: ApprovalState::Pending,
                 });
-                lock(questions).insert(id, Question { id, host, port });
+                let question = Question { id, host, port };
+                lock(questions).insert(
+                    id,
+                    Asked {
+                        question,
+                        answered: false,
+                    },
+                );
             }
             Ok(Some(Reply::Event(Event::Resolved { id, .. }))) => {
-                let question = lock(questions).remove(&id);
-                let (host, port) = question
-                    .map(|q| (q.host.to_string(), q.port))
+                let asked = lock(questions).remove(&id);
+                let (host, port) = asked
+                    .map(|asked| (asked.question.host.to_string(), asked.question.port))
                     .unwrap_or_else(|| ("?".to_owned(), 1));
                 emit.event(AgentEvent::Approval {
                     id,
