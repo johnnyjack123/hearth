@@ -305,8 +305,18 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<Option<pi:
 }
 
 /// `harness shell`: a login shell in the instance.
-pub fn shell(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
-    let prepared = prepare(config, machine, None)?;
+pub fn shell(config: &ConfigDir, machine: &str, project: Option<&str>) -> anyhow::Result<bool> {
+    let prepared = match project {
+        // From anywhere, e.g. `harness ssh shop` to look at the agent's files.
+        Some(name) => prepare_project(
+            config,
+            machine,
+            project::resolve(config, Some(name))?,
+            None,
+            &Terminal::default(),
+        )?,
+        None => prepare(config, machine, None)?,
+    };
     let shell = vec!["bash".into(), "-l".into()];
     let code = attach(config, &prepared, shell, &BTreeMap::new(), true)?;
     Ok(code == 0)
