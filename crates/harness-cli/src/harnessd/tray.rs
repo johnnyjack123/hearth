@@ -189,6 +189,11 @@ impl Tray {
     }
 
     fn notify(&mut self, text: &str, warning: bool, target: Option<String>) {
+        // Test runs (scripts/smoke-connect.sh) start their own tray; its
+        // questions and held merges would pop up on the user's desktop.
+        if std::env::var_os("HARNESS_TRAY_QUIET").is_some() {
+            return;
+        }
         let mut data = self.data();
         data.uFlags = NIF_INFO;
         fill(&mut data.szInfoTitle, "LLM Harness");
