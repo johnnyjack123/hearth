@@ -74,8 +74,10 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const t = useT();
   const { selection, select, models } = useModelSelection(conversation);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
-  // One switch for every chat, kept in the browser.
-  const { research, setResearch } = usePreferences();
+  // Each chat keeps its own switch; the one used last is the default for
+  // new chats.
+  const [research, setChatResearch] = useState(entry.research.current);
+  const { setResearch: setLastResearch } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
@@ -94,9 +96,15 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const { link } = conversation;
   const online = useLinkOnline(link);
 
+  function setResearch(on: boolean) {
+    setChatResearch(on);
+    setLastResearch(on);
+  }
+
   function submit(text: string) {
     setDraft('');
     scrollToBottom('auto');
+    setLastResearch(research);
     void sendMessage({ text });
   }
 

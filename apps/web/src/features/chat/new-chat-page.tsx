@@ -42,7 +42,13 @@ export function NewChatPage() {
   const { selection, select, models } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
-  const { research, setResearch } = usePreferences();
+  const { research: lastResearch, setResearch: setLastResearch } = usePreferences();
+  // Starts as in the chat used last; changes here count as using it.
+  const [research, setChatResearch] = useState(lastResearch);
+  function setResearch(on: boolean) {
+    setChatResearch(on);
+    setLastResearch(on);
+  }
   const { data: publicSettings } = usePublicSettings();
   const search = useSearch({ from: '/app/' });
   const [environment, setEnvironment] = useState<LinkConversationInput | null>(() => environmentFromSearch(search));
