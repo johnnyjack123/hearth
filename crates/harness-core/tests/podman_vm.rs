@@ -97,6 +97,11 @@ fn provider_against_vm() {
     assert!(info.rootless, "machine must be rootless");
     println!("VM: {info:?}");
 
+    // TRIM as the user, before the VM service shrinks the disk file.
+    let trimmed = timed("fstrim", || provider.trim().unwrap());
+    assert!(trimmed.contains("trimmed"), "{trimmed}");
+    println!("{trimmed}");
+
     let id = std::process::id();
     let names = Names {
         container: format!("harness-test-{id}"),

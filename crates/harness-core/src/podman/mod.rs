@@ -138,6 +138,59 @@ impl PodmanProvider {
             .map_err(|e| Error::io(format!("{} schreiben", file.display()), e))
     }
 
+    /// TRIM inside the VM (`sudo fstrim -av` as the machine's user): tells
+    /// the disk which blocks deleted files left free, so the VM service can
+    /// shrink the disk file afterwards. It runs here rather than in the
+    /// service because the machine's key belongs to the user, and Windows'
+    /// ssh refuses a key of another owner to SYSTEM. Uses the pinned host
+    /// key and an empty config, never the user's own SSH setup.
+    pub fn trim(&self) -> Result<String> {
+        self.ensure_known_hosts()?;
+        let config = self.home.join(".ssh").join("config-empty");
+        if !config.is_file() {
+            fs::write(&config, "")
+                .map_err(|e| Error::io(format!("{} schreiben", config.display()), e))?;
+        }
+        let ssh = find_openssh("ssh");
+        let output = Command::new(&ssh)
+            .arg("-F")
+            .arg(&config)
+            .args([
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                "ConnectTimeout=10",
+                "-o",
+                "LogLevel=ERROR",
+                "-o",
+            ])
+            .arg(format!(
+                "UserKnownHostsFile=\"{}\"",
+                self.known_hosts().display()
+            ))
+            .arg("-i")
+            .arg(&self.machine.identity_path)
+            .arg("-p")
+            .arg(self.machine.ssh_port.to_string())
+            .arg(format!("{}@{}", self.machine.ssh_user, Ipv4Addr::LOCALHOST))
+            .arg("sudo fstrim -av")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|source| Error::Spawn {
+                program: ssh.clone(),
+                source,
+            })?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        } else {
+            Err(command_error("fstrim in der VM", &output))
+        }
+    }
+
     fn command(&self) -> Result<Command> {
         self.ensure_known_hosts()?;
         let mut cmd = Command::new(&self.podman);
@@ -597,24 +650,28 @@ pub fn find_podman() -> Result<PathBuf> {
     ))
 }
 
+fn find_keyscan() -> PathBuf {
+    find_openssh("ssh-keyscan")
+}
+
 /// Prefers the Windows OpenSSH client over whatever `PATH` offers (e.g. Git
 /// Bash's), so behaviour does not depend on the shell the CLI runs in.
-fn find_keyscan() -> PathBuf {
+fn find_openssh(program: &str) -> PathBuf {
+    let exe = if cfg!(windows) {
+        format!("{program}.exe")
+    } else {
+        program.to_owned()
+    };
     if let Some(dir) = env::var_os("WINDIR") {
         let path = PathBuf::from(dir)
             .join("System32")
             .join("OpenSSH")
-            .join("ssh-keyscan.exe");
+            .join(&exe);
         if path.is_file() {
             return path;
         }
     }
-    let exe = if cfg!(windows) {
-        "ssh-keyscan.exe"
-    } else {
-        "ssh-keyscan"
-    };
-    find_on_path(exe).unwrap_or_else(|| PathBuf::from(exe))
+    find_on_path(&exe).unwrap_or_else(|| PathBuf::from(exe))
 }
 
 fn command_error(action: &str, output: &Output) -> Error {
