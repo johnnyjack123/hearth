@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-25 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); dazu am 25.10. Denktiefe und Zusammenfassen im Web-Chat, Aufräumen der VM, Jev-Schalter pro Gerät, Jev für Prompt-Injection-Warnungen, `harness ssh <projekt>`, Abgleich von Denktiefe und Zusammenfassen mit pi (Tunnel-Protokoll 4); nächstes: App-Katalog_
+_Last updated: 2026-10-26 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); dazu am 25.10. Denktiefe und Zusammenfassen im Web-Chat, Aufräumen der VM, Jev-Schalter pro Gerät, Jev für Prompt-Injection-Warnungen, `harness ssh <projekt>`, Abgleich von Denktiefe und Zusammenfassen mit pi (Tunnel-Protokoll 4), Verkleinern der VM im Leerlauf; nächstes: App-Katalog_
 
 ## Where we are
 
@@ -55,6 +55,7 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Jev bewertet Prompt-Injection-Warnungen (Knopf an der Warnung, automatisch per Einstellung).
    - `harness ssh <projekt>` (Alias von `shell`), `micro` und `nano` im Base-Image; `harness init [pfad] [name]`; Tray-Benachrichtigungen der Smoke-Tests stummgeschaltet.
    - Abgleich mit pi in verknüpften Chats (Tunnel-Protokoll 4): Die Denktiefe des Chats geht mit jeder Nachricht an pi (`set_thinking_level`, „Standard“ heißt pis Mittel). „Verlauf jetzt zusammenfassen“ im Kontext-Ring lässt pi seinen Verlauf zusammenfassen (RPC `compact`). pis eigene Zusammenfassungen erscheinen als Trennlinie in der Antwort, ihre Kosten als Hilfsaufruf. Ältere Geräte bekommen keine Denktiefe und sehen pis Zusammenfassungen als Hinweis; Zusammenfassen auf Wunsch verlangt ein aktuelles harness.
+   - Verkleinern der VM-Festplatte im Leerlauf (26.10.): Vor dem Stopp im Leerlauf trimmt der Hintergrunddienst in der VM, der VM-Dienst verkleinert danach die Datei, wenn sie seit dem letzten Mal um 1 GiB gewachsen ist (höchstens einmal am Tag). Beim Test zeigte sich, dass `harness vmd clean` mit dem Dienst bis 0.1.4 schon beim Trimmen scheiterte (`ssh` fehlt dem Dienst, und als SYSTEM lehnt Windows-OpenSSH den Schlüssel des Nutzers ab); jetzt trimmt die CLI. `Optimize-VHD` als SYSTEM ist weiter ungeprüft, bis der Nutzer 0.1.5 installiert.
    **Als Nächstes:**
    1. **App-Katalog pro Projekt** (Wunsch des Nutzers, 25.10., Entwurf in ROADMAP Phase 3).
    Vorgemerkt: Gedächtnis für Agents und Chats, englische CLI (ROADMAP Phase 5).

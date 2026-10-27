@@ -11,10 +11,11 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use harness_core::podman::MachineConfig;
 use harness_core::vmd::{self, SSH_BANNER_TIMEOUT, VmState};
+use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::log;
@@ -97,9 +98,60 @@ $after = (Get-Item -LiteralPath $path).Length
 "$before $after"
 "#;
 
-/// How long TRIM inside the VM and the compaction may take.
-const TRIM_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long the compaction may take.
 const COMPACT_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// Growth of the disk file since the last compaction from which an idle
+/// stop compacts again: below that, the minutes it takes gain little.
+const COMPACT_GROWTH: u64 = 1 << 30;
+
+/// An idle stop compacts at most once in this time.
+const COMPACT_INTERVAL: Duration = Duration::from_secs(24 * 3600);
+
+/// The last compaction, kept in the service dir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct Compacted {
+    /// When, in seconds since 1970.
+    at: u64,
+    /// Size of the disk file afterwards, in bytes.
+    size: u64,
+}
+
+impl Compacted {
+    fn path() -> PathBuf {
+        vmd::service_dir().join("compacted.json")
+    }
+
+    fn load() -> Option<Compacted> {
+        serde_json::from_str(&fs::read_to_string(Self::path()).ok()?).ok()
+    }
+
+    fn save(self) {
+        if let Ok(text) = serde_json::to_string(&self) {
+            let _ = fs::write(Self::path(), text);
+        }
+    }
+}
+
+/// Whether an idle stop should compact a disk file of `size` bytes: never
+/// compacted yet, or grown by [`COMPACT_GROWTH`] and not compacted within
+/// [`COMPACT_INTERVAL`].
+fn compaction_due(size: u64, last: Option<Compacted>, now: u64) -> bool {
+    last.is_none_or(|last| {
+        now.saturating_sub(last.at) >= COMPACT_INTERVAL.as_secs()
+            && size >= last.size.saturating_add(COMPACT_GROWTH)
+    })
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map_or(0, |m| m.len())
+}
 
 /// Hard power-off after a failed start or stop.
 const TURN_OFF_PS: &str = r#"
@@ -401,43 +453,67 @@ impl Vm {
         let _ = run(self.powershell(PREPARE_PS), SCRIPT_TIMEOUT);
     }
 
-    /// Gives the space of deleted files back to Windows: TRIM inside the VM
-    /// (started for that if needed), the VM off, its disk file compacted,
-    /// and the VM on again if it ran before.
+    /// Gives the space of deleted files back to Windows: the VM off, its
+    /// disk file compacted, and the VM on again if it ran before. The CLI
+    /// trims inside the VM first (`PodmanProvider::trim`); the machine's key
+    /// belongs to the user, and Windows' ssh refuses it to SYSTEM.
     pub fn compact(&self) -> Result<String, String> {
-        let disk = MachineConfig::from_path(&vmd::machine_json(&self.config.machine))
-            .ok()
-            .and_then(|machine| machine.disk)
-            .ok_or("Festplatte der VM unbekannt (die Machine-JSON nennt keine)")?;
+        let disk = self.disk()?;
         let was_running = self.state() == VmState::Running;
-        if !was_running {
-            self.start()?;
+        if was_running {
+            self.stop()?;
         }
-        let (ok, output) = run(
-            self.podman(&["machine", "ssh", &self.config.machine, "sudo fstrim -av"]),
-            TRIM_TIMEOUT,
-        );
-        log::line(&format!("fstrim: {}", tail(&output)));
-        if !ok {
-            return Err(format!(
-                "Freigeben in der VM fehlgeschlagen: {}",
-                tail(&output)
-            ));
-        }
-        self.stop()?;
-        let mut command = self.powershell(COMPACT_PS);
-        command.env("HARNESS_DISK", &disk);
-        let (ok, output) = run(command, COMPACT_TIMEOUT);
-        log::line(&format!("Optimize-VHD: {}", tail(&output)));
-        let result = if ok {
-            Ok(compacted(&output))
-        } else {
-            Err(format!("Verkleinern fehlgeschlagen: {}", tail(&output)))
-        };
+        let result = self.shrink(&disk);
         if was_running {
             self.start()?;
         }
         result
+    }
+
+    /// Stops the VM after the user's idle time and then compacts its disk
+    /// file if that is due ([`compaction_due`]). The VM is idle, so the
+    /// minutes that takes bother nobody; a start in the meantime waits.
+    pub fn stop_idle(&self) -> Result<String, String> {
+        let due = self
+            .disk()
+            .ok()
+            .filter(|disk| compaction_due(file_size(disk), Compacted::load(), unix_now()));
+        let stopped = self.stop()?;
+        let Some(disk) = due else {
+            return Ok(stopped);
+        };
+        log::line("Leerlauf: Festplatte der VM wird verkleinert");
+        Ok(match self.shrink(&disk) {
+            Ok(shrunk) => format!("{stopped} {shrunk}"),
+            Err(error) => format!("{stopped} {error}"),
+        })
+    }
+
+    fn disk(&self) -> Result<PathBuf, String> {
+        MachineConfig::from_path(&vmd::machine_json(&self.config.machine))
+            .ok()
+            .and_then(|machine| machine.disk)
+            .ok_or_else(|| "Festplatte der VM unbekannt (die Machine-JSON nennt keine)".to_owned())
+    }
+
+    /// Compacts the disk file of the stopped VM.
+    fn shrink(&self, disk: &Path) -> Result<String, String> {
+        let mut command = self.powershell(COMPACT_PS);
+        command.env("HARNESS_DISK", disk);
+        let (ok, output) = run(command, COMPACT_TIMEOUT);
+        log::line(&format!("Optimize-VHD: {}", tail(&output)));
+        // Also after a failure: the next idle stop tries again only once
+        // the disk has grown.
+        Compacted {
+            at: unix_now(),
+            size: file_size(disk),
+        }
+        .save();
+        if ok {
+            Ok(compacted(&output))
+        } else {
+            Err(format!("Verkleinern fehlgeschlagen: {}", tail(&output)))
+        }
     }
 
     /// Stops the machine; powers it off if podman cannot.
@@ -475,11 +551,11 @@ fn compacted(output: &str) -> String {
     }
 }
 
-/// A hint for Hyper-V's job error 32788, which says nothing by itself; on
-/// this machine it has always meant too little free memory (event 3030 in
-/// Hyper-V-Worker-Admin).
+/// A hint for Hyper-V's job errors 32778 ("out of memory") and 32788, which
+/// say nothing by themselves; on this machine 32788 has always meant too
+/// little free memory as well (event 3030 in Hyper-V-Worker-Admin).
 fn start_hint(output: &str) -> &'static str {
-    if output.contains("32788") {
+    if output.contains("32788") || output.contains("32778") {
         " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB. \
              Programme schließen und erneut versuchen.)"
     } else {
@@ -501,7 +577,33 @@ mod tests {
         let hint = start_hint("Job failed with error code: 32788 ()");
         assert!(hint.contains("Arbeitsspeicher"), "{hint}");
         assert!(!hint.contains("  "), "{hint}");
+        assert_eq!(start_hint("error code: 32778 ()"), hint);
         assert_eq!(start_hint("ssh: handshake failed"), "");
+    }
+
+    #[test]
+    fn idle_stops_compact_once_the_disk_has_grown() {
+        const GB: u64 = 1 << 30;
+        const DAY: u64 = 24 * 3600;
+        let now = 100 * DAY;
+        assert!(compaction_due(9 * GB, None, now));
+        let last = Some(Compacted {
+            at: now - 2 * DAY,
+            size: 5 * GB,
+        });
+        assert!(compaction_due(6 * GB, last, now));
+        assert!(!compaction_due(6 * GB - 1, last, now));
+        let recent = Some(Compacted {
+            at: now - DAY / 2,
+            size: 5 * GB,
+        });
+        assert!(!compaction_due(9 * GB, recent, now));
+        let record = Compacted {
+            at: now,
+            size: 5 * GB,
+        };
+        let text = serde_json::to_string(&record).unwrap();
+        assert_eq!(serde_json::from_str::<Compacted>(&text).unwrap(), record);
     }
 
     #[test]

@@ -237,6 +237,12 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
         }
     }
     println!("Gebe den Platz an Windows zurück (kann einige Minuten dauern) …");
+    match provider.trim() {
+        Ok(trimmed) => println!("{trimmed}"),
+        Err(error) => println!(
+            "fstrim in der VM gescheitert ({error}); verkleinert wird nur, was schon frei war."
+        ),
+    }
     match vmd::request(Request::Compact) {
         Ok(answer) => {
             println!("{}", answer.message);

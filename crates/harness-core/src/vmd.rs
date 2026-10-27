@@ -37,10 +37,21 @@ pub enum Request {
     Stop,
     /// Stop and start, e.g. when SSH stopped answering.
     Restart,
-    /// Give the space of deleted files back to Windows: TRIM inside the VM,
-    /// then shrink its disk file while it is off. Starts it again if it ran.
+    /// Give the space of deleted files back to Windows: shrink the disk file
+    /// while the machine is off, then start it again if it ran. The caller
+    /// trims inside the VM first (`PodmanProvider::trim`); services before
+    /// 0.1.5 tried that themselves and failed.
     Compact,
+    /// Stop the idle machine, then shrink its disk file if it has grown
+    /// since the last time. The caller trims first, as for `Compact`.
+    /// Services before 0.1.5 answer [`UNKNOWN_REQUEST`].
+    #[serde(rename = "stop-idle")]
+    StopIdle,
 }
+
+/// The service's message for a line it cannot read, e.g. a request newer
+/// than the service.
+pub const UNKNOWN_REQUEST: &str = "unverständliche Anfrage";
 
 /// State of the machine as the service sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +274,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Request::Restart).unwrap(),
             r#"{"op":"restart"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Request::StopIdle).unwrap(),
+            r#"{"op":"stop-idle"}"#
         );
         let answer: Response =
             serde_json::from_str(r#"{"ok":true,"state":"unresponsive"}"#).unwrap();

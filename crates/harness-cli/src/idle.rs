@@ -310,7 +310,12 @@ fn stop_idle(idle: &Idle, machine: &str, mode: Mode, minutes: u32) {
         &format!("VM seit {minutes} min unbenutzt, wird gestoppt."),
     );
     idle.show(VmStatus::Stopping);
-    match crate::vm::stop() {
+    // Marks the space of deleted files as free, so the VM service can give
+    // it back to Windows after the stop.
+    if let Err(error) = PodmanProvider::for_machine(machine).and_then(|p| p.trim()) {
+        say(mode, &format!("fstrim in der VM gescheitert: {error}"));
+    }
+    match crate::vm::stop_idle() {
         Ok(message) => say(mode, &format!("VM gestoppt: {message}")),
         Err(error) => {
             say(mode, &format!("VM-Stopp gescheitert: {error:#}"));

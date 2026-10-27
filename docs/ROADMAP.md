@@ -1,6 +1,6 @@
 # Roadmap
 
-> Stand 14.10.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
+> Stand 26.10.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
 > Grundsatz: **ein** Sandbox-Provider (Podman + Hyper-V + Linux-VM, Isoliert-Modus), bis er im Alltag trägt. Weitere Provider kommen erst danach.
 
 | Phase | Inhalt | Status |
@@ -9,11 +9,11 @@
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
 | **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
-| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ beim Nutzer eingerichtet (17.10.); offen: Stopp im Leerlauf |
-| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 Stufe 1 (feste Regeln) fertig, Stufen 2 und 3 offen |
-| 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis und Warnungen (Muster); offen: Jev als Klassifikator |
-| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | offen |
-| 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | offen |
+| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., Verkleinern noch ungeprüft) |
+| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
+| 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; offen: App-Katalog pro Projekt, signierte Programme |
+| 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
 ## Phase 1 – Reste
@@ -141,8 +141,8 @@ Der Installer richtet den Dienst einmal mit UAC ein.
 - `harness vmd install` (einmal UAC) übernimmt die bestehende Machine samt Images und Volumes. `uninstall` gibt sie zurück.
 - **Automatischer Start:** `harness`, `run`, `shell`, `net` und `image build` starten die VM selbst, wenn SSH nicht antwortet. Antwortet SSH bei laufender VM nicht, startet der Dienst sie neu.
 - `harness` ohne Argumente startet die Standard-Harness und legt beim ersten Mal nach Rückfrage Repository und Projekt an.
+- ✅ Stopp im Leerlauf (23.10., Belegt-Marker statt Leases), Verkleinern der Festplatte im Leerlauf (26.10.)
 - **Offen:**
-  - Stopp im Leerlauf (Leases von `harness run`, später `harnessd`)
   - Wiederanlauf nach Standby über den Leerlauf-Check hinaus
   - fehlende vsock-Registry-Einträge anlegen
 

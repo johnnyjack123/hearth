@@ -54,29 +54,46 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
              harness sie selbst. Sonst in einer Admin-PowerShell: podman machine start {machine}"
         );
     }
-    step(
-        progress,
-        "vm",
-        &format!("VM {machine} starten (bis zu einer Minute)"),
-        || {
-            let _starting = Flag::raise(&STARTING);
-            let answer = vmd::request(Request::Start)?;
-            if !answer.ok {
-                bail!("VM-Start über den Dienst: {}", answer.message);
-            }
-            Ok(())
-        },
-    )?;
+    // A stop of this process (the idle one may first shrink the disk)
+    // holds the service until it is done.
+    let label = if STOPPING.load(Ordering::SeqCst) {
+        format!(
+            "VM {machine} starten, sobald der laufende Stopp fertig ist (bis zu einigen Minuten)"
+        )
+    } else {
+        format!("VM {machine} starten (bis zu einer Minute)")
+    };
+    step(progress, "vm", &label, || {
+        let _starting = Flag::raise(&STARTING);
+        let answer = vmd::request(Request::Start)?;
+        if !answer.ok {
+            bail!("VM-Start über den Dienst: {}", answer.message);
+        }
+        Ok(())
+    })?;
     Ok(provider)
 }
 
 /// Stops the VM through the VM service; returns the service's message.
 pub fn stop() -> anyhow::Result<String> {
+    stop_with(Request::Stop)
+}
+
+/// Stops the idle VM; the service first gives free space back to Windows
+/// when that is due, which can take minutes. Older services only stop.
+pub fn stop_idle() -> anyhow::Result<String> {
+    stop_with(Request::StopIdle)
+}
+
+fn stop_with(request: Request) -> anyhow::Result<String> {
     if !vmd::available() {
         bail!("Ohne VM-Dienst (`harness vmd install`) kann harness die VM nicht stoppen.");
     }
     let _stopping = Flag::raise(&STOPPING);
-    let answer = vmd::request(Request::Stop)?;
+    let mut answer = vmd::request(request)?;
+    if !answer.ok && answer.message == vmd::UNKNOWN_REQUEST && request != Request::Stop {
+        answer = vmd::request(Request::Stop)?;
+    }
     if !answer.ok {
         bail!("{}", answer.message);
     }

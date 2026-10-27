@@ -10,7 +10,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::windows::io::FromRawHandle;
 use std::ptr;
 
-use harness_core::vmd::{PIPE_NAME, Request, Response, VmState};
+use harness_core::vmd::{PIPE_NAME, Request, Response, UNKNOWN_REQUEST, VmState};
 use windows_sys::Win32::Foundation::{
     ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE, LocalFree,
 };
@@ -131,7 +131,7 @@ fn answer(file: File, handler: &dyn Fn(Request) -> Response) {
         None => Response {
             ok: false,
             state: VmState::Unknown,
-            message: "unverständliche Anfrage".to_owned(),
+            message: UNKNOWN_REQUEST.to_owned(),
         },
     };
     let mut text = serde_json::to_string(&response).unwrap_or_default();
