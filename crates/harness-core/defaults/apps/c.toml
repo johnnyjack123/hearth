@@ -1,0 +1,42 @@
+# App „C/C++“ für den App-Katalog (harness app, Einstellungen im Browser)
+name = "c"
+title = "C/C++"
+description = "gcc, g++ und make aus Debian (wie build-essential)"
+
+# Debian-Pakete kommen wie im Base-Image von deb.debian.org.
+hosts = ["deb.debian.org"]
+
+path = ["bin"]
+
+install = '''
+harness_apt gcc g++ make libc6-dev
+root="$PREFIX/root"
+triple="$MACHINE-linux-gnu"
+# gcc runs with $root as its sysroot: headers and libraries come from where
+# the packages put them, in the order gcc expects. Linking also needs the
+# base image's runtime libraries (libc.so.6, ...) inside the sysroot.
+[ -e "$root/lib" ] || ln -s usr/lib "$root/lib"
+if [ -d /usr/lib64 ] && [ ! -e "$root/lib64" ]; then
+  ln -s usr/lib64 "$root/lib64"
+fi
+for lib in /usr/lib/"$triple"/*.so* /usr/lib/ld-linux* /usr/lib64/ld-linux*; do
+  [ -e "$lib" ] || continue
+  if [ ! -e "$root$lib" ] && [ ! -L "$root$lib" ]; then
+    mkdir -p "$root${lib%/*}"
+    ln -s "$lib" "$root$lib"
+  fi
+done
+harness_wrap usr/bin
+for program in "$root"/usr/bin/*; do
+  name=${program##*/}
+  case "$name" in
+    *gcc-ar* | *gcc-nm* | *gcc-ranlib*) ;;
+    *gcc | *gcc-[0-9]* | *g++ | *g++-[0-9]* | *cpp | *cpp-[0-9]*)
+      harness_wrapper "$name" "$program" "--sysroot=$root" ;;
+  esac
+done
+# Debian points cc and c++ there through alternatives, which only dpkg sets up.
+ln -s gcc "$PREFIX/bin/cc"
+ln -s g++ "$PREFIX/bin/c++"
+harness_version "$("$PREFIX/bin/gcc" -dumpfullversion)"
+'''

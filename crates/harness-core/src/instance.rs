@@ -4,11 +4,14 @@
 //! - `/workspace`: the agent's clone (volume per project)
 //! - `/home/agent`: caches and history (volume per project)
 //! - `/opt/harness-tools`: installed harnesses (shared volume, read-only)
+//! - `/opt/harness-apps/<app>`: the apps the project switched on (one
+//!   volume per install, read-only, see [`crate::apps`])
 //! - the harness's persisted path, e.g. `~/.pi` (volume per harness)
 
+use crate::apps::{self, ReadyApp};
 use crate::config::{AGENT_HOME, HarnessConfig, Project};
 use crate::gateway::{self, GatewayControl, Mode, Scope};
-use crate::image::{BASE_IMAGE, CONTEXT_HASH_LABEL, ImageStatus};
+use crate::image::{BASE_IMAGE, CONTEXT_HASH_LABEL, ImageStatus, fingerprint};
 use crate::project::ProjectName;
 use crate::provider::{
     ContainerSpec, ContainerStatus, ExecSpec, Labels, Mount, MountSource, Provider, VolumeSpec,
@@ -25,6 +28,11 @@ pub const TOOLS_DIR: &str = "/opt/harness-tools";
 /// Records the mounts an instance was created with, so a change (e.g. a
 /// further harness) recreates it instead of silently missing a volume.
 const MOUNTS_LABEL: &str = "io.llm-harness.mounts";
+
+/// Fingerprint of the environment the apps set, so a change (another
+/// version folder, a new variable) recreates the instance. Missing on
+/// instances without apps.
+const ENV_LABEL: &str = "io.llm-harness.env";
 
 /// The registry harnesses are installed from; granted to the installer for
 /// a while if the project's rules do not allow it anyway.
@@ -53,8 +61,8 @@ pub fn state(provider: &dyn Provider, name: &ProjectName) -> Result<InstanceStat
     })
 }
 
-/// The mounts of an instance with these harnesses.
-pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig]) -> Vec<Mount> {
+/// The mounts of an instance with these harnesses and apps.
+pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig], apps: &[ReadyApp]) -> Vec<Mount> {
     let mount = |source, target: &str, read_only| Mount {
         source,
         target: target.to_owned(),
@@ -74,6 +82,7 @@ pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig]) -> Vec<Mount> {
             true,
         ),
     ];
+    mounts.extend(apps::app_mounts(apps));
     for harness in harnesses {
         if let Some(path) = harness.persist_paths().into_iter().next()
             && !mounts.iter().any(|m| m.target == path)
@@ -101,16 +110,17 @@ fn describe(mounts: &[Mount]) -> String {
 }
 
 /// Starts the project's instance, creating volumes and container as needed.
-/// The container is recreated when the base image or the mounts changed;
-/// all data lives in volumes, the root filesystem is read-only anyway.
-/// Returns whether the container was (re)created.
+/// The container is recreated when the base image, the mounts or the apps'
+/// environment changed; all data lives in volumes, the root filesystem is
+/// read-only anyway. Returns whether the container was (re)created.
 ///
 /// The project's network must exist, i.e. [`gateway::ensure_running`] runs
-/// first.
+/// first, and `apps` must be installed.
 pub fn ensure_running(
     provider: &dyn Provider,
     project: &Project,
     harnesses: &[&HarnessConfig],
+    apps: &[ReadyApp],
 ) -> Result<bool> {
     match BASE_IMAGE.status(provider)? {
         ImageStatus::Current => {}
@@ -128,15 +138,23 @@ pub fn ensure_running(
         }
     }
     let name = &project.name;
-    let mounts = mounts(name, harnesses);
+    let mounts = mounts(name, harnesses, apps);
     let description = describe(&mounts);
     let hash = BASE_IMAGE.context_hash();
     let container = name.instance();
+    let env = apps::environment(apps.iter().map(|ready| &ready.app))?;
+    let env_hash = (!env.is_empty()).then(|| {
+        fingerprint(
+            env.iter()
+                .flat_map(|(key, value)| [key.as_str(), value.as_str()]),
+        )
+    });
 
     let current = provider.container(&container)?;
     let fits = current.as_ref().is_some_and(|info| {
         info.labels.get(CONTEXT_HASH_LABEL) == Some(&hash)
             && info.labels.get(MOUNTS_LABEL) == Some(&description)
+            && info.labels.get(ENV_LABEL) == env_hash.as_ref()
     });
     if fits {
         if current.is_some_and(|info| info.status != ContainerStatus::Running) {
@@ -154,17 +172,21 @@ pub fn ensure_running(
             ..VolumeSpec::default()
         })?;
     }
-    let labels: Labels = [
+    let mut labels: Labels = [
         (PROJECT_LABEL.to_owned(), name.to_string()),
         (CONTEXT_HASH_LABEL.to_owned(), hash),
         (MOUNTS_LABEL.to_owned(), description),
     ]
     .into();
+    if let Some(env_hash) = env_hash {
+        labels.insert(ENV_LABEL.to_owned(), env_hash);
+    }
     provider.create_container(&ContainerSpec {
         name: container.clone(),
         image: BASE_IMAGE.tag.to_owned(),
         network: name.network(),
         mounts,
+        env,
         labels,
         workdir: Some(WORKSPACE.to_owned()),
         resources: project.resources.clone(),
@@ -354,7 +376,7 @@ mod tests {
     #[test]
     fn instance_mounts() {
         let name = ProjectName::new("demo").unwrap();
-        let mounts = mounts(&name, &[&pi()]);
+        let mounts = mounts(&name, &[&pi()], &[]);
         let described = describe(&mounts);
         assert_eq!(
             described,
@@ -363,7 +385,30 @@ mod tests {
              harness-cfg-pi:/home/agent/.pi"
         );
         // The same harness twice does not mount twice.
-        assert_eq!(super::mounts(&name, &[&pi(), &pi()]).len(), mounts.len());
-        assert_eq!(super::mounts(&name, &[]).len(), 3);
+        assert_eq!(
+            super::mounts(&name, &[&pi(), &pi()], &[]).len(),
+            mounts.len()
+        );
+        assert_eq!(super::mounts(&name, &[], &[]).len(), 3);
+
+        let go: crate::config::AppConfig =
+            toml::from_str(include_str!("../defaults/apps/go.toml")).unwrap();
+        let ready = ReadyApp {
+            app: go,
+            install: apps::Install {
+                app: "go".into(),
+                id: "6a000000".into(),
+                volume: "harness-app-go-6a000000".into(),
+                version: "1.25.3".into(),
+                recipe: String::new(),
+            },
+        };
+        assert_eq!(
+            describe(&super::mounts(&name, &[&pi()], &[ready])),
+            "harness-ws-demo:/workspace harness-home-demo:/home/agent \
+             harness-tools:/opt/harness-tools:ro \
+             harness-app-go-6a000000:/opt/harness-apps/go:ro \
+             harness-cfg-pi:/home/agent/.pi"
+        );
     }
 }

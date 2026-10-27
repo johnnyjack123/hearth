@@ -94,12 +94,12 @@ Windows 11
 
 ### 3.2 Base-Image
 
-- Debian stable (slim) mit git, curl, build-essential, Python 3 + uv, Node LTS + npm/pnpm, ripgrep, fd, jq, gh.
+- Debian stable (slim) mit git, curl, Python 3 + uv, Node LTS + npm/pnpm, ripgrep, fd, jq.
 - Ein unprivilegierter Benutzer `agent` (UID 1000).
 - Ein `git`-Shim (siehe 3.6) vor dem echten git im `PATH`.
 - `HTTP_PROXY`/`HTTPS_PROXY` sind auf das Gateway gesetzt.
 - Harnesse liegen nicht im Image, sondern in einem gemeinsamen Tools-Volume (`/opt/harness-tools`). So lassen sie sich ohne Image-Neubau aktualisieren.
-- Projektspezifische Erweiterungen kommen über ein eigenes `Containerfile` pro Umgebung (`FROM harness/base`).
+- **Weitere Programme kommen aus dem App-Katalog** (seit 27.10., statt eines eigenen Images pro Umgebung): Compiler und Sprachen wie C/C++ (gcc, standardmäßig an), Rust, Go, Java, Deno, Bun, SQLite. Jede Installation ist ein eigenes Volume, einmal pro VM, und wird schreibgeschützt unter `/opt/harness-apps/<app>` in die Instanzen der Projekte eingehängt, die sie eingeschaltet haben; `PATH` und Variablen setzt harness beim Anlegen der Instanz. Umschalten legt nur die Instanz neu an. Rezepte sind TOML-Dateien mit einem Installationsskript (`crates/harness-core/defaults/apps/`), eigene liegen in `~/.harness/apps/`.
 
 ### 3.3 Instanz = Projekt + Umgebung
 

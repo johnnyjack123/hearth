@@ -26,11 +26,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
 use clap::Subcommand;
+use harness_core::apps::{self, Inventory};
 use harness_core::config::ConfigDir;
 use harness_core::image::BUILD_ONLY_IMAGES;
 use harness_core::podman::find_podman;
 use harness_core::project::ProjectName;
 use harness_core::provider::{ImageInfo, Provider as _};
+use harness_core::rescue::{self, Unsaved};
 use harness_core::vmd::{self, Request, Response, SERVICE_NAME, VmState};
 
 #[derive(Subcommand)]
@@ -154,6 +156,9 @@ fn orphaned(volume: &str, projects: &[String]) -> Option<String> {
 
 /// `harness vmd clean`: removes what the VM keeps without need, then has
 /// the service shrink the VM's disk file, which never shrinks by itself.
+///
+/// Data of removed projects may still hold work the user never took over;
+/// that is saved as a git bundle first, or the data stays.
 fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
     let provider = crate::vm::provider(machine)?;
     let images = provider.images()?;
@@ -177,13 +182,44 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
         .iter()
         .map(ToString::to_string)
         .collect();
-    let mut gone: Vec<String> = provider
-        .volumes()?
-        .iter()
-        .filter_map(|volume| orphaned(volume, &projects))
-        .collect();
+    // Another configuration (tests, smoke scripts) knows only its own
+    // projects; the user's would all look removed.
+    let mut gone: Vec<String> = if std::env::var_os("HARNESS_HOME").is_some() {
+        println!(
+            "Mit HARNESS_HOME kennt harness nur die Projekte dieser Konfiguration; Daten von \
+             Projekten fasst clean deshalb nicht an."
+        );
+        Vec::new()
+    } else {
+        provider
+            .volumes()?
+            .iter()
+            .filter_map(|volume| orphaned(&volume.name, &projects))
+            .collect()
+    };
     gone.sort();
     gone.dedup();
+    let inventory = Inventory::load(&provider)?;
+    let old_apps = inventory.superseded();
+
+    // Work the agents of removed projects left behind; data that cannot be
+    // checked stays.
+    let mut unsaved: Vec<(ProjectName, Unsaved)> = Vec::new();
+    let mut unchecked: Vec<String> = Vec::new();
+    for name in &gone {
+        let Ok(project) = ProjectName::new(name) else {
+            continue;
+        };
+        match rescue::unsaved(&provider, &project) {
+            Ok(Some(work)) if work.any() => unsaved.push((project, work)),
+            Ok(_) => {}
+            Err(error) => {
+                println!("{name}: nicht prüfbar, ob noch Arbeit des Agents fehlt ({error}).");
+                unchecked.push(name.clone());
+            }
+        }
+    }
+    gone.retain(|name| !unchecked.contains(name));
 
     println!("Aufräumen in der VM:");
     println!("- {unnamed} alte Image-Stände und Zwischenstufen von Builds");
@@ -206,6 +242,33 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             gone.join(", ")
         );
     }
+    if !old_apps.is_empty() || !inventory.leftovers.is_empty() {
+        let mut names: Vec<String> = old_apps
+            .iter()
+            .map(|install| format!("{} {}", install.app, install.version))
+            .collect();
+        if !inventory.leftovers.is_empty() {
+            names.push(format!(
+                "{} abgebrochene Installation(en)",
+                inventory.leftovers.len()
+            ));
+        }
+        println!(
+            "- Ältere Stände von Apps, soweit keine Instanz sie noch nutzt: {}",
+            names.join(", ")
+        );
+    }
+    let rescued_dir = config.root().join("gesichert");
+    for (project, work) in &unsaved {
+        println!(
+            "  Achtung, {project} enthält Arbeit des Agents, die nie auf deinem Rechner ankam: {} \
+             Commit(s), {} nicht committete Datei(en). Sie wird vorher als Git-Bundle nach {} \
+             gesichert.",
+            work.commits,
+            work.changes,
+            rescued_dir.display()
+        );
+    }
     println!("Danach gibt der VM-Dienst den Platz an Windows zurück; die VM ist dabei kurz aus.");
     if !yes {
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -215,12 +278,54 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             println!("Abgebrochen.");
             return Ok(false);
         }
+        if !unsaved.is_empty()
+            && !crate::project::confirm(
+                "Die Arbeit oben sichern? Nein lässt diese Projekte in der VM, wie sie sind.",
+                true,
+            )?
+        {
+            let kept: Vec<String> = unsaved.iter().map(|(p, _)| p.to_string()).collect();
+            gone.retain(|name| !kept.contains(name));
+            unsaved.clear();
+        }
+    }
+    for (project, _) in &unsaved {
+        let stamp = crate::connect::utc_stamp()
+            .replace(' ', "_")
+            .replace([':', 'Z'], "");
+        let target = rescued_dir.join(format!("{project}-{stamp}.bundle"));
+        let saved = fs::create_dir_all(&rescued_dir)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| Ok(rescue::save(&provider, project, &target)?));
+        match saved {
+            Ok(()) => println!(
+                "{project}: gesichert in {}. Holen in einem Repository: git fetch \"{}\" \
+                 \"refs/heads/*:refs/remotes/gesichert/*\"",
+                target.display(),
+                target.display()
+            ),
+            Err(error) => {
+                println!(
+                    "{project}: Sichern gescheitert ({error:#}); die Daten bleiben in der VM."
+                );
+                gone.retain(|name| name != project.as_str());
+            }
+        }
     }
     provider.prune_images()?;
     for image in builders {
         if let Err(error) = provider.remove_image(&image.id) {
             println!("{} bleibt: {error}", image.tags.join(", "));
         }
+    }
+    for install in old_apps {
+        if let Err(error) = apps::remove(&provider, install) {
+            println!("{} {} bleibt: {error}", install.app, install.version);
+        }
+    }
+    for volume in &inventory.leftovers {
+        // A running install still uses its volume; podman refuses then.
+        let _ = provider.remove_volume(volume);
     }
     for name in &gone {
         let Ok(project) = ProjectName::new(name) else {

@@ -1,0 +1,27 @@
+# App „Go“ für den App-Katalog (harness app, Einstellungen im Browser)
+name = "go"
+title = "Go"
+description = "Go-Compiler und Werkzeuge (aktuelle Version)"
+
+hosts = ["go.dev", "dl.google.com"]
+
+# ~/go/bin: was der Agent mit `go install` installiert
+path = ["go/bin", "~/go/bin"]
+
+install = '''
+harness_download "https://go.dev/dl/?mode=json" "$WORK/releases.json"
+# shellcheck disable=SC2046 # version, file name and checksum as $1 $2 $3
+set -- $(jq -r --arg arch "$ARCH" '
+  [.[] | select(.stable)][0] as $release
+  | $release.files[]
+  | select(.os == "linux" and .arch == $arch and .kind == "archive")
+  | "\($release.version) \(.filename) \(.sha256)"' "$WORK/releases.json")
+if [ $# -ne 3 ]; then
+  echo "Keine Go-Version für linux/$ARCH gefunden" >&2
+  exit 1
+fi
+harness_download "https://dl.google.com/go/$2" "$WORK/go.tar.gz"
+harness_sha256 "$WORK/go.tar.gz" "$3"
+tar -xzf "$WORK/go.tar.gz" -C "$PREFIX"
+harness_version "${1#go}"
+'''

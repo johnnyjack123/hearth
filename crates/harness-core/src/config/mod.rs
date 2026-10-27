@@ -19,11 +19,12 @@ use serde::de::DeserializeOwned;
 use toml_edit::DocumentMut;
 
 pub use model::{
-    AGENT_HOME, AdapterConfig, DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig,
-    GlobalConfig, GuardKind, HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig,
-    RemoteConfig, ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id,
+    AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppsConfig, DEFAULT_HARNESS, Defaults,
+    DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind, HarnessConfig, LlmWiring,
+    NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig, ResourcesConfig, ReviewConfig,
+    ServerConfig, valid_chat_id,
 };
-use model::{Validate, validate_harness_name};
+use model::{Validate, validate_app_name, validate_harness_name};
 
 use crate::paths::{canonical, home_dir, is_within, same_path};
 use crate::project::ProjectName;
@@ -39,6 +40,18 @@ const PROJECT_TEMPLATE: &str = include_str!("../../defaults/project.toml");
 /// A file in `harnesses/` is for deliberate changes only.
 const BUILTIN_HARNESSES: &[(&str, &str)] =
     &[("pi", include_str!("../../defaults/harnesses/pi.toml"))];
+
+/// The app catalog shipped with the binary; like the harnesses, a file of
+/// the same name in `apps/` replaces an entry, and further files add apps.
+const BUILTIN_APPS: &[(&str, &str)] = &[
+    ("c", include_str!("../../defaults/apps/c.toml")),
+    ("rust", include_str!("../../defaults/apps/rust.toml")),
+    ("go", include_str!("../../defaults/apps/go.toml")),
+    ("java", include_str!("../../defaults/apps/java.toml")),
+    ("deno", include_str!("../../defaults/apps/deno.toml")),
+    ("bun", include_str!("../../defaults/apps/bun.toml")),
+    ("sqlite", include_str!("../../defaults/apps/sqlite.toml")),
+];
 
 /// The configuration folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +102,9 @@ pub struct Project {
     pub llm_apis: Vec<DomainPattern>,
     /// Effective resource limits.
     pub resources: Resources,
+    /// Apps switched on (`[apps] enabled`), without the ones they require;
+    /// [`ConfigDir::project_apps`] resolves them.
+    pub apps: Vec<String>,
 }
 
 impl ConfigDir {
@@ -133,6 +149,11 @@ impl ConfigDir {
     /// Folder with harness definitions.
     pub fn harnesses_dir(&self) -> PathBuf {
         self.root.join("harnesses")
+    }
+
+    /// Folder with app recipes of one's own (the catalog is built in).
+    pub fn apps_dir(&self) -> PathBuf {
+        self.root.join("apps")
     }
 
     /// Creates the folder layout and writes default files that do not exist
@@ -486,6 +507,138 @@ impl ConfigDir {
         Ok(harness)
     }
 
+    /// The named app: `apps/<name>.toml`, else the catalog's.
+    pub fn app(&self, name: &str) -> Result<AppConfig> {
+        validate_app_name(name).map_err(|message| Error::ConfigInvalid {
+            path: self.apps_dir(),
+            message,
+        })?;
+        let file = self.apps_dir().join(format!("{name}.toml"));
+        let text = match read_optional(&file)? {
+            Some(text) => text,
+            None => BUILTIN_APPS
+                .iter()
+                .find(|(builtin, _)| *builtin == name)
+                .map(|(_, text)| (*text).to_owned())
+                .ok_or_else(|| Error::AppUnknown(name.to_owned()))?,
+        };
+        let app: AppConfig = parse(&file, &text)?;
+        if app.name != name {
+            return Err(Error::ConfigInvalid {
+                path: file,
+                message: format!(
+                    "name = {:?} passt nicht zum Dateinamen {name}.toml",
+                    app.name
+                ),
+            });
+        }
+        Ok(app)
+    }
+
+    /// All apps: the catalog in its order, then the files in `apps/` that
+    /// add apps, by name.
+    pub fn apps(&self) -> Result<Vec<AppConfig>> {
+        let mut names: Vec<String> = BUILTIN_APPS
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .collect();
+        let dir = self.apps_dir();
+        let mut own = Vec::new();
+        match fs::read_dir(&dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    let path = entry
+                        .map_err(|e| Error::io(format!("{} lesen", dir.display()), e))?
+                        .path();
+                    if path.extension().is_some_and(|ext| ext == "toml")
+                        && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                        && !names.iter().any(|name| name == stem)
+                    {
+                        own.push(stem.to_owned());
+                    }
+                }
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::io(format!("{} lesen", dir.display()), e)),
+        }
+        own.sort();
+        names.extend(own);
+        names.iter().map(|name| self.app(name)).collect()
+    }
+
+    /// The apps a project gets: the ones it switched on and what they
+    /// require, each once, required ones first.
+    pub fn project_apps(&self, project: &Project) -> Result<Vec<AppConfig>> {
+        self.resolve_apps(&project.apps)
+    }
+
+    /// `names` with the apps they require, each once, required ones first.
+    pub fn resolve_apps(&self, names: &[String]) -> Result<Vec<AppConfig>> {
+        let mut resolved = Vec::new();
+        for name in names {
+            self.add_app(name, &mut resolved, &mut Vec::new())?;
+        }
+        Ok(resolved)
+    }
+
+    fn add_app(
+        &self,
+        name: &str,
+        resolved: &mut Vec<AppConfig>,
+        chain: &mut Vec<String>,
+    ) -> Result<()> {
+        if resolved.iter().any(|app| app.name == name) {
+            return Ok(());
+        }
+        if chain.iter().any(|link| link == name) {
+            return Err(Error::Unsupported(format!(
+                "Apps verlangen sich gegenseitig: {} → {name}",
+                chain.join(" → ")
+            )));
+        }
+        let app = self.app(name)?;
+        chain.push(name.to_owned());
+        for required in &app.requires {
+            self.add_app(required, resolved, chain)?;
+        }
+        chain.pop();
+        resolved.push(app);
+        Ok(())
+    }
+
+    /// Switches apps of a project on and off (`[apps] enabled`). Apps
+    /// switched on must exist; off works for any name, also for an app whose
+    /// file is gone.
+    pub fn set_apps(&self, name: &ProjectName, on: &[String], off: &[String]) -> Result<Project> {
+        for app in on {
+            self.app(app)?;
+        }
+        let file = self.project_file(name);
+        self.update_project(name, |doc| {
+            let item = &mut doc["apps"]["enabled"];
+            if item.is_none() {
+                // Without the key the default applies; it must not get lost.
+                *item = toml_edit::value(
+                    AppsConfig::default()
+                        .enabled
+                        .iter()
+                        .collect::<toml_edit::Array>(),
+                );
+            }
+            let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
+                path: file.clone(),
+                message: "apps.enabled ist keine Liste".to_owned(),
+            })?;
+            array.retain(|value| !off.iter().any(|app| value.as_str() == Some(app)));
+            for app in on {
+                if !array.iter().any(|value| value.as_str() == Some(app)) {
+                    array.push(app.as_str());
+                }
+            }
+            Ok(())
+        })
+    }
+
     /// Refuses a project that contains this folder or lies inside it.
     fn check_separate_from(&self, project_path: &Path) -> Result<()> {
         if is_within(&self.root, project_path) || is_within(project_path, &self.root) {
@@ -529,6 +682,7 @@ impl ConfigDir {
                     .or_else(|| defaults.resources.memory.clone()),
                 ..Resources::default()
             },
+            apps: config.apps.enabled,
             path: config.path,
         })
     }

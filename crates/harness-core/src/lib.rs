@@ -6,6 +6,7 @@
 
 #![warn(missing_docs)]
 
+pub mod apps;
 pub mod briefing;
 pub mod busy;
 pub mod config;
@@ -22,6 +23,7 @@ pub mod project;
 pub mod provider;
 #[cfg(windows)]
 pub mod pty;
+pub mod rescue;
 pub mod review;
 pub mod server;
 pub mod sync;

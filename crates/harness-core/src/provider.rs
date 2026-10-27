@@ -54,8 +54,8 @@ pub trait Provider {
     /// and the intermediate stages of builds.
     fn prune_images(&self) -> Result<()>;
 
-    /// Names of all volumes.
-    fn volumes(&self) -> Result<Vec<String>>;
+    /// All volumes with their labels.
+    fn volumes(&self) -> Result<Vec<VolumeInfo>>;
 
     /// Creates the volume unless it exists.
     fn ensure_volume(&self, volume: &VolumeSpec) -> Result<()>;
@@ -123,6 +123,15 @@ pub trait Provider {
     /// Address under which containers in normal networks (the gateway)
     /// reach services on the host's loopback interface, if any.
     fn host_address(&self) -> Option<&str>;
+}
+
+/// A volume, from [`Provider::volumes`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeInfo {
+    /// Volume name.
+    pub name: String,
+    /// Labels given when it was created; podman cannot change them later.
+    pub labels: Labels,
 }
 
 /// An image in the engine's store, from [`Provider::images`].

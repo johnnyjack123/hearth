@@ -444,6 +444,7 @@ mod tests {
             deny: vec!["gist.github.com".parse().unwrap()],
             llm_apis: vec!["api.deepseek.com".parse().unwrap()],
             resources: Resources::default(),
+            apps: vec![],
         }
     }
 

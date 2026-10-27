@@ -6,8 +6,9 @@ use std::env;
 use std::io::IsTerminal as _;
 
 use anyhow::bail;
+use harness_core::apps::ReadyApp;
 use harness_core::briefing::briefing;
-use harness_core::config::{ConfigDir, GuardKind, HarnessConfig, LlmWiring, Project};
+use harness_core::config::{AppConfig, ConfigDir, GuardKind, HarnessConfig, LlmWiring, Project};
 use harness_core::gateway::{self, GatewayState};
 use harness_core::instance::{self, InstanceState};
 use harness_core::pi;
@@ -26,6 +27,8 @@ pub(crate) struct Prepared {
     pub(crate) provider: PodmanProvider,
     pub(crate) project: Project,
     pub(crate) harnesses: Vec<HarnessConfig>,
+    /// The project's apps, mounted in the instance.
+    pub(crate) apps: Vec<ReadyApp>,
 }
 
 impl Prepared {
@@ -65,12 +68,13 @@ pub(crate) fn prepare_project(
         &format!("Gateway {}", project.name.gateway()),
         || Ok(gateway::ensure_running(&provider, &project, llm.as_ref())?),
     )?;
+    let apps = crate::app::ready(config, &provider, &project, progress)?;
     let refs: Vec<&HarnessConfig> = harnesses.iter().collect();
     let created = step(
         progress,
         "instance",
         &format!("Instanz {}", project.name.instance()),
-        || Ok(instance::ensure_running(&provider, &project, &refs)?),
+        || Ok(instance::ensure_running(&provider, &project, &refs, &apps)?),
     )?;
     if created {
         println!("  (neu angelegt; Arbeitskopie und Home liegen in Volumes und bleiben erhalten)");
@@ -97,6 +101,7 @@ pub(crate) fn prepare_project(
         provider,
         project,
         harnesses,
+        apps,
     })
 }
 
@@ -238,7 +243,12 @@ pub(crate) fn ready_harness(
     }
     if let Some(flag) = &harness.prompt_flag {
         command.push(flag.clone());
-        command.push(briefing(&prepared.project));
+        let apps: Vec<AppConfig> = prepared
+            .apps
+            .iter()
+            .map(|ready| ready.app.clone())
+            .collect();
+        command.push(briefing(&prepared.project, &apps, &config.apps()?));
     }
     Ok(ReadyHarness { command, models })
 }

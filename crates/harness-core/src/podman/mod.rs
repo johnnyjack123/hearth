@@ -27,8 +27,8 @@ pub use machine::{DEFAULT_MACHINE, MachineConfig, MachineMount};
 use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
     ContainerInfo, ContainerSpec, ContainerStatus, ExecOutput, ExecSpec, GatewaySpec, HostInfo,
-    ImageBuild, ImageInfo, Labels, NetworkSpec, Provider, VolumeSpec, validate_image_ref,
-    validate_resource_name,
+    ImageBuild, ImageInfo, Labels, NetworkSpec, Provider, VolumeInfo, VolumeSpec,
+    validate_image_ref, validate_resource_name,
 };
 use crate::{Error, Result};
 
@@ -319,13 +319,16 @@ impl Provider for PodmanProvider {
             .map(drop)
     }
 
-    fn volumes(&self) -> Result<Vec<String>> {
-        let names = self.run("volume ls", &["volume", "ls", "--format", "{{.Name}}"])?;
-        Ok(names
-            .lines()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned)
+    fn volumes(&self) -> Result<Vec<VolumeInfo>> {
+        let json = self.run("volume ls", &["volume", "ls", "--format", "json"])?;
+        let volumes: Vec<RawVolume> =
+            serde_json::from_str(&json).map_err(|e| unexpected("volume ls", e))?;
+        Ok(volumes
+            .into_iter()
+            .map(|volume| VolumeInfo {
+                name: volume.name,
+                labels: volume.labels.unwrap_or_default(),
+            })
             .collect())
     }
 
@@ -760,6 +763,15 @@ struct RawImageEntry {
     size: u64,
     #[serde(default)]
     containers: u32,
+}
+
+/// One entry of `podman volume ls --format json`.
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RawVolume {
+    name: String,
+    #[serde(default)]
+    labels: Option<Labels>,
 }
 
 #[derive(Deserialize)]

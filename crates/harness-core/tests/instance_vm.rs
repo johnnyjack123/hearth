@@ -79,6 +79,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         deny: vec![],
         llm_apis: vec![],
         resources: Resources::default(),
+        apps: vec![],
     };
     let program = format!("itest-{}", std::process::id());
     let harness = HarnessConfig {
@@ -106,8 +107,8 @@ fn instances_install_harnesses_and_keep_their_volumes() {
     };
 
     gateway::ensure_running(&provider, &project, None).unwrap();
-    assert!(instance::ensure_running(&provider, &project, &[]).unwrap());
-    assert!(!instance::ensure_running(&provider, &project, &[]).unwrap());
+    assert!(instance::ensure_running(&provider, &project, &[], &[]).unwrap());
+    assert!(!instance::ensure_running(&provider, &project, &[], &[]).unwrap());
     assert_eq!(
         instance::state(&provider, &name).unwrap(),
         InstanceState::Running
@@ -138,7 +139,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
     // workspace and home volumes keep their contents.
     let marker = run("echo kept > /workspace/marker && echo kept > ~/marker");
     assert_eq!(marker.code, 0, "{}", marker.stderr);
-    assert!(instance::ensure_running(&provider, &project, &[&harness]).unwrap());
+    assert!(instance::ensure_running(&provider, &project, &[&harness], &[]).unwrap());
     let kept = run("cat /workspace/marker ~/marker && touch ~/.itest/state && echo ok");
     assert_eq!(kept.stdout, "kept\nkept\nok\n", "{}", kept.stderr);
 
@@ -198,6 +199,6 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         instance::state(&provider, &name).unwrap(),
         InstanceState::Stopped
     );
-    assert!(!instance::ensure_running(&provider, &project, &[&harness]).unwrap());
+    assert!(!instance::ensure_running(&provider, &project, &[&harness], &[]).unwrap());
     assert_eq!(run("cat ~/.itest/state && echo ok").stdout, "ok\n");
 }

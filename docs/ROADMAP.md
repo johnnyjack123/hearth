@@ -12,7 +12,7 @@
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
-| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; offen: App-Katalog pro Projekt, signierte Programme |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), offen: Browser, eigene Programme, Gateway fertig gebaut, signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -41,7 +41,7 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - Methoden: VM erreichbar?, Image bauen, Volume, Netz, Container anlegen, starten und stoppen, exec (mit TTY), Dateien in den Container und heraus (`copy_into`, `copy_out`)
 3. ✅ **Base-Image** `images/base/Containerfile` (Debian trixie-slim, Node 24 aus dem offiziellen Image, uv 0.12.24, ~680 MB). Der Kontext ist ins Binary eingebettet, gebaut wird mit `harness image build`. Verifiziert mit `tests/base_image_vm.rs`, dazu pnpm und Proxy-Verhalten von Node von Hand:
    - Debian stable slim, multi-arch
-   - git, ca-certificates, curl, build-essential, Python 3 + uv, Node LTS + pnpm (corepack), ripgrep, fd, jq
+   - git, ca-certificates, curl, Python 3 + uv, Node LTS + pnpm (corepack), ripgrep, fd, jq (build-essential bis 27.10., seitdem App „C/C++“)
    - Nutzer `agent` (UID 1000)
    - `/etc/gitconfig` mit `core.checkStat=minimal`, `core.trustctime=false`, `safe.directory=*` für `/workspace`
    - `HTTP(S)_PROXY` zeigt auf das Gateway
@@ -262,6 +262,19 @@ Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projek
   - Kein eigenes Image pro Projekt (Platz, Neuinstallation bei jedem Umschalten). Stattdessen die Idee des Nutzers, angepasst: **ein gemeinsamer Programm-Speicher in der VM** (Volume wie das Tools-Volume, in dem pi liegt), nicht ein Host-Ordner. Host-Ordner in der VM sind langsam und eine Sicherheitslücke (9p, siehe Stolpersteine). Jedes Programm liegt dort einmal; ein Projekt sieht nur die eingeschalteten, ihre Pfade kommen über Umgebungsvariablen (`PATH` usw.) in die Instanz. Umschalten legt nur die Instanz neu an (Sekunden), installiert wird einmal.
 - **Offen beim Bau:** Programme, die nur als apt-Paket existieren, brauchen ein eigenes Präfix (`dpkg -x` plus `LD_LIBRARY_PATH`) oder statische Builds. Katalog-Einträge deshalb als Rezept, das ein in sich geschlossenes Verzeichnis `/opt/harness-apps/<app>/<version>` erzeugt. Vorlagen speichert der Server pro Konto, die Einstellungen gelten pro Projekt. Der Browser bekommt unter Einstellungen eine Ansicht aller Projekte mit ihren Programmen.
 - **Verwandt:** `build-essential` (~250 MB) aus dem Base-Image in den Katalog verschieben, das Gateway fertig gebaut ausliefern statt in der VM zu kompilieren (spart das Rust-Image und beim ersten Einrichten den Download).
+
+**Plan in Schritten (27.10.):**
+1. ✅ **Kern und CLI** (27.10.):
+   - Rezepte als TOML mit Installationsskript, eingebaut wie pi (`crates/harness-core/defaults/apps/`), eigene in `~/.harness/apps/`. Katalog: C/C++, Rust, Go, Java, Deno, Bun, SQLite.
+   - Jede Installation ist ein eigenes Volume `harness-app-<app>-<id>`, eingehängt unter `/opt/harness-apps/<app>`, beim Installieren beschreibbar, in Instanzen schreibgeschützt. Eine fertige Installation erkennt man an einem zweiten, leeren Volume mit der Version (Quittung).
+   - apt-Pakete: ohne root aufgelöst und mit `dpkg-deb -x` in ein eigenes Präfix entpackt, Programme über Wrapper mit `LD_LIBRARY_PATH`. gcc läuft mit `--sysroot` auf dieses Präfix.
+   - `[apps] enabled` in der Projektdatei, `harness app list|on|off|install|update|remove`. Der Start (`harness`, `shell`, Web-Chat) installiert, was fehlt.
+   - **`build-essential` ist aus dem Base-Image raus** (698 → 454 MB). C/C++ ist dafür standardmäßig an, auch in Projekten ohne `[apps]`.
+   - Hinweise an den Agent nennen die eingeschalteten Apps und dass der Nutzer weitere einschalten kann.
+   - Dazu (Wunsch des Nutzers): `vmd clean` behält die Quell-Images des Base-Images (node, uv), entfernt alte App-Stände und sichert Arbeit gelöschter Projekte vorher als Git-Bundle; `harness project remove` ebenso.
+2. **Browser:** Programme pro Projekt schalten, Ansicht aller Projekte unter Einstellungen, im Umgebungs-Popover. Tunnel-Protokoll 5 (Gerät meldet Katalog und Stand, Server schickt Schalter).
+3. **Eigene Programme:** Paketnamen (apt, npm, pip) und Installationsbefehle aus dem Browser, Vorlagen auf dem Server pro Konto; Programmdateien vom Rechner nur mit Bestätigung am Rechner.
+4. **Gateway fertig gebaut ausliefern** (statt Rust-Image und Kompilieren in der VM).
 
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
 

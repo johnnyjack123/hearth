@@ -54,14 +54,12 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
     ],
 };
 
-/// Images only the builds need (the stages `FROM … AS …` in the
-/// Containerfiles); the finished images do not use them. `harness vmd
-/// clean` removes them, the next build downloads them again.
-pub const BUILD_ONLY_IMAGES: &[&str] = &[
-    "docker.io/library/rust:",
-    "docker.io/library/node:",
-    "ghcr.io/astral-sh/uv:",
-];
+/// Images only a build needs (`FROM … AS build`) and that are big enough to
+/// matter; `harness vmd clean` removes them, the next build downloads them
+/// again. Only the gateway's Rust toolchain: the base image's sources (Node,
+/// uv) stay, because every update of harness rebuilds the base image and
+/// would download them anew (decision of the user, 27.10.).
+pub const BUILD_ONLY_IMAGES: &[&str] = &["docker.io/library/rust:"];
 
 /// The egress gateway (`images/gateway`), compiled from the
 /// `harness-gateway` crate inside the VM. Every file in that crate's `src/`
@@ -163,6 +161,24 @@ pub enum ImageStatus {
     Current,
 }
 
+/// Stable fingerprint of some texts (FNV-1a, 64 bit, as 16 hex digits).
+/// Only change detection, not a security measure.
+pub(crate) fn fingerprint<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = OFFSET;
+    for part in parts {
+        // NUL separators keep ("ab","c") and ("a","bc") apart.
+        for byte in part.bytes().chain([0]) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    }
+    let mut hex = String::with_capacity(16);
+    let _ = write!(hex, "{hash:016x}");
+    hex
+}
+
 /// Options for [`ImageDefinition::build`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuildOptions {
@@ -176,25 +192,11 @@ impl ImageDefinition {
     /// Stable fingerprint of the build context (FNV-1a, 64 bit). Not a
     /// security measure, only change detection.
     pub fn context_hash(&self) -> String {
-        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-        const PRIME: u64 = 0x0000_0100_0000_01b3;
-        let mut hash = OFFSET;
-        for file in self.files {
-            // NUL separators keep ("ab","c") and ("a","bc") apart.
-            for byte in file
-                .name
-                .bytes()
-                .chain([0])
-                .chain(file.contents.bytes())
-                .chain([0])
-            {
-                hash ^= u64::from(byte);
-                hash = hash.wrapping_mul(PRIME);
-            }
-        }
-        let mut hex = String::with_capacity(16);
-        let _ = write!(hex, "{hash:016x}");
-        hex
+        fingerprint(
+            self.files
+                .iter()
+                .flat_map(|file| [file.name, file.contents]),
+        )
     }
 
     /// Writes the build context into `dir`, replacing whatever was there.

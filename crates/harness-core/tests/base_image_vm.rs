@@ -115,13 +115,18 @@ fn base_image_in_hardened_instance() {
     let versions = sh(
         "git --version; node --version; npm --version; corepack --version; \
          python3 --version; uv --version; rg --version | head -1; fd --version; \
-         jq --version; gcc --version | head -1; make --version | head -1; curl --version | head -1; \
-         command -v pnpm",
+         jq --version; curl --version | head -1; command -v pnpm",
     );
     println!("{versions}");
     assert!(versions.contains("git version"));
     assert!(versions.contains("v24."), "Node 24 expected:\n{versions}");
     assert!(versions.contains("/usr/local/bin/pnpm"));
+    // The compiler comes from the app catalog now (`apps_vm`), not the image.
+    assert_eq!(
+        sh("command -v gcc make cc || echo none"),
+        "none\n",
+        "a compiler is back in the base image"
+    );
 
     // Fresh volumes inherit agent ownership from the image's mount points.
     assert_eq!(

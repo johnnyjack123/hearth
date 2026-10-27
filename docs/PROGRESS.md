@@ -1,10 +1,10 @@
 # Progress
 
-_Last updated: 2026-10-27 · Block „Umgebung im Web-Chat“ fertig (VM im Browser, neuer Chat mit Umgebung, Fortschritt sichern mit Autosync und Jev, Tray-Symbol, Installer und Release, `web_fetch` für pi, fortsetzbare Antworten; Branch `feat/environment-ux`); dazu am 25.10. Denktiefe und Zusammenfassen im Web-Chat, Aufräumen der VM, Jev-Schalter pro Gerät, Jev für Prompt-Injection-Warnungen, `harness ssh <projekt>`, Abgleich von Denktiefe und Zusammenfassen mit pi (Tunnel-Protokoll 4), Verkleinern der VM im Leerlauf; nächstes: App-Katalog_
+_Last updated: 2026-10-27 (abends) · App-Katalog Schritt 1 (Kern und CLI) fertig, `build-essential` aus dem Base-Image in den Katalog verschoben, `vmd clean`/`project remove` sichern ungesicherte Arbeit; Branch `feat/app-catalog`; nächstes: App-Katalog im Browser (Schritt 2)_
 
 ## Where we are
 
-Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf Feature-Branches (zuletzt `feat/environment-ux`), die nach jedem geprüften Stück per `--no-ff` in `main` gemergt und gepusht werden (Freigabe des Nutzers). `feat/phase-4-chat-env` ist seit dem 18.10. nicht mehr der Arbeitsbranch.
+Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`). Gearbeitet wird auf Feature-Branches (zuletzt `feat/app-catalog`), die nach jedem geprüften Stück per `--no-ff` in `main` gemergt und gepusht werden (Freigabe des Nutzers). `feat/phase-4-chat-env` ist seit dem 18.10. nicht mehr der Arbeitsbranch.
 
 **Terminal:** Im Projektordner startet `harness` (bzw. `harness run pi`) Gateway, Instanz und pi in der VM. Rückfragen des Gateways kommen im selben Terminal. `harness sync`/`merge` holen die Commits des Agents; `merge` prüft sie vorher (Regeln, OSV).
 
@@ -57,9 +57,14 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Abgleich mit pi in verknüpften Chats (Tunnel-Protokoll 4): Die Denktiefe des Chats geht mit jeder Nachricht an pi (`set_thinking_level`, „Standard“ heißt pis Mittel). „Verlauf jetzt zusammenfassen“ im Kontext-Ring lässt pi seinen Verlauf zusammenfassen (RPC `compact`). pis eigene Zusammenfassungen erscheinen als Trennlinie in der Antwort, ihre Kosten als Hilfsaufruf. Ältere Geräte bekommen keine Denktiefe und sehen pis Zusammenfassungen als Hinweis; Zusammenfassen auf Wunsch verlangt ein aktuelles harness.
    - Verkleinern der VM-Festplatte im Leerlauf (26.10.): Vor dem Stopp im Leerlauf trimmt der Hintergrunddienst in der VM, der VM-Dienst verkleinert danach die Datei, wenn sie seit dem letzten Mal um 1 GiB gewachsen ist (höchstens einmal am Tag). Beim Test zeigte sich, dass `harness vmd clean` mit dem Dienst bis 0.1.4 schon beim Trimmen scheiterte (`ssh` fehlt dem Dienst, und als SYSTEM lehnt Windows-OpenSSH den Schlüssel des Nutzers ab); jetzt trimmt die CLI. Release v0.1.5.
    - Test des Nutzers mit v0.1.5 (27.10.): `harness vmd clean` verkleinerte die Festplatte von 9,1 auf 6,7 GB. Der Neustart der VM direkt danach scheiterte einmal, und die Fehlermeldung verdeckte den Erfolg; behoben (`compact` meldet das Verkleinern trotzdem), kommt mit dem nächsten Release. Die VM startete danach normal, Images und Volumes waren heil.
-   **Als Nächstes** (der Nutzer startet dafür eine neue Sitzung):
-   1. **App-Katalog pro Projekt** (Wunsch des Nutzers, 25.10., Entwurf und Entscheidungen in ROADMAP Phase 3), dazu das Gateway fertig gebaut ausliefern und `build-essential` in den Katalog verschieben. Empfehlung an den Nutzer: danach Gedächtnis und Dateien im Chat.
-   2. Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
+   **App-Katalog** (ROADMAP Phase 3, „Plan in Schritten“):
+   1. ✅ Kern und CLI (27.10.): Rezepte C/C++, Rust, Go, Java, Deno, Bun, SQLite; ein Volume pro Installation unter `/opt/harness-apps/<app>`; `[apps] enabled` (Standard `["c"]`); `harness app list|on|off|install|update|remove`. `build-essential` ist aus dem Base-Image raus (698 → 454 MB). Wunsch des Nutzers dazu: `vmd clean` behält node/uv und sichert ungesicherte Arbeit gelöschter Projekte als Git-Bundle (`project remove` auch).
+   2. **Als Nächstes:** Browser (Tunnel-Protokoll 5, Schalter pro Projekt, Ansicht aller Projekte unter Einstellungen).
+   3. Eigene Programme (Paketnamen, Befehle, Vorlagen auf dem Server; Dateien vom Rechner mit Bestätigung).
+   4. Gateway fertig gebaut ausliefern.
+   Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
+   Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
+   **Für den Nutzer nach dem nächsten Release:** Das Base-Image wird einmal neu gebaut (node und uv sind wieder in der VM), danach installiert der erste Start jedes Projekts C/C++ (~60 MB, ~1 min). In der VM liegt schon eine Test-Installation von C/C++; `harness app list` markiert sie mit Stern, `harness app update c` ersetzt sie (nötig ist das nicht).
    Vorgemerkt: Gedächtnis für Agents und Chats, englische CLI (ROADMAP Phase 5).
    Der Recherche-Test auf dem Pi lief gut (Rückmeldung 23.10.); offen ist nur, ob das echte Modell die Quellen am Absatzende einhält.
 2. Vorschlag, offen: Fällt SearXNG wegen gesperrter Suchmaschinen aus, automatisch auf einen Anbieter mit Key ausweichen (Tavily 1 000 Anfragen im Monat frei). Bisher gibt es nur einen Anbieter zur Zeit. Thesaurus (OpenThesaurus, WordNet, ConceptNet) vorerst nicht: Embeddings decken Synonyme besser ab (Entscheidung mit dem Nutzer, 21.10.). Stammformen und Wortteile sind eingebaut.
@@ -139,6 +144,12 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 27.10. (App-Katalog, Schritt 1):
+- **Rust:** `cargo test` grün (harness-core 120, neu: Katalog gültig, eigene Rezepte ersetzen und ergänzen, Abhängigkeiten samt Zyklus, Validierung, Schalten pro Projekt mit Standard `c`, Quittungen, Umgebung, Image-PATH gegen Containerfile, Hinweise an den Agent); clippy ohne Warnungen.
+- **VM:** alle `--ignored`-Tests des Kerns grün (9, neu `apps_vm`: Installation mit Quittung, `requires` beim Installieren, schreibgeschützt in `sh` und Login-Shell, gescheiterte Rezepte ohne Reste, alter Stand geht erst nach Neuanlage der Instanz, Sichern von Commit und offener Datei als Bundle). `base_image_vm` prüft jetzt, dass kein Compiler im Image ist.
+- **Echt:** alle sieben Rezepte über `harness app install` (264 s), dann in einer Login-Shell der Instanz 17/17: gcc, g++, `-lcrypt`, statisch, make, Rust mit cc-Crate, clippy, Go, Java 25, Deno, Bun, SQLite, natives npm-Modul über node-gyp, Variablen, schreibgeschützt, kein gcc im Base-Image. `harness project remove --yes` mit Commit und offener Datei: Bundle gesichert, per `git fetch` geholt, Volumes weg. `vmd clean` als Trockenlauf mit echter und mit Testkonfiguration. `bash scripts/smoke-connect.sh` 68 grün.
+- **Nicht geprüft:** Rezepte auf x64 (nur ARM64 hier), `vmd clean` mit echtem verwaisten Projekt samt Sichern (nur über `project remove` und `apps_vm`), Aufräumen alter App-Stände durch `clean` im echten Lauf (nur `harness app remove` und `apps_vm`).
 
 Stand 24.10. (Schritt 5: Installer):
 - **Rust:** Tests grün (neu: PATH-Vergleich, Größe neuer Machines), Clippy ohne Warnungen.
@@ -225,6 +236,13 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-27 (abends, App-Katalog Schritt 1)
+- Vorversuch in der VM: Unterordner einzeln einhängen geht (podman 5.8.8), apt ohne root mit eigenen Listen und `dpkg-deb -x` geht, gcc braucht `--sysroot` (mit `CPATH` scheitert C++). rustup brach in der 1-GB-VM beim Entpacken ab.
+- Gebaut: Kern (`apps.rs`, Rezepte, `lib.sh`), `[apps]` in Projekten, CLI `harness app`, Instanz mit App-Volumes und Umgebung, Hinweise an den Agent; `build-essential` raus aus dem Base-Image, C/C++ als Standard.
+- Auf Wunsch des Nutzers: `vmd clean` behält node/uv, räumt alte App-Stände weg und sichert ungesicherte Arbeit gelöschter Projekte als Bundle (`rescue.rs`), `project remove` ebenso.
+- Gefunden: `vmd clean` mit `HARNESS_HOME` hätte alle echten Projekte des Nutzers für gelöscht gehalten; jetzt gesperrt. Der VM-Start scheiterte heute zweimal beim SSH-Handshake (wenig freier RAM), der nächste Versuch ging jeweils.
+- Der Rechner des Nutzers stürzte während eines Builds ab (Speicher); nichts verloren.
 
 ### 2026-10-24 (Schritt 4)
 - Gebaut: Tray-Symbol in `harnessd` (Win32 über windows-sys), Statusdatei des Dienstes, VM-Stopp aus der Taskleiste über ein benanntes Ereignis, Benachrichtigungen bei Rückfragen und angehaltenen Merges.
