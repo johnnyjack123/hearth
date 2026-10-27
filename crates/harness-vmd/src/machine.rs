@@ -463,11 +463,19 @@ impl Vm {
         if was_running {
             self.stop()?;
         }
-        let result = self.shrink(&disk);
-        if was_running {
-            self.start()?;
+        let shrunk = self.shrink(&disk)?;
+        if !was_running {
+            return Ok(shrunk);
         }
-        result
+        // A start that fails right after the compaction (seen once on
+        // 27.10., the next one worked) must not hide that the disk shrank;
+        // the next harness command starts the VM anyway.
+        Ok(match self.start() {
+            Ok(_) => shrunk,
+            Err(error) => {
+                format!("{shrunk} Die VM startet beim nächsten harness-Befehl wieder ({error}).")
+            }
+        })
     }
 
     /// Stops the VM after the user's idle time and then compacts its disk
