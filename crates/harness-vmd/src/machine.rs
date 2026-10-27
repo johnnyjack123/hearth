@@ -475,11 +475,11 @@ fn compacted(output: &str) -> String {
     }
 }
 
-/// A hint for Hyper-V's job error 32788, which says nothing by itself; on
-/// this machine it has always meant too little free memory (event 3030 in
-/// Hyper-V-Worker-Admin).
+/// A hint for Hyper-V's job errors 32778 ("out of memory") and 32788, which
+/// say nothing by themselves; on this machine 32788 has always meant too
+/// little free memory as well (event 3030 in Hyper-V-Worker-Admin).
 fn start_hint(output: &str) -> &'static str {
-    if output.contains("32788") {
+    if output.contains("32788") || output.contains("32778") {
         " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB. \
              Programme schließen und erneut versuchen.)"
     } else {
@@ -501,6 +501,7 @@ mod tests {
         let hint = start_hint("Job failed with error code: 32788 ()");
         assert!(hint.contains("Arbeitsspeicher"), "{hint}");
         assert!(!hint.contains("  "), "{hint}");
+        assert_eq!(start_hint("error code: 32778 ()"), hint);
         assert_eq!(start_hint("ssh: handshake failed"), "");
     }
 
