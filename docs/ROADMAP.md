@@ -9,7 +9,7 @@
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
 | **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
-| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., Verkleinern noch ungeprüft) |
+| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
 | 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; offen: App-Katalog pro Projekt, signierte Programme |
