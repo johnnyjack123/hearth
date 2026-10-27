@@ -1,0 +1,20 @@
+# App „Deno“ für den App-Katalog (harness app, Einstellungen im Browser)
+name = "deno"
+title = "Deno"
+description = "Laufzeit für JavaScript und TypeScript (aktuelle Version)"
+
+hosts = ["github.com", "*.githubusercontent.com"]
+
+# ~/.deno/bin: was der Agent mit `deno install -g` installiert
+path = ["bin", "~/.deno/bin"]
+
+install = '''
+file="deno-$MACHINE-unknown-linux-gnu.zip"
+url="https://github.com/denoland/deno/releases/latest/download/$file"
+harness_download "$url" "$WORK/$file"
+harness_download "$url.sha256sum" "$WORK/$file.sha256sum"
+harness_sha256 "$WORK/$file" "$(cut -d' ' -f1 "$WORK/$file.sha256sum")"
+mkdir -p "$PREFIX/bin"
+unzip -q "$WORK/$file" -d "$PREFIX/bin"
+harness_version "$("$PREFIX/bin/deno" --version | sed -n 's/^deno \([^ ]*\).*/\1/p')"
+'''

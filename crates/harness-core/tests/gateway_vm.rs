@@ -64,6 +64,7 @@ fn project(name: &ProjectName, network: NetworkPreset) -> Project {
         deny: vec!["example.org".parse().unwrap()],
         llm_apis: vec!["api.deepseek.com".parse().unwrap()],
         resources: Resources::default(),
+        apps: vec![],
     }
 }
 

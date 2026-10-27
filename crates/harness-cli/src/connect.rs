@@ -84,7 +84,7 @@ pub(crate) fn say(mode: Mode, text: &str) {
 }
 
 /// `2026-10-18 12:34:56Z`, without a date library.
-fn utc_stamp() -> String {
+pub(crate) fn utc_stamp() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());

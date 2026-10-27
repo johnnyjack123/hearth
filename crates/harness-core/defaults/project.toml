@@ -40,6 +40,14 @@ confirm = false
 # Bestätigte Chats; harness connect trägt sie ein.
 chats = []
 
+[apps]
+# Programme aus dem App-Katalog, die der Agent hier bekommt, z. B. "rust"
+# (`harness app list` zeigt alle; was eine App braucht, kommt mit). Jede
+# liegt einmal in der VM, installiert beim ersten Start eines Projekts mit
+# ihr. Umschalten mit `harness app on|off <name>`. Fehlt die Zeile, gilt
+# ["c"]: gcc, g++ und make, wie früher im Base-Image.
+enabled = ["c"]
+
 [resources]
 # Fehlt ein Wert, gilt der Standard aus config.toml.
 # memory = "2g"

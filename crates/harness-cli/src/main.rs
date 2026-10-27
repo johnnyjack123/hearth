@@ -2,9 +2,10 @@
 //!
 //! Without arguments it starts the default harness in the project of the
 //! current folder, setting folder and VM up as needed. The subcommands
-//! manage projects, their network, images, the VM service and the pairing
-//! with the server (docs/ROADMAP.md, Phase 2).
+//! manage projects, their network and apps, images, the VM service and the
+//! pairing with the server (docs/ROADMAP.md, Phase 2).
 
+mod app;
 mod connect;
 mod daemon;
 mod doctor;
@@ -143,6 +144,14 @@ enum Command {
         #[command(subcommand)]
         command: Option<net::NetCommand>,
     },
+    /// Programme für den Agent (App-Katalog): anzeigen, pro Projekt ein- und ausschalten, installieren
+    App {
+        /// Projektname (Standard: Projekt des aktuellen Git-Repositorys)
+        #[arg(long, global = true)]
+        project: Option<String>,
+        #[command(subcommand)]
+        command: Option<app::AppCommand>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -237,6 +246,15 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             | Command::Image { .. }
             | Command::Setup { .. }
             | Command::Net { .. }
+            | Command::App {
+                command:
+                    Some(
+                        app::AppCommand::Install { .. }
+                        | app::AppCommand::Update { .. }
+                        | app::AppCommand::Remove { .. },
+                    ),
+                ..
+            }
             | Command::Project {
                 command: Some(ProjectCommand::Remove { .. }),
             },
@@ -328,6 +346,10 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
         Command::Net { project, command } => {
             let machine = machine_name(&config, cli.machine)?;
             net::run(&config, &machine, project.as_deref(), command)
+        }
+        Command::App { project, command } => {
+            let machine = machine_name(&config, cli.machine)?;
+            app::run(&config, &machine, project.as_deref(), command)
         }
     }
 }

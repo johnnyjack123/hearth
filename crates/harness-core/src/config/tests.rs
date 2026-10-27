@@ -419,3 +419,158 @@ fn remote_access_is_switched_and_chats_remembered() {
     let text = fs::read_to_string(&file).unwrap();
     assert!(text.contains("# Git-Repository auf dem Host"), "{text}");
 }
+
+#[test]
+fn app_catalog_is_valid() {
+    let f = fixture();
+    let apps = f.config.apps().unwrap();
+    let names: Vec<&str> = apps.iter().map(|app| app.name.as_str()).collect();
+    assert_eq!(names, ["c", "rust", "go", "java", "deno", "bun", "sqlite"]);
+    for app in &apps {
+        // Every requirement resolves, and every recipe reports its version.
+        f.config.resolve_apps(&app.requires).unwrap();
+        assert!(app.install.contains("harness_version"), "{}", app.name);
+        assert!(!app.hosts.is_empty(), "{} gets no network", app.name);
+    }
+    let rust = f.config.app("rust").unwrap();
+    assert_eq!(
+        rust.path_dirs(),
+        ["/opt/harness-apps/rust/cargo/bin", "/home/agent/.cargo/bin"]
+    );
+    assert!(matches!(f.config.app("cobol"), Err(Error::AppUnknown(_))));
+    assert!(f.config.app("../c").is_err());
+}
+
+#[test]
+fn own_apps_add_to_and_replace_the_catalog() {
+    let f = fixture();
+    fs::create_dir_all(f.config.apps_dir()).unwrap();
+    let own = "name = 'zz'\ntitle = 'Eigenes'\nrequires = ['go']\npath = ['bin']\n\
+               install = 'harness_version 1'\n";
+    fs::write(f.config.apps_dir().join("zz.toml"), own).unwrap();
+    let go = "name = 'go'\ntitle = 'Mein Go'\ninstall = 'harness_version 2'\n";
+    fs::write(f.config.apps_dir().join("go.toml"), go).unwrap();
+    let apps = f.config.apps().unwrap();
+    assert_eq!(apps.last().unwrap().name, "zz");
+    assert_eq!(f.config.app("go").unwrap().title, "Mein Go");
+
+    // Required apps first, each once.
+    let resolved: Vec<String> = f
+        .config
+        .resolve_apps(&["zz".into(), "rust".into(), "go".into()])
+        .unwrap()
+        .into_iter()
+        .map(|app| app.name)
+        .collect();
+    assert_eq!(resolved, ["go", "zz", "c", "rust"]);
+
+    let wrong_name = "name = 'other'\ntitle = 'X'\ninstall = 'true'\n";
+    fs::write(f.config.apps_dir().join("yy.toml"), wrong_name).unwrap();
+    assert!(f.config.app("yy").is_err());
+    fs::remove_file(f.config.apps_dir().join("yy.toml")).unwrap();
+
+    let cycle = "name = 'go'\ntitle = 'Go'\nrequires = ['zz']\ninstall = 'true'\n";
+    fs::write(f.config.apps_dir().join("go.toml"), cycle).unwrap();
+    let error = f
+        .config
+        .resolve_apps(&["zz".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("zz → go → zz"), "{error}");
+}
+
+#[test]
+fn app_recipes_are_validated() {
+    let valid = "name = 'x'\ntitle = 'X'\ninstall = 'true'\n";
+    let with = |extra: &str| -> Result<AppConfig> {
+        let text = format!("{valid}{extra}");
+        parse(Path::new("x.toml"), &text)
+    };
+    with("").unwrap();
+    with("path = ['bin', 'sub/bin', '~/.x/bin']\n").unwrap();
+    for bad in [
+        "path = ['/usr/bin']\n",
+        "path = ['../bin']\n",
+        "path = ['a:b']\n",
+        "path = ['~other/bin']\n",
+        "path = ['']\n",
+        "requires = ['x']\n",
+        "requires = ['Nope']\n",
+        "[env]\nPATH = '/x'\n",
+        "[env]\nHOME = '/x'\n",
+        "[env]\n'A B' = 'x'\n",
+        "hosts = ['127.0.0.1']\n",
+        "unknown = 1\n",
+    ] {
+        assert!(with(bad).is_err(), "{bad}");
+    }
+    let untitled = "name = 'x'\ntitle = ''\ninstall = 'true'\n";
+    assert!(parse::<AppConfig>(Path::new("x.toml"), untitled).is_err());
+}
+
+#[test]
+fn apps_are_switched_per_project() {
+    let f = fixture();
+    let repo = repo(&f.base, "work/demo");
+    let project = f.config.create_project(&repo).unwrap();
+    // C/C++ used to be part of the base image; new projects start with it.
+    assert_eq!(project.apps, ["c"]);
+    let text = fs::read_to_string(&project.file).unwrap();
+    assert!(
+        text.contains("[apps]") && text.contains(r#"enabled = ["c"]"#),
+        "{text}"
+    );
+
+    let project = f
+        .config
+        .set_apps(&project.name, &["rust".into(), "go".into()], &[])
+        .unwrap();
+    assert_eq!(project.apps, ["c", "rust", "go"]);
+    let names: Vec<String> = f
+        .config
+        .project_apps(&project)
+        .unwrap()
+        .into_iter()
+        .map(|app| app.name)
+        .collect();
+    assert_eq!(names, ["c", "rust", "go"]);
+    // Twice on stays once; unknown apps cannot be switched on.
+    f.config
+        .set_apps(&project.name, &["go".into()], &[])
+        .unwrap();
+    assert!(
+        f.config
+            .set_apps(&project.name, &["cobol".into()], &[])
+            .is_err()
+    );
+    let project = f
+        .config
+        .set_apps(&project.name, &[], &["rust".into()])
+        .unwrap();
+    assert_eq!(project.apps, ["c", "go"]);
+    // Comments of the template survive.
+    let text = fs::read_to_string(&project.file).unwrap();
+    assert!(text.contains("# Programme aus dem App-Katalog"), "{text}");
+
+    // A project file from before [apps] keeps C/C++ and gets the table on
+    // first use. Literal TOML strings ('…') keep the backslashes of Windows
+    // paths as they are.
+    fs::write(&project.file, format!("path = '{}'\n", repo.display())).unwrap();
+    assert_eq!(f.config.project(&project.name).unwrap().apps, ["c"]);
+    let project = f
+        .config
+        .set_apps(&project.name, &["sqlite".into()], &[])
+        .unwrap();
+    assert_eq!(project.apps, ["c", "sqlite"]);
+    // Switching off an app whose recipe is gone works.
+    fs::write(
+        &project.file,
+        format!("path = '{}'\n[apps]\nenabled = ['gone']\n", repo.display()),
+    )
+    .unwrap();
+    let project = f
+        .config
+        .set_apps(&project.name, &[], &["gone".into()])
+        .unwrap();
+    assert!(project.apps.is_empty());
+}

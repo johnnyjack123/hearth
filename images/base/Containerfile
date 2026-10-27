@@ -9,7 +9,9 @@
 #
 # Harnesses (pi, ...) are not part of the image. They live in the shared tools
 # volume at /opt/harness-tools, so they can be updated without a rebuild
-# (ARCHITECTURE.md 3.2).
+# (ARCHITECTURE.md 3.2). Compilers and other languages are not either: they
+# come from the app catalog, one volume each (crates/harness-core/src/apps.rs);
+# C/C++ (gcc, g++, make) is switched on by default.
 
 # Node 24 is the current LTS and still ships corepack (removed from Node 25+).
 # When moving to Node 26, install corepack via npm instead.
@@ -23,7 +25,6 @@ FROM docker.io/library/debian:trixie-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      build-essential \
       ca-certificates \
       curl \
       fd-find \

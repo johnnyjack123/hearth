@@ -177,6 +177,32 @@ pub struct ProjectConfig {
     /// Access from web chats through `harness connect`.
     #[serde(default)]
     pub remote: RemoteConfig,
+    /// Programs from the app catalog the agent gets.
+    #[serde(default)]
+    pub apps: AppsConfig,
+}
+
+/// `[apps]` of a project.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppsConfig {
+    /// Apps switched on, by name; the apps they require come along.
+    #[serde(default = "default_apps")]
+    pub enabled: Vec<String>,
+}
+
+impl Default for AppsConfig {
+    fn default() -> Self {
+        AppsConfig {
+            enabled: default_apps(),
+        }
+    }
+}
+
+/// The C compiler used to be part of the base image; projects from before
+/// the app catalog keep it, and new ones start with it.
+fn default_apps() -> Vec<String> {
+    vec!["c".to_owned()]
 }
 
 /// `[remote]` of a project: whether web chats may run agents in it.
@@ -226,6 +252,9 @@ impl Validate for ProjectConfig {
         }
         if let Some(bad) = self.remote.chats.iter().find(|id| !valid_chat_id(id)) {
             return Err(format!("remote.chats: ungültige Chat-ID {bad:?}"));
+        }
+        for app in &self.apps.enabled {
+            validate_app_name(app).map_err(|e| format!("apps.enabled: {e}"))?;
         }
         self.resources.validate()
     }
@@ -465,6 +494,130 @@ impl Validate for HarnessConfig {
         }
         Ok(())
     }
+}
+
+/// `apps/<name>.toml`: a program of the app catalog (ROADMAP Phase 3). It is
+/// installed once into a volume of its own and mounted read-only at
+/// `/opt/harness-apps/<name>` into the instances of projects that switch it
+/// on (`crate::apps`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppConfig {
+    /// Must match the file name.
+    pub name: String,
+    /// Name for people, e.g. `C/C++`.
+    pub title: String,
+    /// One line for listings.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Apps this one needs; they are mounted with it and while it installs.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Hosts the installer may reach, granted for the install only.
+    #[serde(default, deserialize_with = "domain_list")]
+    pub hosts: Vec<DomainPattern>,
+    /// Folders put on `PATH`: relative to the app's folder, or `~/…` for
+    /// what the agent installs with the app's tools (`cargo install`).
+    #[serde(default)]
+    pub path: Vec<String>,
+    /// Further environment variables; `{prefix}` is the app's folder and a
+    /// leading `~` the agent's home.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Shell script that installs the app into `$PREFIX` (`apps/lib.sh`
+    /// documents what it gets).
+    pub install: String,
+}
+
+/// Where apps are mounted in instances, one folder each.
+pub const APPS_DIR: &str = "/opt/harness-apps";
+
+/// Variables the instance sets itself; an app must not override them.
+const RESERVED_ENV: &[&str] = &["PATH", "HARNESS_APPS_PATH", "HOME", "USER"];
+
+impl AppConfig {
+    /// The app's folder in instances and in the installer.
+    pub fn dir(&self) -> String {
+        format!("{APPS_DIR}/{}", self.name)
+    }
+
+    /// `path` as absolute folders.
+    pub fn path_dirs(&self) -> Vec<String> {
+        self.path
+            .iter()
+            .map(|dir| {
+                if dir.starts_with("~/") {
+                    expand_home(dir)
+                } else {
+                    format!("{}/{dir}", self.dir())
+                }
+            })
+            .collect()
+    }
+
+    /// `env` with `{prefix}` and a leading `~` expanded.
+    pub fn env_vars(&self) -> BTreeMap<String, String> {
+        self.env
+            .iter()
+            .map(|(key, value)| {
+                let value = value.replace("{prefix}", &self.dir());
+                (key.clone(), expand_home(&value))
+            })
+            .collect()
+    }
+}
+
+impl Validate for AppConfig {
+    fn validate(&self) -> Result<(), String> {
+        validate_app_name(&self.name)?;
+        if self.title.trim().is_empty() || self.title.chars().count() > 60 {
+            return Err("title muss 1 bis 60 Zeichen lang sein".to_owned());
+        }
+        if self.install.trim().is_empty() {
+            return Err("install darf nicht leer sein".to_owned());
+        }
+        for required in &self.requires {
+            validate_app_name(required).map_err(|e| format!("requires: {e}"))?;
+            if *required == self.name {
+                return Err("requires darf die App nicht selbst enthalten".to_owned());
+            }
+        }
+        for dir in &self.path {
+            // Only "~/…" counts as home: "~foo" would be another user's.
+            let relative = dir.strip_prefix("~/").unwrap_or(dir);
+            let valid = !relative.is_empty()
+                && !relative.starts_with(['/', '~'])
+                && !relative.contains(['\\', ':', ',', '\n', '\0'])
+                && !relative
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "..");
+            if !valid {
+                return Err(format!(
+                    "path: {dir:?} muss ein Ordner unter der App (z. B. \"bin\") oder unter ~/ sein"
+                ));
+            }
+        }
+        for (key, value) in &self.env {
+            validate_env_key(key).map_err(|e| e.to_string())?;
+            if RESERVED_ENV.contains(&key.as_str()) {
+                return Err(format!(
+                    "env: {key} setzt harness selbst (für den PATH gibt es path)"
+                ));
+            }
+            if value.contains(['\n', '\0']) {
+                return Err(format!("env: {key} enthält einen Zeilenumbruch"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// App names become volume and container names (`crate::apps`); the same
+/// rules as harness names.
+pub(crate) fn validate_app_name(name: &str) -> Result<(), String> {
+    validate_harness_name(name).map_err(|_| {
+        format!("ungültiger App-Name {name:?}: 1 bis 30 Zeichen, Kleinbuchstaben, Ziffern und '-'")
+    })
 }
 
 /// `[adapter]` of a harness.

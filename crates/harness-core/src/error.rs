@@ -139,6 +139,12 @@ pub enum Error {
     #[error("Harness {0} ist nicht definiert (harnesses/{0}.toml fehlt)")]
     HarnessUnknown(String),
 
+    /// No app of this name is in the catalog or in `apps/`.
+    #[error(
+        "App {0} gibt es nicht (harness app list zeigt alle; ausschalten mit harness app off {0})"
+    )]
+    AppUnknown(String),
+
     /// Filesystem error with context.
     #[error("{context}: {source}")]
     Io {

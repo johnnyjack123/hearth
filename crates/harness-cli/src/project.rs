@@ -9,6 +9,7 @@ use anyhow::{Context as _, bail};
 use harness_core::config::{ConfigDir, Project};
 use harness_core::project::{ProjectName, find_repo_root};
 use harness_core::provider::Provider as _;
+use harness_core::rescue::{self, Unsaved};
 
 /// Prints the effective settings of the project for the current directory.
 pub fn show(config: &ConfigDir) -> anyhow::Result<bool> {
@@ -232,14 +233,45 @@ pub fn remove(
 ) -> anyhow::Result<bool> {
     let project = resolve(config, name)?;
     println!("Projekt {} ({})", project.name, project.path.display());
+    let mut keep_data = keep_data;
+    let mut unsaved = None;
+    if !keep_data {
+        let checked = crate::vm::provider(machine)
+            .and_then(|provider| Ok(rescue::unsaved(&provider, &project.name)?));
+        match checked {
+            Ok(work) => unsaved = work.filter(Unsaved::any),
+            Err(error) => {
+                println!(
+                    "Ob der Agent noch Arbeit hat, die nicht auf deinem Rechner ist, ließ sich nicht \
+                     prüfen ({error:#}). Seine Daten bleiben deshalb in der VM."
+                );
+                keep_data = true;
+            }
+        }
+    }
+    let rescued_dir = config.root().join("gesichert");
+    if let Some(work) = unsaved {
+        println!(
+            "Achtung: Der Agent hat Arbeit, die nie auf deinem Rechner ankam: {} Commit(s), {} \
+             nicht committete Datei(en). Sie wird vor dem Löschen als Git-Bundle nach {} gesichert.",
+            work.commits,
+            work.changes,
+            rescued_dir.display()
+        );
+    }
     if keep_data {
         println!(
             "Instanz und Gateway werden entfernt, Arbeitskopie und Home des Agents bleiben in der VM."
         );
+    } else if unsaved.is_some() {
+        println!(
+            "Danach werden Instanz, Gateway und die Daten des Agents in der VM (Arbeitskopie, \
+             Home) gelöscht. Übernehmen statt nur sichern: abbrechen und `harness sync`."
+        );
     } else {
         println!(
             "Instanz, Gateway und die Daten des Agents in der VM (Arbeitskopie, Home) werden \
-             gelöscht. Was der Agent noch nicht übergeben hat, ist dann weg (vorher `harness sync`)."
+             gelöscht. Seine Commits sind alle schon auf deinem Rechner."
         );
     }
     println!("Dein Ordner und seine Branches bleiben, wie sie sind.");
@@ -250,6 +282,29 @@ pub fn remove(
         if !confirm("Projekt entfernen?", false)? {
             println!("Abgebrochen.");
             return Ok(false);
+        }
+    }
+    if unsaved.is_some() {
+        let stamp = crate::connect::utc_stamp()
+            .replace(' ', "_")
+            .replace([':', 'Z'], "");
+        let target = rescued_dir.join(format!("{}-{stamp}.bundle", project.name));
+        let saved = std::fs::create_dir_all(&rescued_dir)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| crate::vm::provider(machine))
+            .and_then(|provider| Ok(rescue::save(&provider, &project.name, &target)?));
+        match saved {
+            Ok(()) => println!(
+                "Gesichert in {}. Holen: git fetch \"{}\" \"refs/heads/*:refs/remotes/gesichert/*\"",
+                target.display(),
+                target.display()
+            ),
+            Err(error) => {
+                println!(
+                    "Sichern gescheitert ({error:#}); die Daten des Agents bleiben in der VM."
+                );
+                keep_data = true;
+            }
         }
     }
     let cleaned = remove_from_vm(machine, &project.name, keep_data);
