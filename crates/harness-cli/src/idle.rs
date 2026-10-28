@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -278,6 +278,17 @@ fn watch(idle: &Idle, machine: &str, mode: Mode, status: &StatusFile, signals: &
         match signals.recv_timeout(CHECK) {
             Ok(Signal::Wake) | Err(RecvTimeoutError::Timeout) => {}
             Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+        }
+        // One look serves every wake that came meanwhile. A look takes
+        // seconds (the VM service's status), and replies wake on start and
+        // end: without this the wakes piled up, and a stop behind them
+        // waited half a minute (daemon stop gave up after 15 s).
+        loop {
+            match signals.try_recv() {
+                Ok(Signal::Wake) => {}
+                Ok(Signal::Stop) | Err(TryRecvError::Disconnected) => return,
+                Err(TryRecvError::Empty) => break,
+            }
         }
     }
 }
