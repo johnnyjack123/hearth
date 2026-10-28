@@ -8,7 +8,7 @@ import { migrateToLatest } from './db/migrations.ts';
 import type { AppDeps } from './http/context.ts';
 import { createLlmGateway } from './llm.ts';
 import { PricingCatalog } from './pricing.ts';
-import { saveDeviceProjects } from './services/devices.ts';
+import { saveDeviceApps, saveDeviceProjects } from './services/devices.ts';
 import { DeviceHub } from './tunnel/hub.ts';
 import { attachTunnel } from './tunnel/socket.ts';
 
@@ -24,6 +24,21 @@ export interface StartServerOptions {
 }
 
 /**
+ * The device hub with what it keeps in the database: reported projects and
+ * apps stay visible while a device is offline. Tests build theirs here too,
+ * so nothing is wired only in production.
+ *
+ * @param db - Open database.
+ * @returns The hub.
+ */
+export function createDeviceHub(db: AppDeps['database']['db']): DeviceHub {
+  return new DeviceHub({
+    projects: (deviceId, projects) => saveDeviceProjects(db, deviceId, projects),
+    apps: (deviceId, report) => saveDeviceApps(db, deviceId, report),
+  });
+}
+
+/**
  * Loads the configuration from the environment, migrates the database and
  * serves the app until SIGINT or SIGTERM.
  *
@@ -36,7 +51,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
   await migrateAuth(config, database);
   await migrateToLatest(database.db);
   const auth = createAuth(config, database);
-  const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
+  const hub = createDeviceHub(database.db);
   const pricing = new PricingCatalog();
   void pricing.refresh();
 

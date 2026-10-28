@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   ApiErrorCode,
   ApprovalDecision,
+  AppsSetResult,
   CompactRequestBody,
   ConversationDetail,
   ConversationSummary,
@@ -104,6 +105,8 @@ export const api = {
     update: (id: string, input: UpdateDeviceInput) =>
       request<DeviceSummary>('PATCH', `/devices/${encodeURIComponent(id)}`, input),
     stopVm: (id: string) => request<VmStopResult>('POST', `/devices/${encodeURIComponent(id)}/vm/stop`),
+    setApps: (id: string, project: string, enabled: string[]) =>
+      request<AppsSetResult>('PUT', `/devices/${encodeURIComponent(id)}/projects/${encodeURIComponent(project)}/apps`, { enabled }),
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),

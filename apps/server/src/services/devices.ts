@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import {
+  type AppsReport,
+  appsReportSchema,
   DEFAULT_IDLE_MINUTES,
   type DeviceSummary,
   type PairingInfo,
@@ -82,6 +84,24 @@ export function normalizeUserCode(input: string): string | null {
   return valid ? code : null;
 }
 
+/**
+ * A stored apps report, or null if there is none or it no longer fits the
+ * schema (written by an older server).
+ *
+ * @param json - The `apps` column.
+ * @returns The report.
+ */
+function storedApps(json: string | null): AppsReport | null {
+  if (json === null) {
+    return null;
+  }
+  try {
+    return appsReportSchema.parse(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
 // Online state lives in the tunnel hub; routes that know it fill it in.
 function toSummary(row: DeviceRow): DeviceSummary {
   return {
@@ -95,7 +115,19 @@ function toSummary(row: DeviceRow): DeviceSummary {
     activity: null,
     idleMinutes: row.idleMinutes ?? DEFAULT_IDLE_MINUTES,
     jevReview: row.jevReview !== 0,
+    apps: storedApps(row.apps),
   };
+}
+
+/**
+ * Keeps a device's apps report for while it is offline.
+ *
+ * @param db - Open database.
+ * @param deviceId - The device.
+ * @param report - Its report now.
+ */
+export async function saveDeviceApps(db: Kysely<DB>, deviceId: string, report: AppsReport): Promise<void> {
+  await db.updateTable('device').set({ apps: JSON.stringify(report) }).where('id', '=', deviceId).execute();
 }
 
 /**
@@ -319,6 +351,7 @@ export async function decidePairing(
         createdAt: Date.now(),
         lastUsedAt: null,
         idleMinutes: null,
+        apps: null,
       })
       .execute();
   });

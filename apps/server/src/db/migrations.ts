@@ -180,6 +180,15 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('device').dropColumn('jevReview').execute();
     },
   },
+  // The app catalog a device last reported, as JSON (shown while offline).
+  '0008_device_apps': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').addColumn('apps', 'text').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').dropColumn('apps').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

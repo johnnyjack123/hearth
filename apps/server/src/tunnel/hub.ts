@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type AgentEvent,
   type ApprovalDecision,
+  type AppsReport,
+  type AppsSetResult,
   type DeviceActivity,
   type DeviceMessage,
   deviceMessageSchema,
@@ -10,6 +12,7 @@ import {
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
+  VERSION_APPS,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
   VERSION_VM_CONTROL,
@@ -39,6 +42,8 @@ export interface DeviceStatus {
   vm: VmState | null;
   /** Use of the VM while online, from devices with protocol 2. */
   activity: DeviceActivity | null;
+  /** Its apps while online, from devices with protocol 5. */
+  apps: AppsReport | null;
 }
 
 /** Settings the server keeps for a device and hands it on connect. */
@@ -50,10 +55,15 @@ export interface DeviceSettings {
 /** How long a device may take to stop its VM (podman, then a hard stop). */
 const VM_STOP_TIMEOUT_MS = 3 * 60_000;
 
+/** Switching apps only edits a file on the device. */
+const APPS_SET_TIMEOUT_MS = 30_000;
+
 /** Hooks of the hub into the rest of the server. */
 export interface HubListener {
   /** A device reported its projects; they are kept for while it is offline. */
   projects?(deviceId: string, projects: RemoteProject[]): void | Promise<void>;
+  /** A device reported its apps; kept like its projects. */
+  apps?(deviceId: string, report: AppsReport): void | Promise<void>;
 }
 
 /** Callbacks for one socket, returned by {@link DeviceHub.attach}. */
@@ -166,8 +176,9 @@ export class AgentRun implements AsyncIterable<AgentEvent> {
   }
 }
 
-interface PendingStop {
-  resolve: (result: VmStopResult) => void;
+/** A request to the device that waits for its answer (`vm.result`, `apps.result`). */
+interface PendingRequest {
+  resolve: (result: VmStopResult | AppsSetResult) => void;
   reject: (error: HttpError) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -181,8 +192,9 @@ interface Connection {
   projects: RemoteProject[];
   vm: VmState;
   activity: DeviceActivity | null;
+  apps: AppsReport | null;
   settings: DeviceSettings;
-  stops: Map<string, PendingStop>;
+  requests: Map<string, PendingRequest>;
 }
 
 interface ActiveRun {
@@ -230,8 +242,9 @@ export class DeviceHub {
       projects: [],
       vm: 'unknown',
       activity: null,
+      apps: null,
       settings: settings ?? previous?.settings ?? { idleMinutes: DEFAULT_IDLE_MINUTES },
-      stops: new Map(),
+      requests: new Map(),
     };
     this.#devices.set(deviceId, connection);
     this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION });
@@ -262,8 +275,8 @@ export class DeviceHub {
   status(deviceId: string): DeviceStatus {
     const connection = this.#devices.get(deviceId);
     return connection?.greeted
-      ? { online: true, projects: connection.projects, vm: connection.vm, activity: connection.activity }
-      : { online: false, projects: [], vm: null, activity: null };
+      ? { online: true, projects: connection.projects, vm: connection.vm, activity: connection.activity, apps: connection.apps }
+      : { online: false, projects: [], vm: null, activity: null, apps: null };
   }
 
   /**
@@ -301,15 +314,50 @@ export class DeviceHub {
     if (connection.version < VERSION_VM_CONTROL) {
       return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot stop its VM yet; update harness'));
     }
+    return this.#ask(connection, VM_STOP_TIMEOUT_MS, (request) => ({ type: 'vm.stop', request }));
+  }
+
+  /**
+   * Asks a device to switch a project's apps and waits for its answer. The
+   * device decides: only offered projects, only apps it knows. Its new apps
+   * report arrives before the answer.
+   *
+   * @param deviceId - Device id.
+   * @param project - Project on the device.
+   * @param enabled - Apps the project has switched on from now on.
+   * @returns The device's answer.
+   * @throws {HttpError} 409 if the device is offline or too old for it,
+   *   504 if it does not answer in time.
+   */
+  setApps(deviceId: string, project: string, enabled: string[]): Promise<AppsSetResult> {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
+    }
+    if (connection.version < VERSION_APPS) {
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot switch apps yet; update harness'));
+    }
+    return this.#ask(connection, APPS_SET_TIMEOUT_MS, (request) => ({ type: 'apps.set', request, project, enabled }));
+  }
+
+  /**
+   * Sends a request with a fresh id and waits for the device's answer to it.
+   *
+   * @param connection - The device's connection.
+   * @param timeoutMs - How long to wait.
+   * @param message - The request for an id.
+   * @returns The answer.
+   */
+  #ask(connection: Connection, timeoutMs: number, message: (request: string) => ServerMessage): Promise<VmStopResult> {
     const request = randomUUID();
     return new Promise<VmStopResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        connection.stops.delete(request);
+        connection.requests.delete(request);
         reject(new HttpError(504, 'device_timeout', 'The device did not answer in time'));
-      }, VM_STOP_TIMEOUT_MS);
+      }, timeoutMs);
       timer.unref?.();
-      connection.stops.set(request, { resolve, reject, timer });
-      this.#send(connection, { type: 'vm.stop', request });
+      connection.requests.set(request, { resolve, reject, timer });
+      this.#send(connection, message(request));
     });
   }
 
@@ -498,15 +546,22 @@ export class DeviceHub {
                 stopsAt: message.stopIn === null || message.stopIn === undefined ? null : Date.now() + message.stopIn * 1000,
               };
         return;
-      case 'vm.result': {
-        const pending = connection.stops.get(message.request);
+      case 'vm.result':
+      case 'apps.result': {
+        const pending = connection.requests.get(message.request);
         if (pending) {
           clearTimeout(pending.timer);
-          connection.stops.delete(message.request);
+          connection.requests.delete(message.request);
           pending.resolve({ ok: message.ok, message: message.message });
         }
         return;
       }
+      case 'apps':
+        connection.apps = message.report;
+        void Promise.resolve(this.listener.apps?.(deviceId, message.report)).catch((error: unknown) => {
+          console.warn('[tunnel] storing apps failed:', error instanceof Error ? error.message : error);
+        });
+        return;
       case 'session.event': {
         // A device only reports on sessions the server opened with it.
         const active = this.#runs.get(message.session);
@@ -546,11 +601,11 @@ export class DeviceHub {
       return;
     }
     this.#devices.delete(deviceId);
-    for (const pending of connection.stops.values()) {
+    for (const pending of connection.requests.values()) {
       clearTimeout(pending.timer);
       pending.reject(new HttpError(409, 'device_offline', 'The device disconnected'));
     }
-    connection.stops.clear();
+    connection.requests.clear();
     for (const [session, active] of this.#runs) {
       if (active.deviceId === deviceId) {
         active.run.fail(reason);

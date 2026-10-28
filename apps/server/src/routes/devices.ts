@@ -7,11 +7,12 @@ import {
   pairingDecisionSchema,
   pairingTokenSchema,
   type RemoteProject,
+  setProjectAppsSchema,
   startPairingSchema,
   updateDeviceSchema,
 } from '@harness/shared';
 import { Hono } from 'hono';
-import { notFound } from '../http/errors.ts';
+import { HttpError, notFound } from '../http/errors.ts';
 import { type AppDeps, type AppEnv, type DeviceEnv, requireDevice } from '../http/context.ts';
 import {
   decidePairing,
@@ -40,7 +41,8 @@ import type { DeviceHub } from '../tunnel/hub.ts';
  */
 function withLive(hub: DeviceHub, device: DeviceSummary, projects: RemoteProject[]): DeviceSummary {
   const live = hub.status(device.id);
-  return { ...device, online: live.online, vm: live.vm, activity: live.activity, projects };
+  // The stored report stands in while the device is offline.
+  return { ...device, online: live.online, vm: live.vm, activity: live.activity, projects, apps: live.apps ?? device.apps };
 }
 
 /**
@@ -97,6 +99,19 @@ export function deviceRoutes(deps: AppDeps) {
         throw notFound('Device');
       }
       return c.json(await deps.hub.stopVm(row.id));
+    })
+    .put('/:id/projects/:project/apps', async (c) => {
+      const row = await findDevice(db, c.get('user').id, c.req.param('id'));
+      if (!row) {
+        throw notFound('Device');
+      }
+      const { enabled } = setProjectAppsSchema.parse(await c.req.json());
+      const project = c.req.param('project');
+      // The device checks again; this only spares it requests that cannot work.
+      if (!deps.hub.status(row.id).projects.some((offered) => offered.name === project)) {
+        throw new HttpError(409, 'conflict', 'The device does not offer this project');
+      }
+      return c.json(await deps.hub.setApps(row.id, project, enabled));
     })
     .delete('/:id', async (c) => {
       await deleteDevice(db, c.get('user').id, c.req.param('id'));

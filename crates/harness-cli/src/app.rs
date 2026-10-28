@@ -10,6 +10,8 @@ use harness_core::apps::{self, Install, Inventory, ReadyApp};
 use harness_core::config::{AppConfig, ConfigDir, Project};
 use harness_core::gateway;
 use harness_core::podman::PodmanProvider;
+use harness_core::project::ProjectName;
+use harness_core::tunnel::{AppInfo, AppsReport, ProjectApps, RemoteProject, truncate};
 use harness_core::vmd;
 
 use crate::progress::{Progress, Terminal, step};
@@ -64,6 +66,105 @@ pub fn run(
         AppCommand::Install { names } => install(config, machine, project_name, &names, false),
         AppCommand::Update { names } => install(config, machine, project_name, &names, true),
         AppCommand::Remove { names } => remove(machine, &names),
+    }
+}
+
+/// Most apps the browser may switch on for one project at once.
+const MAX_REMOTE_APPS: usize = 100;
+
+/// The apps of this computer for the browser: every app it knows, which the
+/// offered `projects` switched on, and the installed versions if the VM's
+/// `inventory` is known. A broken recipe of the user's is left out rather
+/// than hiding all the others.
+pub(crate) fn report(
+    config: &ConfigDir,
+    projects: &[RemoteProject],
+    inventory: Option<&Inventory>,
+) -> AppsReport {
+    let catalog = config
+        .app_names()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|name| config.app(name).ok())
+        .map(|app| {
+            let install = inventory.and_then(|inventory| inventory.latest(&app.name));
+            AppInfo {
+                version: install.map(|install| install.version.clone()),
+                outdated: install.is_some_and(|install| install.outdated(&app)),
+                description: app.description.as_deref().map(|d| truncate(d, 300)),
+                name: app.name,
+                title: app.title,
+                requires: app.requires,
+            }
+        })
+        .collect();
+    let projects = projects
+        .iter()
+        .filter_map(|offered| {
+            let name = ProjectName::new(&offered.name).ok()?;
+            let project = config.project(&name).ok()?;
+            Some(ProjectApps {
+                name: offered.name.clone(),
+                enabled: project.apps,
+            })
+        })
+        .collect();
+    AppsReport {
+        catalog,
+        versions: inventory.is_some(),
+        projects,
+    }
+}
+
+/// Switches a project's apps as the browser asks: only for a project the
+/// computer offers to web chats, only apps it knows. Returns whether it
+/// worked and what to tell the user (German).
+pub(crate) fn apply_from_browser(
+    config: &ConfigDir,
+    offered: &[RemoteProject],
+    project: &str,
+    enabled: &[String],
+) -> (bool, String) {
+    if !offered.iter().any(|candidate| candidate.name == project) {
+        return (
+            false,
+            format!("Projekt {project} ist auf diesem Rechner nicht für Web-Chats freigegeben."),
+        );
+    }
+    if enabled.len() > MAX_REMOTE_APPS {
+        return (false, "Zu viele Apps auf einmal.".to_owned());
+    }
+    let switched = ProjectName::new(project)
+        .map_err(anyhow::Error::from)
+        .and_then(|name| {
+            let current = config.project(&name)?.apps;
+            let off: Vec<String> = current
+                .into_iter()
+                .filter(|app| !enabled.contains(app))
+                .collect();
+            Ok(config.set_apps(&name, enabled, &off)?)
+        })
+        .and_then(|project| Ok(config.project_apps(&project)?));
+    match switched {
+        Ok(active) => {
+            let titles: Vec<&str> = active.iter().map(|app| app.title.as_str()).collect();
+            let list = if titles.is_empty() {
+                "keine".to_owned()
+            } else {
+                titles.join(", ")
+            };
+            (
+                true,
+                format!(
+                    "Apps von {project}: {list}. Gilt ab dem nächsten Start der Umgebung; was \
+                     fehlt, wird dann installiert."
+                ),
+            )
+        }
+        Err(error) => (
+            false,
+            format!("Apps von {project} nicht geändert: {error:#}"),
+        ),
     }
 }
 
@@ -326,4 +427,44 @@ fn install(
         ready.push(ReadyApp { app, install });
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_browser_switches_only_offered_projects_and_known_apps() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("demo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let config = ConfigDir::new(dir.path().join("home"));
+        let project = config.create_project(&repo).unwrap();
+        let name = project.name.to_string();
+        let offered = vec![RemoteProject {
+            name: name.clone(),
+            harnesses: vec!["pi".into()],
+        }];
+
+        let (ok, message) = apply_from_browser(&config, &offered, &name, &["rust".into()]);
+        assert!(ok, "{message}");
+        assert!(message.contains("C/C++, Rust"), "{message}");
+        assert_eq!(config.project(&project.name).unwrap().apps, ["rust"]);
+
+        // Unknown apps and projects the computer does not offer change nothing.
+        let (ok, message) = apply_from_browser(&config, &offered, &name, &["cobol".into()]);
+        assert!(!ok && message.contains("cobol"), "{message}");
+        let (ok, _) = apply_from_browser(&config, &[], &name, &[]);
+        assert!(!ok);
+        assert_eq!(config.project(&project.name).unwrap().apps, ["rust"]);
+
+        let report = report(&config, &offered, None);
+        assert!(!report.versions);
+        assert_eq!(report.projects.len(), 1);
+        assert_eq!(report.projects[0].enabled, ["rust"]);
+        assert_eq!(report.catalog.len(), 7);
+        assert!(report.catalog.iter().all(|app| app.version.is_none()));
+        let rust = report.catalog.iter().find(|app| app.name == "rust").unwrap();
+        assert_eq!(rust.requires, ["c"]);
+    }
 }

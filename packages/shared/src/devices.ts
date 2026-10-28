@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_IDLE_MINUTES, type RemoteProject, type VmState } from './agent.ts';
+import { type AppsReport, appNameSchema, MAX_IDLE_MINUTES, type RemoteProject, type VmState } from './agent.ts';
 import type { ModelInfo } from './api.ts';
 import type { ProviderKind } from './providers.ts';
 
@@ -34,6 +34,11 @@ export interface DeviceSummary {
    * device takes them over (with an OpenRouter key in the account).
    */
   jevReview: boolean;
+  /**
+   * Its apps as last reported (protocol 5), also while offline; null for
+   * devices that never reported any.
+   */
+  apps: AppsReport | null;
 }
 
 /**
@@ -64,6 +69,29 @@ export const updateDeviceSchema = z
 
 /** See {@link updateDeviceSchema}. */
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
+
+/**
+ * Validates the apps the browser switches on for a project
+ * (`PUT /api/devices/:id/projects/:project/apps`).
+ */
+export const setProjectAppsSchema = z
+  .object({
+    enabled: z.array(appNameSchema).max(100),
+  })
+  .strict();
+
+/** See {@link setProjectAppsSchema}. */
+export type SetProjectAppsInput = z.infer<typeof setProjectAppsSchema>;
+
+/**
+ * Answer of a device to switching a project's apps.
+ */
+export interface AppsSetResult {
+  /** Whether the project's apps are switched as asked. */
+  ok: boolean;
+  /** What happened, in German, from the device. */
+  message: string;
+}
 
 /**
  * Answer of a device to "stop the VM".
