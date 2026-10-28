@@ -106,6 +106,21 @@ function effortStep(payload) {
   return null;
 }
 
+/** Uses the calculator and answers with formulas and a code block, when asked to calculate. */
+function calculatorStep(payload) {
+  if (!payload.tools?.some((tool) => tool.function?.name === 'calculate')) {
+    return null;
+  }
+  const last = payload.messages?.at(-1);
+  if (last?.role === 'user' && textOf(last.content).includes('Rechne')) {
+    return { call: { name: 'calculate', input: { expressions: ['19 / 100 * 250', '250 - 47.5', '5 km to mi'] } } };
+  }
+  if (last?.role === 'tool' && textOf(last.content).includes('250 - 47.5 = 202.5')) {
+    return { text: 'Laut Rechner sind es 202,5 € (\\( 250 - 0.19 \\cdot 250 = 202.5 \\)). Allgemein gilt:\n\n\\[\n\\frac{a}{b} = c\n\\]\n\nZum Nachrechnen:\n\n```js\nconst preis = 250 * 0.81;\n```' };
+  }
+  return null;
+}
+
 /** The reply of a tool-using model, or null to answer as usual. */
 function webFetchStep(payload) {
   const research = researchStep(payload);
@@ -225,7 +240,7 @@ http
           return;
         }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-        const step = effortStep(payload) ?? webFetchStep(payload);
+        const step = effortStep(payload) ?? calculatorStep(payload) ?? webFetchStep(payload);
         if (step?.call) {
           const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));

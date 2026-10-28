@@ -5,6 +5,7 @@ import { type ComponentProps, useMemo } from 'react';
 import { type Components, defaultRehypePlugins, type ExtraProps, Streamdown } from 'streamdown';
 import { useT } from '@/lib/preferences.tsx';
 import { type KnownSource, pageKey, rehypeSourceBadges, SOURCE_BADGE_TAG } from './citations.ts';
+import { normalizeMath } from './math.ts';
 import { SourceBadge, SourcesContext } from './source-badge.tsx';
 
 const plugins = { code, math, mermaid };
@@ -56,6 +57,7 @@ export function Markdown({
   sources?: ReadonlyMap<string, KnownSource>;
 }) {
   const t = useT();
+  const markdown = useMemo(() => normalizeMath(children), [children]);
   const rehypePlugins = useMemo(
     () => [
       ...Object.values(defaultRehypePlugins),
@@ -101,7 +103,7 @@ export function Markdown({
         translations={translations}
         className="min-w-0 text-base leading-7 text-foreground"
       >
-        {children}
+        {markdown}
       </Streamdown>
     </SourcesContext.Provider>
   );

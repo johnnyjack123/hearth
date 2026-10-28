@@ -41,6 +41,7 @@ import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { ActiveStreams } from '../streams.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
+import { sharedCalculator } from '../calculator/engine.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
 import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
@@ -107,6 +108,7 @@ export function conversationRoutes(deps: AppDeps) {
   // Questions of web fetches in ordinary chats, answered through the same
   // route as the gateway's questions in linked chats.
   const fetchApprovals = new FetchApprovals();
+  const calculator = deps.calculator ?? sharedCalculator();
   // Replies being written, for a page that reloads in the middle of one.
   const streams = new ActiveStreams();
 
@@ -471,6 +473,7 @@ export function conversationRoutes(deps: AppDeps) {
         webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
         search,
         research,
+        calculator: settings.calculator ? calculator : null,
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
         assess: body.assess === true,

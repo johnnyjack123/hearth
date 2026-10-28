@@ -250,7 +250,7 @@ describe('web fetch in ordinary chats', () => {
     expect(toolResult).toContain('untrusted data');
     expect(toolResult).toContain('Bohnen werden geröstet');
     expect(toolResult).toContain('prompt injection');
-    expect(llm.calls[0]?.tools).toEqual(['web_fetch']);
+    expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'calculate']);
 
     await eventually(async () => (await load(conversationId)).messages.length === 2);
     const reply = (await load(conversationId)).messages[1];
@@ -378,7 +378,8 @@ describe('web fetch in ordinary chats', () => {
     const conversationId = await newConversation();
     const chunks = await new ChunkReader(await chat(conversationId, `Was steht auf ${target}?`)).rest();
     expect(chunks.find((chunk) => chunk.type === 'text-delta')).toMatchObject({ delta: 'Ohne Werkzeug' });
-    expect(llm.calls.at(-1)?.tools).toEqual([]);
+    // The calculator stays; it does not reach the network.
+    expect(llm.calls.at(-1)?.tools).toEqual(['calculate']);
     expect(fetches).toBe(0);
   });
 });

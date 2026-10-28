@@ -380,6 +380,13 @@ export const en: Messages = {
       },
     },
   },
+  calculator: {
+    title: 'Calculated',
+    running: 'calculating …',
+    failed: 'Stopped',
+    interrupted: 'interrupted',
+    error: 'Error: {message}',
+  },
   webSearch: {
     searching: 'searching',
     failed: 'failed',
@@ -668,6 +675,9 @@ export const en: Messages = {
     webFetch: 'Load web pages',
     webFetchHint:
       'Models in ordinary chats may fetch web pages through this server, from public addresses only. Hosts the user did not name themselves load only after a question in the chat.',
+    calculator: 'Calculator',
+    calculatorHint:
+      'Models in ordinary chats calculate with math.js on this server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',
     saved: 'Setting saved',
     condense: {
       title: 'Condense long chats',

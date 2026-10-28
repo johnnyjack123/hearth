@@ -253,3 +253,87 @@ export async function eventually(condition: () => Promise<boolean>, timeoutMs = 
   }
   throw new Error('condition not met in time');
 }
+
+const scriptedUsage = {
+  inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
+  outputTokens: { total: 7, text: 7, reasoning: undefined },
+};
+
+export type Prompt = { role: string; content: unknown }[];
+/** One model call: a tool call, or the answer, optionally with a large prompt. */
+export type Step = { tool: string; input: Record<string, unknown> } | { text: string; inputTokens?: number };
+
+/**
+ * A model that follows a script after each user message: one step per
+ * model call, counted by the tool results since that message.
+ */
+export function createScriptedLlm(script: () => Step[]): MockLlm & { calls: { prompt: Prompt; tools: string[]; system: string }[] } {
+  const base = createMockLlm();
+  const calls: { prompt: Prompt; tools: string[]; system: string }[] = [];
+  return Object.assign(base, {
+    calls,
+    createModel(_credential: unknown, modelId: string) {
+      base.createdModels.push(modelId);
+      return new MockLanguageModelV4({
+        doGenerate: async () => ({
+          content: [{ type: 'text', text: 'Titel' }],
+          finishReason: { unified: 'stop', raw: undefined },
+          usage: scriptedUsage,
+          warnings: [],
+        }),
+        doStream: async (options) => {
+          const prompt = options.prompt as Prompt;
+          const tools = (options.tools ?? []).map((tool) => tool.name);
+          const system = prompt.filter((message) => message.role === 'system').map((message) => String(message.content)).join(' ');
+          calls.push({ prompt, tools, system });
+          const lastUser = prompt.map((message) => message.role).lastIndexOf('user');
+          const done = prompt.slice(lastUser).filter((message) => message.role === 'tool').length;
+          const step = script()[done] ?? { text: 'fertig' };
+          const chunks =
+            'tool' in step
+              ? [
+                  { type: 'tool-call', toolCallId: `call-${calls.length}`, toolName: step.tool, input: JSON.stringify(step.input) },
+                  { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage: scriptedUsage },
+                ]
+              : [
+                  { type: 'text-start', id: 't1' },
+                  { type: 'text-delta', id: 't1', delta: step.text },
+                  { type: 'text-end', id: 't1' },
+                  {
+                    type: 'finish',
+                    finishReason: { unified: 'stop', raw: undefined },
+                    usage: step.inputTokens
+                      ? { ...scriptedUsage, inputTokens: { total: step.inputTokens, noCache: step.inputTokens, cacheRead: undefined, cacheWrite: undefined } }
+                      : scriptedUsage,
+                  },
+                ];
+          return { stream: simulateReadableStream({ chunks: chunks as never[] }) };
+        },
+      });
+    },
+  });
+}
+
+/** Reads a streamed reply to its end and returns the UI message chunks. */
+export async function readChunks(response: Response, onChunk?: (chunk: { type: string; [key: string]: unknown }) => void) {
+  const chunks: { type: string; [key: string]: unknown }[] = [];
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = (await reader?.read()) ?? { done: true, value: undefined };
+    if (done) {
+      return chunks;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+        const chunk = JSON.parse(line.slice('data: '.length)) as { type: string };
+        chunks.push(chunk);
+        onChunk?.(chunk);
+      }
+    }
+  }
+}

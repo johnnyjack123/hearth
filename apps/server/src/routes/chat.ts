@@ -1,4 +1,6 @@
 import {
+  CALCULATOR_TOOL,
+  type CalculatorOutput,
   type MessageMetadata,
   type ModelCallUsage,
   parseWebFetchError,
@@ -40,11 +42,16 @@ import { KnownUrls } from '../websearch/known-urls.ts';
 import { assessor } from '../assess.ts';
 import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
 import { createWebSearchTool } from '../websearch/tool.ts';
+import { type Calculator, CalculatorError } from '../calculator/engine.ts';
+import { calculatorText, createCalculatorTool } from '../calculator/tool.ts';
 
 const INSTRUCTIONS = [
   'You are a helpful assistant inside LLM Harness, a self-hosted chat application.',
   'Answer in the language the user writes in.',
   'Use Markdown for structure and fenced code blocks with a language tag for code.',
+  // The web app renders these as formulas (KaTeX); a single $ stays text,
+  // so prices are never read as math.
+  'Write mathematics in LaTeX: \\( … \\) inline and \\[ … \\] for formulas on their own lines. Never use single dollar signs for math.',
 ].join(' ');
 
 /**
@@ -200,6 +207,15 @@ export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
 
 const WEB_FETCH_PART = `tool-${WEB_FETCH_TOOL}`;
 const WEB_SEARCH_PART = `tool-${WEB_SEARCH_TOOL}`;
+const CALCULATOR_PART = `tool-${CALCULATOR_TOOL}`;
+
+/**
+ * Models guess at arithmetic; the calculator does not. Part of the system
+ * prompt whenever the tool exists, so it stays the same for the whole chat.
+ */
+const CALCULATOR_INSTRUCTIONS =
+  'For any calculation that is not trivial (several steps, percentages, units, statistics, large or exact numbers), ' +
+  'use the calculate tool instead of computing in your head, and give its results.';
 
 function shorten(text: string): string {
   return text.length > MAX_AGENT_OUTPUT_CHARS ? `${text.slice(0, MAX_AGENT_OUTPUT_CHARS)}…` : text;
@@ -214,6 +230,10 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
     errorText?: string;
   };
   const error = state === 'output-error' ? (errorText ?? '') : null;
+  if (part.type === CALCULATOR_PART) {
+    const outcome = error ?? (output ? calculatorText(output as unknown as CalculatorOutput) : '');
+    return `[Earlier, calculate${outcome ? `: ${shorten(outcome)}` : ''}]`;
+  }
   if (part.type === WEB_SEARCH_PART) {
     const query = String(input.query ?? '');
     const results = Array.isArray(output?.results) ? (output.results as { title?: unknown; url?: unknown }[]) : [];
@@ -346,7 +366,7 @@ export async function assignTitle(
 export function describeStreamError(error: unknown): string {
   // Tool errors become the tool's result for the model and the error text in
   // the chat; a web fetch error carries its own code and explanation.
-  if (error instanceof WebFetchError || error instanceof WebSearchError) {
+  if (error instanceof WebFetchError || error instanceof WebSearchError || error instanceof CalculatorError) {
     return error.message;
   }
   if (InvalidToolInputError.isInstance(error) || NoSuchToolError.isInstance(error)) {
@@ -388,6 +408,8 @@ export interface StreamChatOptions {
   search: SearchBackend | null;
   /** Research mode of this request: search, and found URLs load without asking. */
   research: boolean;
+  /** The math.js worker of the calculator tool; null when an admin switched it off. */
+  calculator?: Calculator | null;
   /** Helper models of the user (Jev, embeddings); null without an OpenRouter key. */
   helpers: Helpers | null;
   /** Jev judges prompt injection warnings right away (the user's setting). */
@@ -486,14 +508,16 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
         }
       : {}),
     ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }, options.assess ? assessor(helpers, abortSignal) : null) } : {}),
+    ...(options.calculator ? { [CALCULATOR_TOOL]: createCalculatorTool(options.calculator) } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
-  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL].filter((name) => !(name in tools)));
+  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL].filter((name) => !(name in tools)));
   const instructions = [
     INSTRUCTIONS,
     NOTE_INSTRUCTIONS,
     ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
     ...(search ? [researchInstructions(webFetch !== null)] : []),
+    ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),
   ].join(' ');
 
   /**

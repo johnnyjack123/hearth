@@ -1,4 +1,4 @@
-import { type ApprovalDecision, type Compaction, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { type ApprovalDecision, CALCULATOR_TOOL, type Compaction, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useMemo, useState } from 'react';
@@ -11,6 +11,7 @@ import { riseIn, transitions } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
+import { CalculatorCall } from './calculator-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
 import { UsageDetails } from './usage-details.tsx';
@@ -151,6 +152,9 @@ function AssistantMessage({
         }
         if (part.type === `tool-${WEB_FETCH_TOOL}`) {
           return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
+        }
+        if (part.type === `tool-${CALCULATOR_TOOL}`) {
+          return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} />;
         }
         if (part.type === `tool-${WEB_SEARCH_TOOL}`) {
           return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} onAssess={assess(part.toolCallId)} />;
