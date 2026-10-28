@@ -12,7 +12,7 @@
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
-| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), offen: Browser, eigene Programme, Gateway fertig gebaut, signierte Programme |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), offen: eigene Programme, Gateway fertig gebaut, signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -272,7 +272,7 @@ Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projek
    - **`build-essential` ist aus dem Base-Image raus** (698 → 454 MB). C/C++ ist dafür standardmäßig an, auch in Projekten ohne `[apps]`.
    - Hinweise an den Agent nennen die eingeschalteten Apps und dass der Nutzer weitere einschalten kann.
    - Dazu (Wunsch des Nutzers): `vmd clean` behält die Quell-Images des Base-Images (node, uv), entfernt alte App-Stände und sichert Arbeit gelöschter Projekte vorher als Git-Bundle; `harness project remove` ebenso.
-2. **Browser:** Programme pro Projekt schalten, Ansicht aller Projekte unter Einstellungen, im Umgebungs-Popover. Tunnel-Protokoll 5 (Gerät meldet Katalog und Stand, Server schickt Schalter).
+2. ✅ **Browser** (28.10.): Programme pro Projekt schalten unter Einstellungen → Geräte („Programme je Projekt“, aufklappbar je Projekt) und im Umgebungs-Popover eines Chats („Programme: …“ öffnet die Schalter). Mitgebrachte Apps sind gesperrt („an, weil Rust es braucht“), installierte Versionen stehen als Badge daneben. Tunnel-Protokoll 5: Das Gerät meldet Katalog und Stand (`apps`), der Browser schaltet (`apps.set`), das Gerät prüft und antwortet (`apps.result`). Der Server hält den letzten Bericht auch offline.
 3. **Eigene Programme:** Paketnamen (apt, npm, pip) und Installationsbefehle aus dem Browser, Vorlagen auf dem Server pro Konto; Programmdateien vom Rechner nur mit Bestätigung am Rechner.
 4. **Gateway fertig gebaut ausliefern** (statt Rust-Image und Kompilieren in der VM).
 

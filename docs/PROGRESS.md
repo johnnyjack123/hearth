@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-27 (abends) · App-Katalog Schritt 1 (Kern und CLI) fertig, `build-essential` aus dem Base-Image in den Katalog verschoben, `vmd clean`/`project remove` sichern ungesicherte Arbeit; Branch `feat/app-catalog`; nächstes: App-Katalog im Browser (Schritt 2)_
+_Last updated: 2026-10-28 · App-Katalog Schritt 1 (Kern und CLI) und Schritt 2 (Browser, Tunnel-Protokoll 5) fertig, `build-essential` aus dem Base-Image in den Katalog verschoben, `vmd clean`/`project remove` sichern ungesicherte Arbeit; Branch `feat/app-catalog`; nächstes: Wünsche des Nutzers vom 28.10. (Copy-Buttons, Mathe, Rechner), dann eigene Programme (Schritt 3)_
 
 ## Where we are
 
@@ -59,7 +59,11 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Test des Nutzers mit v0.1.5 (27.10.): `harness vmd clean` verkleinerte die Festplatte von 9,1 auf 6,7 GB. Der Neustart der VM direkt danach scheiterte einmal, und die Fehlermeldung verdeckte den Erfolg; behoben (`compact` meldet das Verkleinern trotzdem), kommt mit dem nächsten Release. Die VM startete danach normal, Images und Volumes waren heil.
    **App-Katalog** (ROADMAP Phase 3, „Plan in Schritten“):
    1. ✅ Kern und CLI (27.10.): Rezepte C/C++, Rust, Go, Java, Deno, Bun, SQLite; ein Volume pro Installation unter `/opt/harness-apps/<app>`; `[apps] enabled` (Standard `["c"]`); `harness app list|on|off|install|update|remove`. `build-essential` ist aus dem Base-Image raus (698 → 454 MB). Wunsch des Nutzers dazu: `vmd clean` behält node/uv und sichert ungesicherte Arbeit gelöschter Projekte als Git-Bundle (`project remove` auch).
-   2. **Als Nächstes:** Browser (Tunnel-Protokoll 5, Schalter pro Projekt, Ansicht aller Projekte unter Einstellungen).
+   2. ✅ Browser (28.10.): Einstellungen → Geräte „Programme je Projekt“, im Umgebungs-Popover „Programme: …“ mit Schaltern im Dialog; Tunnel-Protokoll 5. Dabei behoben: `harness daemon stop` brauchte ~30 s (gestaute Wakes im Leerlauf-Wächter).
+   **Als Nächstes, Wünsche des Nutzers vom 28.10.:**
+   - Copy-Buttons der Codeblöcke gehen nicht (Verdacht: Zwischenablage-API gibt es nur auf HTTPS/localhost, der Pi läuft auf `http://192.168…`; Rückfall über eine Textarea nötig).
+   - Mathe rendern (KaTeX über `@streamdown/math`, das Modell per System-Prompt auf `$…$`/`$$…$$` hinweisen).
+   - Taschenrechner als Werkzeug für das Modell: math.js (`mathjs`) im Server in einem Worker mit Zeitlimit, wie `web_fetch` ohne Gerät; später auch für pi.
    3. Eigene Programme (Paketnamen, Befehle, Vorlagen auf dem Server; Dateien vom Rechner mit Bestätigung).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
@@ -144,6 +148,13 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 28.10. (App-Katalog, Schritt 2):
+- **Rust:** `cargo test` grün (harness-core 121, harness-cli 14; neu: App-Nachrichten im Tunnel, Schalten aus dem Browser nur für angebotene Projekte und bekannte Apps, Bericht ohne VM); clippy ohne Warnungen.
+- **Server:** 188/188 (SQLite), neu: Bericht nur ab Protokoll 5, `apps.set`/`apps.result`, ungültiger Bericht trennt (4002), Route mit Eigentümer, nicht angebotenem Projekt und ungültigen Namen, Bericht bleibt offline sichtbar.
+- **Browser-E2E:** 14/14, 0 Konsolenprobleme (ein Lauf vorher mit `ERR_INSUFFICIENT_RESOURCES` und einer mit Zeitüberschreitung am Denktiefe-Regler, beides vor dem neuen Teil): „Programme: C/C++“ im Popover, Rust einschalten → `apps.set` beim simulierten Gerät, C/C++ gesperrt „an, weil Rust es braucht“, Einstellungen → Geräte aufgeklappt hell; Screenshots 31, 36, 40, 41 angesehen.
+- **Echt:** `bash scripts/smoke-connect.sh` 76 grün: Katalog des echten Dienstes im Konto, C/C++ als Standard, SQLite aus dem Browser eingeschaltet (Projektdatei geändert), unbekannte App vom Rechner abgelehnt, beim nächsten Chat installiert und `sqlite3` in der Instanz; `daemon stop` jetzt 1 s.
+- **Nicht geprüft:** Postgres (nur SQLite), Dichte- und Themenvarianten außer hell/dunkel, Tastaturbedienung der Schalter nur über Radix.
 
 Stand 27.10. (App-Katalog, Schritt 1):
 - **Rust:** `cargo test` grün (harness-core 120, neu: Katalog gültig, eigene Rezepte ersetzen und ergänzen, Abhängigkeiten samt Zyklus, Validierung, Schalten pro Projekt mit Standard `c`, Quittungen, Umgebung, Image-PATH gegen Containerfile, Hinweise an den Agent); clippy ohne Warnungen.
@@ -236,6 +247,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-28 (App-Katalog Schritt 2)
+- Gebaut: Tunnel-Protokoll 5 (`apps`, `apps.set`, `apps.result`), Bericht in `device.apps`, Route zum Schalten, Programme unter Einstellungen → Geräte und im Umgebungs-Popover, Smoke- und E2E-Prüfungen.
+- Gefunden und behoben: Der Leerlauf-Wächter arbeitete gestaute Wakes einzeln ab (je ~2,3 s Statusabfrage beim VM-Dienst), `daemon stop` brauchte dadurch ~30 s. Der Test-Server verdrahtete seinen Hub selbst; jetzt `createDeviceHub` für beide.
+- Neue Wünsche des Nutzers: Copy-Buttons reparieren, Mathe rendern, Taschenrechner (math.js) als Werkzeug.
 
 ### 2026-10-27 (abends, App-Katalog Schritt 1)
 - Vorversuch in der VM: Unterordner einzeln einhängen geht (podman 5.8.8), apt ohne root mit eigenen Listen und `dpkg-deb -x` geht, gcc braucht `--sysroot` (mit `CPATH` scheitert C++). rustup brach in der 1-GB-VM beim Entpacken ab.
