@@ -478,6 +478,51 @@ try {
     await page.keyboard.press('Escape');
   });
 
+  await step('the calculator, formulas and copying code without the clipboard API', async () => {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.type('textarea', 'Rechne den Preis nach 19 % Rabatt auf 250 €');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    await page.waitForSelector(text('Laut Rechner'), { timeout: 15_000 });
+    await waitForText('Gerechnet');
+    await waitForText('= 202.5');
+    // \( … \) in the text and \[ … \] on its own lines render as KaTeX.
+    await page.waitForFunction(() => document.querySelectorAll('.katex').length >= 2 && document.querySelector('.katex-display'), {
+      timeout: 10_000,
+    });
+    const chatUrl = page.url();
+    await page.$eval(text('Gerechnet'), (element) => element.scrollIntoView({ block: 'start' }));
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('42-calculator-math');
+
+    // Over plain HTTP in the LAN (the server on a Raspberry Pi) browsers
+    // offer no navigator.clipboard; the copy buttons must work anyway.
+    const insecure = await browser.newPage();
+    try {
+      await insecure.evaluateOnNewDocument(() => {
+        Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => undefined });
+        delete window.ClipboardItem;
+        window.__copied = [];
+        const original = document.execCommand.bind(document);
+        document.execCommand = (command, ...rest) => {
+          if (command === 'copy') {
+            const field = document.activeElement;
+            window.__copied.push(field && 'value' in field ? field.value : String(document.getSelection()));
+            return true;
+          }
+          return original(command, ...rest);
+        };
+      });
+      await insecure.setViewport({ width: 1280, height: 820, deviceScaleFactor: 1 });
+      await insecure.goto(chatUrl, { waitUntil: 'networkidle0' });
+      await insecure.waitForSelector('[aria-label="Code kopieren"]', { timeout: 15_000 });
+      await insecure.click('[aria-label="Code kopieren"]');
+      await insecure.waitForFunction(() => window.__copied.some((copied) => copied.includes('const preis = 250 * 0.81;')), { timeout: 5_000 });
+    } finally {
+      await insecure.close();
+    }
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };

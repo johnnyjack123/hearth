@@ -1,6 +1,7 @@
 import { createMiddleware } from 'hono/factory';
 import type { Kysely } from 'kysely';
 import type { Auth } from '../auth.ts';
+import type { Calculator } from '../calculator/engine.ts';
 import type { ServerConfig } from '../config.ts';
 import type { SecretBox } from '../crypto.ts';
 import type { Database } from '../db/index.ts';
@@ -45,6 +46,8 @@ export interface AppDeps {
   webSearch?: Partial<SearchEndpoints>;
   /** Overrides for helper models (OpenRouter stand-in in tests). The server itself never sets it. */
   helpers?: HelperOptions;
+  /** The calculator's math.js worker; one shared by the whole server when unset. */
+  calculator?: Calculator;
 }
 
 /**

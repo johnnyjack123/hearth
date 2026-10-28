@@ -64,6 +64,8 @@ export interface ServerSettings {
   allowCustomBaseUrls: boolean;
   /** Whether models in ordinary chats may load web pages through the server. */
   webFetch: boolean;
+  /** The calculator tool (math.js on the server) in ordinary chats. */
+  calculator: boolean;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -142,6 +144,7 @@ export const updateServerSettingsSchema = z
     registration: z.enum(['open', 'closed']),
     allowCustomBaseUrls: z.boolean(),
     webFetch: z.boolean(),
+    calculator: z.boolean(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,

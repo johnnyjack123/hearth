@@ -24,6 +24,7 @@ const DEFAULTS: ServerSettings = {
   registration: 'open',
   allowCustomBaseUrls: false,
   webFetch: true,
+  calculator: true,
   search: {
     provider: 'off',
     searxngUrl: null,

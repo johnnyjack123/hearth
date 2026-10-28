@@ -87,6 +87,18 @@ export function ServerPanel() {
                   />
                 }
               />
+              <Separator />
+              <SettingRow
+                label={t('admin.calculator')}
+                description={t('admin.calculatorHint')}
+                control={
+                  <Switch
+                    aria-label={t('admin.calculator')}
+                    checked={settings.data.calculator}
+                    onCheckedChange={(checked) => update.mutate({ calculator: checked })}
+                  />
+                }
+              />
             </>
           ) : (
             <div className="flex flex-col gap-4 p-4">

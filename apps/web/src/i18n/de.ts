@@ -379,6 +379,13 @@ export const de = {
       },
     },
   },
+  calculator: {
+    title: 'Gerechnet',
+    running: 'rechnet …',
+    failed: 'Abgebrochen',
+    interrupted: 'abgebrochen',
+    error: 'Fehler: {message}',
+  },
   webSearch: {
     searching: 'sucht',
     failed: 'Fehler',
@@ -668,6 +675,9 @@ export const de = {
     webFetch: 'Webseiten laden',
     webFetchHint:
       'Modelle in normalen Chats dürfen Webseiten über diesen Server abrufen, nur von öffentlichen Adressen. Hosts, die der Nutzer nicht selbst genannt hat, lädt der Server erst nach Rückfrage im Chat.',
+    calculator: 'Taschenrechner',
+    calculatorHint:
+      'Modelle in normalen Chats rechnen mit math.js auf diesem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
     saved: 'Einstellung gespeichert',
     condense: {
       title: 'Lange Chats eindampfen',
