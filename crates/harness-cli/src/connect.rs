@@ -23,18 +23,20 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, bail};
 use harness_core::Provider;
+use harness_core::apps::Inventory;
 use harness_core::config::{ConfigDir, HarnessConfig, Project};
 use harness_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
 use harness_core::pi_rpc::{self, Output, Translator};
+use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
 use harness_core::provider::ExecSpec;
 use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
-    AgentEvent, ApprovalState, CompactionState, CompactionTrigger, Decision, DeviceMessage,
-    MAX_NOTICE, NoticeLevel, ProgressState, Prompt, RemoteProject, ServerMessage, TUNNEL_PATH,
-    TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState, VERSION_VM_CONTROL, VmStatus,
-    truncate,
+    AgentEvent, ApprovalState, AppsReport, CompactionState, CompactionTrigger, Decision,
+    DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, RemoteProject, ServerMessage,
+    TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState, VERSION_APPS,
+    VERSION_VM_CONTROL, VmStatus, truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
@@ -46,7 +48,7 @@ use crate::idle::{Idle, Report, Watcher};
 use crate::net::{self, Question};
 use crate::progress::Progress;
 use crate::status::{Connection, StatusFile};
-use crate::{login, run, takeover};
+use crate::{app, login, run, takeover};
 
 /// The only machine interface harness speaks so far.
 const PI_RPC: &str = "pi-rpc";
@@ -57,6 +59,10 @@ const POLL: Duration = Duration::from_millis(100);
 /// Released projects are looked up again this often, so `harness project
 /// remote on|off` and new projects take effect without a restart.
 const RESCAN: Duration = Duration::from_secs(10);
+
+/// The VM's apps are looked up again at most this often while it runs, so
+/// installs from a terminal show up in the browser too.
+const INVENTORY_AGE: Duration = Duration::from_secs(5 * 60);
 
 /// How long the server may take to greet after the connection is up.
 const WELCOME_TIMEOUT: Duration = Duration::from_secs(10);
@@ -197,6 +203,7 @@ fn keep_connected(
         },
         idle,
         status,
+        apps: Mutex::new(AppsState::default()),
     });
     let projects = offered(config);
     print_offer(mode, &projects);
@@ -341,6 +348,49 @@ struct Shared {
     idle: Arc<Idle>,
     /// What the tray icon shows.
     status: Arc<StatusFile>,
+    /// The apps as last reported to the browser.
+    apps: Mutex<AppsState>,
+}
+
+/// What the browser knows about this computer's apps.
+#[derive(Default)]
+struct AppsState {
+    /// Installs in the VM, from the last time it was looked at.
+    inventory: Option<Inventory>,
+    /// When `inventory` was read.
+    loaded: Option<Instant>,
+    /// Something may have installed an app since (a session started).
+    stale: bool,
+    /// The report the server has.
+    sent: Option<AppsReport>,
+}
+
+/// The apps report if it differs from what the server has. Reads the VM's
+/// installs first when they are due and the VM runs; a stopped VM is not
+/// started for that.
+fn changed_apps(shared: &Shared, projects: &[RemoteProject]) -> Option<AppsReport> {
+    let mut state = lock(&shared.apps);
+    let due = state.stale || state.loaded.is_none_or(|at| at.elapsed() >= INVENTORY_AGE);
+    if due && crate::vm::status() == VmStatus::Running {
+        let loaded = PodmanProvider::for_machine(&shared.machine)
+            .map_err(anyhow::Error::from)
+            .and_then(|provider| Ok(Inventory::load(&provider)?));
+        match loaded {
+            Ok(inventory) => state.inventory = Some(inventory),
+            Err(error) => say(
+                shared.mode,
+                &format!("Apps in der VM nicht gelesen: {error:#}"),
+            ),
+        }
+        state.loaded = Some(Instant::now());
+        state.stale = false;
+    }
+    let report = app::report(&shared.config, projects, state.inventory.as_ref());
+    if state.sent.as_ref() == Some(&report) {
+        return None;
+    }
+    state.sent = Some(report.clone());
+    Some(report)
 }
 
 /// Runs one connection until it ends.
@@ -407,6 +457,13 @@ fn serve(
     );
 
     let (out, outgoing) = mpsc::channel::<DeviceMessage>();
+    // A new connection may be a new server process that knows nothing yet.
+    lock(&shared.apps).sent = None;
+    if version >= VERSION_APPS
+        && let Some(report) = changed_apps(shared, &projects)
+    {
+        let _ = out.send(DeviceMessage::Apps { report });
+    }
     let mut sessions: HashMap<String, SessionHandle> = HashMap::new();
     let mut rescanned = Instant::now();
     let result = loop {
@@ -465,6 +522,11 @@ fn serve(
                         projects: projects.clone(),
                     },
                 )?;
+            }
+            if version >= VERSION_APPS
+                && let Some(report) = changed_apps(shared, &projects)
+            {
+                let _ = out.send(DeviceMessage::Apps { report });
             }
         }
         // Sent on change only: the stop time is a fixed instant until
@@ -606,6 +668,25 @@ fn dispatch(
         ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
         ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, Some(request)),
+        ServerMessage::AppsSet {
+            request,
+            project,
+            enabled,
+        } => {
+            let projects = offered(&shared.config);
+            let (ok, message) =
+                app::apply_from_browser(&shared.config, &projects, &project, &enabled);
+            say(shared.mode, &format!("Browser: {message}"));
+            // The new state first, so the server has it with the answer.
+            if let Some(report) = changed_apps(shared, &projects) {
+                let _ = out.send(DeviceMessage::Apps { report });
+            }
+            let _ = out.send(DeviceMessage::AppsResult {
+                request,
+                ok,
+                message: truncate(&message, 900),
+            });
+        }
         ServerMessage::Prompt(prompt) => route(shared, sessions, out, prompt, false),
         ServerMessage::Compact(request) => route(shared, sessions, out, request.as_prompt(), true),
         ServerMessage::Cancel { session } => {
@@ -1059,7 +1140,10 @@ fn start(
         project,
         Some(&prompt.harness),
         &progress,
-    )?;
+    );
+    // It may have installed apps the browser should list as installed.
+    lock(&shared.apps).stale = true;
+    let prepared = prepared?;
     let harness = prepared
         .harnesses
         .iter()

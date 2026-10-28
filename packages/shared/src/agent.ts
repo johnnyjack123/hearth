@@ -14,8 +14,10 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * Version 4: pi's settings from the chat: the thinking level with each
  * prompt, summarizing on request (`session.compact`) and the `compaction`
  * event for pi's own summaries.
+ * Version 5: the app catalog: the device reports its apps (`apps`), the
+ * browser switches them per project (`apps.set`, `apps.result`).
  */
-export const TUNNEL_VERSION = 4;
+export const TUNNEL_VERSION = 5;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -34,6 +36,12 @@ export const VERSION_TAKEOVER = 3;
  * `session.compact` and the `compaction` event.
  */
 export const VERSION_PI_SETTINGS = 4;
+
+/**
+ * First protocol with the app catalog: `apps` from the device, `apps.set`
+ * and its `apps.result`.
+ */
+export const VERSION_APPS = 5;
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -64,6 +72,56 @@ export const remoteProjectSchema = z
 
 /** See {@link remoteProjectSchema}. */
 export type RemoteProject = z.infer<typeof remoteProjectSchema>;
+
+/** App names as harness allows them (`validate_app_name`, same rules as harnesses). */
+export const appNameSchema = harnessNameSchema;
+
+/**
+ * A program a device can give its agents (app catalog): built in or a recipe
+ * of the user's on that computer.
+ */
+export const appInfoSchema = z
+  .object({
+    name: appNameSchema,
+    title: z.string().min(1).max(60),
+    description: z.string().max(300).optional(),
+    /** Apps it brings along when switched on. */
+    requires: z.array(appNameSchema).max(20),
+    /** Version installed in the device's VM; null if not installed or unknown. */
+    version: z.string().max(40).nullable(),
+    /** Whether its recipe changed since it was installed. */
+    outdated: z.boolean(),
+  })
+  .strict();
+
+/** See {@link appInfoSchema}. */
+export type AppInfo = z.infer<typeof appInfoSchema>;
+
+/** The apps a project switched on, without the ones they require. */
+export const projectAppsSchema = z
+  .object({
+    name: projectNameSchema,
+    enabled: z.array(appNameSchema).max(100),
+  })
+  .strict();
+
+/** See {@link projectAppsSchema}. */
+export type ProjectApps = z.infer<typeof projectAppsSchema>;
+
+/**
+ * A device's apps: what it knows, what its offered projects switched on,
+ * and whether the installed versions are known (only once its VM ran).
+ */
+export const appsReportSchema = z
+  .object({
+    catalog: z.array(appInfoSchema).max(200),
+    versions: z.boolean(),
+    projects: z.array(projectAppsSchema).max(200),
+  })
+  .strict();
+
+/** See {@link appsReportSchema}. */
+export type AppsReport = z.infer<typeof appsReportSchema>;
 
 const partId = z.string().min(1).max(100);
 const text = (max: number) => z.string().max(max);
@@ -258,6 +316,15 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
       message: text(1_000),
     })
     .strict(),
+  z.object({ type: z.literal('apps'), report: appsReportSchema }).strict(),
+  z
+    .object({
+      type: z.literal('apps.result'),
+      request: z.string().min(1).max(100),
+      ok: z.boolean(),
+      message: text(1_000),
+    })
+    .strict(),
 ]);
 
 /** See {@link deviceMessageSchema}. */
@@ -353,6 +420,15 @@ export type ServerMessage =
       type: 'vm.stop';
       /** Id the device repeats in its `vm.result`. Protocol 2. */
       request: string;
+    }
+  | {
+      type: 'apps.set';
+      /** Id the device repeats in its `apps.result`. Protocol 5. */
+      request: string;
+      /** Project whose apps change. */
+      project: string;
+      /** Apps it has switched on from now on. */
+      enabled: string[];
     };
 
 /**

@@ -196,6 +196,19 @@ TRAY=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$R
 check "Tray-Symbol von harnessd" test "${TRAY#* }" = tray
 TRAY_PID=${TRAY%% *}
 
+echo "== Programme im Browser"
+apps_of() { api GET /api/devices | json "(v[0].apps?.projects.find((p) => p.name === '$NAME')?.enabled ?? ['?']).join(',')"; }
+apps_reported() { test "$(api GET /api/devices | json "(v[0].apps?.catalog ?? []).map((a) => a.name).join(',')")" = "c,rust,go,java,deno,bun,sqlite"; }
+check "Katalog des Rechners im Konto" wait_for 20 apps_reported
+check "C/C++ standardmäßig an" test "$(apps_of)" = c
+SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","sqlite"]}')
+check "aus dem Browser geschaltet" test "$(echo "$SWITCHED" | json v.ok)" = true
+check "Projektdatei geändert" grep -q '"sqlite"' "$HARNESS_HOME/projects/$NAME.toml"
+check "neuer Stand im Konto" test "$(apps_of)" = "c,sqlite"
+SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","cobol"]}')
+check "unbekannte App vom Rechner abgelehnt" test "$(echo "$SWITCHED" | json v.ok)" = false
+check "Projektdatei unverändert" test "$(apps_of)" = "c,sqlite"
+
 echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
 # -N, or curl holds the stream back until its buffer is full.
@@ -222,6 +235,8 @@ REPLY=$(api GET "/api/conversations/$CONVERSATION")
 check "Antwort mit Werkzeugaufruf gespeichert" test \
   "$(echo "$REPLY" | json "v.messages.at(-1).parts.some(p => p.type === 'dynamic-tool' && p.output.text.includes('status=200'))")" = true
 check "Agent in den Metadaten" test "$(echo "$REPLY" | json "v.messages.at(-1).metadata.agent.harness")" = pi
+sqlite_in_instance() { in_container 'sqlite3 --version' | grep -q '^3[.]'; }
+check "im Browser eingeschaltete App in der Instanz" sqlite_in_instance
 
 echo "== harness sync"
 "$H" sync > "$WORK/sync.log" 2>&1
@@ -336,7 +351,7 @@ if [ -n "${VM_STOP:-}" ]; then
 fi
 
 echo "== Hintergrunddienst beenden"
-"$H" daemon stop > "$WORK/daemon-stop.log" 2>&1
+STOP_AT=$(date +%s); "$H" daemon stop > "$WORK/daemon-stop.log" 2>&1; echo "  (daemon stop: $(( $(date +%s) - STOP_AT )) s, $(date -u +%H:%M:%S)Z)"
 check "Dienst beendet" grep -q "Hintergrunddienst beendet" "$WORK/daemon-stop.log"
 check "Statusdatei aufgeräumt" test ! -e "$HARNESS_HOME/daemon-status.json"
 check "harnessd samt Tray-Symbol beendet" wait_for 10 bash -c \

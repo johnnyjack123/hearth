@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
 import {
   type AgentEvent,
+  type AppsReport,
   type ConversationDetail,
   DEFAULT_IDLE_MINUTES,
   type ConversationSummary,
@@ -51,10 +52,20 @@ class FakeDevice implements TunnelSocket {
     if (message.type === 'vm.stop' && this.stopsVm) {
       setTimeout(() => this.say({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }), 0);
     }
+    if (message.type === 'apps.set' && this.switchesApps) {
+      // Like the device: the new report first, then the answer.
+      setTimeout(() => {
+        this.say({ type: 'apps', report: appsReport({ [message.project]: message.enabled }) });
+        this.say({ type: 'apps.result', request: message.request, ok: true, message: `Apps von ${message.project} geändert.` });
+      }, 0);
+    }
   }
 
   /** Whether `vm.stop` is answered by itself. */
   stopsVm = false;
+
+  /** Whether `apps.set` is answered by itself. */
+  switchesApps = false;
 
   close(code?: number): void {
     this.closedWith = code;
@@ -73,6 +84,18 @@ class FakeDevice implements TunnelSocket {
       this.say({ type: 'session.event', session, event });
     }
   }
+}
+
+/** An apps report with the catalog's C/C++ and Rust, Rust needing C/C++. */
+function appsReport(projects: Record<string, string[]> = { demo: ['c'] }): AppsReport {
+  return {
+    catalog: [
+      { name: 'c', title: 'C/C++', description: 'gcc', requires: [], version: '14.2.0', outdated: false },
+      { name: 'rust', title: 'Rust', requires: ['c'], version: null, outdated: false },
+    ],
+    versions: true,
+    projects: Object.entries(projects).map(([name, enabled]) => ({ name, enabled })),
+  };
 }
 
 function connect(hub: DeviceHub, deviceId: string, userId = 'user-1'): FakeDevice {
@@ -213,7 +236,7 @@ describe('DeviceHub', () => {
 
     const good = connect(hub, 'd3');
     good.hello();
-    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT], vm: 'unknown', activity: null });
+    expect(hub.status('d3')).toEqual({ online: true, projects: [PROJECT], vm: 'unknown', activity: null, apps: null });
     good.say({ type: 'status', vm: 'stopped' });
     expect(hub.status('d3').vm).toBe('stopped');
     good.say({ type: 'session.event', session: 's', event: { type: 'nope' } });
@@ -375,6 +398,34 @@ describe('DeviceHub', () => {
     device.connection?.closed();
     await expect(lost).rejects.toMatchObject({ status: 409, code: 'device_offline' });
     await expect(hub.stopVm('d1')).rejects.toMatchObject({ code: 'device_offline' });
+  });
+
+  it('keeps the apps of devices with protocol 5 and switches them on request', async () => {
+    const stored: AppsReport[] = [];
+    const hub = new DeviceHub({ apps: (_id, report) => void stored.push(report) });
+    const old = connect(hub, 'd0');
+    old.say({ type: 'hello', version: 4, projects: [PROJECT] });
+    await expect(hub.setApps('d0', 'demo', ['rust'])).rejects.toMatchObject({ status: 409, code: 'device_outdated' });
+    expect(old.received.some((message) => message.type === 'apps.set')).toBe(false);
+
+    const device = connect(hub, 'd1');
+    device.hello();
+    expect(hub.status('d1').apps).toBeNull();
+    device.say({ type: 'apps', report: appsReport() });
+    expect(hub.status('d1').apps?.projects).toEqual([{ name: 'demo', enabled: ['c'] }]);
+    expect(stored).toHaveLength(1);
+
+    const switched = hub.setApps('d1', 'demo', ['c', 'rust']);
+    const request = device.received.at(-1) as Extract<ServerMessage, { type: 'apps.set' }>;
+    expect(request).toMatchObject({ type: 'apps.set', project: 'demo', enabled: ['c', 'rust'] });
+    device.say({ type: 'apps', report: appsReport({ demo: ['c', 'rust'] }) });
+    device.say({ type: 'apps.result', request: request.request, ok: true, message: 'Apps von demo: C/C++, Rust.' });
+    await expect(switched).resolves.toEqual({ ok: true, message: 'Apps von demo: C/C++, Rust.' });
+    expect(hub.status('d1').apps?.projects[0]?.enabled).toEqual(['c', 'rust']);
+
+    // A report that does not fit the schema ends the connection.
+    device.say({ type: 'apps', report: { ...appsReport(), catalog: [{ name: '../x', title: 'x' }] } });
+    expect(device.closedWith).toBe(4002);
   });
 });
 
@@ -932,6 +983,41 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     const foreign = await server.request('PATCH', `/api/devices/${deviceId}`, { cookie: mallory, body: { idleMinutes: 1 } });
     expect(foreign.status).toBe(404);
     expect((await server.request('POST', `/api/devices/${deviceId}/vm/stop`, { cookie: mallory })).status).toBe(404);
+  });
+
+  it("lets the owner switch a project's apps and keeps them while the device is offline", async () => {
+    const { deviceId, userId } = await pair();
+    const route = `/api/devices/${deviceId}/projects/demo/apps`;
+    const offline = await server.request('PUT', route, { cookie, body: { enabled: ['rust'] } });
+    expect(offline.status).toBe(409);
+
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    device.switchesApps = true;
+    device.say({ type: 'apps', report: appsReport() });
+    const devices = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(devices[0]?.apps?.projects).toEqual([{ name: 'demo', enabled: ['c'] }]);
+
+    const switched = await server.request('PUT', route, { cookie, body: { enabled: ['c', 'rust'] } });
+    expect(switched.status).toBe(200);
+    expect(await switched.json()).toEqual({ ok: true, message: 'Apps von demo geändert.' });
+    expect(device.received.at(-1)).toMatchObject({ type: 'apps.set', project: 'demo', enabled: ['c', 'rust'] });
+
+    // Not offered, not an app name, not the owner.
+    const elsewhere = await server.request('PUT', `/api/devices/${deviceId}/projects/other/apps`, { cookie, body: { enabled: [] } });
+    expect(elsewhere.status).toBe(409);
+    expect((await server.request('PUT', route, { cookie, body: { enabled: ['../x'] } })).status).toBe(400);
+    const mallory = await server.signUp('mallory@example.com');
+    expect((await server.request('PUT', route, { cookie: mallory, body: { enabled: [] } })).status).toBe(404);
+
+    // The last report stays with the device for while it is away.
+    device.connection?.closed();
+    const stored = async () =>
+      ((await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[])[0];
+    await eventually(async () => (await stored())?.apps?.projects[0]?.enabled.length === 2);
+    const after = await stored();
+    expect(after).toMatchObject({ online: false });
+    expect(after?.apps?.projects).toEqual([{ name: 'demo', enabled: ['c', 'rust'] }]);
   });
 
   it('keeps reported projects while the device is offline and links to them', async () => {

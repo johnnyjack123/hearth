@@ -79,6 +79,8 @@ export interface DeviceTable {
   idleMinutes: number | null;
   /** 1 if Jev checks the agent's changes before they are taken over, else 0. */
   jevReview: Generated<number>;
+  /** The device's last apps report (`AppsReport` as JSON), or null. */
+  apps: string | null;
 }
 
 /**

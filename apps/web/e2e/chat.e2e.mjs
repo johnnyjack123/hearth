@@ -534,6 +534,22 @@ try {
     const received = [];
     const sendEvent = (session, event) => device.send(JSON.stringify({ type: 'session.event', session, event }));
     const sendStatus = (vm, activity) => device.send(JSON.stringify({ type: 'status', vm, replies: 0, terminals: 0, stopIn: null, ...activity }));
+    // Protocol 5: the device's apps, C/C++ on by default.
+    const sendApps = (enabled) =>
+      device.send(
+        JSON.stringify({
+          type: 'apps',
+          report: {
+            catalog: [
+              { name: 'c', title: 'C/C++', description: 'gcc, g++ und make aus Debian (wie build-essential)', requires: [], version: '14.2.0', outdated: false },
+              { name: 'rust', title: 'Rust', description: 'rustc und cargo (stable) mit clippy und rustfmt', requires: ['c'], version: null, outdated: false },
+              { name: 'sqlite', title: 'SQLite', description: 'Kommandozeile sqlite3 aus Debian', requires: [], version: '3.46.1', outdated: false },
+            ],
+            versions: true,
+            projects: [{ name: 'demo', enabled }],
+          },
+        }),
+      );
     device.on('message', (data) => {
       const message = JSON.parse(data.toString());
       received.push(message);
@@ -541,6 +557,14 @@ try {
         // Protocol 2: VM activity, idle time and stopping from the browser.
         device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
         sendStatus('stopped');
+        sendApps(['c']);
+      }
+      if (message.type === 'apps.set') {
+        // Like `harness connect`: the new report, then the answer.
+        setTimeout(() => {
+          sendApps(message.enabled);
+          device.send(JSON.stringify({ type: 'apps.result', request: message.request, ok: true, message: 'Apps von demo geändert.' }));
+        }, 200);
       }
       if (message.type === 'session.takeover') {
         // What the device reports when a git hook holds the merge.
@@ -804,6 +828,26 @@ try {
       }
       await shot('34-vm-stopped');
 
+      // The project's programs: the line in the menu, then the switches.
+      await waitForText('Programme: C/C++');
+      await page.click(`button${text('Programme: C/C++')}`);
+      await page.waitForSelector(`[role=dialog] ${text('Programme in demo')}`, { timeout: 5_000 });
+      await page.click(`[role=dialog] ${text('Rust')}`);
+      await waitFor(
+        () => received.some((message) => message.type === 'apps.set' && message.project === 'demo' && message.enabled.join() === 'c,rust'),
+        'apps.set with Rust on the device',
+      );
+      await waitForText('an, weil Rust es braucht');
+      await waitForText('wird beim nächsten Start installiert');
+      // Once the device answered, only C/C++ stays locked (Rust brought it along).
+      await page.waitForFunction(() => document.querySelectorAll('[role=dialog] [role=switch][disabled]').length === 1, { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('40-project-apps');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+      await page.click(`form ${text('pi in demo')}`);
+      await waitForText('Programme: C/C++, Rust');
+
       // Save progress: autosync on, then a takeover the device holds.
       await page.click(text('Automatisch übernehmen'));
       await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
@@ -831,6 +875,12 @@ try {
       await waitForText('VM läuft');
       await waitForText('Automatisch stoppen nach 1 h');
       await shot('35-devices-vm-light');
+      // Every project's programs, folded until asked for.
+      await waitForText('Programme je Projekt');
+      await page.click(`button[aria-expanded=false]${text('demo')}`);
+      await waitForText('an, weil Rust es braucht');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('41-devices-apps-light');
       await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
       await page.reload({ waitUntil: 'networkidle0' });
       await waitForText('VM stoppen');

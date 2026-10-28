@@ -11,7 +11,7 @@ use serde_json::{Map, Value};
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 4;
+pub const TUNNEL_VERSION: u32 = 5;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -24,6 +24,11 @@ pub const VERSION_TAKEOVER: u32 = 3;
 /// with each prompt, summarizing on request (`session.compact`) and the
 /// `compaction` event for pi's summaries.
 pub const VERSION_PI_SETTINGS: u32 = 4;
+
+/// Version that brought the app catalog in the browser: the device reports
+/// its apps ([`DeviceMessage::Apps`]), the server switches them per project
+/// ([`ServerMessage::AppsSet`]).
+pub const VERSION_APPS: u32 = 5;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -519,6 +524,62 @@ pub enum DeviceMessage {
         /// What happened, in German.
         message: String,
     },
+    /// The app catalog and which apps the offered projects switched on
+    /// (protocol 5); sent after the hello and whenever it changes.
+    #[serde(rename = "apps")]
+    Apps {
+        /// The report.
+        report: AppsReport,
+    },
+    /// Answer to [`ServerMessage::AppsSet`] (protocol 5), after the new
+    /// [`DeviceMessage::Apps`].
+    #[serde(rename = "apps.result")]
+    AppsResult {
+        /// The request's id.
+        request: String,
+        /// Whether the project's apps are switched as asked.
+        ok: bool,
+        /// What happened, in German.
+        message: String,
+    },
+}
+
+/// The apps of a device, for the browser (protocol 5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AppsReport {
+    /// Every app the device knows: the catalog and its own recipes.
+    pub catalog: Vec<AppInfo>,
+    /// Whether `version` reflects the VM; it is only known once the VM ran.
+    pub versions: bool,
+    /// Apps switched on per offered project, without the ones they require.
+    pub projects: Vec<ProjectApps>,
+}
+
+/// One app of an [`AppsReport`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AppInfo {
+    /// App name.
+    pub name: String,
+    /// Name for people.
+    pub title: String,
+    /// One line for listings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Apps it requires.
+    pub requires: Vec<String>,
+    /// Version installed in the VM; `None` if not installed or unknown.
+    pub version: Option<String>,
+    /// Whether its recipe changed since it was installed.
+    pub outdated: bool,
+}
+
+/// Apps a project switched on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProjectApps {
+    /// Project name.
+    pub name: String,
+    /// `[apps] enabled` of the project.
+    pub enabled: Vec<String>,
 }
 
 /// Use of the VM, sent with [`DeviceMessage::Status`] from protocol 2 on.
@@ -693,6 +754,16 @@ pub enum ServerMessage {
     VmStop {
         /// Id to repeat in [`DeviceMessage::VmResult`].
         request: String,
+    },
+    /// The user switched a project's apps in the browser (protocol 5).
+    #[serde(rename = "apps.set")]
+    AppsSet {
+        /// Id to repeat in [`DeviceMessage::AppsResult`].
+        request: String,
+        /// The project.
+        project: String,
+        /// Apps it should have switched on from now on.
+        enabled: Vec<String>,
     },
     /// A message type of a newer server; ignored.
     #[serde(other)]
@@ -904,9 +975,75 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(takeover, ServerMessage::Takeover(request) if request.project == "demo"));
+        let apps: ServerMessage = serde_json::from_value(json!({
+            "type": "apps.set", "request": "r2", "project": "demo", "enabled": ["c", "rust"]
+        }))
+        .unwrap();
+        assert_eq!(
+            apps,
+            ServerMessage::AppsSet {
+                request: "r2".into(),
+                project: "demo".into(),
+                enabled: vec!["c".into(), "rust".into()],
+            }
+        );
         let newer: ServerMessage =
             serde_json::from_value(json!({ "type": "files.list", "session": "c1" })).unwrap();
         assert_eq!(newer, ServerMessage::Unknown);
+    }
+
+    #[test]
+    fn app_reports_serialize_like_the_server_expects() {
+        let report = DeviceMessage::Apps {
+            report: AppsReport {
+                catalog: vec![
+                    AppInfo {
+                        name: "c".into(),
+                        title: "C/C++".into(),
+                        description: Some("gcc".into()),
+                        requires: vec![],
+                        version: Some("14.2.0".into()),
+                        outdated: false,
+                    },
+                    AppInfo {
+                        name: "rust".into(),
+                        title: "Rust".into(),
+                        description: None,
+                        requires: vec!["c".into()],
+                        version: None,
+                        outdated: false,
+                    },
+                ],
+                versions: true,
+                projects: vec![ProjectApps {
+                    name: "demo".into(),
+                    enabled: vec!["rust".into()],
+                }],
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            json!({ "type": "apps", "report": {
+                "catalog": [
+                    { "name": "c", "title": "C/C++", "description": "gcc", "requires": [],
+                      "version": "14.2.0", "outdated": false },
+                    { "name": "rust", "title": "Rust", "requires": ["c"], "version": null,
+                      "outdated": false }
+                ],
+                "versions": true,
+                "projects": [{ "name": "demo", "enabled": ["rust"] }]
+            } })
+        );
+        let result = DeviceMessage::AppsResult {
+            request: "r2".into(),
+            ok: false,
+            message: "App cobol gibt es nicht".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            json!({ "type": "apps.result", "request": "r2", "ok": false,
+                    "message": "App cobol gibt es nicht" })
+        );
     }
 
     #[test]

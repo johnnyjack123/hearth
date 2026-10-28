@@ -538,6 +538,14 @@ impl ConfigDir {
     /// All apps: the catalog in its order, then the files in `apps/` that
     /// add apps, by name.
     pub fn apps(&self) -> Result<Vec<AppConfig>> {
+        self.app_names()?
+            .iter()
+            .map(|name| self.app(name))
+            .collect()
+    }
+
+    /// Names of [`ConfigDir::apps`], without reading the recipes.
+    pub fn app_names(&self) -> Result<Vec<String>> {
         let mut names: Vec<String> = BUILTIN_APPS
             .iter()
             .map(|(name, _)| (*name).to_owned())
@@ -563,7 +571,7 @@ impl ConfigDir {
         }
         own.sort();
         names.extend(own);
-        names.iter().map(|name| self.app(name)).collect()
+        Ok(names)
     }
 
     /// The apps a project gets: the ones it switched on and what they

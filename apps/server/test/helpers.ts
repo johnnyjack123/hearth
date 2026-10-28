@@ -12,9 +12,9 @@ import { createSecretBox } from '../src/crypto.ts';
 import { createDatabase, type Database, type DatabaseKind } from '../src/db/index.ts';
 import { migrateToLatest } from '../src/db/migrations.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
-import { saveDeviceProjects } from '../src/services/devices.ts';
 import { PricingCatalog } from '../src/pricing.ts';
-import { DeviceHub } from '../src/tunnel/hub.ts';
+import { createDeviceHub } from '../src/server.ts';
+import type { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import type { SearchEndpoints } from '../src/websearch/providers.ts';
 import type { HelperOptions } from '../src/helpers/load.ts';
@@ -170,7 +170,7 @@ export async function createTestServer(
   const auth = createAuth(config, database);
 
   const llm = options.llm ?? createMockLlm();
-  const hub = new DeviceHub({ projects: (deviceId, projects) => saveDeviceProjects(database.db, deviceId, projects) });
+  const hub = createDeviceHub(database.db);
   // A tiny catalog instead of models.dev: tests never go online.
   const pricing = new PricingCatalog(async () => ({
     openai: { models: { 'mock-1': { limit: { context: 1000 }, cost: { input: 2, output: 8 } } } },

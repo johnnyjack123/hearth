@@ -21,6 +21,7 @@ import { useT } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys, useDevices } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
+import { ProjectAppsDialog, ProjectAppsLine } from '../devices/device-apps.tsx';
 import { DeviceVm } from '../devices/device-vm.tsx';
 import { upsertMessage } from './chat-store.ts';
 import { takeoverTitle } from './takeover-card.tsx';
@@ -278,6 +279,7 @@ function EnvironmentControl({
   const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const device = useLinkDevice(link);
 
   const dialog = (
@@ -332,8 +334,16 @@ function EnvironmentControl({
           </div>
           {work ? <div className="flex flex-col gap-1.5 border-t border-border pt-2">{work}</div> : null}
           {device ? (
-            <div className="border-t border-border pt-2">
+            <div className="flex flex-col gap-2 border-t border-border pt-2">
               <DeviceVm device={device} />
+              <ProjectAppsLine
+                device={device}
+                project={link.project}
+                onChange={() => {
+                  setMenuOpen(false);
+                  setAppsOpen(true);
+                }}
+              />
             </div>
           ) : null}
           <div className="flex flex-col gap-1 border-t border-border pt-2">
@@ -354,6 +364,7 @@ function EnvironmentControl({
         </PopoverContent>
       </Popover>
       {dialog}
+      {device ? <ProjectAppsDialog open={appsOpen} onOpenChange={setAppsOpen} device={device} project={link.project} /> : null}
     </>
   );
 }

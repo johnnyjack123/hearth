@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api.ts';
 import { springs } from '@/lib/motion.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { queryKeys, useDevices } from '@/lib/queries.ts';
+import { DeviceApps } from '../devices/device-apps.tsx';
 import { DeviceVm } from '../devices/device-vm.tsx';
 import { Section } from '../shell/page.tsx';
 
@@ -110,6 +111,7 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
           {device.lastUsedAt ? t('devices.lastUsed', { date: date(device.lastUsedAt) }) : t('devices.neverUsed')}
         </span>
         <DeviceVm device={device} />
+        <DeviceApps device={device} />
         <label className="flex cursor-pointer items-start gap-3 pt-2">
           <Switch checked={device.jevReview} onCheckedChange={(checked) => void setJevReview(checked)} />
           <span className="flex min-w-0 flex-col gap-0.5">
