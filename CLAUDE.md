@@ -54,6 +54,7 @@ Selbst gehosteter Multi-User-LLM-Chat (Server + Web) plus Hintergrunddienst mit 
 - **Abgleich mit pi erledigt (25.10.):** Denktiefe und Zusammenfassen gelten auch in verknüpften Chats (Tunnel-Protokoll 4). Siehe Stolpersteine „Denktiefe und Zusammenfassen langer Chats“.
 - **Schritt 6 erledigt (24./25.10.):** `web_fetch` für pi (Stolpersteine „web_fetch für pi“) und fortsetzbare Antworten: Neuladen oder Schließen der Seite beendet eine Antwort nicht mehr, nur „Stopp“ (Stolpersteine „Web-Chat ↔ Gerät“).
 - **App-Katalog, Schritt 1 erledigt (27.10.):** Programme wie C/C++, Rust, Go, Java, Deno, Bun, SQLite pro Projekt (`[apps] enabled`, `harness app …`), je Installation ein Volume unter `/opt/harness-apps/<app>`. `build-essential` ist aus dem Base-Image raus, C/C++ dafür standardmäßig an. `vmd clean` und `project remove` sichern ungesicherte Arbeit des Agents vorher als Git-Bundle. Siehe Stolpersteine „App-Katalog“. Nächste Schritte: ROADMAP Phase 3, „App-Katalog pro Projekt“.
+- **Rechner, Mathe, Kopieren (28.10., Wünsche des Nutzers):** Werkzeug `calculate` (math.js im Server, Admin-Schalter „Taschenrechner“), Formeln mit `\(…\)`/`\[…\]` werden gerendert, Copy-Buttons gehen auch über `http://` im LAN. Siehe Stolpersteine „Rechner, Mathe und Kopieren“.
 - **App-Katalog, Schritt 2 erledigt (28.10.):** Programme pro Projekt im Browser schalten (Einstellungen → Geräte „Programme je Projekt“, im Umgebungs-Popover „Programme: …“). Tunnel-Protokoll 5 (`apps`, `apps.set`, `apps.result`).
 - **Rückfragen und Freigaben entscheidet nie etwas im Container**, auch nicht die Oberfläche von pi oder opencode. Sonst könnte sich ein gekaperter Agent selbst freigeben. Oberflächen sind `harness net watch`, später `harness run` selbst (Host-Prozess), die App und der Web-Chat.
 
@@ -109,6 +110,7 @@ cargo test -p harness-core --test instance_vm -- --ignored --nocapture    # Inst
 cargo test -p harness-core -- --ignored --test-threads=1                   # alle VM-Tests nacheinander (~2 min)
 cargo test -p harness-cli --test terminal_vm -- --ignored --test-threads=1  # harness shell/run pi in einem simulierten Terminal (Rückfragen, Strg+C, Größe)
 node --test crates/harness-core/pi/guard.test.ts   # Muster des pi-Schutzes gegen Prompt-Injection (läuft auch in cargo test, wenn node da ist)
+node --test apps/web/e2e/math.test.mjs   # Umwandlung von \(…\) und \[…\] für KaTeX (die Web-App hat sonst keinen Unit-Test-Runner)
 bash scripts/smoke-run.sh             # Phase 2 komplett: Server + Mock-LLM, login, run pi, shell, sync, merge, logout (~40 s)
 bash scripts/smoke-connect.sh         # Phase 4 komplett: connect, Chat verknüpfen, pi per RPC, Rückfrage im Chat beantworten, sync, VM-Aktivität (~1 min)
 VM_STOP=1 bash scripts/smoke-connect.sh   # zusätzlich VM-Stopp aus dem Browser und nach 1 min Leerlauf (~4 min, zwei VM-Starts)
@@ -359,6 +361,15 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
   - Der Agent erfährt den Modus über einen Hinweis vor seiner Nachricht (`AGENT_RESEARCH_NOTE` in `conversations.ts`). Reihung und Prüfung wie im Web-Chat (`runSearch` in `websearch/tool.ts`, Jev mit dem OpenRouter-Zugang des Nutzers).
   - Anders als im Web-Chat laden Treffer nicht ohne Rückfrage: Das Gateway prüft jeden Host beim Lesen nach den Netzregeln.
   - pi-Erweiterungen nehmen für Aufzählungen `StringEnum` aus `@earendil-works/pi-ai` (Google-kompatibel). Der Smoke-Test prüft die Erweiterung in echtem pi (`?search …` an `mock-agent-llm.mjs`, das auch SearXNG spielt).
+
+### Rechner, Mathe und Kopieren (`apps/server/src/calculator/`, Web `math.ts`, `lib/clipboard.ts`, `calculator-call.tsx`)
+
+- **Werkzeug `calculate`** in normalen Chats, solange der Admin-Schalter „Taschenrechner“ an ist (Standard an; aus für Modelle ohne Werkzeuge). Eingabe: bis zu 20 math.js-Ausdrücke, die sich Variablen teilen. Ausgabe je Ausdruck Ergebnis oder Fehler; das Modell liest `ausdruck = ergebnis` je Zeile (`calculatorText`). Ist es aus, werden alte Aufrufe zu Text (`[Earlier, calculate: …]`). Der System-Prompt bekommt dann einen Satz dazu (fest, also cachebar).
+- **math.js läuft in einem Worker** (`Calculator`, `eval`-Worker aus einem String, damit tsx, vitest und das tsup-Bundle dasselbe tun): eigener Heap (128 MB), 3 s pro Aufruf ab dem Moment, in dem der Worker math.js geladen hat (Laden dauerte hier bis zu 3 s), `env: {}`, also keine Keys und keine Datenbank-URL. Zu langsam oder zu groß beendet den Worker, der nächste Aufruf startet einen neuen (`CalculatorError`, `describeStreamError` reicht die Meldung durch).
+- **Eine frische math.js-Instanz pro Aufruf** (~20 ms): Ausdrücke können ihre Instanz verändern (`config({number: "BigNumber"})`, `createUnit`, `import` gehen alle aus Ausdrücken, geprüft), und ein Chat darf die Rechnung des nächsten nicht verstellen. Funktionen sperren (wie in den Sicherheitshinweisen von math.js) war die erste Idee, brach aber `derivative`/`simplify`, die intern `parse` nutzen.
+- **Zahlenformat:** 14 gültige Stellen, Festkomma bis 1e14 (`upperExp: 14`), darüber Exponent; exakte große Zahlen per `bignumber()`.
+- **Mathe in Antworten:** remark-math kennt nur `$$…$$` (einzelne `$` sind absichtlich aus, sonst würden Beträge zu Formeln). Viele Modelle (DeepSeek) schreiben `\(…\)` und `\[…\]`; `normalizeMath` macht daraus vor dem Rendern `$$`-Formen, außerhalb von Codeblöcken und Inline-Code, eine offene Formel bleibt beim Streamen Text. Der System-Prompt bittet um genau diese Schreibweise. ` ```math `-Blöcke rendert rehype-katex ohnehin.
+- **Copy-Buttons über `http://` im LAN:** Browser geben `navigator.clipboard` und `ClipboardItem` nur in sicheren Kontexten (HTTPS, localhost). Auf dem Pi (`http://192.168…`) scheiterte deshalb jeder Copy-Button von Streamdown („Clipboard API not available“), lokal und im E2E nie. `installClipboardFallback` (vor dem ersten Rendern) setzt nur dann einen Ersatz über eine unsichtbare Textarea und `execCommand('copy')` ein; in einem Dialog kommt die Textarea in den Dialog (Fokusfalle). Der E2E prüft das mit entfernter API.
 
 ### Denktiefe und Zusammenfassen langer Chats (`apps/server/src/effort.ts`, `compact.ts`, Web `effort-control.tsx`, `context-meter.tsx`)
 

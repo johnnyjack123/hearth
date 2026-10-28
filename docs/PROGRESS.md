@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-28 · App-Katalog Schritt 1 (Kern und CLI) und Schritt 2 (Browser, Tunnel-Protokoll 5) fertig, `build-essential` aus dem Base-Image in den Katalog verschoben, `vmd clean`/`project remove` sichern ungesicherte Arbeit; Branch `feat/app-catalog`; nächstes: Wünsche des Nutzers vom 28.10. (Copy-Buttons, Mathe, Rechner), dann eigene Programme (Schritt 3)_
+_Last updated: 2026-10-28 · App-Katalog Schritte 1–2 (Kern, CLI, Browser) fertig; Rechner `calculate`, Mathe-Rendering und Copy-Buttons über HTTP (Branch `feat/chat-math-tools`); nächstes: eigene Programme (App-Katalog Schritt 3)_
 
 ## Where we are
 
@@ -60,10 +60,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    **App-Katalog** (ROADMAP Phase 3, „Plan in Schritten“):
    1. ✅ Kern und CLI (27.10.): Rezepte C/C++, Rust, Go, Java, Deno, Bun, SQLite; ein Volume pro Installation unter `/opt/harness-apps/<app>`; `[apps] enabled` (Standard `["c"]`); `harness app list|on|off|install|update|remove`. `build-essential` ist aus dem Base-Image raus (698 → 454 MB). Wunsch des Nutzers dazu: `vmd clean` behält node/uv und sichert ungesicherte Arbeit gelöschter Projekte als Git-Bundle (`project remove` auch).
    2. ✅ Browser (28.10.): Einstellungen → Geräte „Programme je Projekt“, im Umgebungs-Popover „Programme: …“ mit Schaltern im Dialog; Tunnel-Protokoll 5. Dabei behoben: `harness daemon stop` brauchte ~30 s (gestaute Wakes im Leerlauf-Wächter).
-   **Als Nächstes, Wünsche des Nutzers vom 28.10.:**
-   - Copy-Buttons der Codeblöcke gehen nicht (Verdacht: Zwischenablage-API gibt es nur auf HTTPS/localhost, der Pi läuft auf `http://192.168…`; Rückfall über eine Textarea nötig).
-   - Mathe rendern (KaTeX über `@streamdown/math`, das Modell per System-Prompt auf `$…$`/`$$…$$` hinweisen).
-   - Taschenrechner als Werkzeug für das Modell: math.js (`mathjs`) im Server in einem Worker mit Zeitlimit, wie `web_fetch` ohne Gerät; später auch für pi.
+   ✅ **Wünsche des Nutzers vom 28.10.:** Copy-Buttons gehen über `http://` (Rückfall ohne Zwischenablage-API), Mathe mit `\(…\)`/`\[…\]` wird gerendert, Werkzeug `calculate` (math.js im Server, Admin-Schalter „Taschenrechner“). Offen: der Rechner auch für pi (über `llm.harness/_calc` wie `web_fetch`).
+   **Als Nächstes:** App-Katalog Schritt 3 (eigene Programme).
    3. Eigene Programme (Paketnamen, Befehle, Vorlagen auf dem Server; Dateien vom Rechner mit Bestätigung).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
@@ -148,6 +146,11 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; keine Hilfsagenten
 - **Rechner:** Wenig freier Speicher. Der Browser-E2E scheiterte am 18.10. zweimal mit `ERR_INSUFFICIENT_RESOURCES` und lief beim zweiten Versuch grün. Windows Sandbox nie ungefragt starten.
 
 ## Verification state
+
+Stand 28.10. (Rechner, Mathe, Kopieren):
+- **Server:** 194/194 (neu: Rechner mit Zahlen, Einheiten, Brüchen, Matrizen, Ableitung; Fehler je Ausdruck; ein Aufruf verstellt den nächsten nicht; Zeitgrenze und Speichergrenze mit Neustart des Workers; Chat mit Werkzeugaufruf, gespeichertem Teil und ausgeschaltetem Rechner).
+- **Web:** `node --test apps/web/e2e/math.test.mjs` grün; Browser-E2E 15/15, 0 Konsolenprobleme (ein Lauf davor scheiterte an `ERR_INSUFFICIENT_RESOURCES`): Rechner-Karte, KaTeX inline und abgesetzt, Copy-Button ohne Zwischenablage-API. Screenshot 42 angesehen.
+- **Nicht geprüft:** echtes Modell (DeepSeek) mit dem Rechner, Copy-Button auf dem echten Pi über HTTP (nur simuliert), Tabellen-Kopie über den Ersatz.
 
 Stand 28.10. (App-Katalog, Schritt 2):
 - **Rust:** `cargo test` grün (harness-core 121, harness-cli 14; neu: App-Nachrichten im Tunnel, Schalten aus dem Browser nur für angebotene Projekte und bekannte Apps, Bericht ohne VM); clippy ohne Warnungen.
@@ -247,6 +250,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-28 (Rechner, Mathe, Kopieren)
+- Gefunden: Copy-Buttons scheiterten über HTTP im LAN (keine Zwischenablage-API außerhalb sicherer Kontexte); Mathe renderte nur `$$`, Modelle schreiben `\(…\)`; `config(...)` aus einem Ausdruck verstellt eine math.js-Instanz dauerhaft.
+- Gebaut: Rückfall fürs Kopieren, Umwandlung der LaTeX-Begrenzer, Werkzeug `calculate` mit Worker und frischer Instanz pro Aufruf, Karte im Chat, Admin-Schalter.
 
 ### 2026-10-28 (App-Katalog Schritt 2)
 - Gebaut: Tunnel-Protokoll 5 (`apps`, `apps.set`, `apps.result`), Bericht in `device.apps`, Route zum Schalten, Programme unter Einstellungen → Geräte und im Umgebungs-Popover, Smoke- und E2E-Prüfungen.
