@@ -464,7 +464,11 @@ mod tests {
         assert_eq!(report.projects[0].enabled, ["rust"]);
         assert_eq!(report.catalog.len(), 7);
         assert!(report.catalog.iter().all(|app| app.version.is_none()));
-        let rust = report.catalog.iter().find(|app| app.name == "rust").unwrap();
+        let rust = report
+            .catalog
+            .iter()
+            .find(|app| app.name == "rust")
+            .unwrap();
         assert_eq!(rust.requires, ["c"]);
     }
 }
