@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 pub use harness_gateway::DomainPattern;
 use serde::de::Error as _;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::podman::DEFAULT_MACHINE;
 use crate::provider::{validate_container_path, validate_env_key, validate_memory};
@@ -527,6 +527,23 @@ pub struct AppConfig {
     /// Shell script that installs the app into `$PREFIX` (`apps/lib.sh`
     /// documents what it gets).
     pub install: String,
+    /// Where the definition comes from; set by whoever loaded it.
+    #[serde(skip)]
+    pub source: AppSource,
+}
+
+/// Where an app's definition comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppSource {
+    /// The catalog shipped with harness.
+    #[default]
+    Builtin,
+    /// A file in `apps/` on this computer.
+    Local,
+    /// A template of the account, defined in the browser
+    /// ([`crate::config::AppTemplate`]).
+    Server,
 }
 
 /// Where apps are mounted in instances, one folder each.

@@ -9,9 +9,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::config::AppSource;
+
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 5;
+pub const TUNNEL_VERSION: u32 = 6;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -29,6 +31,11 @@ pub const VERSION_PI_SETTINGS: u32 = 4;
 /// its apps ([`DeviceMessage::Apps`]), the server switches them per project
 /// ([`ServerMessage::AppsSet`]).
 pub const VERSION_APPS: u32 = 5;
+
+/// Version that brought the account's own programs: the server sends its
+/// templates ([`ServerMessage::AppsTemplates`]), and each app in the report
+/// says where it comes from.
+pub const VERSION_TEMPLATES: u32 = 6;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -443,6 +450,13 @@ impl DeviceMessage {
     /// connection, so it gets a notice instead.
     pub fn for_version(self, version: u32) -> DeviceMessage {
         match self {
+            // Before protocol 6 the server knows no `source`.
+            DeviceMessage::Apps { mut report } if version < VERSION_TEMPLATES => {
+                for app in &mut report.catalog {
+                    app.source = None;
+                }
+                DeviceMessage::Apps { report }
+            }
             DeviceMessage::SessionEvent {
                 session,
                 event: AgentEvent::Compaction { state, error, .. },
@@ -571,6 +585,9 @@ pub struct AppInfo {
     pub version: Option<String>,
     /// Whether its recipe changed since it was installed.
     pub outdated: bool,
+    /// Where it comes from (protocol 6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<AppSource>,
 }
 
 /// Apps a project switched on.
@@ -764,6 +781,14 @@ pub enum ServerMessage {
         project: String,
         /// Apps it should have switched on from now on.
         enabled: Vec<String>,
+    },
+    /// The account's own programs, after the hello and whenever they
+    /// change (protocol 6). Each stays a raw value until the device reads
+    /// it, so one it cannot read does not cost it the others.
+    #[serde(rename = "apps.templates")]
+    AppsTemplates {
+        /// All templates of the account.
+        templates: Vec<Value>,
     },
     /// A message type of a newer server; ignored.
     #[serde(other)]
@@ -987,6 +1012,14 @@ mod tests {
                 enabled: vec!["c".into(), "rust".into()],
             }
         );
+        let templates: ServerMessage = serde_json::from_value(json!({
+            "type": "apps.templates",
+            "templates": [{ "name": "tree", "title": "tree", "kind": "apt", "packages": ["tree"] }]
+        }))
+        .unwrap();
+        assert!(
+            matches!(templates, ServerMessage::AppsTemplates { templates } if templates.len() == 1)
+        );
         let newer: ServerMessage =
             serde_json::from_value(json!({ "type": "files.list", "session": "c1" })).unwrap();
         assert_eq!(newer, ServerMessage::Unknown);
@@ -1004,6 +1037,7 @@ mod tests {
                         requires: vec![],
                         version: Some("14.2.0".into()),
                         outdated: false,
+                        source: Some(AppSource::Builtin),
                     },
                     AppInfo {
                         name: "rust".into(),
@@ -1012,6 +1046,7 @@ mod tests {
                         requires: vec!["c".into()],
                         version: None,
                         outdated: false,
+                        source: Some(AppSource::Server),
                     },
                 ],
                 versions: true,
@@ -1023,6 +1058,20 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(&report).unwrap(),
+            json!({ "type": "apps", "report": {
+                "catalog": [
+                    { "name": "c", "title": "C/C++", "description": "gcc", "requires": [],
+                      "version": "14.2.0", "outdated": false, "source": "builtin" },
+                    { "name": "rust", "title": "Rust", "requires": ["c"], "version": null,
+                      "outdated": false, "source": "server" }
+                ],
+                "versions": true,
+                "projects": [{ "name": "demo", "enabled": ["rust"] }]
+            } })
+        );
+        // A server before protocol 6 would reject the field.
+        assert_eq!(
+            serde_json::to_value(report.for_version(VERSION_APPS)).unwrap(),
             json!({ "type": "apps", "report": {
                 "catalog": [
                     { "name": "c", "title": "C/C++", "description": "gcc", "requires": [],
