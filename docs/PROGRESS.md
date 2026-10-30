@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · App-Katalog Schritt 3 fertig (eigene Programme, Programmdateien vom Rechner, Protokoll 7), Release v0.1.8; der Nutzer testet alles; danach Schritt 4 (Gateway fertig gebaut)_
+_Last updated: 2026-10-30 · App-Katalog fertig (Schritte 1–4); Gateway kommt fertig gebaut mit harness; Setup ersetzt laufende Programme; Exit-Codes statt „Fehler“ im Chat_
 
 ## Where we are
 
@@ -64,7 +64,9 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    **Release v0.1.6 (29.10.):** Der Nutzer meldete „Client zu alt“ im Browser mit dem neuesten Release; v0.1.5 war vom 27.10. und kannte Protokoll 5 noch nicht. Nebenbei: `cargo fmt` aus Schritt 2 nachgeholt, der Gateway-Workflow war daran gescheitert.
    3. ✅ **3a, eigene Programme aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“ (apt, npm, pip oder Skript, „Braucht“), Vorlagen pro Konto auf dem Server, Tunnel-Protokoll 6 (`apps.templates`), Kopie auf dem Rechner in `server-apps.json`. Geänderte Vorlagen installieren beim nächsten Start neu, gelöschte werden in allen Projekten ausgeschaltet. Geprüft: Rust-Tests, Server 196/196, Browser-E2E 15/15 (neue Bilder 43–45), Smoke-Test 82 grün, alle vier Arten in der echten VM.
    ✅ **3b, Programmdateien vom Rechner** (30.10.): Browser fragt (Protokoll 7), der Rechner prüft die Datei und legt einen Antrag an, freigeben im Tray oder mit `harness app approve <ID>`, die Freigabe kopiert die Datei nach `app-files/`. Dazu `harness app add|deny|forget`. Geprüft: Rust- und Server-Tests (198), Browser-E2E 15/15 (Bilder 46, 47), Smoke-Test 89 grün, alle Dateiarten außer AppImage echt in der VM. Nicht geprüft: Ja/Nein-Dialog des Tray-Symbols (Win32), echte AppImage.
-   **Als Nächstes:** Test des Nutzers mit v0.1.8, dann Schritt 4 (Gateway fertig gebaut).
+   ✅ **4, Gateway fertig gebaut** (30.10.): Release-Workflow baut es, `harness.exe` bettet es ein, die VM packt es nur. Dazu auf Meldung des Nutzers: Setup und `install.ps1` warten auf Dienst und Tray und schieben laufende Programme beiseite (erster Lauf scheiterte sonst); bash-Exit-Codes zeigt der Chat neutral als „Exit N“ statt „Fehler“.
+   **Beobachtung des Nutzers „Agent langsam“ (30.10.):** Die VM hatte 936 MB RAM, 86 MB frei, keinen Swap; Hyper-V wollte 1,6 GB geben, auf dem Rechner waren 1,2 GB frei. Dazu kostet jeder Schritt einen Modellaufruf mit ~100k Token Kontext. Vorschläge an den Nutzer: zram-Swap in der VM, Dauer je Werkzeugaufruf im Chat anzeigen.
+   **Als Nächstes:** Test des Nutzers, dann nach seiner Wahl (Gedächtnis, Dateien im Chat, zram/Dauer-Anzeige).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
@@ -252,6 +254,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-30 (abends, App-Katalog Schritt 4)
+- Gebaut: Gateway fertig gebaut (Job `gateway` in `windows.yml`, `harness-core/build.rs`, `Containerfile.prebuilt`), Setup-Update bei laufendem harness, Exit-Code-Badge.
+- Geprüft: gepacktes Gateway-Image in der VM (gebaut in 1,7 s, `gateway_vm` grün), Setup-Test mit einer laufenden Kopie von ping, `install.ps1` ebenso, Windows-Workflow auf dem Branch.
+- Der Nutzer ließ dabei einen Agent arbeiten; VM-Tests liefen von 16:33 bis 16:37 parallel (eigene Projekte, sein Gateway-Image nur umbenannt, nicht ersetzt).
 
 ### 2026-10-30 (App-Katalog Schritt 3b, Release v0.1.8)
 - Gebaut: Programmdateien vom Rechner (Prüfung der Datei, Antrag, Freigabe im Tray oder Terminal, Kopie in der Konfiguration, Helfer für Programm, AppImage, `.deb`, Archive), Protokoll 7, Abschnitt pro Rechner im Browser.
