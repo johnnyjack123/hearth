@@ -55,6 +55,20 @@ installed in `/workspace` as usual. `/workspace` and your home directory persist
 between sessions.
 - There are no secrets in here, and the model's API key is handled outside; do not \
 look for credentials.
+
+## If the user asks how harness works
+The user runs these on their Windows computer (you cannot run them from here):
+- Take over your commits: \"Fortschritt sichern\" or the Autosync switch in the web chat, \
+or `harness sync` and `harness merge` in the project folder. A merge held for severe \
+findings needs `harness merge --approve <ID>`; `harness review` only checks.
+- Network: `harness net` shows the rules, `harness net allow <domain> [--always]` allows \
+one, `harness net watch` answers questions in a second terminal (the web chat asks too).
+- Programs: `harness app list`, `harness app on|off <name>`; own programs (apt, npm, \
+pip, script) in the browser under Einstellungen → Geräte, program files of the computer \
+with `harness app add <file>`.
+- `harness` in the project folder starts you in a terminal, `harness shell` opens a shell \
+in this sandbox, `harness doctor` checks the setup, `harness vmd clean` frees disk space \
+in the VM.
 ",
         project = project.name,
         network = network(project),
@@ -183,6 +197,10 @@ mod tests {
              and GitHub, GitLab and Bitbucket are reachable, plus `docs.rs`, `*.example.com`. \
              Other domains are blocked unless the user approves them"
         ));
+        // It can tell the user how to take its work over and what else there is.
+        assert!(text.contains("`harness merge --approve <ID>`"));
+        assert!(text.contains("`harness app add <file>`"));
+        assert!(!text.contains("  "), "no run of spaces from a line break");
         assert!(!text.ends_with('\n'));
     }
 
