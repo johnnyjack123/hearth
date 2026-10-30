@@ -28,8 +28,10 @@ pub struct ContextFile {
 pub struct ContextProgram {
     /// Path inside the context directory.
     pub name: &'static str,
-    /// The program.
-    pub bytes: &'static [u8],
+    /// The program. A function rather than the bytes: every use of a
+    /// const holding them put another copy into harness.exe (1.6 MB each,
+    /// four of them before).
+    pub bytes: fn() -> &'static [u8],
 }
 
 /// An image with an embedded build context.
@@ -74,12 +76,17 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
 pub const BUILD_ONLY_IMAGES: &[&str] = &["docker.io/library/rust:"];
 
 /// The gateway program the release workflow built for the VM (`build.rs`);
-/// empty in every other build.
-const GATEWAY_PROGRAM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/harness-gateway"));
+/// empty in every other build. Only here, once.
+static GATEWAY_PROGRAM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/harness-gateway"));
 
-/// Whether this harness brings the gateway program along; else the VM
-/// compiles it, which needs the Rust image (859 MB) and minutes.
-pub const GATEWAY_PREBUILT: bool = !GATEWAY_PROGRAM.is_empty();
+fn gateway_program() -> &'static [u8] {
+    GATEWAY_PROGRAM
+}
+
+/// Whether this harness brings the gateway program along (`build.rs` says
+/// so); else the VM compiles it, which needs the Rust image (859 MB) and
+/// minutes.
+pub const GATEWAY_PREBUILT: bool = option_env!("HARNESS_GATEWAY_EMBEDDED").is_some();
 
 /// The egress gateway (`images/gateway`): packed from the program the
 /// release brings along, else compiled in the VM.
@@ -100,7 +107,7 @@ const GATEWAY_PACKED_IMAGE: ImageDefinition = ImageDefinition {
     }],
     program: Some(ContextProgram {
         name: "harness-gateway",
-        bytes: GATEWAY_PROGRAM,
+        bytes: gateway_program,
     }),
 };
 
@@ -249,7 +256,7 @@ impl ImageDefinition {
                 .chain(
                     self.program
                         .iter()
-                        .flat_map(|program| [program.name.as_bytes(), program.bytes]),
+                        .flat_map(|program| [program.name.as_bytes(), (program.bytes)()]),
                 ),
         )
     }
@@ -281,7 +288,7 @@ impl ImageDefinition {
         }
         if let Some(program) = self.program {
             let path = dir.join(program.name);
-            fs::write(&path, program.bytes)
+            fs::write(&path, (program.bytes)())
                 .map_err(|e| Error::io(format!("{} schreiben", path.display()), e))?;
         }
         Ok(())
@@ -554,18 +561,19 @@ mod tests {
         // Images without a program keep their fingerprint from before.
         assert_eq!(a.context_hash(), fingerprint(["Containerfile", "FROM x"]));
 
-        let packed = |bytes: &'static [u8]| ImageDefinition {
+        let packed = |bytes: fn() -> &'static [u8]| ImageDefinition {
             program: Some(ContextProgram {
                 name: "tool",
                 bytes,
             }),
             ..a
         };
-        assert_ne!(
-            packed(b"\x7fELF1").context_hash(),
-            packed(b"\x7fELF2").context_hash()
-        );
-        assert_ne!(packed(b"").context_hash(), a.context_hash());
+        let one = packed(|| b"\x7fELF1");
+        let two = packed(|| b"\x7fELF2");
+        assert_ne!(one.context_hash(), two.context_hash());
+        assert_ne!(packed(|| b"").context_hash(), a.context_hash());
+        // Whether the gateway comes packed follows what build.rs embedded.
+        assert_eq!(GATEWAY_PREBUILT, !GATEWAY_PROGRAM.is_empty());
     }
 
     #[test]
@@ -626,7 +634,7 @@ mod tests {
         let packed = ImageDefinition {
             program: Some(ContextProgram {
                 name: "tool",
-                bytes: b"\x7fELF\x00\xff",
+                bytes: || b"\x7fELF\x00\xff",
             }),
             ..BASE_IMAGE
         };

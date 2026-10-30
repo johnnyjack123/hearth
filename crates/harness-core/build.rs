@@ -34,4 +34,5 @@ fn main() {
         source.display()
     );
     fs::write(&target, program).expect("Gateway einbetten");
+    println!("cargo::rustc-env=HARNESS_GATEWAY_EMBEDDED=1");
 }
