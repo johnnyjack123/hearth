@@ -583,6 +583,8 @@ try {
     // account's own programs join the catalog, as `harness connect` does.
     let templates = [];
     let enabledApps = ['c'];
+    // Protocol 7: program files the browser asked for, waiting here.
+    const pendingFiles = [];
     const sendApps = (enabled = enabledApps) => {
       enabledApps = enabled;
       device.send(
@@ -605,6 +607,7 @@ try {
             ],
             versions: true,
             projects: [{ name: 'demo', enabled }],
+            pending: pendingFiles,
           },
         }),
       );
@@ -617,6 +620,31 @@ try {
         device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
         sendStatus('stopped');
         sendApps(['c']);
+      }
+      if (message.type === 'apps.file') {
+        // Like `harness connect`: keys and documents never get a request.
+        if (message.path.endsWith('id_ed25519')) {
+          device.send(
+            JSON.stringify({
+              type: 'apps.result',
+              request: message.request,
+              ok: false,
+              message: 'Nicht angefragt: Keine Linux-Programmdatei: erwartet wird ein Programm (ELF), eine AppImage, ein .deb oder ein Archiv',
+            }),
+          );
+        } else {
+          pendingFiles.push({ id: 'H3PX7Q', name: message.name, title: message.title, path: message.path, kind: 'Archiv (tar)' });
+          sendApps();
+          device.send(
+            JSON.stringify({
+              type: 'apps.result',
+              request: message.request,
+              ok: true,
+              message: `${message.title} wartet auf Freigabe am Rechner.`,
+              approval: 'H3PX7Q',
+            }),
+          );
+        }
       }
       if (message.type === 'apps.templates') {
         templates = message.templates;
@@ -990,6 +1018,35 @@ try {
       await page.$eval(text('apt: ffmpeg, imagemagick'), (element) => element.scrollIntoView({ block: 'center' }));
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('44-own-app-switch');
+
+      // A program file of the computer: the browser only asks, the
+      // computer refuses what is no program and holds the rest for approval.
+      await page.click(`button${text('Programmdatei dieses Rechners hinzufügen')}`);
+      await page.waitForSelector(`[role=dialog] ${text('Pfad auf dem Rechner')}`, { timeout: 5_000 });
+      const pathField = '[role=dialog] input[placeholder$="programm.AppImage"]';
+      await page.type(pathField, 'C:\\Users\\erika\\.ssh\\id_ed25519');
+      await page.click('[role=dialog] button[type=submit]');
+      await waitForText('Keine Linux-Programmdatei');
+      await page.$eval(pathField, (input) => input.select());
+      await page.type(pathField, 'C:\\Tools\\rg-14.1.0.tar.gz');
+      const suggested = await page.$eval('[role=dialog] input.font-mono[maxlength="30"]', (input) => input.value);
+      if (suggested !== 'rg') {
+        throw new Error(`suggested name ${suggested}`);
+      }
+      await page.click('[role=dialog] button[type=submit]');
+      await waitForText('harness app approve H3PX7Q');
+      const asked = received.filter((message) => message.type === 'apps.file').at(-1);
+      if (asked?.path !== 'C:\\Tools\\rg-14.1.0.tar.gz' || asked.name !== 'rg') {
+        throw new Error(`device got ${JSON.stringify(asked)}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('46-app-file-waiting');
+      await page.click(`[role=dialog] ${text('Schließen')}`);
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+      await waitForText('„rg“ wartet auf Freigabe am Rechner');
+      await page.$eval(text('wartet auf Freigabe am Rechner'), (element) => element.scrollIntoView({ block: 'center' }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('47-app-file-pending');
       await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
       await page.reload({ waitUntil: 'networkidle0' });
       await waitForText('VM stoppen');

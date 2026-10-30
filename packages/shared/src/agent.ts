@@ -19,8 +19,12 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * browser switches them per project (`apps.set`, `apps.result`).
  * Version 6: the account's own programs (`apps.templates`), and where each
  * app of a report comes from (`source`).
+ * Version 7: program files from the computer: the browser asks
+ * (`apps.file`), the device answers with the id of a request the user
+ * approves on the computer (`approval` in `apps.result`) and reports the
+ * requests still waiting (`pending`).
  */
-export const TUNNEL_VERSION = 6;
+export const TUNNEL_VERSION = 7;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -51,6 +55,15 @@ export const VERSION_APPS = 5;
  * device, `source` in its app reports.
  */
 export const VERSION_TEMPLATES = 6;
+
+/**
+ * First protocol with program files from the computer: `apps.file`,
+ * `approval` in `apps.result` and `pending` in app reports.
+ */
+export const VERSION_APP_FILES = 7;
+
+/** Ids of requests the user approves on the computer (`harness app approve`). */
+export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -117,6 +130,23 @@ export const appInfoSchema = z
 /** See {@link appInfoSchema}. */
 export type AppInfo = z.infer<typeof appInfoSchema>;
 
+/**
+ * A program file the browser asked for, waiting on the computer for the
+ * user's approval.
+ */
+export const pendingFileSchema = z
+  .object({
+    id: approvalIdSchema,
+    name: appNameSchema,
+    title: z.string().min(1).max(60),
+    path: z.string().min(1).max(1_000),
+    kind: z.string().min(1).max(100),
+  })
+  .strict();
+
+/** See {@link pendingFileSchema}. */
+export type PendingFile = z.infer<typeof pendingFileSchema>;
+
 /** The apps a project switched on, without the ones they require. */
 export const projectAppsSchema = z
   .object({
@@ -137,6 +167,8 @@ export const appsReportSchema = z
     catalog: z.array(appInfoSchema).max(200),
     versions: z.boolean(),
     projects: z.array(projectAppsSchema).max(200),
+    /** Program files waiting for approval on the computer; protocol 7. */
+    pending: z.array(pendingFileSchema).max(20).optional(),
   })
   .strict();
 
@@ -343,6 +375,8 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
       request: z.string().min(1).max(100),
       ok: z.boolean(),
       message: text(1_000),
+      // Protocol 7: the request to approve on the computer.
+      approval: approvalIdSchema.optional(),
     })
     .strict(),
 ]);
@@ -449,6 +483,17 @@ export type ServerMessage =
       project: string;
       /** Apps it has switched on from now on. */
       enabled: string[];
+    }
+  | {
+      type: 'apps.file';
+      /** Id the device repeats in its `apps.result`. Protocol 7. */
+      request: string;
+      /** A file on the computer; nothing happens before the user approves it there. */
+      path: string;
+      /** App name it should become. */
+      name: string;
+      /** Name for people. */
+      title: string;
     }
   | {
       type: 'apps.templates';

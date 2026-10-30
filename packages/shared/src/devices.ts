@@ -94,6 +94,34 @@ export interface AppsSetResult {
 }
 
 /**
+ * Validates a program file of a computer the browser asks for
+ * (`POST /api/devices/:id/app-files`). The computer checks the file and
+ * waits for the user's approval there.
+ */
+export const requestAppFileSchema = z
+  .object({
+    path: z.string().trim().min(3).max(1_000),
+    name: appNameSchema,
+    title: z.string().trim().min(1).max(60),
+  })
+  .strict();
+
+/** See {@link requestAppFileSchema}. */
+export type RequestAppFileInput = z.infer<typeof requestAppFileSchema>;
+
+/**
+ * Answer of a device to a program file request.
+ */
+export interface AppFileResult {
+  /** Whether the request waits for approval on the computer. */
+  ok: boolean;
+  /** What happened, in German, from the device. */
+  message: string;
+  /** Id to approve with on the computer (`harness app approve <id>`), if it waits. */
+  approval: string | null;
+}
+
+/**
  * Answer of a device to "stop the VM".
  */
 export interface VmStopResult {

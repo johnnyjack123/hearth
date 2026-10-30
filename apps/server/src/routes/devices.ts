@@ -7,6 +7,7 @@ import {
   pairingDecisionSchema,
   pairingTokenSchema,
   type RemoteProject,
+  requestAppFileSchema,
   setProjectAppsSchema,
   startPairingSchema,
   updateDeviceSchema,
@@ -112,6 +113,14 @@ export function deviceRoutes(deps: AppDeps) {
         throw new HttpError(409, 'conflict', 'The device does not offer this project');
       }
       return c.json(await deps.hub.setApps(row.id, project, enabled));
+    })
+    .post('/:id/app-files', async (c) => {
+      const row = await findDevice(db, c.get('user').id, c.req.param('id'));
+      if (!row) {
+        throw notFound('Device');
+      }
+      const file = requestAppFileSchema.parse(await c.req.json());
+      return c.json(await deps.hub.requestAppFile(row.id, file));
     })
     .delete('/:id', async (c) => {
       await deleteDevice(db, c.get('user').id, c.req.param('id'));

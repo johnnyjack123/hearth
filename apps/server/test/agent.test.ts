@@ -18,6 +18,7 @@ import {
   TUNNEL_PATH,
   TUNNEL_VERSION,
   VERSION_APPS,
+  VERSION_TEMPLATES,
 } from '@harness/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -55,6 +56,13 @@ class FakeDevice implements TunnelSocket {
     if (message.type === 'vm.stop' && this.stopsVm) {
       setTimeout(() => this.say({ type: 'vm.result', request: message.request, ok: true, message: 'Die VM ist gestoppt.' }), 0);
     }
+    if (message.type === 'apps.file' && this.answersFiles) {
+      setTimeout(
+        () =>
+          this.say({ type: 'apps.result', request: message.request, ok: true, message: `${message.title} wartet auf Freigabe.`, approval: 'K7QF2M' }),
+        0,
+      );
+    }
     if (message.type === 'apps.set' && this.switchesApps) {
       // Like the device: the new report first, then the answer.
       setTimeout(() => {
@@ -69,6 +77,9 @@ class FakeDevice implements TunnelSocket {
 
   /** Whether `apps.set` is answered by itself. */
   switchesApps = false;
+
+  /** Whether `apps.file` is answered by itself, with a request waiting. */
+  answersFiles = false;
 
   close(code?: number): void {
     this.closedWith = code;
@@ -467,6 +478,35 @@ describe('DeviceHub', () => {
     device.say({ type: 'apps', report: { ...report, catalog: report.catalog.map((app) => ({ ...app, source: 'builtin' })) } });
     expect(hub.status('d1').apps?.catalog[0]?.source).toBe('builtin');
     expect(device.closedWith).toBeUndefined();
+  });
+
+  it('asks devices with protocol 7 for program files, which wait for approval there', async () => {
+    const hub = new DeviceHub();
+    const file = { path: 'C:\\Tools\\rg', name: 'rg', title: 'ripgrep' };
+    const old = connect(hub, 'd0');
+    old.say({ type: 'hello', version: VERSION_TEMPLATES, projects: [PROJECT] });
+    await expect(hub.requestAppFile('d0', file)).rejects.toMatchObject({ status: 409, code: 'device_outdated' });
+    await expect(hub.requestAppFile('nobody', file)).rejects.toMatchObject({ code: 'device_offline' });
+
+    const device = connect(hub, 'd1');
+    device.hello();
+    const asked = hub.requestAppFile('d1', file);
+    const request = device.received.at(-1) as Extract<ServerMessage, { type: 'apps.file' }>;
+    expect(request).toMatchObject({ type: 'apps.file', ...file });
+    // The waiting request is part of the report, then the answer carries its id.
+    const pending = { id: 'K7QF2M', name: 'rg', title: 'ripgrep', path: 'C:\\Tools\\rg', kind: 'Linux-Programm (aarch64)' };
+    device.say({ type: 'apps', report: { ...appsReport(), pending: [pending] } });
+    device.say({ type: 'apps.result', request: request.request, ok: true, message: 'ripgrep wartet auf Freigabe.', approval: 'K7QF2M' });
+    await expect(asked).resolves.toEqual({ ok: true, message: 'ripgrep wartet auf Freigabe.', approval: 'K7QF2M' });
+    expect(hub.status('d1').apps?.pending).toEqual([pending]);
+
+    const refused = hub.requestAppFile('d1', { ...file, path: 'C:\\Users\\x\\.ssh\\id_ed25519' });
+    const second = device.received.at(-1) as Extract<ServerMessage, { type: 'apps.file' }>;
+    device.say({ type: 'apps.result', request: second.request, ok: false, message: 'Nicht angefragt: Keine Linux-Programmdatei' });
+    await expect(refused).resolves.toEqual({ ok: false, message: 'Nicht angefragt: Keine Linux-Programmdatei', approval: null });
+    // An id that could be a path never passes.
+    device.say({ type: 'apps.result', request: 'x', ok: true, message: 'm', approval: '../x' });
+    expect(device.closedWith).toBe(4002);
   });
 });
 
@@ -1059,6 +1099,24 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     const after = await stored();
     expect(after).toMatchObject({ online: false });
     expect(after?.apps?.projects).toEqual([{ name: 'demo', enabled: ['c', 'rust'] }]);
+  });
+
+  it('lets the owner ask a device for a program file', async () => {
+    const { deviceId, userId } = await pair();
+    const route = `/api/devices/${deviceId}/app-files`;
+    const body = { path: 'C:\\Tools\\rg', name: 'rg', title: 'ripgrep' };
+    expect((await server.request('POST', route, { cookie, body })).status).toBe(409);
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    device.answersFiles = true;
+    const asked = await server.request('POST', route, { cookie, body });
+    expect(asked.status).toBe(200);
+    expect(await asked.json()).toEqual({ ok: true, message: 'ripgrep wartet auf Freigabe.', approval: 'K7QF2M' });
+    for (const invalid of [{ ...body, name: '../x' }, { ...body, path: '' }, { ...body, title: '' }, { ...body, extra: 1 }]) {
+      expect((await server.request('POST', route, { cookie, body: invalid })).status).toBe(400);
+    }
+    const mallory = await server.signUp('mallory@example.com');
+    expect((await server.request('POST', route, { cookie: mallory, body })).status).toBe(404);
   });
 
   it('keeps own programs per account and sends every change to its devices', async () => {
