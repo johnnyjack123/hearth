@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · App-Katalog fertig (Schritte 1–4); Gateway kommt fertig gebaut mit harness; Setup ersetzt laufende Programme; Exit-Codes statt „Fehler“ im Chat_
+_Last updated: 2026-10-30 · Release v0.1.9: App-Katalog fertig (Schritte 1–4), Gateway kommt fertig gebaut mit harness, Setup ersetzt laufende Programme, Exit-Codes statt „Fehler“ im Chat; der Nutzer testet_
 
 ## Where we are
 
