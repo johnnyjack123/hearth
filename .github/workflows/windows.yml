@@ -56,7 +56,7 @@ jobs:
           mkdir -p "$context"
           cp images/gateway/Containerfile images/gateway/Cargo.lock crates/harness-gateway/Cargo.toml "$context/"
           cp -r crates/harness-gateway/src "$context/"
-          docker build --target build --tag harness-gateway-build "$context"
+          docker build --file "$context/Containerfile" --target build --tag harness-gateway-build "$context"
           container=$(docker create harness-gateway-build)
           docker cp "$container:/src/target/release/harness-gateway" harness-gateway
           docker rm "$container"
