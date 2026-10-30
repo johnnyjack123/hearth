@@ -12,7 +12,7 @@
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
-| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser ✅ (30.10.), offen: Programmdateien vom Rechner, Gateway fertig gebaut, signierte Programme |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser und Programmdateien vom Rechner ✅ (30.10.), offen: Gateway fertig gebaut, signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -278,7 +278,7 @@ Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projek
      - Was auf dem Rechner liegt (Katalog, Datei in `~/.harness/apps`), geht vor; der Server lehnt solche Namen ab.
      - Eine geänderte Vorlage wird beim nächsten Start neu installiert; scheitert das, bleibt der alte Stand. Eine gelöschte wird in allen Projekten ausgeschaltet.
      - pip installiert Programme wie pipx (`uv tool install`, je eine Umgebung), keine Bibliotheken fürs Projekt.
-   - **Programmdateien vom Rechner** (Linux-Binary, AppImage, `.deb` per Pfad): nur mit Bestätigung am Rechner (Terminal oder Tray), weil sonst ein Konto beliebige Dateien des Rechners in die Reichweite des Agents holen könnte. Noch offen.
+   - ✅ **Programmdateien vom Rechner** (30.10.): Programm (ELF), AppImage, `.deb` oder Archiv (tar.gz, tar.xz, zip). Im Browser unter Einstellungen → Geräte „Programmdatei dieses Rechners hinzufügen“ (Pfad, Name), Tunnel-Protokoll 7. Der Rechner lehnt alles ab, was kein Linux-Programm für seine Architektur ist, und legt sonst einen Antrag an; freigeben geht nur am Rechner (Tray-Symbol mit Ja/Nein-Frage oder `harness app approve <ID>`), weil sonst ein Konto beliebige Dateien des Rechners in die Reichweite des Agents holen könnte. Die Freigabe kopiert die Datei in die Konfiguration, installiert wird nur diese Kopie. Im Terminal direkt: `harness app add <datei>`, entfernen mit `harness app forget`. Offen: Löschen aus dem Browser.
 4. **Gateway fertig gebaut ausliefern** (statt Rust-Image und Kompilieren in der VM).
 
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
