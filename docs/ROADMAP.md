@@ -497,6 +497,9 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
+- **Fortschrittsliste des Agents im Chat** (Idee des Nutzers, 30.10., vorgemerkt): Der Agent legt zu Beginn einer Aufgabe seine Punkte an (etwa aus der Roadmap) und hakt sie selbst ab; der Chat zeigt sie live als Liste mit Balken.
+  - Umsetzung: Werkzeug `progress` (Liste setzen, Punkt abhaken) als pi-Erweiterung, die ein Agent-Ereignis schickt; im Chat ein Datenteil mit fester ID wie `data-progress`, an Ort und Stelle aktualisiert. Für das Chat-Modell dasselbe Werkzeug im Server.
+  - Kosten: Die Werkzeugbeschreibung (~150 Token) steht fest im Prompt und liegt im Cache; jede Aktualisierung kostet ~50–150 Ausgabe-Token plus einen kurzen Werkzeugaufruf im Verlauf. Bei 10 Punkten also wenige tausend Token je Aufgabe, bei DeepSeek Bruchteile eines Cents.
 - **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.harness/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
 - **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., nicht dringend): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.
   - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.harness` wie `web_fetch`.

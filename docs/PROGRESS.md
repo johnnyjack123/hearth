@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · Release v0.1.9: App-Katalog fertig (Schritte 1–4), Gateway kommt fertig gebaut mit harness, Setup ersetzt laufende Programme, Exit-Codes statt „Fehler“ im Chat; der Nutzer testet_
+_Last updated: 2026-10-30 · Release v0.1.10: Stand „übernommen“ im Chat, Kosten und Kontext live, Tokens/s, Denkblöcke und Autoscroll, Jev in Teilen, zram-Swap gegen den OOM-Killer, harness-Befehle im Briefing; der Nutzer testet_
 
 ## Where we are
 
@@ -66,7 +66,17 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    ✅ **3b, Programmdateien vom Rechner** (30.10.): Browser fragt (Protokoll 7), der Rechner prüft die Datei und legt einen Antrag an, freigeben im Tray oder mit `harness app approve <ID>`, die Freigabe kopiert die Datei nach `app-files/`. Dazu `harness app add|deny|forget`. Geprüft: Rust- und Server-Tests (198), Browser-E2E 15/15 (Bilder 46, 47), Smoke-Test 89 grün, alle Dateiarten außer AppImage echt in der VM. Nicht geprüft: Ja/Nein-Dialog des Tray-Symbols (Win32), echte AppImage.
    ✅ **4, Gateway fertig gebaut** (30.10.): Release-Workflow baut es, `harness.exe` bettet es ein, die VM packt es nur. Dazu auf Meldung des Nutzers: Setup und `install.ps1` warten auf Dienst und Tray und schieben laufende Programme beiseite (erster Lauf scheiterte sonst); bash-Exit-Codes zeigt der Chat neutral als „Exit N“ statt „Fehler“.
    **Beobachtung des Nutzers „Agent langsam“ (30.10.):** Die VM hatte 936 MB RAM, 86 MB frei, keinen Swap; Hyper-V wollte 1,6 GB geben, auf dem Rechner waren 1,2 GB frei. Dazu kostet jeder Schritt einen Modellaufruf mit ~100k Token Kontext. Vorschläge an den Nutzer: zram-Swap in der VM, Dauer je Werkzeugaufruf im Chat anzeigen.
-   **Als Nächstes:** Test des Nutzers, dann nach seiner Wahl (Gedächtnis, Dateien im Chat, zram/Dauer-Anzeige).
+   ✅ **Wünsche und Meldungen vom 30.10. abends** (Branch `feat/vm-memory`, Release v0.1.10):
+   - „pi wurde beendet“ war der OOM-Killer der VM (Exit 137; Journal: dreimal `tsc`, einmal pi). zram-Swap nach jedem VM-Start, in der VM des Nutzers geprüft (981 MB). Der Chat nennt bei 137 den Grund.
+   - Der Chat zeigt am Umgebungs-Knopf, ob die Arbeit des Agents im Ordner ist (Tunnel-Protokoll 8).
+   - Kosten und Kontext nach jedem Modellaufruf statt erst am Ende (auch nach Abbruch richtig), Tokens/s je Antwort und im Schnitt.
+   - Denkblöcke klappen zu, die Wahl bleibt; Autoscroll folgt weiter, solange der Nutzer nicht nach oben scrollt.
+   - Jev liest große Diffs in Teilen und mehreren Anfragen.
+   - Der Agent kennt die harness-Befehle (Briefing) und kann sie dem Nutzer erklären.
+   - Der vitest-Fund war ein Fehlalarm unserer OSV-Regel („malicious website“), behoben.
+   - Verkleinern der VM-Platte im Leerlauf scheiterte, weil Hyper-V die Datei 2 s nach dem Stopp noch hielt; der VM-Dienst versucht es jetzt eine Minute lang (braucht `harness setup`, das den Dienst aktualisiert).
+   - Geprüft: Rust-Tests und clippy, Server 199/199, Browser-E2E 15/15 (Bilder 38, 39), Smoke-Test 93 grün.
+   **Als Nächstes:** Test des Nutzers mit v0.1.10, dann nach seiner Wahl (Gedächtnis, Dateien im Chat, Fortschrittsliste des Agents, Dauer je Werkzeugaufruf).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
