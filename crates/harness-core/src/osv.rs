@@ -2,7 +2,10 @@
 //! that also lists known malicious packages.
 //!
 //! Only malware becomes a finding: an `MAL-` id (OpenSSF), CWE-506
-//! "embedded malicious code", or "malware"/"malicious" in the summary.
+//! "embedded malicious code", or "malware"/"malicious code" in the summary.
+//! Not "malicious" alone: vulnerabilities use it for the attacker's side
+//! ("…when accessing a malicious website", vitest's GHSA-9crc-q9x8-hgqq),
+//! which once called vitest 5.0.5 a malicious package.
 //! Ordinary vulnerabilities depend on the version, which a manifest line
 //! like `^1.2.0` does not pin; popular packages would always show some.
 //! The query sends package names to api.osv.dev, which is why
@@ -54,7 +57,7 @@ pub fn is_malware(advisory: &Value) -> bool {
     id.starts_with("MAL-")
         || cwe_506
         || summary.contains("malware")
-        || summary.contains("malicious")
+        || summary.contains("malicious code")
 }
 
 /// Findings for dependencies OSV knows as malicious.
@@ -151,6 +154,16 @@ mod tests {
             "id": "GHSA-29mw-wpgm-hmr9",
             "summary": "Prototype Pollution in lodash",
             "database_specific": { "cwe_ids": ["CWE-1321"] }
+        })));
+        assert!(is_malware(&json!({
+            "id": "MAL-2022-1",
+            "summary": "Malicious code in rustdecimal (crates.io)"
+        })));
+        // A vulnerability that mentions an attacker's malicious website.
+        assert!(!is_malware(&json!({
+            "id": "GHSA-9crc-q9x8-hgqq",
+            "summary": "Vitest allows Remote Code Execution when accessing a malicious website                         while Vitest API server is listening",
+            "database_specific": { "cwe_ids": ["CWE-1385"] }
         })));
     }
 
