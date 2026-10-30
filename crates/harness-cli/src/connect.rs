@@ -501,7 +501,10 @@ fn serve(
         }
         let mut failed = None;
         while let Ok(message) = outgoing.try_recv() {
-            if let Err(error) = send(&mut socket, &message.for_version(version)) {
+            let Some(message) = message.for_version(version) else {
+                continue;
+            };
+            if let Err(error) = send(&mut socket, &message) {
                 failed = Some(error);
                 break;
             }
@@ -861,8 +864,28 @@ fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: Ta
             shared.mode,
             &format!("Chat „{title}“: Übernehmen {}", outcome(&report)),
         );
+        if let Ok(project) = shared.config.project(&name)
+            && let Some(event) = workspace_event(&shared, &project)
+        {
+            emit.event(event);
+        }
         emit.event(AgentEvent::Done { aborted: false });
     });
+}
+
+/// What the user's folder lacks of the agent's work, from the running
+/// instance; `None` if that cannot be found out (no instance, no clone),
+/// which the chat then simply does not show.
+fn workspace_event(shared: &Shared, project: &Project) -> Option<AgentEvent> {
+    let provider = PodmanProvider::for_machine(&shared.machine).ok()?;
+    let host = harness_core::sync::HostRepo::open(&project.path).ok();
+    let unsaved =
+        harness_core::rescue::unsaved_in(&provider, &project.name.instance(), host.as_ref())
+            .ok()??;
+    Some(AgentEvent::Workspace {
+        commits: unsaved.commits,
+        changes: unsaved.changes,
+    })
 }
 
 /// How a takeover ended, for the log.
@@ -1142,9 +1165,10 @@ struct Agent {
     finished: Receiver<()>,
 }
 
-/// With autosync, the reader does not pass a reply's `done` on but
-/// reports the end here; the session takes the work over, then ends the
-/// reply. So the chat shows the takeover as part of the reply.
+/// The reader does not pass a reply's `done` on but reports the end here;
+/// the session takes the work over (with autosync), says what the user's
+/// folder still lacks, then ends the reply. So the chat shows both as part
+/// of the reply.
 #[derive(Clone)]
 struct ReplyEnd {
     autosync: Arc<AtomicBool>,
@@ -1381,7 +1405,6 @@ fn read_agent(
                         other => other,
                     };
                     if event == (AgentEvent::Done { aborted: false })
-                        && reply_end.autosync.load(Ordering::SeqCst)
                         && reply_end.finished.send(()).is_ok()
                     {
                         continue;
@@ -1425,7 +1448,25 @@ fn read_agent(
         }
         line.clear();
     }
-    emit.event(AgentEvent::error("pi wurde beendet."));
+    // The end of pi's output; the session's loop learns why from its exit
+    // code and ends the reply with that (`ended_message`).
+}
+
+/// Why a harness ended, for the chat: its exit code, if it came.
+fn ended_message(name: &str, code: Option<i32>) -> String {
+    match code {
+        // SIGKILL: in the VM almost always the kernel because memory ran
+        // out (seen on 30.10. with pi and tsc in a VM of 936 MB).
+        Some(137) => format!(
+            "{name} wurde vom System beendet, vermutlich weil der Arbeitsspeicher der VM voll war \
+             (Exit-Code 137). Die nächste Nachricht startet {name} neu, der Verlauf bleibt. \
+             Mehr freier Arbeitsspeicher auf dem Rechner hilft; harness richtet in der VM \
+             zusätzlich Swap ein."
+        ),
+        Some(0) => format!("{name} hat sich beendet."),
+        Some(code) => format!("{name} wurde beendet (Exit-Code {code})."),
+        None => format!("{name} wurde beendet."),
+    }
 }
 
 fn write_line(stdin: &Mutex<ChildStdin>, line: &str) {
@@ -1574,14 +1615,29 @@ impl Agent {
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.finished.try_recv().is_ok() {
-                self.autosync(shared);
+                if self.reply_end.autosync.load(Ordering::SeqCst) {
+                    self.autosync(shared);
+                }
+                if let Some(event) = workspace_event(shared, &self.project) {
+                    self.emit.event(event);
+                }
+                self.emit.event(AgentEvent::Done { aborted: false });
             }
-            if let Ok(Some(status)) = self.child.try_wait() {
-                self.emit.closed(Some(format!(
-                    "{} wurde beendet (Exit-Code {}).",
-                    self.harness.name,
-                    status.code().unwrap_or(-1)
-                )));
+            if self.reader.is_finished() || matches!(self.child.try_wait(), Ok(Some(_))) {
+                // Its output ends a moment before the process; the exit code
+                // tells the chat why.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let code = loop {
+                    match self.child.try_wait() {
+                        Ok(Some(status)) => break status.code(),
+                        Ok(None) if Instant::now() < deadline => {
+                            thread::sleep(Duration::from_millis(100));
+                        }
+                        _ => break None,
+                    }
+                };
+                self.emit
+                    .closed(Some(ended_message(&self.harness.name, code)));
                 return;
             }
         }
@@ -1627,7 +1683,6 @@ impl Agent {
                 outcome(&report)
             ),
         );
-        self.emit.event(AgentEvent::Done { aborted: false });
     }
 
     /// Ends pi: closing stdin asks it to shut down, the rest is force.
@@ -1837,6 +1892,16 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_ended_harness_says_why() {
+        assert!(ended_message("pi", Some(137)).contains("Arbeitsspeicher der VM"));
+        assert_eq!(
+            ended_message("pi", Some(2)),
+            "pi wurde beendet (Exit-Code 2)."
+        );
+        assert_eq!(ended_message("pi", None), "pi wurde beendet.");
+    }
 
     #[test]
     fn tunnel_urls() {

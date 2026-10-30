@@ -281,6 +281,34 @@ export function usageMetadata(
 }
 
 /**
+ * The usage of two model calls together, for the running total of a reply.
+ *
+ * @param sum - The calls so far; undefined before the first.
+ * @param call - One more call.
+ * @returns Both summed.
+ */
+export function addUsage(sum: LanguageModelUsage | undefined, call: LanguageModelUsage): LanguageModelUsage {
+  if (!sum) {
+    return call;
+  }
+  const add = (a: number | undefined, b: number | undefined) => (a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0));
+  return {
+    inputTokens: add(sum.inputTokens, call.inputTokens),
+    inputTokenDetails: {
+      noCacheTokens: add(sum.inputTokenDetails.noCacheTokens, call.inputTokenDetails.noCacheTokens),
+      cacheReadTokens: add(sum.inputTokenDetails.cacheReadTokens, call.inputTokenDetails.cacheReadTokens),
+      cacheWriteTokens: add(sum.inputTokenDetails.cacheWriteTokens, call.inputTokenDetails.cacheWriteTokens),
+    },
+    outputTokens: add(sum.outputTokens, call.outputTokens),
+    outputTokenDetails: {
+      textTokens: add(sum.outputTokenDetails.textTokens, call.outputTokenDetails.textTokens),
+      reasoningTokens: add(sum.outputTokenDetails.reasoningTokens, call.outputTokenDetails.reasoningTokens),
+    },
+    totalTokens: add(sum.totalTokens, call.totalTokens),
+  };
+}
+
+/**
  * Adds calls of helper models (Jev, embeddings, the title) to a reply's
  * usage; their cost joins the reply's cost when that is known.
  *

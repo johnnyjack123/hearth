@@ -87,13 +87,24 @@ if ((Get-VM -Name $env:HARNESS_VM).State -eq 'Paused') {
 "#;
 
 /// Shrinks the VM's disk file to what the guest uses: `Optimize-VHD -Mode
-/// Full` reclaims the blocks the guest trimmed before. It needs the VM off.
-/// The path comes from the environment, never from the script text.
+/// Full` reclaims the blocks the guest trimmed before. It needs the VM off,
+/// and Hyper-V may hold the file for some seconds after podman reports the
+/// stop (30.10.: "in use" 2 s after it), so that error is tried again for a
+/// minute. The path comes from the environment, never from the script text.
 const COMPACT_PS: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:HARNESS_DISK
 $before = (Get-Item -LiteralPath $path).Length
-Optimize-VHD -Path $path -Mode Full
+for ($try = 1; ; $try++) {
+  try {
+    Optimize-VHD -Path $path -Mode Full
+    break
+  } catch {
+    $inUse = $_.FullyQualifiedErrorId -like 'ObjectInUse*' -or $_.Exception.Message -like '*0x80070020*'
+    if (-not $inUse -or $try -ge 12) { throw }
+    Start-Sleep -Seconds 5
+  }
+}
 $after = (Get-Item -LiteralPath $path).Length
 "$before $after"
 "#;

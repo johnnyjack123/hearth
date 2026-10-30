@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 7;
+pub const TUNNEL_VERSION: u32 = 8;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -42,6 +42,10 @@ pub const VERSION_TEMPLATES: u32 = 6;
 /// the request the user approves on the computer, and reports the requests
 /// still waiting.
 pub const VERSION_APP_FILES: u32 = 7;
+
+/// Version that brought the `workspace` event: after each reply and
+/// takeover, what of the agent's work the user's folder lacks.
+pub const VERSION_WORKSPACE: u32 = 8;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -323,6 +327,15 @@ pub enum AgentEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    /// What of the agent's work the user's folder does not have yet, after
+    /// a reply or a takeover (protocol 8).
+    #[serde(rename = "workspace")]
+    Workspace {
+        /// Commits the user's checked-out branch lacks.
+        commits: u32,
+        /// Files changed but not committed in the agent's clone.
+        changes: u32,
+    },
     /// The agent has nothing left to do for this prompt; ends the reply.
     #[serde(rename = "done")]
     Done {
@@ -451,11 +464,17 @@ impl AgentEvent {
 }
 
 impl DeviceMessage {
-    /// The message as a server speaking `version` understands it: a server
-    /// before protocol 4 knows no `compaction` event and would drop the
-    /// connection, so it gets a notice instead.
-    pub fn for_version(self, version: u32) -> DeviceMessage {
-        match self {
+    /// The message as a server speaking `version` understands it, `None` if
+    /// it should not get it: a server before protocol 4 knows no
+    /// `compaction` event and would drop the connection, so it gets a notice
+    /// instead; one before protocol 8 simply does not hear about the
+    /// workspace.
+    pub fn for_version(self, version: u32) -> Option<DeviceMessage> {
+        Some(match self {
+            DeviceMessage::SessionEvent {
+                event: AgentEvent::Workspace { .. },
+                ..
+            } if version < VERSION_WORKSPACE => return None,
             // Older servers know neither `source` (6) nor `pending` (7).
             DeviceMessage::Apps { mut report } if version < VERSION_APP_FILES => {
                 report.pending.clear();
@@ -500,7 +519,7 @@ impl DeviceMessage {
                 DeviceMessage::SessionEvent { session, event }
             }
             other => other,
-        }
+        })
     }
 }
 
@@ -1175,6 +1194,20 @@ mod tests {
                 .get("approval")
                 .is_none()
         );
+        // What the user's folder lacks; servers before protocol 8 never hear of it.
+        let workspace = DeviceMessage::SessionEvent {
+            session: "c1".into(),
+            event: AgentEvent::Workspace {
+                commits: 2,
+                changes: 1,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&workspace).unwrap()["event"],
+            json!({ "type": "workspace", "commits": 2, "changes": 1 })
+        );
+        assert!(workspace.clone().for_version(VERSION_WORKSPACE).is_some());
+        assert!(workspace.for_version(VERSION_APP_FILES).is_none());
         let file: ServerMessage = serde_json::from_value(json!({
             "type": "apps.file", "request": "r3", "path": "C:\\x\\tool.zip",
             "name": "tool", "title": "Tool"

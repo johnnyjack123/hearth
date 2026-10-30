@@ -23,8 +23,10 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * (`apps.file`), the device answers with the id of a request the user
  * approves on the computer (`approval` in `apps.result`) and reports the
  * requests still waiting (`pending`).
+ * Version 8: after each reply and takeover the device says what of the
+ * agent's work the user's folder lacks (`workspace` event).
  */
-export const TUNNEL_VERSION = 7;
+export const TUNNEL_VERSION = 8;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -61,6 +63,9 @@ export const VERSION_TEMPLATES = 6;
  * `approval` in `apps.result` and `pending` in app reports.
  */
 export const VERSION_APP_FILES = 7;
+
+/** First protocol with the `workspace` event. */
+export const VERSION_WORKSPACE = 8;
 
 /** Ids of requests the user approves on the computer (`harness app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
@@ -305,6 +310,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       outputTokens: z.number().int().nonnegative().optional(),
       cost: z.number().nonnegative().optional(),
       error: text(4_000).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('workspace'),
+      commits: z.number().int().nonnegative().max(1_000_000),
+      changes: z.number().int().nonnegative().max(1_000_000),
     })
     .strict(),
   z.object({ type: z.literal('done'), aborted: z.boolean() }).strict(),
@@ -588,6 +600,11 @@ export type AgentDataParts = {
   takeover: TakeoverReport;
   /** Older turns of the chat summarized for the model; updated in place. */
   compaction: Compaction;
+  /**
+   * What of the agent's work the user's folder lacks, checked on the
+   * device after the reply or takeover (protocol 8).
+   */
+  workspace: { commits: number; changes: number };
 };
 
 /**

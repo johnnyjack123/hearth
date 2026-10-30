@@ -455,6 +455,21 @@ pub fn run(
             Ok(ok)
         }
         DaemonCommand::Run => {
+            // A VM that runs already (an update of harness restarts only the
+            // service) gets its swap now, the others when harness starts them.
+            let swap_machine = machine.to_owned();
+            std::thread::spawn(move || {
+                if let Ok(provider) =
+                    harness_core::podman::PodmanProvider::for_machine(&swap_machine)
+                    && harness_core::vmd::ssh_answers(
+                        provider.machine().ssh_port,
+                        std::time::Duration::from_secs(3),
+                    )
+                    && let Some(note) = crate::vm::ensure_swap(&provider)
+                {
+                    println!("{} {note}", crate::connect::utc_stamp());
+                }
+            });
             let code =
                 crate::connect::serve_forever(config, machine, crate::connect::Mode::Background);
             std::process::exit(code);

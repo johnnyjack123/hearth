@@ -1,4 +1,5 @@
 import {
+  type AgentDataParts,
   approvalDecisionSchema,
   assessmentRequestSchema,
   type ChatLink,
@@ -71,18 +72,29 @@ const LOST = new Set(['device_replaced', 'device_lost', 'device_protocol', 'chat
  * @param conversationId - Conversation, already checked for ownership.
  * @param link - The chat's environment.
  * @param report - The device's final report.
+ * @param workspace - What the user's folder still lacks afterwards, if the
+ *   device said (protocol 8); replaces the reply's own report.
  * @returns The stored message.
  */
-async function attachTakeover(db: Kysely<DB>, conversationId: string, link: ChatLink, report: TakeoverReport): Promise<ChatMessage> {
+async function attachTakeover(
+  db: Kysely<DB>,
+  conversationId: string,
+  link: ChatLink,
+  report: TakeoverReport,
+  workspace: AgentDataParts['workspace'] | null,
+): Promise<ChatMessage> {
   const last = (await loadMessages(db, conversationId)).at(-1);
-  const part = { type: 'data-takeover' as const, id: `takeover-${uuidv7()}`, data: report };
+  const parts: ChatMessage['parts'] = [{ type: 'data-takeover', id: `takeover-${uuidv7()}`, data: report }];
+  if (workspace) {
+    parts.push({ type: 'data-workspace', id: 'workspace', data: workspace });
+  }
   const message: ChatMessage =
     last?.role === 'assistant'
-      ? { ...last, parts: [...last.parts, part] }
+      ? { ...last, parts: [...last.parts.filter((part) => !(workspace && part.type === 'data-workspace')), ...parts] }
       : {
           id: uuidv7(),
           role: 'assistant',
-          parts: [part],
+          parts,
           metadata: { createdAt: Date.now(), agent: { project: link.project, harness: link.harness } },
         };
   await saveMessage(db, conversationId, message);
@@ -305,11 +317,14 @@ export function conversationRoutes(deps: AppDeps) {
       });
       const timer = setTimeout(() => hub.abandonRun(conversation.id, 'timeout'), TAKEOVER_TIMEOUT_MS);
       let report: TakeoverReport | null = null;
+      let workspace: AgentDataParts['workspace'] | null = null;
       let failure: string | null = null;
       try {
         for await (const event of run) {
           if (event.type === 'takeover') {
             report = event.report;
+          } else if (event.type === 'workspace') {
+            workspace = { commits: event.commits, changes: event.changes };
           } else if (event.type === 'error') {
             failure = event.message;
           }
@@ -327,7 +342,7 @@ export function conversationRoutes(deps: AppDeps) {
         // The device's own reason is German and shown as it is.
         throw new HttpError(502, 'device_failed', failure ?? 'The device sent no report');
       }
-      const message = await attachTakeover(db, conversation.id, link, report);
+      const message = await attachTakeover(db, conversation.id, link, report, workspace);
       await updateConversation(db, conversation.id, {});
       return c.json(message);
     })

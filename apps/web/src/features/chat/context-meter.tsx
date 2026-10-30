@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger, Tooltip } from '@/components/u
 import type { ChatMessage } from '@/lib/api.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { formatRate, outputRate } from './usage-details.tsx';
 
 /** From this share of the context window on, the ring warns. */
 const WARN_PERCENT = 80;
@@ -57,6 +58,8 @@ export function conversationUsage(messages: ChatMessage[]) {
     cachedInputTokens: total((usage) => usage.cachedInputTokens),
     outputTokens: total((usage) => usage.outputTokens),
     reasoningTokens: total((usage) => usage.reasoningTokens),
+    // Over all timed model calls of the chat.
+    rate: outputRate(replies.flatMap((message) => message.metadata?.usage?.calls ?? [])),
   };
 }
 
@@ -107,6 +110,7 @@ export function ContextMeter({ messages, onCompact, busy = false, agent }: Conte
       output: exact.format(usage.outputTokens),
       reasoning: exact.format(usage.reasoningTokens),
     }),
+    ...(usage.rate !== null ? [t('chat.rateAverage', { rate: formatRate(locale, usage.rate) })] : []),
     usage.billed ? t('chat.costBilled') : t('chat.costSource'),
   ];
   const warn = percent !== null && percent >= WARN_PERCENT;

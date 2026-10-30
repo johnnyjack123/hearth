@@ -128,7 +128,8 @@ describe.each(DIALECTS)('usage in chats on %s', (kind) => {
         modelId: 'mock-1',
       },
     });
-    await response.text();
+    // Usage after each model call, not only at the end.
+    expect(await response.text()).toContain('"type":"message-metadata"');
     const load = async () =>
       (await (await server.request('GET', `/api/conversations/${conversation.id}`, { cookie })).json()) as ConversationDetail<ChatMessage>;
     await eventually(async () => (await load()).messages.length === 2);
@@ -144,7 +145,8 @@ describe.each(DIALECTS)('usage in chats on %s', (kind) => {
       // The title of the new chat (another 5 → 7 call) costs as much again.
       cost: 2 * cost,
       rates: { input: 2, output: 8 },
-      calls: [{ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], cost: callCost }],
+      // How long the model wrote depends on the machine; it is there or not.
+      calls: [expect.objectContaining({ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], cost: callCost })],
       helpers: [{ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], model: 'mock-1', purpose: 'title', cost: callCost }],
     });
   });

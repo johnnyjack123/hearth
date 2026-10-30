@@ -419,6 +419,17 @@ impl HostRepo {
         self.rev_parse("HEAD")
     }
 
+    /// Whether the checked-out branch contains `commit` (a full hex id; it
+    /// comes from the container, so anything else is simply not contained).
+    pub fn contains(&self, commit: &str) -> Result<bool> {
+        let id = matches!(commit.len(), 40 | 64) && commit.bytes().all(|b| b.is_ascii_hexdigit());
+        if !id {
+            return Ok(false);
+        }
+        let output = self.output(&["merge-base", "--is-ancestor", commit, "HEAD"])?;
+        Ok(output.status.success())
+    }
+
     /// Commits on `branch` that the checked-out branch does not have.
     pub fn commits_ahead(&self, branch: &str) -> Result<u32> {
         self.count(&[&format!("HEAD..refs/heads/{branch}")])

@@ -16,7 +16,7 @@ import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './c
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
 import { EffortControl } from './effort-control.tsx';
-import { EnvironmentButton, useLinkOnline } from './environment.tsx';
+import { EnvironmentButton, latestWorkspace, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
@@ -132,7 +132,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} data-chat-scroll className="min-h-0 flex-1 overflow-y-auto">
         <MessageList
           messages={messages}
           status={status}
@@ -190,7 +190,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             toolbar={
               <>
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
-                <EnvironmentButton conversation={conversation} online={online} />
+                <EnvironmentButton conversation={conversation} online={online} workspace={latestWorkspace(messages)} />
                 {/* Agents in an environment search through the server as well. */}
                 {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
                 {/* In a linked chat the level goes to pi. */}

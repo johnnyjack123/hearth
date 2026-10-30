@@ -119,6 +119,22 @@ function connect(hub: DeviceHub, deviceId: string, userId = 'user-1'): FakeDevic
 }
 
 describe('ChunkMapper', () => {
+  it('times each model call from its first token, for tokens per second', () => {
+    let clock = 1_000;
+    const mapper = new ChunkMapper('m', () => clock);
+    mapper.map({ type: 'turn.start' });
+    clock += 2_000; // waiting for the first token does not count
+    mapper.map({ type: 'reasoning.delta', id: 'r1', delta: 'hm' });
+    clock += 500;
+    mapper.map({ type: 'text.delta', id: 't1', delta: 'Hallo' });
+    clock += 1_500;
+    mapper.map({ type: 'usage', inputTokens: 100, outputTokens: 80 });
+    // A second call in the same turn without visible tokens counts from the first's end.
+    clock += 400;
+    mapper.map({ type: 'usage', inputTokens: 120, outputTokens: 4 });
+    expect(mapper.usage?.calls?.map((call) => call.ms)).toEqual([2_000, 400]);
+  });
+
   it('turns agent events into UI chunks and sums usage', () => {
     const mapper = new ChunkMapper();
     const chunks = [
@@ -638,6 +654,11 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(body).toContain('"type":"tool-input-available"');
     expect(body).toContain('"type":"data-approval"');
     expect(body).toContain('"delta":"Fertig."');
+    // Cost and context arrive with every model call, before the end.
+    const live = body.indexOf('"type":"message-metadata"');
+    expect(live).toBeGreaterThan(-1);
+    expect(body.slice(live, body.indexOf('\n', live))).toContain('"contextTokens":7');
+    expect(live).toBeLessThan(body.indexOf('"type":"finish"'));
 
     const prompt = device.received.find((message) => message.type === 'session.prompt');
     expect(prompt).toMatchObject({
@@ -881,10 +902,17 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         { type: 'text.start', id: 't' },
         { type: 'text.delta', id: 't', delta: 'Erledigt.' },
         { type: 'text.end', id: 't' },
+        { type: 'workspace', commits: 2, changes: 1 },
         { type: 'done', aborted: false },
       );
     await (await chat(conversation.id, 'Mach was')).text();
     await eventually(async () => (await load(conversation.id)).messages.length === 2);
+    // The reply says what the user's folder lacks.
+    expect((await load(conversation.id)).messages[1]?.parts.at(-1)).toEqual({
+      type: 'data-workspace',
+      id: 'workspace',
+      data: { commits: 2, changes: 1 },
+    });
 
     const held: TakeoverReport = {
       state: 'held',
@@ -903,17 +931,22 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         request.session,
         { type: 'takeover', report: { ...held, state: 'running', step: 'Prüfen', request: undefined } as TakeoverReport },
         { type: 'takeover', report: held },
+        { type: 'workspace', commits: 2, changes: 0 },
         { type: 'done', aborted: false },
       );
     const response = await server.request('POST', `/api/conversations/${conversation.id}/takeover`, { cookie });
     expect(response.status).toBe(200);
     const message = (await response.json()) as ChatMessage;
     expect(device.received.at(-1)).toMatchObject({ type: 'session.takeover', session: conversation.id, project: 'demo' });
-    // The card joins the reply whose work it took over.
+    // The card joins the reply whose work it took over, and the workspace
+    // report after it replaces the reply's own.
     const stored = (await load(conversation.id)).messages;
     expect(stored).toHaveLength(2);
     expect(stored[1]?.id).toBe(message.id);
-    expect(stored[1]?.parts.at(-1)).toMatchObject({ type: 'data-takeover', data: { state: 'held', request: 'K7QF2M' } });
+    expect(stored[1]?.parts.at(-2)).toMatchObject({ type: 'data-takeover', data: { state: 'held', request: 'K7QF2M' } });
+    expect(stored[1]?.parts.filter((part) => part.type === 'data-workspace')).toEqual([
+      { type: 'data-workspace', id: 'workspace', data: { commits: 2, changes: 0 } },
+    ]);
 
     // A device that gives up without a report says why.
     device.onTakeover = (request) => device.say({ type: 'session.closed', session: request.session, reason: 'Projekt demo fehlt.' });

@@ -33,7 +33,7 @@ import { compactionRange, latestCompaction, summarize, withCompaction } from '..
 import { condenseHistory } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
-import { type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
+import { addUsage, type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -552,6 +552,10 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   let lastStep: LanguageModelUsage | undefined;
   // Every call of the reply with the tools it asked for, for the usage details.
   const calls: ModelCallUsage[] = [];
+  // For the speed of each call and the running total while the reply goes.
+  let stepStarted = Date.now();
+  let firstToken: number | undefined;
+  let running: LanguageModelUsage | undefined;
   let stepTools: string[] = [];
   // The summary at the start of the reply, if the chat ran full.
   const compactCalls: ModelCallUsage[] = [];
@@ -607,15 +611,31 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
           stream: result.stream,
           sendStart: false,
           messageMetadata: ({ part }) => {
+            if (part.type === 'start-step') {
+              stepStarted = Date.now();
+              firstToken = undefined;
+              return undefined;
+            }
+            if (part.type === 'text-delta' || part.type === 'reasoning-delta' || part.type === 'tool-input-delta') {
+              firstToken ??= Date.now();
+              return undefined;
+            }
             if (part.type === 'tool-call') {
               stepTools.push(part.toolName);
               return undefined;
             }
             if (part.type === 'finish-step') {
               lastStep = part.usage;
-              calls.push(callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata)));
+              running = addUsage(running, part.usage);
+              const ms = Date.now() - (firstToken ?? stepStarted);
+              calls.push({ ...callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata)), ...(ms > 0 ? { ms } : {}) });
               stepTools = [];
-              return undefined;
+              // Cost and context after every model call: a long reply with
+              // tools shows them as it goes, and one that breaks off keeps them.
+              return {
+                ...baseMetadata,
+                usage: withHelpers(usageMetadata(running, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]),
+              };
             }
             if (part.type === 'finish') {
               return {
