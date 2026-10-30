@@ -43,6 +43,24 @@ export function describeTool(part: DynamicToolUIPart): { icon: typeof Wrench; su
   return { icon: Wrench, summary: part.toolName };
 }
 
+/**
+ * The exit code of a bash command that ran but ended with one. pi reports
+ * that as a failed tool call ("Command exited with code 2"), yet `grep`
+ * without a match or `diff` with differences say so on purpose; it is the
+ * agent's information, not a failure of the tool.
+ *
+ * @param toolName - The tool.
+ * @param errorText - What the tool reported.
+ * @returns The code, or null for anything else.
+ */
+export function bashExitCode(toolName: string, errorText: string): number | null {
+  if (toolName !== 'bash') {
+    return null;
+  }
+  const match = /Command exited with code (\d+)\s*$/.exec(errorText);
+  return match ? Number(match[1]) : null;
+}
+
 function outputText(part: DynamicToolUIPart): string {
   if (part.state === 'output-error') {
     return part.errorText;
@@ -63,7 +81,8 @@ function outputText(part: DynamicToolUIPart): string {
  */
 export function ToolCall({ part, streaming, onAssess }: { part: DynamicToolUIPart; streaming: boolean; onAssess?: (() => Promise<void>) | undefined }) {
   const t = useT();
-  const failed = part.state === 'output-error';
+  const exitCode = part.state === 'output-error' ? bashExitCode(part.toolName, part.errorText) : null;
+  const failed = part.state === 'output-error' && exitCode === null;
   const running =
     streaming &&
     (part.state === 'input-available' ||
@@ -102,6 +121,10 @@ export function ToolCall({ part, streaming, onAssess }: { part: DynamicToolUIPar
           <Badge variant="destructive" className="shrink-0">
             <CircleAlert aria-hidden="true" />
             {t('agent.tool.failed')}
+          </Badge>
+        ) : exitCode !== null ? (
+          <Badge className="shrink-0 font-mono" title={t('agent.tool.exitCodeHint', { code: exitCode })}>
+            {t('agent.tool.exitCode', { code: exitCode })}
           </Badge>
         ) : (
           <Check className="size-4 shrink-0 text-muted-foreground" aria-label={t('agent.tool.done')} />

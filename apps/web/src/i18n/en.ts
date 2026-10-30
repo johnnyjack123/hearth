@@ -264,6 +264,8 @@ export const en: Messages = {
     tool: {
       running: 'running',
       failed: 'failed',
+      exitCode: 'exit {code}',
+      exitCodeHint: 'The command ran and ended with code {code}, e.g. because grep found nothing. The agent reads the result itself.',
       done: 'done',
       showOutput: 'Show output',
       hideOutput: 'Hide output',
