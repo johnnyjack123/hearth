@@ -12,7 +12,7 @@
 | 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
 | 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
-| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), offen: eigene Programme, Gateway fertig gebaut, signierte Programme |
+| 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser ✅ (30.10.), offen: Programmdateien vom Rechner, Gateway fertig gebaut, signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
@@ -273,7 +273,12 @@ Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projek
    - Hinweise an den Agent nennen die eingeschalteten Apps und dass der Nutzer weitere einschalten kann.
    - Dazu (Wunsch des Nutzers): `vmd clean` behält die Quell-Images des Base-Images (node, uv), entfernt alte App-Stände und sichert Arbeit gelöschter Projekte vorher als Git-Bundle; `harness project remove` ebenso.
 2. ✅ **Browser** (28.10.): Programme pro Projekt schalten unter Einstellungen → Geräte („Programme je Projekt“, aufklappbar je Projekt) und im Umgebungs-Popover eines Chats („Programme: …“ öffnet die Schalter). Mitgebrachte Apps sind gesperrt („an, weil Rust es braucht“), installierte Versionen stehen als Badge daneben. Tunnel-Protokoll 5: Das Gerät meldet Katalog und Stand (`apps`), der Browser schaltet (`apps.set`), das Gerät prüft und antwortet (`apps.result`). Der Server hält den letzten Bericht auch offline.
-3. **Eigene Programme:** Paketnamen (apt, npm, pip) und Installationsbefehle aus dem Browser, Vorlagen auf dem Server pro Konto; Programmdateien vom Rechner nur mit Bestätigung am Rechner.
+3. **Eigene Programme:**
+   - ✅ **Aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“, je Programm Pakete aus Debian (apt), npm oder pip oder ein Installationsskript, dazu „Braucht“ (andere Apps). Der Server speichert sie pro Konto (Tabelle `appTemplate`) und schickt sie an alle Rechner des Kontos (Tunnel-Protokoll 6, `apps.templates`). Der Rechner hält eine Kopie in `~/.harness/server-apps.json` (auch für Starts im Terminal) und macht daraus Rezepte; für Pakete schreibt er das Skript selbst. Im Katalog des Rechners stehen sie mit Herkunft (`source`), pro Projekt schaltbar wie Katalog-Apps.
+     - Was auf dem Rechner liegt (Katalog, Datei in `~/.harness/apps`), geht vor; der Server lehnt solche Namen ab.
+     - Eine geänderte Vorlage wird beim nächsten Start neu installiert; scheitert das, bleibt der alte Stand. Eine gelöschte wird in allen Projekten ausgeschaltet.
+     - pip installiert Programme wie pipx (`uv tool install`, je eine Umgebung), keine Bibliotheken fürs Projekt.
+   - **Programmdateien vom Rechner** (Linux-Binary, AppImage, `.deb` per Pfad): nur mit Bestätigung am Rechner (Terminal oder Tray), weil sonst ein Konto beliebige Dateien des Rechners in die Reichweite des Agents holen könnte. Noch offen.
 4. **Gateway fertig gebaut ausliefern** (statt Rust-Image und Kompilieren in der VM).
 
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
@@ -492,6 +497,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
+- **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.harness/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
 - **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., nicht dringend): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.
   - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.harness` wie `web_fetch`.
   - Einbinden: als Block vor der ersten Nutzernachricht oder im System-Prompt. Für den Cache muss der Block fest bleiben, bis sich eine Erinnerung ändert.
