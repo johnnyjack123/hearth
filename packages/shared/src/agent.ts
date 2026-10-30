@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EffortLevel } from './api.ts';
+import type { DeviceAppTemplate } from './app-templates.ts';
 import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './web-fetch.ts';
 
 /**
@@ -16,8 +17,10 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * event for pi's own summaries.
  * Version 5: the app catalog: the device reports its apps (`apps`), the
  * browser switches them per project (`apps.set`, `apps.result`).
+ * Version 6: the account's own programs (`apps.templates`), and where each
+ * app of a report comes from (`source`).
  */
-export const TUNNEL_VERSION = 5;
+export const TUNNEL_VERSION = 6;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -42,6 +45,12 @@ export const VERSION_PI_SETTINGS = 4;
  * and its `apps.result`.
  */
 export const VERSION_APPS = 5;
+
+/**
+ * First protocol with the account's own programs: `apps.templates` to the
+ * device, `source` in its app reports.
+ */
+export const VERSION_TEMPLATES = 6;
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
 export const DEFAULT_IDLE_MINUTES = 30;
@@ -77,6 +86,15 @@ export type RemoteProject = z.infer<typeof remoteProjectSchema>;
 export const appNameSchema = harnessNameSchema;
 
 /**
+ * Where an app of a device comes from: the catalog shipped with harness, a
+ * recipe file on that computer, or an own program of the account.
+ */
+export const APP_SOURCES = ['builtin', 'local', 'server'] as const;
+
+/** See {@link APP_SOURCES}. */
+export type AppSource = (typeof APP_SOURCES)[number];
+
+/**
  * A program a device can give its agents (app catalog): built in or a recipe
  * of the user's on that computer.
  */
@@ -91,6 +109,8 @@ export const appInfoSchema = z
     version: z.string().max(40).nullable(),
     /** Whether its recipe changed since it was installed. */
     outdated: z.boolean(),
+    /** Where it comes from; protocol 6. */
+    source: z.enum(APP_SOURCES).optional(),
   })
   .strict();
 
@@ -429,6 +449,11 @@ export type ServerMessage =
       project: string;
       /** Apps it has switched on from now on. */
       enabled: string[];
+    }
+  | {
+      type: 'apps.templates';
+      /** All own programs of the account, after the hello and on every change. Protocol 6. */
+      templates: DeviceAppTemplate[];
     };
 
 /**

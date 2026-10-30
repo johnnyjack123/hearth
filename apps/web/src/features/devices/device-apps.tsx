@@ -1,5 +1,6 @@
 import type { AppInfo, DeviceSummary, RemoteProject } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { ChevronRight, Package } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import { api, errorMessage } from '@/lib/api.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { queryKeys } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
+import { OWN_APPS_ID } from './own-apps.tsx';
 
 /**
  * The apps a project gets: the ones it switched on and everything they
@@ -123,11 +125,15 @@ export function ProjectApps({ device, project }: { device: DeviceSummary; projec
           const on = active.has(app.name);
           // Brought along by another app: it goes with that one.
           const locked = requiredBy.length > 0;
+          // Own programs reinstall by themselves after a change.
+          const reinstalls = app.source === 'server' && app.outdated;
           let status: string | null = null;
           if (locked) {
             status = t('devices.apps.requiredBy', { apps: requiredBy.join(', ') });
           } else if (on && report.versions && app.version === null) {
             status = t('devices.apps.installsNext');
+          } else if (on && reinstalls) {
+            status = t('devices.apps.reinstallsNext');
           }
           return (
             <li key={app.name}>
@@ -150,7 +156,13 @@ export function ProjectApps({ device, project }: { device: DeviceSummary; projec
                         {app.version}
                       </Badge>
                     ) : null}
-                    {app.outdated ? <Badge variant="warning">{t('devices.apps.outdated')}</Badge> : null}
+                    {app.outdated && !reinstalls ? <Badge variant="warning">{t('devices.apps.outdated')}</Badge> : null}
+                    {app.source === 'server' ? (
+                      <Badge variant="primary" title={t('devices.apps.sourceServerHint')}>
+                        {t('devices.apps.sourceServer')}
+                      </Badge>
+                    ) : null}
+                    {app.source === 'local' ? <Badge title={t('devices.apps.sourceLocalHint')}>{t('devices.apps.sourceLocal')}</Badge> : null}
                   </span>
                   {app.description ? <span className="break-words text-xs text-muted-foreground">{app.description}</span> : null}
                   {status ? <span className="break-words text-xs text-muted-foreground">{status}</span> : null}
@@ -164,6 +176,14 @@ export function ProjectApps({ device, project }: { device: DeviceSummary; projec
         {device.online ? t('devices.apps.hint') : t('devices.apps.offline')}
         {device.online && !report.versions ? ` ${t('devices.apps.versionsLater')}` : null}
       </p>
+      <Link
+        to="/settings"
+        search={{ tab: 'devices' }}
+        hash={OWN_APPS_ID}
+        className="self-start text-xs font-medium text-primary underline-offset-4 hover:underline"
+      >
+        {t('devices.apps.ownLink')}
+      </Link>
     </div>
   );
 }

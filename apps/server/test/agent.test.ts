@@ -3,10 +3,12 @@ import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
 import {
   type AgentEvent,
+  type AppTemplate,
   type AppsReport,
   type ConversationDetail,
   DEFAULT_IDLE_MINUTES,
   type ConversationSummary,
+  type DeviceAppTemplate,
   type DeviceSummary,
   type PairingPoll,
   type PairingStart,
@@ -15,6 +17,7 @@ import {
   type TakeoverReport,
   TUNNEL_PATH,
   TUNNEL_VERSION,
+  VERSION_APPS,
 } from '@harness/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -426,6 +429,44 @@ describe('DeviceHub', () => {
     // A report that does not fit the schema ends the connection.
     device.say({ type: 'apps', report: { ...appsReport(), catalog: [{ name: '../x', title: 'x' }] } });
     expect(device.closedWith).toBe(4002);
+  });
+
+  it('hands the own programs of an account to its devices with protocol 6', async () => {
+    const tree: DeviceAppTemplate = {
+      name: 'tree',
+      title: 'tree',
+      description: null,
+      kind: 'apt',
+      packages: ['tree'],
+      script: '',
+      hosts: [],
+      path: [],
+      requires: [],
+    };
+    let release: (templates: DeviceAppTemplate[]) => void = () => {};
+    const hub = new DeviceHub({ templates: () => new Promise((resolve) => (release = resolve)) });
+    const old = connect(hub, 'd0');
+    old.say({ type: 'hello', version: VERSION_APPS, projects: [PROJECT] });
+    const device = connect(hub, 'd1');
+    device.hello();
+    const other = connect(hub, 'd2', 'user-2');
+    other.hello();
+    const templates = () => device.received.filter((message) => message.type === 'apps.templates');
+
+    // A change while the first list still loads goes out, and the older
+    // list that arrives later does not replace it.
+    hub.sendTemplates('user-1', [tree]);
+    release([]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(templates()).toEqual([{ type: 'apps.templates', templates: [tree] }]);
+    expect(old.received.some((message) => message.type === 'apps.templates')).toBe(false);
+    expect(other.received.filter((message) => message.type === 'apps.templates')).toEqual([{ type: 'apps.templates', templates: [] }]);
+
+    // Reports say where each app comes from.
+    const report = appsReport();
+    device.say({ type: 'apps', report: { ...report, catalog: report.catalog.map((app) => ({ ...app, source: 'builtin' })) } });
+    expect(hub.status('d1').apps?.catalog[0]?.source).toBe('builtin');
+    expect(device.closedWith).toBeUndefined();
   });
 });
 
@@ -1018,6 +1059,75 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     const after = await stored();
     expect(after).toMatchObject({ online: false });
     expect(after?.apps?.projects).toEqual([{ name: 'demo', enabled: ['c', 'rust'] }]);
+  });
+
+  it('keeps own programs per account and sends every change to its devices', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    // The computer has a recipe file of its own named "mytool".
+    const report = appsReport();
+    device.say({
+      type: 'apps',
+      report: { ...report, catalog: [...report.catalog, { name: 'mytool', title: 'Mein Tool', requires: [], version: null, outdated: false, source: 'local' }] },
+    });
+    const sent = () => device.received.filter((message) => message.type === 'apps.templates').at(-1);
+    await eventually(async () => sent() !== undefined);
+    expect(sent()).toEqual({ type: 'apps.templates', templates: [] });
+
+    const create = (body: object) => server.request('POST', '/api/app-templates', { cookie, body });
+    const tree = { name: 'tree', title: 'tree', description: null, kind: 'apt', packages: ['tree'], script: '', hosts: [], path: [], requires: ['c'] };
+    for (const invalid of [
+      { ...tree, packages: ['tree; rm -rf /'] },
+      { ...tree, packages: [] },
+      { ...tree, kind: 'script', script: '  ' },
+      { ...tree, kind: 'npm', packages: ['git+https://example.com/x.git'] },
+      { ...tree, kind: 'script', script: 'true', hosts: ['127.0.0.1'] },
+      { ...tree, kind: 'script', script: 'true', path: ['../etc'] },
+      { ...tree, name: '../x' },
+      { ...tree, requires: ['tree'] },
+    ]) {
+      expect((await create(invalid)).status, JSON.stringify(invalid)).toBe(400);
+    }
+    // Names of the catalog and of the computer's own apps would never win.
+    for (const name of ['rust', 'mytool']) {
+      const taken = await create({ ...tree, name });
+      expect(taken.status).toBe(409);
+      expect(await taken.json()).toMatchObject({ error: { code: 'app_name_taken' } });
+    }
+
+    const created = await create(tree);
+    expect(created.status).toBe(201);
+    const template = (await created.json()) as AppTemplate;
+    expect(template).toMatchObject({ name: 'tree', kind: 'apt', packages: ['tree'], requires: ['c'] });
+    expect(sent()).toEqual({ type: 'apps.templates', templates: [{ ...tree }] });
+    expect((await create(tree)).status).toBe(409);
+
+    // A script keeps only what scripts use.
+    const changed = await server.request('PUT', `/api/app-templates/${template.id}`, {
+      cookie,
+      body: { ...tree, name: undefined, kind: 'script', script: 'harness_version 1', hosts: ['GitHub.com'], path: ['bin'] },
+    });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ name: 'tree', kind: 'script', packages: [], hosts: ['github.com'] });
+    expect(sent()).toMatchObject({ templates: [{ name: 'tree', kind: 'script', packages: [], script: 'harness_version 1' }] });
+
+    // A device that connects later gets them after its hello.
+    const again = connect(server.hub, deviceId, userId);
+    again.hello();
+    await eventually(async () => again.received.some((message) => message.type === 'apps.templates' && message.templates.length === 1));
+
+    // Nobody else sees or changes them.
+    const mallory = await server.signUp('mallory@example.com');
+    expect(await (await server.request('GET', '/api/app-templates', { cookie: mallory })).json()).toEqual([]);
+    const foreign = `/api/app-templates/${template.id}`;
+    expect((await server.request('PUT', foreign, { cookie: mallory, body: { ...tree, name: undefined } })).status).toBe(404);
+    expect((await server.request('DELETE', foreign, { cookie: mallory })).status).toBe(404);
+
+    const removed = await server.request('DELETE', `/api/app-templates/${template.id}`, { cookie });
+    expect(removed.status).toBe(204);
+    expect(again.received.filter((message) => message.type === 'apps.templates').at(-1)).toEqual({ type: 'apps.templates', templates: [] });
+    expect(await (await server.request('GET', '/api/app-templates', { cookie })).json()).toEqual([]);
   });
 
   it('keeps reported projects while the device is offline and links to them', async () => {

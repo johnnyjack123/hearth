@@ -189,6 +189,30 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('device').dropColumn('apps').execute();
     },
   },
+  '0009_app_templates': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('appTemplate')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('title', 'text', (col) => col.notNull())
+        .addColumn('description', 'text')
+        .addColumn('kind', 'text', (col) => col.notNull())
+        .addColumn('packages', 'text', (col) => col.notNull())
+        .addColumn('script', 'text', (col) => col.notNull())
+        .addColumn('hosts', 'text', (col) => col.notNull())
+        .addColumn('path', 'text', (col) => col.notNull())
+        .addColumn('requires', 'text', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema.createIndex('appTemplate_userId_name_idx').on('appTemplate').columns(['userId', 'name']).unique().execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('appTemplate').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

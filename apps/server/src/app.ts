@@ -7,6 +7,7 @@ import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { type AppDeps, type AppEnv, requireUser } from './http/context.ts';
 import { handleError, notFound } from './http/errors.ts';
+import { appTemplateRoutes } from './routes/app-templates.ts';
 import { conversationRoutes } from './routes/conversations.ts';
 import { deviceRoutes, deviceSelfRoutes, pairingRoutes } from './routes/devices.ts';
 import { llmRoutes } from './routes/llm.ts';
@@ -79,6 +80,7 @@ export function createApp(deps: AppDeps, options: CreateAppOptions = {}) {
   api.route('/models', models);
   api.route('/conversations', conversationRoutes(deps));
   api.route('/devices', deviceRoutes(deps));
+  api.route('/app-templates', appTemplateRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
   app.route('/api', api);
 

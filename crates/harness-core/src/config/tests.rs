@@ -480,6 +480,21 @@ fn own_apps_add_to_and_replace_the_catalog() {
 }
 
 #[test]
+fn the_server_knows_the_catalogs_names() {
+    // Own programs of these names would never reach an agent.
+    let shared = include_str!("../../../../packages/shared/src/app-templates.ts");
+    let line = shared
+        .lines()
+        .find(|line| line.contains("BUILTIN_APP_NAMES = ["))
+        .unwrap();
+    let names: Vec<String> = BUILTIN_APPS
+        .iter()
+        .map(|(name, _)| format!("'{name}'"))
+        .collect();
+    assert!(line.contains(&names.join(", ")), "{line}");
+}
+
+#[test]
 fn templates_of_the_account_come_after_the_computers_apps() {
     let f = fixture();
     assert!(f.config.templates().is_empty());

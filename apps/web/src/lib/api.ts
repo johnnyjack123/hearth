@@ -4,9 +4,11 @@ import type {
   ApiErrorCode,
   ApprovalDecision,
   AppsSetResult,
+  AppTemplate,
   CompactRequestBody,
   ConversationDetail,
   ConversationSummary,
+  CreateAppTemplateInput,
   CreateConversationInput,
   CreateProviderCredentialInput,
   CredentialModels,
@@ -18,6 +20,7 @@ import type {
   PublicSettings,
   SearchTestResult,
   ServerSettings,
+  UpdateAppTemplateInput,
   UpdateDeviceInput,
   UpdateLinkInput,
   UpdateProviderCredentialInput,
@@ -110,6 +113,12 @@ export const api = {
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
+  },
+  appTemplates: {
+    list: () => request<AppTemplate[]>('GET', '/app-templates'),
+    create: (input: CreateAppTemplateInput) => request<AppTemplate>('POST', '/app-templates', input),
+    update: (id: string, input: UpdateAppTemplateInput) => request<AppTemplate>('PUT', `/app-templates/${encodeURIComponent(id)}`, input),
+    remove: (id: string) => request<void>('DELETE', `/app-templates/${encodeURIComponent(id)}`),
   },
   conversations: {
     list: () => request<ConversationSummary[]>('GET', '/conversations'),
