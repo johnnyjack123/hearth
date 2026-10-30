@@ -50,11 +50,19 @@ export class ChunkMapper {
   #compactions = 0;
   #compacting = false;
   #usage: NonNullable<MessageMetadata['usage']> | undefined;
+  // When the agent's current model call began, and when its first token
+  // came; between that and its usage the model wrote (tokens per second).
+  #callStarted: number | undefined;
+  #firstToken: number | undefined;
 
   /**
    * @param model - Model chosen in the chat; pi writes its summaries with it.
+   * @param now - The clock, for tests.
    */
-  constructor(readonly model?: string) {}
+  constructor(
+    readonly model?: string,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   /**
    * Usage reported so far: tokens and cost summed over the agent's model
@@ -89,18 +97,22 @@ export class ChunkMapper {
   map(event: AgentEvent, extra?: Partial<AgentToolOutput>): Chunk[] {
     switch (event.type) {
       case 'turn.start':
+        this.#callStarted = this.now();
+        this.#firstToken = undefined;
         return [{ type: 'start-step' }];
       case 'turn.end':
         return [{ type: 'finish-step' }];
       case 'text.start':
         return [{ type: 'text-start', id: event.id }];
       case 'text.delta':
+        this.#firstToken ??= this.now();
         return [{ type: 'text-delta', id: event.id, delta: event.delta }];
       case 'text.end':
         return [{ type: 'text-end', id: event.id }];
       case 'reasoning.start':
         return [{ type: 'reasoning-start', id: event.id }];
       case 'reasoning.delta':
+        this.#firstToken ??= this.now();
         return [{ type: 'reasoning-delta', id: event.id, delta: event.delta }];
       case 'reasoning.end':
         return [{ type: 'reasoning-end', id: event.id }];
@@ -176,6 +188,8 @@ export class ChunkMapper {
         }
         // pi reports each model call with its own total; tool names stay
         // unknown here, the tool blocks of the reply show them.
+        const ended = this.now();
+        const ms = ended - (this.#firstToken ?? this.#callStarted ?? ended);
         next.calls = [
           ...(before?.calls ?? []),
           {
@@ -185,8 +199,12 @@ export class ChunkMapper {
             output: event.outputTokens,
             tools: [],
             ...(event.cost !== undefined ? { cost: { total: event.cost } } : {}),
+            ...(ms > 0 ? { ms } : {}),
           },
         ];
+        // A turn may hold more calls; the next one starts now.
+        this.#callStarted = ended;
+        this.#firstToken = undefined;
         this.#usage = next;
         return [];
       }
@@ -353,16 +371,24 @@ export function streamAgent(options: StreamAgentOptions): Response {
     generateId: uuidv7,
     execute: async ({ writer }) => {
       writer.write({ type: 'start', messageMetadata: metadata });
+      const usage = () => (mapper.usage && options.assess ? withHelpers(mapper.usage, options.assess.helpers.usage) : mapper.usage);
       for await (const event of run) {
         for (const chunk of mapper.map(event, await toolExtras(event))) {
           writer.write(chunk);
+        }
+        // Cost and context after every model call, not only at the end: a
+        // long reply shows them as it goes, and one that breaks off (the
+        // agent killed, the device gone) keeps what it used.
+        const now = usage();
+        if ((event.type === 'usage' || event.type === 'compaction') && now) {
+          writer.write({ type: 'message-metadata', messageMetadata: { ...metadata, usage: now } });
         }
       }
       for (const chunk of mapper.closeOpenTools()) {
         writer.write(chunk);
       }
-      const usage = mapper.usage && options.assess ? withHelpers(mapper.usage, options.assess.helpers.usage) : mapper.usage;
-      writer.write({ type: 'finish', messageMetadata: { ...metadata, ...(usage ? { usage } : {}) } });
+      const final = usage();
+      writer.write({ type: 'finish', messageMetadata: { ...metadata, ...(final ? { usage: final } : {}) } });
     },
     onError: (error) => {
       console.error('[agent] stream failed', error);

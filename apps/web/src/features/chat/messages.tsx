@@ -14,7 +14,7 @@ import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-part
 import { CalculatorCall } from './calculator-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
-import { UsageDetails } from './usage-details.tsx';
+import { formatRate, outputRate, UsageDetails } from './usage-details.tsx';
 import { WebFetchCall } from './web-fetch.tsx';
 import { type KnownSource, knownSources, sourcesSignature, unsourcedLinks } from './citations.ts';
 import { readPages, Sources, UnsourcedLinks, WebSearchCall } from './web-search.tsx';
@@ -299,15 +299,26 @@ function CondensedNote() {
   );
 }
 
+/**
+ * The model's thinking. While it writes, the block follows the browser's
+ * preference; a click opens or closes it at any time and sets the
+ * preference for the next ones. Finished thinking stays closed unless
+ * opened.
+ */
 function Reasoning({ text, streaming }: { text: string; streaming: boolean }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const expanded = open || streaming;
+  const { t, showThinking, setShowThinking } = usePreferences();
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const expanded = chosen ?? (streaming && showThinking);
   return (
     <div className="flex flex-col gap-2">
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          setChosen(!expanded);
+          if (streaming) {
+            setShowThinking(!expanded);
+          }
+        }}
         aria-expanded={expanded}
         className="inline-flex w-fit items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -347,6 +358,7 @@ function MessageActions({
   const [copied, setCopied] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const usage = message.metadata?.usage;
+  const rate = outputRate(usage?.calls ?? []);
 
   async function copy() {
     await navigator.clipboard.writeText(messageText(message));
@@ -382,6 +394,7 @@ function MessageActions({
               ? ` · ${t('chat.usage', { input: usage.inputTokens, output: usage.outputTokens })}`
               : null}
             {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
+            {rate !== null ? ` · ${t('chat.rate', { rate: formatRate(locale, rate) })}` : null}
           </span>
         ) : null}
         {usage ? (

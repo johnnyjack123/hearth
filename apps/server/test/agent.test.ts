@@ -119,6 +119,22 @@ function connect(hub: DeviceHub, deviceId: string, userId = 'user-1'): FakeDevic
 }
 
 describe('ChunkMapper', () => {
+  it('times each model call from its first token, for tokens per second', () => {
+    let clock = 1_000;
+    const mapper = new ChunkMapper('m', () => clock);
+    mapper.map({ type: 'turn.start' });
+    clock += 2_000; // waiting for the first token does not count
+    mapper.map({ type: 'reasoning.delta', id: 'r1', delta: 'hm' });
+    clock += 500;
+    mapper.map({ type: 'text.delta', id: 't1', delta: 'Hallo' });
+    clock += 1_500;
+    mapper.map({ type: 'usage', inputTokens: 100, outputTokens: 80 });
+    // A second call in the same turn without visible tokens counts from the first's end.
+    clock += 400;
+    mapper.map({ type: 'usage', inputTokens: 120, outputTokens: 4 });
+    expect(mapper.usage?.calls?.map((call) => call.ms)).toEqual([2_000, 400]);
+  });
+
   it('turns agent events into UI chunks and sums usage', () => {
     const mapper = new ChunkMapper();
     const chunks = [
@@ -638,6 +654,11 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(body).toContain('"type":"tool-input-available"');
     expect(body).toContain('"type":"data-approval"');
     expect(body).toContain('"delta":"Fertig."');
+    // Cost and context arrive with every model call, before the end.
+    const live = body.indexOf('"type":"message-metadata"');
+    expect(live).toBeGreaterThan(-1);
+    expect(body.slice(live, body.indexOf('\n', live))).toContain('"contextTokens":7');
+    expect(live).toBeLessThan(body.indexOf('"type":"finish"'));
 
     const prompt = device.received.find((message) => message.type === 'session.prompt');
     expect(prompt).toMatchObject({

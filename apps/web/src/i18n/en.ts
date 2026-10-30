@@ -172,6 +172,8 @@ export const en: Messages = {
     notFoundBody: 'It was deleted or belongs to another account.',
     backHome: 'Start a new chat',
     usage: '{input} → {output} tokens',
+    rate: '{rate} tokens/s',
+    rateAverage: 'Wrote {rate} tokens/s on average (from the first token on)',
     tokenTotals: 'Total: {input} input ({cached} from the cache), {output} output ({reasoning} reasoning)',
     usageDetails: {
       show: 'Show token details',
@@ -188,6 +190,7 @@ export const en: Messages = {
       cacheWrite: 'cache written',
       output: 'Output',
       reasoning: 'reasoning',
+      rate: 'tokens/s',
       cost: 'Cost',
       sum: 'Sum',
       totalWithHelpers: 'Total: {total} ({main} chat model + {helpers} helper calls)',

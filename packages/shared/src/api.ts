@@ -357,6 +357,12 @@ export interface ModelCallUsage {
   cost?: { total: number; input?: number; cacheRead?: number; cacheWrite?: number; output?: number };
   /** True when {@link cost} is what the provider billed, not an estimate. */
   billed?: boolean;
+  /**
+   * Milliseconds the model wrote, from its first token to the end of the
+   * call; with {@link output} the speed in tokens per second. Missing for
+   * helper calls and replies from before 30.10.2026.
+   */
+  ms?: number;
 }
 
 /**

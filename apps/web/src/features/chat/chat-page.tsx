@@ -132,7 +132,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} data-chat-scroll className="min-h-0 flex-1 overflow-y-auto">
         <MessageList
           messages={messages}
           status={status}

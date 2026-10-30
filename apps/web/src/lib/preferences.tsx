@@ -26,12 +26,18 @@ interface PreferencesValue {
   effort: EffortLevel | null;
   /** Jev judges prompt injection warnings right away, see {@link autoAssessEnabled}. */
   autoAssess: boolean;
+  /**
+   * The model's thinking shows while it writes; set by opening or closing
+   * a thinking block, which the next ones follow.
+   */
+  showThinking: boolean;
   setTheme: (theme: ThemePreference) => void;
   setDensity: (density: Density) => void;
   setLocale: (locale: Locale) => void;
   setResearch: (on: boolean) => void;
   setEffort: (effort: EffortLevel | null) => void;
   setAutoAssess: (on: boolean) => void;
+  setShowThinking: (on: boolean) => void;
   t: TranslateFn;
 }
 
@@ -44,6 +50,7 @@ const STORAGE = {
   research: 'harness.research',
   effort: 'harness.effort',
   autoAssess: 'harness.autoAssess',
+  showThinking: 'harness.showThinking',
 } as const;
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
@@ -152,6 +159,11 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.autoAssess, on ? 'on' : 'off');
     setAutoAssessState(on);
   }, []);
+  const [showThinking, setShowThinkingState] = useState(() => read(STORAGE.showThinking, ['on', 'off'], 'on') === 'on');
+  const setShowThinking = useCallback((on: boolean) => {
+    write(STORAGE.showThinking, on ? 'on' : 'off');
+    setShowThinkingState(on);
+  }, []);
 
   const value = useMemo<PreferencesValue>(
     () => ({
@@ -162,15 +174,33 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       research,
       effort,
       autoAssess,
+      showThinking,
       setTheme,
       setDensity,
       setLocale,
       setResearch,
       setEffort,
       setAutoAssess,
+      setShowThinking,
       t: (key, params) => translate(locale, key, params),
     }),
-    [theme, resolvedTheme, density, locale, research, effort, autoAssess, setTheme, setDensity, setLocale, setResearch, setEffort, setAutoAssess],
+    [
+      theme,
+      resolvedTheme,
+      density,
+      locale,
+      research,
+      effort,
+      autoAssess,
+      showThinking,
+      setTheme,
+      setDensity,
+      setLocale,
+      setResearch,
+      setEffort,
+      setAutoAssess,
+      setShowThinking,
+    ],
   );
 
   return <PreferencesContext value={value}>{children}</PreferencesContext>;

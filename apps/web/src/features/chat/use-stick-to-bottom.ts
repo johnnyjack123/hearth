@@ -7,6 +7,11 @@ const FOLLOW_THRESHOLD = 48;
  * Keeps a scroll container pinned to the bottom while content grows (e.g. a
  * streaming reply), unless the user has scrolled up to read.
  *
+ * Only moving up stops following. Deciding by the distance alone lost the
+ * bottom whenever content grew while a smooth scroll was under way, or a
+ * code block rendered late: a scroll event then came in far from the end,
+ * though nobody had scrolled.
+ *
  * @returns A ref for the scroll container (its first child is observed for
  *   size changes), whether it is at the bottom, and a function to jump there.
  */
@@ -27,9 +32,16 @@ export function useStickToBottom() {
     if (!element) {
       return;
     }
+    let lastTop = element.scrollTop;
     const onScroll = () => {
-      const near = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD;
-      followingRef.current = near;
+      const top = element.scrollTop;
+      const near = element.scrollHeight - top - element.clientHeight < FOLLOW_THRESHOLD;
+      if (near) {
+        followingRef.current = true;
+      } else if (top < lastTop - 1) {
+        followingRef.current = false;
+      }
+      lastTop = top;
       setAtBottom(near);
     };
     element.addEventListener('scroll', onScroll, { passive: true });
@@ -38,6 +50,7 @@ export function useStickToBottom() {
     const observer = new ResizeObserver(() => {
       if (followingRef.current) {
         element.scrollTop = element.scrollHeight;
+        lastTop = element.scrollTop;
       }
     });
     if (content) {

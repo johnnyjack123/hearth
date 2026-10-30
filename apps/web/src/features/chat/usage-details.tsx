@@ -24,6 +24,30 @@ export function formatDollars(locale: string, dollars: number): string {
   }).format(dollars);
 }
 
+/**
+ * How fast the model wrote: output tokens per second over the calls that
+ * were timed (from their first token on).
+ *
+ * @param calls - Model calls.
+ * @returns Tokens per second, or null if no call was timed.
+ */
+export function outputRate(calls: ModelCallUsage[]): number | null {
+  const timed = calls.filter((call) => call.ms !== undefined && call.ms > 0);
+  const ms = timed.reduce((total, call) => total + (call.ms ?? 0), 0);
+  return ms > 0 ? (timed.reduce((total, call) => total + call.output, 0) / ms) * 1000 : null;
+}
+
+/**
+ * Formats a speed in tokens per second.
+ *
+ * @param locale - UI language.
+ * @param rate - Tokens per second.
+ * @returns E.g. `42` or `3,5`.
+ */
+export function formatRate(locale: string, rate: number): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: rate < 10 ? 1 : 0 }).format(rate);
+}
+
 function sum(calls: ModelCallUsage[], pick: (call: ModelCallUsage) => number | undefined): number {
   return calls.reduce((total, call) => total + (pick(call) ?? 0), 0);
 }
@@ -87,6 +111,11 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
   const helperCost = helpers.every((row) => row.cost !== undefined) ? helpers.reduce((total, row) => total + (row.cost ?? 0), 0) : undefined;
   const dollars = (value: number | undefined) => (value === undefined ? t('chat.usageDetails.unknown') : formatDollars(locale, value));
   const result = (call: ModelCallUsage) => (call.tools.length > 0 ? call.tools.join(', ') : agent ? '–' : t('chat.usageDetails.answer'));
+  const timed = calls.some((call) => call.ms !== undefined);
+  const rate = (rows: ModelCallUsage[]) => {
+    const value = outputRate(rows);
+    return value === null ? '–' : formatRate(locale, value);
+  };
   const table = 'w-full border-collapse text-xs tabular-nums [&_tbody_tr]:border-t [&_tbody_tr]:border-border [&_tfoot_tr]:border-t-2 [&_tfoot_tr]:border-border';
   const caption = 'px-2 pt-2 text-start font-medium text-foreground';
 
@@ -114,6 +143,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               {withCacheWrite ? <Cell head>{t('chat.usageDetails.cacheWrite')}</Cell> : null}
               <Cell head>{t('chat.usageDetails.output')}</Cell>
               <Cell head>{t('chat.usageDetails.reasoning')}</Cell>
+              {timed ? <Cell head>{t('chat.usageDetails.rate')}</Cell> : null}
               <Cell head>{t('chat.usageDetails.cost')}</Cell>
             </tr>
           </thead>
@@ -128,6 +158,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
                 {withCacheWrite ? <Cell>{tokens.format(call.cacheWrite)}</Cell> : null}
                 <Cell>{tokens.format(call.output)}</Cell>
                 <Cell>{call.reasoning === undefined ? '–' : tokens.format(call.reasoning)}</Cell>
+                {timed ? <Cell>{rate([call])}</Cell> : null}
                 <Cell>{dollars(call.cost?.total)}</Cell>
               </tr>
             ))}
@@ -142,6 +173,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               {withCacheWrite ? <Cell>{tokens.format(sum(calls, (call) => call.cacheWrite))}</Cell> : null}
               <Cell>{tokens.format(sum(calls, (call) => call.output))}</Cell>
               <Cell>{tokens.format(sum(calls, (call) => call.reasoning))}</Cell>
+              {timed ? <Cell>{rate(calls)}</Cell> : null}
               <Cell>{dollars(mainCost)}</Cell>
             </tr>
           </tfoot>

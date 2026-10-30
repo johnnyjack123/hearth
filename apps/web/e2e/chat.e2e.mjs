@@ -275,6 +275,13 @@ try {
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
     researchPath = new URL(page.url()).pathname;
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 20_000 });
+    // A reply with search, page and tool cards growing as it streams stays
+    // followed to its end.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const behind = await page.$eval('[data-chat-scroll]', (element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+    if (behind > 48) {
+      throw new Error(`the chat stopped following the reply, ${behind} px above its end`);
+    }
     // The test page tries to talk to the model; with an OpenRouter key Jev
     // judges that right away (the mock calls it a false alarm).
     await page.waitForSelector(text('Jev: 0 % Gefahr, wahrscheinlich Fehlalarm.'), { timeout: 5_000 });
@@ -747,6 +754,9 @@ try {
         sendEvent(s, { type: 'progress', id: 'thinking', label: 'pi denkt nach', state: 'running' });
         sendEvent(s, { type: 'progress', id: 'thinking', label: 'pi denkt nach', state: 'done' });
         sendEvent(s, { type: 'turn.start' });
+        // Thinking that is still being written while the agent waits.
+        sendEvent(s, { type: 'reasoning.start', id: 'r1' });
+        sendEvent(s, { type: 'reasoning.delta', id: 'r1', delta: 'Erst die Dateien ansehen, dann example.com prüfen.' });
         sendEvent(s, { type: 'text.start', id: 't1' });
         sendEvent(s, { type: 'text.delta', id: 't1', delta: 'Ich schaue mir das Projekt an.' });
         sendEvent(s, { type: 'text.end', id: 't1' });
@@ -756,6 +766,7 @@ try {
       if (message.type === 'approval.decide') {
         const s = message.session;
         sendEvent(s, { type: 'approval', id: 1, host: 'example.com', port: 443, state: 'resolved' });
+        sendEvent(s, { type: 'reasoning.end', id: 'r1' });
         sendEvent(s, { type: 'tool.end', id: 'call-1', output: 'README.md\nsrc\nHTTP/2 200', isError: false });
         // What the pi guard reports: the first line, then why and where.
         sendEvent(s, {
@@ -820,6 +831,15 @@ try {
       await page.waitForSelector(text('VM harness starten (bis zu einer Minute)'), { timeout: 5_000 });
       await new Promise((resolve) => setTimeout(resolve, 500));
       await shot('17-agent-approval');
+      // Thinking shows while it is written, and closes on a click, which the
+      // browser keeps for the next time.
+      await page.waitForSelector(text('Erst die Dateien ansehen'), { timeout: 5_000 });
+      await page.click(`button${text('Denkt nach')}`);
+      await page.waitForSelector(text('Erst die Dateien ansehen'), { hidden: true, timeout: 5_000 });
+      if ((await page.evaluate(() => localStorage.getItem('harness.showThinking'))) !== 'off') {
+        throw new Error('closing the thinking was not remembered');
+      }
+      await page.evaluate(() => localStorage.removeItem('harness.showThinking'));
       await page.click(text('Einmal erlauben'));
       await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 15_000 });
       // The composer shows how full the context is and what the chat cost.

@@ -170,6 +170,8 @@ export const de = {
     notFoundBody: 'Er wurde gelöscht oder gehört zu einem anderen Konto.',
     backHome: 'Neuen Chat starten',
     usage: '{input} → {output} Tokens',
+    rate: '{rate} Tokens/s',
+    rateAverage: 'Im Schnitt {rate} Tokens/s geschrieben (ab dem ersten Token)',
     tokenTotals: 'Gesamt: {input} Eingabe (davon {cached} aus dem Cache), {output} Ausgabe (davon {reasoning} Reasoning)',
     usageDetails: {
       show: 'Token-Details zeigen',
@@ -186,6 +188,7 @@ export const de = {
       cacheWrite: 'Cache geschrieben',
       output: 'Ausgabe',
       reasoning: 'davon Reasoning',
+      rate: 'Tokens/s',
       cost: 'Kosten',
       sum: 'Summe',
       totalWithHelpers: 'Gesamt: {total} ({main} Chat-Modell + {helpers} Hilfsaufrufe)',
