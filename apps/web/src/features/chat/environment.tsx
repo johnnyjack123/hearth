@@ -1,4 +1,5 @@
 import {
+  type AgentDataParts,
   type ChatLink,
   type ConversationDetail,
   type ConversationSummary,
@@ -8,7 +9,7 @@ import {
   projectNameSchema,
 } from '@harness/shared';
 import { useNavigate } from '@tanstack/react-router';
-import { Check, ChevronDown, Container, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
+import { Check, ChevronDown, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
@@ -94,14 +95,43 @@ export function useLinkDevice(link: Pick<ChatLink, 'deviceId'> | null): DeviceSu
   return link ? devices.data?.find((device) => device.id === link.deviceId) : undefined;
 }
 
+/** What of the agent's work the user's folder lacks, as the device last reported it. */
+export type WorkspaceState = AgentDataParts['workspace'];
+
+/**
+ * The workspace state of a linked chat: the device reports it after every
+ * reply and takeover, so the latest report is the current one.
+ *
+ * @param messages - The chat's messages.
+ * @returns The latest report, or null before the first one.
+ */
+export function latestWorkspace(messages: ChatMessage[]): WorkspaceState | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const part = messages[index]?.parts.findLast((candidate) => candidate.type === 'data-workspace');
+    if (part) {
+      return part.data;
+    }
+  }
+  return null;
+}
+
 /**
  * The composer's environment control: links the chat to a project on one of
  * the user's computers, shows the link and dissolves it.
  *
- * @param props - The conversation and whether its device is online.
+ * @param props - The conversation, whether its device is online and what of
+ *   the agent's work is not taken over yet.
  * @returns The control.
  */
-export function EnvironmentButton({ conversation, online }: { conversation: ConversationSummary; online: boolean | undefined }) {
+export function EnvironmentButton({
+  conversation,
+  online,
+  workspace = null,
+}: {
+  conversation: ConversationSummary;
+  online: boolean | undefined;
+  workspace?: WorkspaceState | null;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const [unlinking, setUnlinking] = useState(false);
@@ -170,9 +200,11 @@ export function EnvironmentButton({ conversation, online }: { conversation: Conv
       online={online}
       confirmLabel={t('agent.link')}
       onChoose={choose}
+      mark={link && workspace ? <WorkspaceMark workspace={workspace} /> : null}
       work={
         link ? (
           <>
+            {workspace ? <WorkspaceLine workspace={workspace} /> : null}
             <Button variant="secondary" size="sm" className="justify-start" loading={saving} disabled={online === false} onClick={() => void save()}>
               <Save />
               {saving ? t('takeover.saving') : t('takeover.save')}
@@ -259,13 +291,14 @@ export function NewChatEnvironment({
 /**
  * Button with dialog when no environment is chosen; otherwise the chosen one
  * with a menu: device, the agent's `work`, VM, another environment, and
- * `actions`.
+ * `actions`. `mark` sits in the button next to the online dot.
  */
 function EnvironmentControl({
   link,
   online,
   confirmLabel,
   onChoose,
+  mark = null,
   work = null,
   actions,
 }: {
@@ -273,6 +306,7 @@ function EnvironmentControl({
   online: boolean | undefined;
   confirmLabel: string;
   onChoose: (choice: LinkConversationInput) => Promise<void> | void;
+  mark?: ReactNode;
   work?: ReactNode;
   actions: (close: () => void) => ReactNode;
 }) {
@@ -317,6 +351,7 @@ function EnvironmentControl({
             <Container className="text-primary" />
             <span className="truncate">{t('agent.linkedTo', { harness: link.harness, project: link.project })}</span>
             <StatusDot online={online} />
+            {mark}
             <ChevronDown className="opacity-60" />
           </Button>
         </PopoverTrigger>
@@ -381,6 +416,44 @@ function StatusDot({ online }: { online: boolean | undefined }) {
       aria-label={online ? t('agent.online') : t('agent.offline')}
       className={cn('size-2 shrink-0 rounded-full', online ? 'bg-success' : 'bg-muted-foreground/50')}
     />
+  );
+}
+
+function workspaceText(t: ReturnType<typeof useT>, { commits, changes }: WorkspaceState): string {
+  if (commits === 0 && changes === 0) {
+    return t('takeover.workspaceSaved');
+  }
+  const what = [
+    ...(commits > 0 ? [t('takeover.workspaceCommits', { count: commits })] : []),
+    ...(changes > 0 ? [t('takeover.workspaceChanges', { count: changes })] : []),
+  ];
+  return t('takeover.workspaceUnsaved', { what: what.join(', ') });
+}
+
+/** Saved or not, in the environment button; the shape differs, not only the color. */
+function WorkspaceMark({ workspace }: { workspace: WorkspaceState }) {
+  const t = useT();
+  const saved = workspace.commits === 0 && workspace.changes === 0;
+  const text = workspaceText(t, workspace);
+  const Icon = saved ? Check : GitCommitHorizontal;
+  return (
+    <span role="img" aria-label={text} title={text} data-workspace={saved ? 'saved' : 'unsaved'} className="flex shrink-0">
+      <Icon className={cn('size-3.5', saved ? 'text-success' : 'text-warning')} aria-hidden="true" />
+    </span>
+  );
+}
+
+function WorkspaceLine({ workspace }: { workspace: WorkspaceState }) {
+  const t = useT();
+  const saved = workspace.commits === 0 && workspace.changes === 0;
+  return (
+    <div className="flex flex-col gap-1 pb-1">
+      <Badge variant={saved ? 'success' : 'warning'} className="w-fit whitespace-normal">
+        {saved ? <Check aria-hidden="true" /> : <GitCommitHorizontal aria-hidden="true" />}
+        {workspaceText(t, workspace)}
+      </Badge>
+      <span className="text-xs text-muted-foreground">{t('takeover.workspaceHint')}</span>
+    </div>
   );
 }
 

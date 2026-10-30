@@ -902,10 +902,17 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         { type: 'text.start', id: 't' },
         { type: 'text.delta', id: 't', delta: 'Erledigt.' },
         { type: 'text.end', id: 't' },
+        { type: 'workspace', commits: 2, changes: 1 },
         { type: 'done', aborted: false },
       );
     await (await chat(conversation.id, 'Mach was')).text();
     await eventually(async () => (await load(conversation.id)).messages.length === 2);
+    // The reply says what the user's folder lacks.
+    expect((await load(conversation.id)).messages[1]?.parts.at(-1)).toEqual({
+      type: 'data-workspace',
+      id: 'workspace',
+      data: { commits: 2, changes: 1 },
+    });
 
     const held: TakeoverReport = {
       state: 'held',
@@ -924,17 +931,22 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         request.session,
         { type: 'takeover', report: { ...held, state: 'running', step: 'Prüfen', request: undefined } as TakeoverReport },
         { type: 'takeover', report: held },
+        { type: 'workspace', commits: 2, changes: 0 },
         { type: 'done', aborted: false },
       );
     const response = await server.request('POST', `/api/conversations/${conversation.id}/takeover`, { cookie });
     expect(response.status).toBe(200);
     const message = (await response.json()) as ChatMessage;
     expect(device.received.at(-1)).toMatchObject({ type: 'session.takeover', session: conversation.id, project: 'demo' });
-    // The card joins the reply whose work it took over.
+    // The card joins the reply whose work it took over, and the workspace
+    // report after it replaces the reply's own.
     const stored = (await load(conversation.id)).messages;
     expect(stored).toHaveLength(2);
     expect(stored[1]?.id).toBe(message.id);
-    expect(stored[1]?.parts.at(-1)).toMatchObject({ type: 'data-takeover', data: { state: 'held', request: 'K7QF2M' } });
+    expect(stored[1]?.parts.at(-2)).toMatchObject({ type: 'data-takeover', data: { state: 'held', request: 'K7QF2M' } });
+    expect(stored[1]?.parts.filter((part) => part.type === 'data-workspace')).toEqual([
+      { type: 'data-workspace', id: 'workspace', data: { commits: 2, changes: 0 } },
+    ]);
 
     // A device that gives up without a report says why.
     device.onTakeover = (request) => device.say({ type: 'session.closed', session: request.session, reason: 'Projekt demo fehlt.' });

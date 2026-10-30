@@ -211,6 +211,8 @@ export class ChunkMapper {
       case 'takeover':
         // One report per reply, replaced in place as the takeover goes on.
         return [{ type: 'data-takeover', id: 'takeover', data: event.report }];
+      case 'workspace':
+        return [{ type: 'data-workspace', id: 'workspace', data: { commits: event.commits, changes: event.changes } }];
       case 'compaction': {
         // A finished one without a start (an older pi) gets its own place.
         if (event.state === 'running' || !this.#compacting) {

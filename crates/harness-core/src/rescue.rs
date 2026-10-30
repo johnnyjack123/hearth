@@ -12,7 +12,7 @@ use std::path::Path;
 use crate::image::BASE_IMAGE;
 use crate::project::ProjectName;
 use crate::provider::{ContainerSpec, ExecSpec, Mount, MountSource, NetworkSpec, Provider};
-use crate::sync::{MAX_OUT_BUNDLE_BYTES, WORKSPACE, sanitize};
+use crate::sync::{HostRepo, MAX_OUT_BUNDLE_BYTES, WORKSPACE, sanitize};
 use crate::{Error, PROJECT_LABEL, Result};
 
 /// Internal network of the check containers; they need no network at all.
@@ -30,6 +30,7 @@ cd /workspace
 if [ ! -e .git ]; then echo "result=no-workspace"; exit 0; fi
 echo "commits=$(git rev-list --count --branches HEAD --not --remotes=host)"
 echo "changes=$(git status --porcelain=v1 --untracked-files=normal | wc -l)"
+echo "head=$(git rev-parse --verify --quiet HEAD || true)"
 echo "result=ok"
 "#;
 
@@ -73,23 +74,40 @@ impl Unsaved {
 /// clone. Needs the base image.
 pub fn unsaved(provider: &dyn Provider, name: &ProjectName) -> Result<Option<Unsaved>> {
     with_container(provider, name, |container| {
-        let output = run(provider, container, CHECK_SCRIPT, &[])?;
-        match value(&output, "result") {
-            Some("no-workspace") => Ok(None),
-            Some("ok") => {
-                let count = |key| {
-                    value(&output, key)
-                        .and_then(|n| n.trim().parse().ok())
-                        .ok_or_else(|| unexpected(&output))
-                };
-                Ok(Some(Unsaved {
-                    commits: count("commits")?,
-                    changes: count("changes")?,
-                }))
-            }
-            _ => Err(unexpected(&output)),
-        }
+        unsaved_in(provider, container, None)
     })
+}
+
+/// [`unsaved`] in a container that runs already, such as the project's
+/// instance after a reply. Its `host/*` branches show the user's state as of
+/// the session's start; with `host`, commits the user's checked-out branch
+/// has meanwhile (merged in a terminal) count as saved.
+pub fn unsaved_in(
+    provider: &dyn Provider,
+    container: &str,
+    host: Option<&HostRepo>,
+) -> Result<Option<Unsaved>> {
+    let output = run(provider, container, CHECK_SCRIPT, &[])?;
+    match value(&output, "result") {
+        Some("no-workspace") => Ok(None),
+        Some("ok") => {
+            let count = |key| {
+                value(&output, key)
+                    .and_then(|n| n.trim().parse().ok())
+                    .ok_or_else(|| unexpected(&output))
+            };
+            let mut commits = count("commits")?;
+            let head = value(&output, "head").unwrap_or_default().trim();
+            if commits > 0 && host.is_some_and(|host| host.contains(head).unwrap_or(false)) {
+                commits = 0;
+            }
+            Ok(Some(Unsaved {
+                commits,
+                changes: count("changes")?,
+            }))
+        }
+        _ => Err(unexpected(&output)),
+    }
 }
 
 /// Commits what is uncommitted in the project's clone and writes all its

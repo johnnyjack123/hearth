@@ -515,3 +515,16 @@ fn branch_helpers_follow_a_merge() {
     git(&host, &["switch", "--quiet", "--detach"]);
     assert_eq!(repo.current_branch().unwrap(), None);
 }
+
+#[test]
+fn contains_only_answers_for_plain_commit_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = host_repo(dir.path());
+    let head = repo.head_commit().unwrap().unwrap();
+    assert!(repo.contains(&head).unwrap());
+    // Not in the repository, not an id, or something git would read as an option.
+    assert!(!repo.contains(&"a".repeat(40)).unwrap());
+    for odd in ["", "HEAD", "--all", "main", &head[..12]] {
+        assert!(!repo.contains(odd).unwrap(), "{odd}");
+    }
+}

@@ -266,6 +266,8 @@ REPLY=$(api GET "/api/conversations/$CONVERSATION")
 check "Antwort mit Werkzeugaufruf gespeichert" test \
   "$(echo "$REPLY" | json "v.messages.at(-1).parts.some(p => p.type === 'dynamic-tool' && p.output.text.includes('status=200'))")" = true
 check "Agent in den Metadaten" test "$(echo "$REPLY" | json "v.messages.at(-1).metadata.agent.harness")" = pi
+# The agent committed agent.txt; the user's folder does not have it yet.
+check "Antwort meldet, was dem Ordner fehlt" grep -q '"type":"data-workspace","id":"workspace","data":{"commits":1,"changes":0}' "$WORK/stream.log"
 sqlite_in_instance() { in_container 'sqlite3 --version' | grep -q '^3[.]'; }
 check "im Browser eingeschaltete App in der Instanz" sqlite_in_instance
 own_in_instance() { in_container smoke-hello | grep -q 'smoke hallo'; }
@@ -283,13 +285,18 @@ check "Commit des Agents auf agent/$NAME" test "$(git log -1 --format=%s "agent/
 echo "== Fortschritt sichern"
 in_container 'echo offen > offen.txt' > /dev/null
 TAKEOVER=$(api POST "/api/conversations/$CONVERSATION/takeover")
-check "übernommen in main" test "$(echo "$TAKEOVER" | json "v.parts.at(-1).data.state + ' ' + v.parts.at(-1).data.branch")" = "merged main"
-check "offene Datei im Container committet" test "$(echo "$TAKEOVER" | json "v.parts.at(-1).data.committed")" = 1
+CARD="v.parts.findLast(p => p.type === 'data-takeover').data"
+check "übernommen in main" test "$(echo "$TAKEOVER" | json "$CARD.state + ' ' + $CARD.branch")" = "merged main"
+check "offene Datei im Container committet" test "$(echo "$TAKEOVER" | json "$CARD.committed")" = 1
 check "Arbeit des Agents im Ordner" test -f offen.txt -a -f agent.txt
 check "Agent-Branch auf dem Host folgt dem Merge" test "$(git rev-parse "agent/$NAME")" = "$(git rev-parse HEAD)"
 check "Agent-Branch im Container folgt dem Merge" test "$(in_container 'git rev-parse HEAD')" = "$(git rev-parse HEAD)"
+# The card, then what the folder still lacks: nothing, and only one report.
+STORED=$(api GET "/api/conversations/$CONVERSATION")
 check "Karte an der Antwort gespeichert" test \
-  "$(api GET "/api/conversations/$CONVERSATION" | json "v.messages.at(-1).parts.at(-1).type")" = data-takeover
+  "$(echo "$STORED" | json "v.messages.at(-1).parts.at(-2).type")" = data-takeover
+check "danach alles übernommen" test \
+  "$(echo "$STORED" | json "JSON.stringify(v.messages.at(-1).parts.filter(p => p.type === 'data-workspace').map(p => p.data))")" = '[{"commits":0,"changes":0}]'
 
 echo "== Autosync nach einer Antwort"
 api PATCH "/api/conversations/$CONVERSATION/link" '{"autosync":true}' > /dev/null
@@ -297,6 +304,7 @@ say_in_chat m2 '!echo zwei > zwei.txt'
 check "Autosync im Antwort-Stream" grep -q '"auto":true' "$WORK/m2.log"
 check "Änderung der Antwort im Ordner" test -f zwei.txt
 check "Agent-Branch nach Autosync wieder gleich" test "$(in_container 'git rev-parse HEAD')" = "$(git rev-parse HEAD)"
+check "nach Autosync alles übernommen" grep -q '"type":"data-workspace","id":"workspace","data":{"commits":0,"changes":0}' "$WORK/m2.log"
 
 echo "== Schwerer Fund hält den Merge an"
 BEFORE=$(git rev-parse HEAD)
@@ -305,6 +313,7 @@ check "angehalten mit Freigabe-ID" grep -qE '"state":"held"[^}]*' "$WORK/m3.log"
 REQUEST=$(grep -oE '"request":"[A-Z2-9]{6}"' "$WORK/m3.log" | tail -1 | grep -oE '[A-Z2-9]{6}')
 check "Fund git-hook gemeldet" grep -q '"rule":"git-hook"' "$WORK/m3.log"
 check "Ordner unverändert" test "$(git rev-parse HEAD)" = "$BEFORE" -a ! -e .husky/pre-commit
+check "angehaltener Commit als nicht übernommen gemeldet" grep -q '"type":"data-workspace","id":"workspace","data":{"commits":1,"changes":0}' "$WORK/m3.log"
 "$H" merge --approve "$REQUEST" < /dev/null > "$WORK/approve.log" 2>&1
 check "Freigabe nur mit Terminal" grep -q "braucht ein Terminal" "$WORK/approve.log"
 check "Freigabe bleibt offen" test -f "$HARNESS_HOME/merge-requests/$REQUEST.json"

@@ -689,6 +689,8 @@ try {
             request: 'K7QF2M',
           },
         });
+        // Committed in the container, but held: still not in the folder.
+        sendEvent(message.session, { type: 'workspace', commits: 3, changes: 0 });
         sendEvent(message.session, { type: 'done', aborted: false });
       }
       if (message.type === 'vm.stop') {
@@ -743,6 +745,7 @@ try {
         sendEvent(s, { type: 'text.start', id: 'n1' });
         sendEvent(s, { type: 'text.delta', id: 'n1', delta: 'Neuer Chat läuft in demo.' });
         sendEvent(s, { type: 'text.end', id: 'n1' });
+        sendEvent(s, { type: 'workspace', commits: 0, changes: 0 });
         sendEvent(s, { type: 'done', aborted: false });
         return;
       }
@@ -788,6 +791,8 @@ try {
         sendEvent(s, { type: 'text.end', id: 't2' });
         sendEvent(s, { type: 'turn.end' });
         sendEvent(s, { type: 'usage', inputTokens: 1200, outputTokens: 80, cost: 0.0042, contextWindow: 128000 });
+        // What the user's folder lacks after the reply (protocol 8).
+        sendEvent(s, { type: 'workspace', commits: 2, changes: 1 });
         sendEvent(s, { type: 'done', aborted: false });
       }
     });
@@ -844,6 +849,10 @@ try {
       await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'), { timeout: 15_000 });
       // The composer shows how full the context is and what the chat cost.
       await page.waitForSelector('button[aria-label*="Kosten dieses Chats: 0,0042"]', { timeout: 5_000 });
+      // The environment button says the work is not in the folder yet.
+      await page.waitForSelector('[data-workspace="unsaved"][aria-label="Noch nicht übernommen: 2 Commit(s), 1 geänderte Datei(en)"]', {
+        timeout: 5_000,
+      });
       const decision = received.find((message) => message.type === 'approval.decide');
       if (decision?.decision !== 'once' || decision.id !== 1) {
         throw new Error(`device got ${JSON.stringify(decision)}`);
@@ -974,12 +983,17 @@ try {
       // Save progress: autosync on, then a takeover the device holds.
       await page.click(text('Automatisch übernehmen'));
       await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
+      await waitForText('Noch nicht übernommen: 2 Commit(s), 1 geänderte Datei(en)');
       await page.click(`button${text('Fortschritt sichern')}`);
       await waitForText('Nicht übernommen: schwere Funde');
       await waitForText('harness merge --approve K7QF2M');
       if (!received.some((message) => message.type === 'session.takeover')) {
         throw new Error('device got no session.takeover');
       }
+      // The takeover's report replaces the reply's.
+      await waitForText('Noch nicht übernommen: 3 Commit(s)');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('39-takeover-workspace');
       await page.keyboard.press('Escape');
       await page.$eval(text('harness merge --approve K7QF2M'), (element) => element.scrollIntoView({ block: 'center' }));
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1104,6 +1118,7 @@ try {
         throw new Error(`new chat sent ${JSON.stringify(fresh)}`);
       }
       await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
+      await page.waitForSelector('[data-workspace="saved"][aria-label="Alles übernommen"]', { timeout: 5_000 });
       await shot('38-new-chat-environment-reply');
 
       // The start page's own dialog, and back to an ordinary chat.
