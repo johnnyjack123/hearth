@@ -162,7 +162,7 @@ mod tests {
         // A vulnerability that mentions an attacker's malicious website.
         assert!(!is_malware(&json!({
             "id": "GHSA-9crc-q9x8-hgqq",
-            "summary": "Vitest allows Remote Code Execution when accessing a malicious website                         while Vitest API server is listening",
+            "summary": "Vitest allows Remote Code Execution when accessing a malicious website",
             "database_specific": { "cwe_ids": ["CWE-1385"] }
         })));
     }
