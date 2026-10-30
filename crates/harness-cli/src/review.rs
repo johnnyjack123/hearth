@@ -95,40 +95,111 @@ pub fn inspect(
     Ok(Some(checked))
 }
 
-/// The added lines of a file as Jev reads them, cut to what the server
-/// accepts (characters, with room for UTF-16 surrogates on its side).
-fn added_text(lines: &[(u32, String)]) -> String {
-    let mut text = String::new();
+/// Characters of one part Jev reads, with room for UTF-16 surrogates on
+/// the server's side.
+const PART_CHARS: usize = MAX_ASSESSED_CHARS * 9 / 10;
+
+/// Parts of one file at most; a minified bundle would take every request.
+const MAX_PARTS_PER_FILE: usize = 10;
+
+/// Requests to Jev per check at most (60 parts each, a few tenths of a
+/// cent each).
+const MAX_REQUESTS: usize = 5;
+
+/// The added lines of a file in parts Jev reads, split between lines where
+/// possible; at most [`MAX_PARTS_PER_FILE`]. Returns the parts and whether
+/// some of the file was left out.
+fn added_parts(lines: &[(u32, String)]) -> (Vec<String>, bool) {
+    let mut parts: Vec<String> = Vec::new();
+    let mut part = String::new();
+    let mut chars = 0;
     for (_, line) in lines {
-        text.push_str(line);
-        text.push('\n');
+        let mut rest: Vec<char> = line.chars().chain(['\n']).collect();
+        while !rest.is_empty() {
+            if chars + rest.len() <= PART_CHARS {
+                part.extend(&rest);
+                chars += rest.len();
+                rest.clear();
+            } else if chars > 0 {
+                parts.push(std::mem::take(&mut part));
+                chars = 0;
+            } else {
+                // One line longer than a part: cut it.
+                part.extend(&rest[..PART_CHARS]);
+                parts.push(std::mem::take(&mut part));
+                rest.drain(..PART_CHARS);
+            }
+        }
     }
-    text.chars().take(MAX_ASSESSED_CHARS * 9 / 10).collect()
+    if chars > 0 {
+        parts.push(part);
+    }
+    let cut = parts.len() > MAX_PARTS_PER_FILE;
+    parts.truncate(MAX_PARTS_PER_FILE);
+    (parts, cut)
+}
+
+/// Why Jev gave no scores, for the report.
+fn reason_note(reason: Option<&str>) -> String {
+    match reason {
+        Some("disabled") => {
+            "Jev übersprungen: für diesen Rechner in der Web-App abgeschaltet \
+             (Einstellungen → Geräte)."
+        }
+        Some("no_helpers") => {
+            "Jev übersprungen: kein OpenRouter-Zugang im Konto (oder Hilfsmodelle vom Admin \
+             abgeschaltet)."
+        }
+        _ => "Jev hat nicht geantwortet; die übrigen Prüfungen gelten.",
+    }
+    .to_owned()
 }
 
 /// Asks Jev through the paired server and adds findings for changes it
 /// finds dangerous. Without pairing, OpenRouter key or answer, the other
-/// checks stand alone and a note says so.
+/// checks stand alone and a note says so. Long files go in parts and many
+/// files in several requests; a danger found in any part counts for its
+/// file. What exceeds the limits is named, so nobody takes it as checked.
 fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
-    let files: Vec<DiffFile> = incoming
+    let mut parts: Vec<(String, DiffFile)> = Vec::new();
+    let mut cut_files: Vec<String> = Vec::new();
+    for file in incoming
         .files
         .iter()
         .filter(|file| file.status != 'D' && !file.binary && !file.added.is_empty())
-        .take(MAX_ASSESSED_FILES)
-        .map(|file| DiffFile {
-            path: file.path.clone(),
-            status: match file.status {
+    {
+        let (texts, cut) = added_parts(&file.added);
+        if cut {
+            cut_files.push(sanitize(&file.path));
+        }
+        let count = texts.len();
+        for (index, added) in texts.into_iter().enumerate() {
+            let label = if count > 1 {
+                format!("{} (Teil {}/{count})", file.path, index + 1)
+            } else {
+                file.path.clone()
+            };
+            let status = match file.status {
                 'A' => "A",
                 'T' => "T",
                 _ => "M",
-            }
-            .to_owned(),
-            added: added_text(&file.added),
-        })
-        .collect();
-    if files.is_empty() {
+            };
+            parts.push((
+                file.path.clone(),
+                DiffFile {
+                    path: label,
+                    status: status.to_owned(),
+                    added,
+                },
+            ));
+        }
+    }
+    if parts.is_empty() {
         return;
     }
+    let total_parts = parts.len();
+    parts.truncate(MAX_ASSESSED_FILES * MAX_REQUESTS);
+    let left_out = total_parts - parts.len();
     let (client, token) = match crate::login::paired(config) {
         Ok(Some(paired)) => paired,
         Ok(None) => {
@@ -142,38 +213,73 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
             return;
         }
     };
-    let assessment = match client.assess_diff(&token, &files) {
-        Ok(assessment) => assessment,
-        Err(error) => {
-            checked.notes.push(format!("Jev übersprungen: {error}"));
-            return;
-        }
-    };
-    let Some(dangers) = assessment.files else {
-        checked.notes.push(
-            match assessment.reason.as_deref() {
-                Some("disabled") => {
-                    "Jev übersprungen: für diesen Rechner in der Web-App abgeschaltet \
-                     (Einstellungen → Geräte)."
+    // The highest danger per file over its parts, and what Jev cost.
+    let mut dangers: Vec<(String, f64)> = Vec::new();
+    let mut cost = Some(0.0);
+    let mut requests = 0;
+    let mut unanswered = 0;
+    for batch in parts.chunks(MAX_ASSESSED_FILES) {
+        let files: Vec<DiffFile> = batch.iter().map(|(_, part)| part.clone()).collect();
+        let assessment = match client.assess_diff(&token, &files) {
+            Ok(assessment) => assessment,
+            Err(error) => {
+                if requests == 0 {
+                    checked.notes.push(format!("Jev übersprungen: {error}"));
+                    return;
                 }
-                Some("no_helpers") => {
-                    "Jev übersprungen: kein OpenRouter-Zugang im Konto (oder Hilfsmodelle vom Admin \
-                     abgeschaltet)."
-                }
-                _ => "Jev hat nicht geantwortet; die übrigen Prüfungen gelten.",
+                unanswered += batch.len();
+                continue;
             }
-            .to_owned(),
-        );
-        return;
-    };
+        };
+        requests += 1;
+        cost = cost.zip(assessment.cost).map(|(a, b)| a + b);
+        let Some(answer) = assessment.files else {
+            if requests == 1 {
+                checked
+                    .notes
+                    .push(reason_note(assessment.reason.as_deref()));
+                return;
+            }
+            unanswered += batch.len();
+            continue;
+        };
+        for danger in answer {
+            // The server answers with the labels it got.
+            let Some((path, _)) = batch.iter().find(|(_, part)| part.path == danger.path) else {
+                continue;
+            };
+            match dangers.iter_mut().find(|(known, _)| known == path) {
+                Some((_, worst)) => *worst = worst.max(danger.danger),
+                None => dangers.push((path.clone(), danger.danger)),
+            }
+        }
+    }
     checked.checks.push("Jev");
+    if !cut_files.is_empty() || left_out + unanswered > 0 {
+        let mut gaps = Vec::new();
+        if !cut_files.is_empty() {
+            gaps.push(format!(
+                "von {} nur die ersten {} Zeichen",
+                cut_files.join(", "),
+                PART_CHARS * MAX_PARTS_PER_FILE
+            ));
+        }
+        if left_out + unanswered > 0 {
+            gaps.push(format!("{} Teil(e) gar nicht", left_out + unanswered));
+        }
+        checked.notes.push(format!(
+            "Jev hat nicht alles gelesen: {}. Dafür gelten nur die festen Regeln und OSV.",
+            gaps.join(", ")
+        ));
+    }
     let mut worst: Option<(f64, String)> = None;
-    for danger in &dangers {
-        let path = sanitize(&danger.path);
-        let percent = (danger.danger.clamp(0.0, 1.0) * 100.0).round();
-        let severity = if danger.danger >= JEV_HIGH {
+    for (path, danger) in &dangers {
+        let path = sanitize(path);
+        let danger = *danger;
+        let percent = (danger.clamp(0.0, 1.0) * 100.0).round();
+        let severity = if danger >= JEV_HIGH {
             Some((Severity::High, "gefährlich"))
-        } else if danger.danger >= JEV_MEDIUM {
+        } else if danger >= JEV_MEDIUM {
             Some((Severity::Medium, "verdächtig"))
         } else {
             None
@@ -188,18 +294,22 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
                 excerpt: None,
             });
         }
-        if worst.as_ref().is_none_or(|(d, _)| danger.danger > *d) {
-            worst = Some((danger.danger, path));
+        if worst.as_ref().is_none_or(|(d, _)| danger > *d) {
+            worst = Some((danger, path));
         }
     }
     // Jev's scores stay visible even when none is a finding.
     if let Some((danger, path)) = worst {
-        let cost = assessment
-            .cost
+        let cost = cost
             .map(|c| format!(", {:.3} Cent", c * 100.0))
             .unwrap_or_default();
+        let asked = if requests > 1 {
+            format!(", {requests} Anfragen")
+        } else {
+            String::new()
+        };
         checked.notes.push(format!(
-            "Jev: höchste Gefahr {} % in {path} ({} Datei(en){cost}).",
+            "Jev: höchste Gefahr {} % in {path} ({} Datei(en){asked}{cost}).",
             (danger.clamp(0.0, 1.0) * 100.0).round(),
             dangers.len()
         ));
@@ -291,5 +401,47 @@ pub fn approve(
     } else {
         println!("Nicht übernommen. Der Branch {branch} bleibt, dein Arbeitsbaum ist unverändert.");
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(texts: &[String]) -> Vec<(u32, String)> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(n, text)| (n as u32 + 1, text.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn long_files_go_to_jev_in_parts_between_lines() {
+        let short = lines(&["fn main() {}".to_owned()]);
+        assert_eq!(
+            added_parts(&short),
+            (vec!["fn main() {}\n".to_owned()], false)
+        );
+
+        // Lines of 1000 characters: each part ends at a line end.
+        let line = "x".repeat(999);
+        let long = lines(&vec![line.clone(); 25]);
+        let (parts, cut) = added_parts(&long);
+        assert!(!cut);
+        assert_eq!(
+            parts.len(),
+            25_000_usize.div_ceil(PART_CHARS - PART_CHARS % 1000)
+        );
+        assert!(parts.iter().all(|part| part.chars().count() <= PART_CHARS));
+        assert!(parts.iter().all(|part| part.ends_with('\n')));
+        assert_eq!(parts.concat().len(), 25_000);
+
+        // One endless line (minified) is cut, and a huge file is capped.
+        let minified = lines(&["y".repeat(PART_CHARS * 12)]);
+        let (parts, cut) = added_parts(&minified);
+        assert!(cut);
+        assert_eq!(parts.len(), MAX_PARTS_PER_FILE);
+        assert!(parts.iter().all(|part| part.chars().count() == PART_CHARS));
     }
 }
