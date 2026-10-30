@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { KeyRound, Laptop, Palette, UserRound } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { useT } from '@/lib/preferences.tsx';
+import { OwnAppsSection } from '../devices/own-apps.tsx';
 import { Page } from '../shell/page.tsx';
 import { AccountPanel } from './account-panel.tsx';
 import { AppearancePanel } from './appearance-panel.tsx';
@@ -54,7 +55,10 @@ export function SettingsPage() {
           <ProvidersPanel />
         </TabsContent>
         <TabsContent value="devices">
-          <DevicesPanel />
+          <div className="flex flex-col gap-10">
+            <DevicesPanel />
+            <OwnAppsSection />
+          </div>
         </TabsContent>
         <TabsContent value="appearance">
           <AppearancePanel />

@@ -9,6 +9,7 @@
 //! project, because agents can change project files via their commits.
 
 mod model;
+mod template;
 
 use std::env;
 use std::fs;
@@ -19,12 +20,13 @@ use serde::de::DeserializeOwned;
 use toml_edit::DocumentMut;
 
 pub use model::{
-    AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppsConfig, DEFAULT_HARNESS, Defaults,
-    DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind, HarnessConfig, LlmWiring,
-    NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig, ResourcesConfig, ReviewConfig,
-    ServerConfig, valid_chat_id,
+    AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppSource, AppsConfig, DEFAULT_HARNESS,
+    Defaults, DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind, HarnessConfig,
+    LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig, ResourcesConfig,
+    ReviewConfig, ServerConfig, valid_chat_id,
 };
 use model::{Validate, validate_app_name, validate_harness_name};
+pub use template::{AppKind, AppTemplate, MAX_PACKAGE_LEN, MAX_PACKAGES, MAX_SCRIPT};
 
 use crate::paths::{canonical, home_dir, is_within, same_path};
 use crate::project::ProjectName;
@@ -154,6 +156,37 @@ impl ConfigDir {
     /// Folder with app recipes of one's own (the catalog is built in).
     pub fn apps_dir(&self) -> PathBuf {
         self.root.join("apps")
+    }
+
+    /// Copy of the account's app templates, written by the background
+    /// service whenever the server sends them, read by every start.
+    pub fn templates_file(&self) -> PathBuf {
+        self.root.join("server-apps.json")
+    }
+
+    /// The account's app templates as last received. A missing or broken
+    /// file means none, and a template this harness cannot read (a newer
+    /// server's) is left out: neither may stop a project from starting.
+    pub fn templates(&self) -> Vec<AppTemplate> {
+        let Ok(Some(text)) = read_optional(&self.templates_file()) else {
+            return Vec::new();
+        };
+        let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
+            return Vec::new();
+        };
+        values
+            .into_iter()
+            .filter_map(|value| serde_json::from_value(value).ok())
+            .collect()
+    }
+
+    /// Replaces the copy of the account's app templates.
+    pub fn save_templates(&self, templates: &[AppTemplate]) -> Result<()> {
+        fs::create_dir_all(&self.root)
+            .map_err(|e| Error::io(format!("{} anlegen", self.root.display()), e))?;
+        let text = serde_json::to_string_pretty(templates)
+            .map_err(|e| Error::Unsupported(format!("Vorlagen nicht speicherbar: {e}")))?;
+        write_atomic(&self.templates_file(), &text, true)
     }
 
     /// Creates the folder layout and writes default files that do not exist
@@ -507,22 +540,34 @@ impl ConfigDir {
         Ok(harness)
     }
 
-    /// The named app: `apps/<name>.toml`, else the catalog's.
+    /// The named app: `apps/<name>.toml`, else the catalog's, else the
+    /// account's template. What exists on this computer wins, so a template
+    /// from the browser can never replace a recipe of the catalog or a file.
     pub fn app(&self, name: &str) -> Result<AppConfig> {
         validate_app_name(name).map_err(|message| Error::ConfigInvalid {
             path: self.apps_dir(),
             message,
         })?;
         let file = self.apps_dir().join(format!("{name}.toml"));
-        let text = match read_optional(&file)? {
-            Some(text) => text,
-            None => BUILTIN_APPS
-                .iter()
-                .find(|(builtin, _)| *builtin == name)
-                .map(|(_, text)| (*text).to_owned())
-                .ok_or_else(|| Error::AppUnknown(name.to_owned()))?,
+        let (text, source) = match read_optional(&file)? {
+            Some(text) => (text, AppSource::Local),
+            None => match BUILTIN_APPS.iter().find(|(builtin, _)| *builtin == name) {
+                Some((_, text)) => ((*text).to_owned(), AppSource::Builtin),
+                None => {
+                    let template = self
+                        .templates()
+                        .into_iter()
+                        .find(|template| template.name == name)
+                        .ok_or_else(|| Error::AppUnknown(name.to_owned()))?;
+                    return template.to_app().map_err(|message| Error::ConfigInvalid {
+                        path: self.templates_file(),
+                        message: format!("Vorlage {name}: {message}"),
+                    });
+                }
+            },
         };
-        let app: AppConfig = parse(&file, &text)?;
+        let mut app: AppConfig = parse(&file, &text)?;
+        app.source = source;
         if app.name != name {
             return Err(Error::ConfigInvalid {
                 path: file,
@@ -536,7 +581,7 @@ impl ConfigDir {
     }
 
     /// All apps: the catalog in its order, then the files in `apps/` that
-    /// add apps, by name.
+    /// add apps, by name, then the account's templates of other names.
     pub fn apps(&self) -> Result<Vec<AppConfig>> {
         self.app_names()?
             .iter()
@@ -571,6 +616,15 @@ impl ConfigDir {
         }
         own.sort();
         names.extend(own);
+        let mut templates: Vec<String> = self
+            .templates()
+            .into_iter()
+            .map(|template| template.name)
+            .filter(|name| !names.contains(name))
+            .collect();
+        templates.sort();
+        templates.dedup();
+        names.extend(templates);
         Ok(names)
     }
 
@@ -724,7 +778,9 @@ fn write_atomic(path: &Path, text: &str, replace: bool) -> Result<()> {
             path.display()
         )));
     }
-    let partial = path.with_extension("toml.partial");
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
     fs::write(&partial, text)
         .map_err(|e| Error::io(format!("{} schreiben", partial.display()), e))?;
     fs::rename(&partial, path).map_err(|e| Error::io(format!("{} schreiben", path.display()), e))

@@ -480,6 +480,85 @@ fn own_apps_add_to_and_replace_the_catalog() {
 }
 
 #[test]
+fn the_server_knows_the_catalogs_names() {
+    // Own programs of these names would never reach an agent.
+    let shared = include_str!("../../../../packages/shared/src/app-templates.ts");
+    let line = shared
+        .lines()
+        .find(|line| line.contains("BUILTIN_APP_NAMES = ["))
+        .unwrap();
+    let names: Vec<String> = BUILTIN_APPS
+        .iter()
+        .map(|(name, _)| format!("'{name}'"))
+        .collect();
+    assert!(line.contains(&names.join(", ")), "{line}");
+}
+
+#[test]
+fn templates_of_the_account_come_after_the_computers_apps() {
+    let f = fixture();
+    assert!(f.config.templates().is_empty());
+    let template = |name: &str, title: &str| AppTemplate {
+        name: name.into(),
+        title: title.into(),
+        description: None,
+        kind: AppKind::Apt,
+        packages: vec!["tree".into()],
+        script: String::new(),
+        hosts: Vec::new(),
+        path: Vec::new(),
+        requires: vec!["c".into()],
+    };
+    f.config
+        .save_templates(&[template("tree", "Baum"), template("go", "Fremdes Go")])
+        .unwrap();
+    assert_eq!(f.config.templates().len(), 2);
+    let tree = f.config.app("tree").unwrap();
+    assert_eq!(
+        (tree.title.as_str(), tree.source),
+        ("Baum", AppSource::Server)
+    );
+    // A template never replaces the catalog or a file of the computer.
+    let go = f.config.app("go").unwrap();
+    assert_eq!((go.title.as_str(), go.source), ("Go", AppSource::Builtin));
+    fs::create_dir_all(f.config.apps_dir()).unwrap();
+    let own = "name = 'tree'\ntitle = 'Mein Baum'\ninstall = 'true'\n";
+    fs::write(f.config.apps_dir().join("tree.toml"), own).unwrap();
+    let tree = f.config.app("tree").unwrap();
+    assert_eq!(
+        (tree.title.as_str(), tree.source),
+        ("Mein Baum", AppSource::Local)
+    );
+    let names = f.config.app_names().unwrap();
+    assert_eq!(names.iter().filter(|name| *name == "tree").count(), 1);
+    fs::remove_file(f.config.apps_dir().join("tree.toml")).unwrap();
+    assert_eq!(names.last().unwrap(), "tree");
+    let resolved: Vec<String> = f
+        .config
+        .resolve_apps(&["tree".into()])
+        .unwrap()
+        .into_iter()
+        .map(|app| app.name)
+        .collect();
+    assert_eq!(resolved, ["c", "tree"]);
+
+    // A broken copy or a template this harness cannot read stops nothing.
+    fs::write(f.config.templates_file(), "{nope").unwrap();
+    assert!(f.config.templates().is_empty());
+    assert!(matches!(f.config.app("tree"), Err(Error::AppUnknown(_))));
+    let newer = r#"[{"name":"x","title":"X","kind":"cargo"},
+        {"name":"tree","title":"Baum","kind":"apt","packages":["tree"]}]"#;
+    fs::write(f.config.templates_file(), newer).unwrap();
+    assert_eq!(f.config.templates().len(), 1);
+    // One the server should never have sent fails only itself.
+    let bad = r#"[{"name":"tree","title":"Baum","kind":"apt","packages":["a b"]}]"#;
+    fs::write(f.config.templates_file(), bad).unwrap();
+    let error = f.config.app("tree").unwrap_err().to_string();
+    assert!(error.contains("Vorlage tree"), "{error}");
+    assert!(f.config.app("go").is_ok());
+}
+
+#[test]
 fn app_recipes_are_validated() {
     let valid = "name = 'x'\ntitle = 'X'\ninstall = 'true'\n";
     let with = |extra: &str| -> Result<AppConfig> {

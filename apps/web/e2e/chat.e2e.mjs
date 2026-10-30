@@ -579,22 +579,36 @@ try {
     const received = [];
     const sendEvent = (session, event) => device.send(JSON.stringify({ type: 'session.event', session, event }));
     const sendStatus = (vm, activity) => device.send(JSON.stringify({ type: 'status', vm, replies: 0, terminals: 0, stopIn: null, ...activity }));
-    // Protocol 5: the device's apps, C/C++ on by default.
-    const sendApps = (enabled) =>
+    // Protocol 5: the device's apps, C/C++ on by default. Protocol 6: the
+    // account's own programs join the catalog, as `harness connect` does.
+    let templates = [];
+    let enabledApps = ['c'];
+    const sendApps = (enabled = enabledApps) => {
+      enabledApps = enabled;
       device.send(
         JSON.stringify({
           type: 'apps',
           report: {
             catalog: [
-              { name: 'c', title: 'C/C++', description: 'gcc, g++ und make aus Debian (wie build-essential)', requires: [], version: '14.2.0', outdated: false },
-              { name: 'rust', title: 'Rust', description: 'rustc und cargo (stable) mit clippy und rustfmt', requires: ['c'], version: null, outdated: false },
-              { name: 'sqlite', title: 'SQLite', description: 'Kommandozeile sqlite3 aus Debian', requires: [], version: '3.46.1', outdated: false },
+              { name: 'c', title: 'C/C++', description: 'gcc, g++ und make aus Debian (wie build-essential)', requires: [], version: '14.2.0', outdated: false, source: 'builtin' },
+              { name: 'rust', title: 'Rust', description: 'rustc und cargo (stable) mit clippy und rustfmt', requires: ['c'], version: null, outdated: false, source: 'builtin' },
+              { name: 'sqlite', title: 'SQLite', description: 'Kommandozeile sqlite3 aus Debian', requires: [], version: '3.46.1', outdated: false, source: 'builtin' },
+              ...templates.map((template) => ({
+                name: template.name,
+                title: template.title,
+                description: template.description ?? `${template.kind}: ${template.packages.join(', ')}`,
+                requires: template.requires,
+                version: null,
+                outdated: false,
+                source: 'server',
+              })),
             ],
             versions: true,
             projects: [{ name: 'demo', enabled }],
           },
         }),
       );
+    };
     device.on('message', (data) => {
       const message = JSON.parse(data.toString());
       received.push(message);
@@ -603,6 +617,10 @@ try {
         device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
         sendStatus('stopped');
         sendApps(['c']);
+      }
+      if (message.type === 'apps.templates') {
+        templates = message.templates;
+        sendApps();
       }
       if (message.type === 'apps.set') {
         // Like `harness connect`: the new report, then the answer.
@@ -926,6 +944,52 @@ try {
       await waitForText('an, weil Rust es braucht');
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('41-devices-apps-light');
+
+      // An own program: checked in the browser, sent to the device, which
+      // lists it like a catalog app.
+      await page.click(`button${text('Programm hinzufügen')}`);
+      await page.waitForSelector(`[role=dialog] ${text('Eigenes Programm')}`, { timeout: 5_000 });
+      await page.type('[role=dialog] input[placeholder="z. B. FFmpeg"]', 'FFmpeg');
+      await page.type('[role=dialog] input[placeholder="ffmpeg imagemagick"]', 'ffmpeg; rm -rf /');
+      await page.click(`[role=dialog] button[type=submit]`);
+      await waitForText('Kein gültiges Paket: ffmpeg;');
+      const shortName = await page.$eval('[role=dialog] input.font-mono', (input) => input.value);
+      if (shortName !== 'ffmpeg') {
+        throw new Error(`short name ${shortName}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('43-own-app-dialog');
+      // The script form, at phone width (isMobile would reload the page).
+      await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 1 });
+      await page.click(`[role=dialog] label${text('Skript')}`);
+      await page.waitForSelector('[role=dialog] textarea', { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('45-own-app-script-mobile');
+      await page.setViewport({ width: 1280, height: 820, deviceScaleFactor: 1 });
+      await page.click(`[role=dialog] label${text('Debian (apt)')}`);
+      await page.$eval('[role=dialog] input[placeholder="ffmpeg imagemagick"]', (input) => {
+        input.select();
+      });
+      await page.type('[role=dialog] input[placeholder="ffmpeg imagemagick"]', 'ffmpeg imagemagick');
+      await page.click(`[role=dialog] button[type=submit]`);
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+      await waitFor(
+        () => received.some((message) => message.type === 'apps.templates' && message.templates.some((t) => t.name === 'ffmpeg')),
+        'apps.templates with ffmpeg on the device',
+      );
+      await waitForText('ffmpeg, imagemagick');
+      // The device's next report lists it; switching it on goes to the device.
+      await page.reload({ waitUntil: 'networkidle0' });
+      await page.click(`button[aria-expanded=false]${text('demo')}`);
+      await waitForText('apt: ffmpeg, imagemagick');
+      await page.click(`label${text('FFmpeg')}`);
+      await waitFor(
+        () => received.some((message) => message.type === 'apps.set' && message.enabled.includes('ffmpeg')),
+        'apps.set with ffmpeg on the device',
+      );
+      await page.$eval(text('apt: ffmpeg, imagemagick'), (element) => element.scrollIntoView({ block: 'center' }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('44-own-app-switch');
       await page.setViewport({ width: 360, height: 780, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
       await page.reload({ waitUntil: 'networkidle0' });
       await waitForText('VM stoppen');

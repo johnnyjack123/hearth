@@ -12,6 +12,7 @@ export const queryKeys = {
   providers: ['providers'] as const,
   models: ['models'] as const,
   devices: ['devices'] as const,
+  appTemplates: ['app-templates'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,
@@ -97,6 +98,15 @@ export function useDevices(live = false) {
     queryFn: api.devices.list,
     refetchInterval: live ? DEVICE_REFRESH_MS : false,
   });
+}
+
+/**
+ * The account's own programs.
+ *
+ * @returns The query result.
+ */
+export function useAppTemplates() {
+  return useQuery({ queryKey: queryKeys.appTemplates, queryFn: api.appTemplates.list });
 }
 
 /**

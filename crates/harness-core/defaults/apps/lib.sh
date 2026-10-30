@@ -65,10 +65,15 @@ harness_apt() {
     "$WORK/apt/debs" "$PREFIX/root"
   echo "Dir::Etc::Parts \"$WORK/apt/conf.d\";" > "$WORK/apt/apt.conf"
   _harness_apt_get update -qq
+  # Separately, so a package apt does not know fails here instead of
+  # vanishing in the pipe below.
+  if ! simulation=$(_harness_apt_get install -s --no-install-recommends "$@"); then
+    echo "apt kann nicht installieren: $*" >&2
+    exit 1
+  fi
   # "Inst name (version …)" is a new package, "Inst name [old] (new …)" an
   # upgrade of one the base image has.
-  packages=$(_harness_apt_get install -s --no-install-recommends "$@" \
-    | sed -n 's/^Inst \([^ ]*\) (.*/\1/p')
+  packages=$(printf '%s\n' "$simulation" | sed -n 's/^Inst \([^ ]*\) (.*/\1/p')
   if [ -z "$packages" ]; then
     echo "Schon im Base-Image: $*"
     return 0
@@ -78,8 +83,47 @@ harness_apt() {
   (cd "$WORK/apt/debs" && _harness_apt_get download $packages)
   for deb in "$WORK/apt/debs"/*.deb; do
     dpkg-deb -x "$deb" "$PREFIX/root"
+    # shellcheck disable=SC2016 # dpkg's format, not the shell's
+    dpkg-deb --show --showformat='${Package} ${Version}\n' "$deb" >> "$WORK/apt/unpacked"
   done
   rm -rf "$WORK/apt/debs"
+}
+
+# Version of the Debian package $1: as harness_apt unpacked it, else as the
+# base image has it.
+harness_deb_version() {
+  awk -v package="$1" '$1 == package { print $2; exit }' "$WORK/apt/unpacked" 2>/dev/null \
+    | grep . || dpkg-query -W -f='${Version}' "$1" 2>/dev/null
+}
+
+# npm packages with their commands into $PREFIX (lib/node_modules, bin).
+# Their install scripts run here in the installer, as in any project.
+harness_npm() {
+  npm_config_cache="$WORK/npm" npm install --global --prefix "$PREFIX" --no-fund --no-audit \
+    -- "$@"
+}
+
+# Version of the npm package $1 that harness_npm installed.
+harness_npm_version() {
+  node -p 'require(process.argv[1]).version' "$PREFIX/lib/node_modules/$1/package.json"
+}
+
+# Python programs, each in an environment of its own below $PREFIX/tools
+# with its commands in $PREFIX/bin (like pipx). They run on the base image's
+# Python, so uv downloads none.
+harness_pip() {
+  # $PREFIX/bin on PATH only spares uv's hint to put it there.
+  for package in "$@"; do
+    PATH="$PREFIX/bin:$PATH" UV_TOOL_DIR="$PREFIX/tools" UV_TOOL_BIN_DIR="$PREFIX/bin" \
+      UV_CACHE_DIR="$WORK/uv" UV_PYTHON_DOWNLOADS=never \
+      uv tool install --python /usr/bin/python3 "$package"
+  done
+}
+
+# Version of the Python program $1 (normalized name) that harness_pip installed.
+harness_pip_version() {
+  "$PREFIX/tools/$1/bin/python" -c \
+    'import sys, importlib.metadata as m; print(m.version(sys.argv[1]))' "$1"
 }
 
 # Library folders of the packages harness_apt unpacked.

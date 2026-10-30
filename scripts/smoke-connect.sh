@@ -114,6 +114,7 @@ cleanup() {
   (cd "$WORK/$NAME" 2> /dev/null && "$H" stop > /dev/null 2>&1)
   "$PM" rm -f "harness-$NAME" "harness-gw-$NAME" "harness-install-$NAME" > /dev/null 2>&1
   "$PM" volume rm "harness-ws-$NAME" "harness-home-$NAME" > /dev/null 2>&1
+  "$H" app remove smoke-hello > /dev/null 2>&1
   "$PM" network rm "harness-net-$NAME" > /dev/null 2>&1
   powershell.exe -NoProfile -Command "foreach (\$p in $SERVER_PORT,$MOCK_PORT) { Get-NetTCPConnection -LocalPort \$p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force } }" > /dev/null 2>&1
   rm -rf "$WORK"
@@ -209,6 +210,17 @@ SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","
 check "unbekannte App vom Rechner abgelehnt" test "$(echo "$SWITCHED" | json v.ok)" = false
 check "Projektdatei unverändert" test "$(apps_of)" = "c,sqlite"
 
+echo "== Eigene Programme"
+# A script program needs no download: the session start installs it for real.
+OWN=$(api POST /api/app-templates '{"name":"smoke-hello","title":"Smoke Hello","description":null,"kind":"script","packages":[],"script":"mkdir -p \"$PREFIX/bin\" && echo \"echo smoke hallo\" > \"$PREFIX/bin/smoke-hello\" && chmod 755 \"$PREFIX/bin/smoke-hello\" && harness_version 1.0","hosts":[],"path":["bin"],"requires":[]}')
+OWN_ID=$(echo "$OWN" | json v.id)
+check "eigenes Programm im Konto" test "$(echo "$OWN" | json v.name)" = smoke-hello
+check "Rechner hat die Vorlage gespeichert" wait_for 20 grep -q smoke-hello "$HARNESS_HOME/server-apps.json"
+own_reported() { test "$(api GET /api/devices | json "v[0].apps?.catalog.find((a) => a.name === 'smoke-hello')?.source")" = server; }
+check "im Katalog des Rechners, als eigenes" wait_for 20 own_reported
+SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","sqlite","smoke-hello"]}')
+check "eigenes Programm eingeschaltet" test "$(echo "$SWITCHED" | json v.ok)" = true
+
 echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
 # -N, or curl holds the stream back until its buffer is full.
@@ -237,6 +249,11 @@ check "Antwort mit Werkzeugaufruf gespeichert" test \
 check "Agent in den Metadaten" test "$(echo "$REPLY" | json "v.messages.at(-1).metadata.agent.harness")" = pi
 sqlite_in_instance() { in_container 'sqlite3 --version' | grep -q '^3[.]'; }
 check "im Browser eingeschaltete App in der Instanz" sqlite_in_instance
+own_in_instance() { in_container smoke-hello | grep -q 'smoke hallo'; }
+check "eigenes Programm in der Instanz" own_in_instance
+api DELETE "/api/app-templates/$OWN_ID" > /dev/null
+own_switched_off() { ! grep -q smoke-hello "$HARNESS_HOME/projects/$NAME.toml"; }
+check "gelöschtes Programm im Projekt ausgeschaltet" wait_for 20 own_switched_off
 
 echo "== harness sync"
 "$H" sync > "$WORK/sync.log" 2>&1

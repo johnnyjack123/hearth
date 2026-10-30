@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use anyhow::bail;
 use clap::Subcommand;
+use harness_core::Error;
 use harness_core::apps::{self, Install, Inventory, ReadyApp};
-use harness_core::config::{AppConfig, ConfigDir, Project};
+use harness_core::config::{AppConfig, AppSource, AppTemplate, ConfigDir, Project};
 use harness_core::gateway;
 use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
@@ -92,6 +93,7 @@ pub(crate) fn report(
                 version: install.map(|install| install.version.clone()),
                 outdated: install.is_some_and(|install| install.outdated(&app)),
                 description: app.description.as_deref().map(|d| truncate(d, 300)),
+                source: Some(app.source),
                 name: app.name,
                 title: app.title,
                 requires: app.requires,
@@ -168,6 +170,57 @@ pub(crate) fn apply_from_browser(
     }
 }
 
+/// Takes over the account's templates as the server sent them: the ones
+/// this harness can read become the new copy, and templates that are gone
+/// are switched off in every project, whose next start would fail on an
+/// unknown app otherwise. Returns what changed (German), `None` if nothing.
+pub(crate) fn apply_templates(
+    config: &ConfigDir,
+    raw: Vec<serde_json::Value>,
+) -> anyhow::Result<Option<String>> {
+    let offered = raw.len();
+    let templates: Vec<AppTemplate> = raw
+        .into_iter()
+        .filter_map(|value| serde_json::from_value(value).ok())
+        .collect();
+    let before = config.templates();
+    if before == templates && config.templates_file().exists() {
+        return Ok(None);
+    }
+    config.save_templates(&templates)?;
+    let mut message = format!("Eigene Programme vom Server: {}", templates.len());
+    if templates.len() < offered {
+        message.push_str(&format!(
+            " ({} kann dieses harness nicht lesen, bitte aktualisieren)",
+            offered - templates.len()
+        ));
+    }
+    let gone: Vec<String> = before
+        .into_iter()
+        .map(|template| template.name)
+        .filter(|name| matches!(config.app(name), Err(Error::AppUnknown(_))))
+        .collect();
+    if !gone.is_empty() {
+        for name in config.project_names()? {
+            let Ok(project) = config.project(&name) else {
+                continue;
+            };
+            if project.apps.iter().any(|app| gone.contains(app)) {
+                config.set_apps(&name, &[], &gone)?;
+                message.push_str(&format!(
+                    "; in {name} ausgeschaltet: {}",
+                    gone.iter()
+                        .filter(|app| project.apps.contains(app))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+    }
+    Ok(Some(message))
+}
+
 /// Deletes every install of the named apps that no container mounts.
 fn remove(machine: &str, names: &[String]) -> anyhow::Result<bool> {
     let provider = crate::vm::provider(machine)?;
@@ -215,9 +268,16 @@ pub(crate) fn ready(
     let inventory = Inventory::load(provider)?;
     let mut ready: Vec<ReadyApp> = Vec::new();
     for app in wanted {
-        // A newer recipe does not reinstall by itself (downloads, minutes);
-        // `harness app list` points it out.
+        // A newer recipe of harness does not reinstall by itself (downloads,
+        // minutes); `harness app list` points it out. A template the user
+        // changed in the browser does: that is what the change was for.
         let install = match inventory.latest(&app.name) {
+            // If the changed one fails, the old install keeps the project
+            // usable; the failed step tells why, and the next start retries.
+            Some(install) if app.source == AppSource::Server && install.outdated(&app) => {
+                install_one(config, provider, project, &app, &ready, progress)
+                    .unwrap_or_else(|_| install.clone())
+            }
             Some(install) => install.clone(),
             None => install_one(config, provider, project, &app, &ready, progress)?,
         };
@@ -291,6 +351,15 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
             Some(_) => "aus".to_owned(),
             None => String::new(),
         };
+        let origin = match app.source {
+            AppSource::Builtin => "",
+            AppSource::Local => "(eigene Datei)",
+            AppSource::Server => "(aus dem Browser)",
+        };
+        let about = format!(
+            "{} {origin}",
+            app.description.as_deref().unwrap_or_default()
+        );
         let installed = match &inventory {
             Some(inventory) => match inventory.latest(&app.name) {
                 Some(install) if install.outdated(app) => {
@@ -308,7 +377,7 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
             app.title,
             state,
             installed,
-            app.description.as_deref().unwrap_or_default()
+            about.trim()
         );
     }
     match &inventory {
@@ -470,5 +539,61 @@ mod tests {
             .find(|app| app.name == "rust")
             .unwrap();
         assert_eq!(rust.requires, ["c"]);
+        assert_eq!(rust.source, Some(AppSource::Builtin));
+    }
+
+    #[test]
+    fn templates_from_the_server_join_the_catalog_and_leave_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("demo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let config = ConfigDir::new(dir.path().join("home"));
+        let project = config.create_project(&repo).unwrap();
+        let template = |name: &str| {
+            serde_json::json!({
+                "name": name, "title": name, "kind": "apt", "packages": [name],
+                "script": "", "hosts": [], "path": [], "requires": []
+            })
+        };
+        let newer = serde_json::json!({ "name": "x", "title": "X", "kind": "cargo" });
+
+        let message = apply_templates(&config, vec![template("tree"), template("ncdu"), newer])
+            .unwrap()
+            .unwrap();
+        assert!(
+            message.contains("2") && message.contains("1 kann"),
+            "{message}"
+        );
+        // The same templates again change nothing.
+        let again = vec![template("tree"), template("ncdu"), serde_json::json!({})];
+        assert_eq!(apply_templates(&config, again).unwrap(), None);
+
+        let offered = crate::connect::offered(&config);
+        let (ok, message) = apply_from_browser(
+            &config,
+            &offered,
+            &project.name.to_string(),
+            &["tree".into(), "ncdu".into()],
+        );
+        assert!(ok, "{message}");
+        let report = report(&config, &offered, None);
+        let tree = report
+            .catalog
+            .iter()
+            .find(|app| app.name == "tree")
+            .unwrap();
+        assert_eq!(tree.source, Some(AppSource::Server));
+        assert_eq!(tree.description.as_deref(), Some("apt: tree"));
+
+        // Deleted in the browser: switched off, so the project still starts.
+        let message = apply_templates(&config, vec![template("ncdu")])
+            .unwrap()
+            .unwrap();
+        assert!(message.contains("ausgeschaltet: tree"), "{message}");
+        let apps = config.project(&project.name).unwrap().apps;
+        assert_eq!(apps, ["ncdu"]);
+        config
+            .project_apps(&config.project(&project.name).unwrap())
+            .unwrap();
     }
 }

@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-28 · App-Katalog Schritte 1–2 (Kern, CLI, Browser) fertig; Rechner `calculate`, Mathe-Rendering und Copy-Buttons über HTTP (Branch `feat/chat-math-tools`); nächstes: eigene Programme (App-Katalog Schritt 3)_
+_Last updated: 2026-10-30 · Release v0.1.6 (Programme im Browser); App-Katalog Schritt 3a: eigene Programme aus dem Browser (Branch `feat/own-apps`); nächstes: Programmdateien vom Rechner (Schritt 3b)_
 
 ## Where we are
 
@@ -60,9 +60,10 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    **App-Katalog** (ROADMAP Phase 3, „Plan in Schritten“):
    1. ✅ Kern und CLI (27.10.): Rezepte C/C++, Rust, Go, Java, Deno, Bun, SQLite; ein Volume pro Installation unter `/opt/harness-apps/<app>`; `[apps] enabled` (Standard `["c"]`); `harness app list|on|off|install|update|remove`. `build-essential` ist aus dem Base-Image raus (698 → 454 MB). Wunsch des Nutzers dazu: `vmd clean` behält node/uv und sichert ungesicherte Arbeit gelöschter Projekte als Git-Bundle (`project remove` auch).
    2. ✅ Browser (28.10.): Einstellungen → Geräte „Programme je Projekt“, im Umgebungs-Popover „Programme: …“ mit Schaltern im Dialog; Tunnel-Protokoll 5. Dabei behoben: `harness daemon stop` brauchte ~30 s (gestaute Wakes im Leerlauf-Wächter).
-   ✅ **Wünsche des Nutzers vom 28.10.:** Copy-Buttons gehen über `http://` (Rückfall ohne Zwischenablage-API), Mathe mit `\(…\)`/`\[…\]` wird gerendert, Werkzeug `calculate` (math.js im Server, Admin-Schalter „Taschenrechner“). Offen: der Rechner auch für pi (über `llm.harness/_calc` wie `web_fetch`).
-   **Als Nächstes:** App-Katalog Schritt 3 (eigene Programme).
-   3. Eigene Programme (Paketnamen, Befehle, Vorlagen auf dem Server; Dateien vom Rechner mit Bestätigung).
+   ✅ **Wünsche des Nutzers vom 28.10.:** Copy-Buttons gehen über `http://` (Rückfall ohne Zwischenablage-API), Mathe mit `\(…\)`/`\[…\]` wird gerendert, Werkzeug `calculate` (math.js im Server, Admin-Schalter „Taschenrechner“). Den Rechner für pi hat der Nutzer am 30.10. nach hinten geschoben (ROADMAP Phase 5).
+   **Release v0.1.6 (29.10.):** Der Nutzer meldete „Client zu alt“ im Browser mit dem neuesten Release; v0.1.5 war vom 27.10. und kannte Protokoll 5 noch nicht. Nebenbei: `cargo fmt` aus Schritt 2 nachgeholt, der Gateway-Workflow war daran gescheitert.
+   3. ✅ **3a, eigene Programme aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“ (apt, npm, pip oder Skript, „Braucht“), Vorlagen pro Konto auf dem Server, Tunnel-Protokoll 6 (`apps.templates`), Kopie auf dem Rechner in `server-apps.json`. Geänderte Vorlagen installieren beim nächsten Start neu, gelöschte werden in allen Projekten ausgeschaltet. Geprüft: Rust-Tests, Server 196/196, Browser-E2E 15/15 (neue Bilder 43–45), Smoke-Test 82 grün, alle vier Arten in der echten VM.
+      **Als Nächstes:** 3b, Programmdateien vom Rechner (Pfad im Browser, Bestätigung am Rechner per Terminal oder Tray).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
@@ -250,6 +251,11 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-29/30 (Release v0.1.6, App-Katalog Schritt 3a)
+- Release v0.1.6: Der Nutzer hatte v0.1.5 installiert, die Programme im Browser kamen erst danach.
+- Gebaut: eigene Programme aus dem Browser (Vorlagen pro Konto, Protokoll 6, Rezepte auf dem Rechner, Abschnitt unter Einstellungen → Geräte, Herkunft in den Schaltern).
+- Gefunden: `harness_apt` meldete ein unbekanntes Paket als „Schon im Base-Image“ (behoben). `prettier --write` ohne Konfiguration hat 18 Dateien umformatiert; aus `HEAD` wiederhergestellt und die Änderungen neu eingespielt (Stolperstein in CLAUDE.md).
 
 ### 2026-10-28 (Rechner, Mathe, Kopieren)
 - Gefunden: Copy-Buttons scheiterten über HTTP im LAN (keine Zwischenablage-API außerhalb sicherer Kontexte); Mathe renderte nur `$$`, Modelle schreiben `\(…\)`; `config(...)` aus einem Ausdruck verstellt eine math.js-Instanz dauerhaft.

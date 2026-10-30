@@ -20,6 +20,8 @@ export type ApiErrorCode =
   | 'device_timeout'
   | 'device_failed'
   | 'conflict'
+  | 'app_name_taken'
+  | 'too_many_apps'
   | 'internal';
 
 /**

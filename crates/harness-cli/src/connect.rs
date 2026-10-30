@@ -687,6 +687,20 @@ fn dispatch(
                 message: truncate(&message, 900),
             });
         }
+        ServerMessage::AppsTemplates { templates } => {
+            match app::apply_templates(&shared.config, templates) {
+                Ok(Some(message)) => say(shared.mode, &message),
+                Ok(None) => {}
+                Err(error) => say(
+                    shared.mode,
+                    &format!("Eigene Programme vom Server nicht gespeichert: {error:#}"),
+                ),
+            }
+            // The catalog may have changed; the browser lists it per device.
+            if let Some(report) = changed_apps(shared, &offered(&shared.config)) {
+                let _ = out.send(DeviceMessage::Apps { report });
+            }
+        }
         ServerMessage::Prompt(prompt) => route(shared, sessions, out, prompt, false),
         ServerMessage::Compact(request) => route(shared, sessions, out, request.as_prompt(), true),
         ServerMessage::Cancel { session } => {

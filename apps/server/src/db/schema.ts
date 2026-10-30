@@ -131,6 +131,28 @@ export interface DeviceProjectTable {
 }
 
 /**
+ * Row of `appTemplate`: an own program of an account, sent to all of its
+ * devices. Lists are JSON arrays of strings.
+ */
+export interface AppTemplateTable {
+  id: string;
+  userId: string;
+  /** App name on the devices; unique per account, never changes. */
+  name: string;
+  title: string;
+  description: string | null;
+  /** `AppKind`. */
+  kind: string;
+  packages: string;
+  script: string;
+  hosts: string;
+  path: string;
+  requires: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -143,4 +165,5 @@ export interface DB {
   devicePairing: DevicePairingTable;
   chatLink: ChatLinkTable;
   deviceProject: DeviceProjectTable;
+  appTemplate: AppTemplateTable;
 }

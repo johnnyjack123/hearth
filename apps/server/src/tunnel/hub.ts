@@ -5,6 +5,7 @@ import {
   type AppsReport,
   type AppsSetResult,
   type DeviceActivity,
+  type DeviceAppTemplate,
   type DeviceMessage,
   deviceMessageSchema,
   DEFAULT_IDLE_MINUTES,
@@ -15,6 +16,7 @@ import {
   VERSION_APPS,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
+  VERSION_TEMPLATES,
   VERSION_VM_CONTROL,
   type VmState,
   type VmStopResult,
@@ -64,6 +66,8 @@ export interface HubListener {
   projects?(deviceId: string, projects: RemoteProject[]): void | Promise<void>;
   /** A device reported its apps; kept like its projects. */
   apps?(deviceId: string, report: AppsReport): void | Promise<void>;
+  /** The own programs of an account, for its devices after their hello. */
+  templates?(userId: string): DeviceAppTemplate[] | Promise<DeviceAppTemplate[]>;
 }
 
 /** Callbacks for one socket, returned by {@link DeviceHub.attach}. */
@@ -195,6 +199,8 @@ interface Connection {
   apps: AppsReport | null;
   settings: DeviceSettings;
   requests: Map<string, PendingRequest>;
+  /** Counts lists of own programs sent, so a slow first one cannot follow a newer. */
+  templatesSent: number;
 }
 
 interface ActiveRun {
@@ -245,6 +251,7 @@ export class DeviceHub {
       apps: null,
       settings: settings ?? previous?.settings ?? { idleMinutes: DEFAULT_IDLE_MINUTES },
       requests: new Map(),
+      templatesSent: 0,
     };
     this.#devices.set(deviceId, connection);
     this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION });
@@ -294,6 +301,22 @@ export class DeviceHub {
     connection.settings = settings;
     if (connection.greeted && connection.version >= VERSION_VM_CONTROL) {
       this.#send(connection, { type: 'settings', idleMinutes: settings.idleMinutes });
+    }
+  }
+
+  /**
+   * Hands the account's own programs to its connected devices (protocol 6);
+   * a device that connects later gets them after its hello.
+   *
+   * @param userId - The account.
+   * @param templates - All of its programs.
+   */
+  sendTemplates(userId: string, templates: DeviceAppTemplate[]): void {
+    for (const connection of this.#devices.values()) {
+      if (connection.userId === userId && connection.greeted && connection.version >= VERSION_TEMPLATES) {
+        connection.templatesSent += 1;
+        this.#send(connection, { type: 'apps.templates', templates });
+      }
     }
   }
 
@@ -529,6 +552,9 @@ export class DeviceHub {
         if (connection.version >= VERSION_VM_CONTROL) {
           this.#send(connection, { type: 'settings', idleMinutes: connection.settings.idleMinutes });
         }
+        if (connection.version >= VERSION_TEMPLATES) {
+          this.#greetWithTemplates(connection);
+        }
         return;
       case 'projects':
         connection.projects = message.projects;
@@ -587,6 +613,26 @@ export class DeviceHub {
         return;
       }
     }
+  }
+
+  #greetWithTemplates(connection: Connection): void {
+    const load = this.listener.templates;
+    if (!load) {
+      return;
+    }
+    const before = connection.templatesSent;
+    void Promise.resolve(load(connection.userId))
+      .then((templates) => {
+        // A change in the meantime went out already, and it is newer.
+        const current = [...this.#devices.values()].includes(connection);
+        if (current && connection.templatesSent === before) {
+          connection.templatesSent += 1;
+          this.#send(connection, { type: 'apps.templates', templates });
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('[tunnel] loading own programs failed:', error instanceof Error ? error.message : error);
+      });
   }
 
   #store(deviceId: string, projects: RemoteProject[]): void {
