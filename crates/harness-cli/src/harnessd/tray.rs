@@ -1,7 +1,8 @@
 //! The tray icon of `harnessd` (ROADMAP Phase 3): shows whether the
 //! service is connected and what the VM does, opens the web app and the
 //! log, stops the VM, ends the service, and points at what waits for the
-//! user (questions of a gateway, merges held for approval).
+//! user (questions of a gateway, merges held for approval, program files
+//! the browser asked for, which only an answer here lets into the VM).
 //!
 //! Plain Win32 on the main thread; the service runs as a child process
 //! that a second thread watches. The tray reads what the service writes to
@@ -12,9 +13,11 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt as _;
+use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows_sys::Win32::Foundation::{
@@ -40,10 +43,11 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics, HICON, HMENU,
-    MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, PostMessageW, PostQuitMessage, RegisterClassW,
-    RegisterWindowMessageW, SM_CXSMICON, SW_SHOWNORMAL, SetForegroundWindow, SetTimer,
-    TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage, WM_APP,
-    WM_CONTEXTMENU, WM_DESTROY, WM_NULL, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    IDNO, IDYES, MB_DEFBUTTON3, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNOCANCEL,
+    MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, MessageBoxW, PostMessageW, PostQuitMessage,
+    RegisterClassW, RegisterWindowMessageW, SM_CXSMICON, SW_SHOWNORMAL, SetForegroundWindow,
+    SetTimer, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
+    WM_APP, WM_CONTEXTMENU, WM_DESTROY, WM_NULL, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::icon::{self, AMBER, BRAND, GREY, Look};
@@ -54,6 +58,8 @@ use crate::{object_suffix, supervise};
 const WM_TRAY: u32 = WM_APP + 1;
 /// The service has ended for good.
 const WM_SERVICE_ENDED: u32 = WM_APP + 2;
+/// `harness app approve|deny` finished; its answer is in [`FILE_ANSWERS`].
+const WM_FILE_DONE: u32 = WM_APP + 3;
 const TIMER_ID: usize = 1;
 /// The status file is read this often.
 const REFRESH_MS: u32 = 2_000;
@@ -64,6 +70,9 @@ const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 
 /// `TaskbarCreated`: Explorer restarted and lost all icons.
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+
+/// Answers of `harness app approve|deny`: worked, and its last line.
+static FILE_ANSWERS: Mutex<Vec<(bool, String)>> = Mutex::new(Vec::new());
 
 fn wide(text: &str) -> Vec<u16> {
     OsStr::new(text).encode_wide().chain([0]).collect()
@@ -100,6 +109,8 @@ fn now() -> u64 {
 struct Tray {
     hwnd: HWND,
     root: PathBuf,
+    /// `harness.exe`, for approving program files.
+    harness: PathBuf,
     suffix: String,
     pid: Arc<AtomicU32>,
     quit: Arc<AtomicBool>,
@@ -110,6 +121,8 @@ struct Tray {
     announced: HashSet<String>,
     /// Where a click on the last notification leads.
     notice_target: Option<String>,
+    /// The program file request a click on the last notification asks about.
+    notice_file: Option<String>,
     /// Actions of the open menu; command id n is index n − 1.
     actions: Vec<Action>,
 }
@@ -184,6 +197,7 @@ impl Tray {
         for notice in self.language.notices(&view) {
             if self.announced.insert(notice.key.clone()) {
                 self.notify(&notice.text, notice.warning, notice.target);
+                self.notice_file = notice.file;
             }
         }
     }
@@ -204,6 +218,7 @@ impl Tray {
             Shell_NotifyIconW(NIM_MODIFY, &data);
         }
         self.notice_target = target;
+        self.notice_file = None;
     }
 
     /// The menu for the current view; its actions are kept by command id.
@@ -243,12 +258,80 @@ impl Tray {
             Action::StopVm => {
                 signal(&format!(r"Local\llm-harness-daemon-vmstop-{}", self.suffix));
             }
+            Action::ApproveFile(id) => self.approve_file(&id),
             Action::Quit => {
                 self.quit.store(true, Ordering::SeqCst);
                 signal(&format!(r"Local\llm-harness-daemon-stop-{}", self.suffix));
                 self.refresh();
             }
         }
+    }
+}
+
+impl Tray {
+    /// Asks whether the program file of request `id` may go into the VM and
+    /// lets `harness` do what the user answered. Only this question (or a
+    /// terminal) can approve; the browser can merely ask.
+    fn approve_file(&mut self, id: &str) {
+        let Some(file) = self.view().files.into_iter().find(|file| file.id == id) else {
+            return;
+        };
+        let text = wide(&self.language.approval_question(&file));
+        let caption = wide("LLM Harness");
+        // SAFETY: valid strings; the box is modal to the hidden window and
+        // pumps messages, which the tray skips while it is borrowed.
+        let answer = unsafe {
+            MessageBoxW(
+                self.hwnd,
+                text.as_ptr(),
+                caption.as_ptr(),
+                MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON3 | MB_SETFOREGROUND | MB_TOPMOST,
+            )
+        };
+        let verb = match answer {
+            IDYES => "approve",
+            IDNO => "deny",
+            // Later: the request waits, the menu still offers it.
+            _ => {
+                self.announced.remove(&format!("f:{id}"));
+                return;
+            }
+        };
+        let mut command = Command::new(&self.harness);
+        command.args(["app", verb, id]);
+        if verb == "approve" {
+            command.arg("--yes");
+        }
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let window = self.hwnd as usize;
+        // Copying a large file takes a while; the icon stays responsive.
+        std::thread::spawn(move || {
+            let answer = match command.output() {
+                Ok(output) => {
+                    let text = String::from_utf8_lossy(if output.status.success() {
+                        &output.stdout
+                    } else {
+                        &output.stderr
+                    })
+                    .lines()
+                    .rfind(|line| !line.trim().is_empty())
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                    (output.status.success(), text)
+                }
+                Err(error) => (false, format!("harness nicht gestartet: {error}")),
+            };
+            FILE_ANSWERS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(answer);
+            // SAFETY: posting to a window of this process.
+            unsafe {
+                PostMessageW(window as HWND, WM_FILE_DONE, 0, 0);
+            }
+        });
     }
 }
 
@@ -338,8 +421,12 @@ unsafe extern "system" fn window_proc(
             match (lparam & 0xffff) as u32 {
                 WM_CONTEXTMENU | NIN_SELECT | NIN_KEYSELECT => show_menu(hwnd),
                 NIN_BALLOONUSERCLICK => {
-                    if let Some(Some(target)) = with_tray(|t| t.notice_target.clone()) {
-                        open(hwnd, &target);
+                    match with_tray(|t| (t.notice_target.clone(), t.notice_file.clone())) {
+                        Some((_, Some(id))) => {
+                            with_tray(|tray| tray.approve_file(&id));
+                        }
+                        Some((Some(target), None)) => open(hwnd, &target),
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -348,6 +435,20 @@ unsafe extern "system" fn window_proc(
         }
         WM_TIMER => {
             with_tray(Tray::refresh);
+            0
+        }
+        WM_FILE_DONE => {
+            let answers = std::mem::take(
+                &mut *FILE_ANSWERS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
+            with_tray(|tray| {
+                for (ok, text) in answers {
+                    tray.notify(&text, !ok, None);
+                }
+                tray.refresh();
+            });
             0
         }
         WM_SERVICE_ENDED => {
@@ -441,6 +542,7 @@ pub fn run(harness: &Path, root: &Path) {
     let tray = Tray {
         hwnd,
         root: root.to_owned(),
+        harness: harness.to_owned(),
         suffix,
         pid: Arc::clone(&pid),
         quit: Arc::clone(&quit),
@@ -453,6 +555,7 @@ pub fn run(harness: &Path, root: &Path) {
         ],
         announced: HashSet::new(),
         notice_target: None,
+        notice_file: None,
         actions: Vec::new(),
     };
     tray.add();

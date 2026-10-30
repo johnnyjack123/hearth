@@ -12,6 +12,7 @@ import { api, errorMessage } from '@/lib/api.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { queryKeys } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
+import { DeviceFiles } from './device-files.tsx';
 import { OWN_APPS_ID } from './own-apps.tsx';
 
 /**
@@ -206,6 +207,7 @@ export function DeviceApps({ device }: { device: DeviceSummary }) {
       {device.projects.map((project) => (
         <ProjectRow key={project.name} device={device} project={project} />
       ))}
+      <DeviceFiles device={device} />
     </div>
   );
 }

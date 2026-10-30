@@ -559,6 +559,23 @@ export const en: Messages = {
       reinstallsNext: 'changed, reinstalls on the next start',
       ownLink: 'Add own programs',
     },
+    files: {
+      add: 'Add a program file of this computer',
+      offline: 'The computer must be connected to ask for files.',
+      dialogTitle: 'Program file of “{device}”',
+      dialogDescription:
+        'A Linux program file on the computer: a program, an AppImage, a .deb or an archive (.tar.gz, .tar.xz, .zip). The computer checks it; it only goes into the VM once you approve it there.',
+      path: 'Path on the computer',
+      pathHint: 'In Explorer: right-click the file, “Copy as path”.',
+      submit: 'Ask',
+      waitingTitle: 'Now approve it on the computer',
+      waitingTray: 'In the tray icon’s menu: “Approve program “{title}” …”',
+      waitingTerminal: 'or in a terminal:',
+      copy: 'Copy',
+      copied: 'Copied',
+      pending: '“{title}” waits for approval on the computer',
+      pendingHow: 'In the tray icon or with',
+    },
   },
   ownApps: {
     title: 'Own programs',

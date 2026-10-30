@@ -559,6 +559,23 @@ export const de = {
       reinstallsNext: 'geändert, wird beim nächsten Start neu installiert',
       ownLink: 'Eigene Programme anlegen',
     },
+    files: {
+      add: 'Programmdatei dieses Rechners hinzufügen',
+      offline: 'Zum Anfragen muss der Rechner verbunden sein.',
+      dialogTitle: 'Programmdatei von „{device}“',
+      dialogDescription:
+        'Eine Linux-Programmdatei auf dem Rechner: ein Programm, eine AppImage, ein .deb oder ein Archiv (.tar.gz, .tar.xz, .zip). Der Rechner prüft sie; in die VM kommt sie erst, wenn du sie dort freigibst.',
+      path: 'Pfad auf dem Rechner',
+      pathHint: 'Im Explorer: Rechtsklick auf die Datei, „Als Pfad kopieren“.',
+      submit: 'Anfragen',
+      waitingTitle: 'Jetzt am Rechner freigeben',
+      waitingTray: 'Im Menü des Tray-Symbols: „Programm „{title}“ freigeben …“',
+      waitingTerminal: 'oder im Terminal:',
+      copy: 'Kopieren',
+      copied: 'Kopiert',
+      pending: '„{title}“ wartet auf Freigabe am Rechner',
+      pendingHow: 'Im Tray-Symbol oder mit',
+    },
   },
   ownApps: {
     title: 'Eigene Programme',

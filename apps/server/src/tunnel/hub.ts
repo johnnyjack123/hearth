@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   type AgentEvent,
+  type AppFileResult,
   type ApprovalDecision,
   type AppsReport,
   type AppsSetResult,
@@ -13,6 +14,7 @@ import {
   type RemoteProject,
   type ServerMessage,
   TUNNEL_VERSION,
+  VERSION_APP_FILES,
   VERSION_APPS,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
@@ -59,6 +61,9 @@ const VM_STOP_TIMEOUT_MS = 3 * 60_000;
 
 /** Switching apps only edits a file on the device. */
 const APPS_SET_TIMEOUT_MS = 30_000;
+
+/** Asking for a program file reads its first bytes and writes a request. */
+const APP_FILE_TIMEOUT_MS = 30_000;
 
 /** Hooks of the hub into the rest of the server. */
 export interface HubListener {
@@ -182,7 +187,7 @@ export class AgentRun implements AsyncIterable<AgentEvent> {
 
 /** A request to the device that waits for its answer (`vm.result`, `apps.result`). */
 interface PendingRequest {
-  resolve: (result: VmStopResult | AppsSetResult) => void;
+  resolve: (result: VmStopResult | AppsSetResult | AppFileResult) => void;
   reject: (error: HttpError) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -364,6 +369,32 @@ export class DeviceHub {
   }
 
   /**
+   * Asks a device for a program file as a new app. The device checks the
+   * file and stores a request that only the user can approve there (tray
+   * icon or `harness app approve`); nothing of the file moves before.
+   *
+   * @param deviceId - Device id.
+   * @param file - Path on the device, app name and title.
+   * @returns The device's answer, with the id to approve on the computer.
+   * @throws {HttpError} 409 if the device is offline or too old for it,
+   *   504 if it does not answer in time.
+   */
+  requestAppFile(deviceId: string, file: { path: string; name: string; title: string }): Promise<AppFileResult> {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
+    }
+    if (connection.version < VERSION_APP_FILES) {
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot take program files yet; update harness'));
+    }
+    return this.#ask(connection, APP_FILE_TIMEOUT_MS, (request) => ({ type: 'apps.file', request, ...file })).then((result) => ({
+      ok: result.ok,
+      message: result.message,
+      approval: 'approval' in result ? (result.approval ?? null) : null,
+    }));
+  }
+
+  /**
    * Sends a request with a fresh id and waits for the device's answer to it.
    *
    * @param connection - The device's connection.
@@ -371,9 +402,13 @@ export class DeviceHub {
    * @param message - The request for an id.
    * @returns The answer.
    */
-  #ask(connection: Connection, timeoutMs: number, message: (request: string) => ServerMessage): Promise<VmStopResult> {
+  #ask(
+    connection: Connection,
+    timeoutMs: number,
+    message: (request: string) => ServerMessage,
+  ): Promise<VmStopResult | (AppsSetResult & { approval?: string })> {
     const request = randomUUID();
-    return new Promise<VmStopResult>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         connection.requests.delete(request);
         reject(new HttpError(504, 'device_timeout', 'The device did not answer in time'));
@@ -578,7 +613,11 @@ export class DeviceHub {
         if (pending) {
           clearTimeout(pending.timer);
           connection.requests.delete(message.request);
-          pending.resolve({ ok: message.ok, message: message.message });
+          pending.resolve({
+            ok: message.ok,
+            message: message.message,
+            ...(message.type === 'apps.result' && message.approval ? { approval: message.approval } : {}),
+          });
         }
         return;
       }

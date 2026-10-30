@@ -6,6 +6,7 @@
 //! pairing with the server (docs/ROADMAP.md, Phase 2).
 
 mod app;
+mod app_request;
 mod connect;
 mod daemon;
 mod doctor;

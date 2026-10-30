@@ -114,7 +114,7 @@ cleanup() {
   (cd "$WORK/$NAME" 2> /dev/null && "$H" stop > /dev/null 2>&1)
   "$PM" rm -f "harness-$NAME" "harness-gw-$NAME" "harness-install-$NAME" > /dev/null 2>&1
   "$PM" volume rm "harness-ws-$NAME" "harness-home-$NAME" > /dev/null 2>&1
-  "$H" app remove smoke-hello > /dev/null 2>&1
+  "$H" app remove smoke-hello smoke-file > /dev/null 2>&1
   "$PM" network rm "harness-net-$NAME" > /dev/null 2>&1
   powershell.exe -NoProfile -Command "foreach (\$p in $SERVER_PORT,$MOCK_PORT) { Get-NetTCPConnection -LocalPort \$p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force } }" > /dev/null 2>&1
   rm -rf "$WORK"
@@ -218,8 +218,27 @@ check "eigenes Programm im Konto" test "$(echo "$OWN" | json v.name)" = smoke-he
 check "Rechner hat die Vorlage gespeichert" wait_for 20 grep -q smoke-hello "$HARNESS_HOME/server-apps.json"
 own_reported() { test "$(api GET /api/devices | json "v[0].apps?.catalog.find((a) => a.name === 'smoke-hello')?.source")" = server; }
 check "im Katalog des Rechners, als eigenes" wait_for 20 own_reported
-SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","sqlite","smoke-hello"]}')
-check "eigenes Programm eingeschaltet" test "$(echo "$SWITCHED" | json v.ok)" = true
+
+echo "== Programmdatei vom Rechner"
+# An archive with a script: no ELF for the VM's architecture needed.
+mkdir -p "$WORK/smoke-file-1.0/bin"
+printf '#!/bin/sh\necho datei hallo\n' > "$WORK/smoke-file-1.0/bin/smoke-file"
+(cd "$WORK" && tar -czf smoke-file-1.0.tar.gz smoke-file-1.0)
+ARCHIVE=$(cygpath -m "$WORK/smoke-file-1.0.tar.gz")
+REFUSED=$(api POST "/api/devices/$DEVICE/app-files" "{\"path\":\"$(cygpath -m "$WORK/$NAME/README.md")\",\"name\":\"readme\",\"title\":\"README\"}")
+check "Textdatei vom Rechner abgelehnt" test "$(echo "$REFUSED" | json "v.ok + ' ' + v.message.includes('Keine Linux-Programmdatei')")" = "false true"
+ASKED=$(api POST "/api/devices/$DEVICE/app-files" "{\"path\":\"$ARCHIVE\",\"name\":\"smoke-file\",\"title\":\"Smoke-Datei\"}")
+APPROVAL=$(echo "$ASKED" | json v.approval)
+check "Programmdatei angefragt, wartet auf Freigabe" test "$(echo "$ASKED" | json v.ok)" = true
+file_pending() { test "$(api GET /api/devices | json "v[0].apps?.pending?.[0]?.id")" = "$APPROVAL"; }
+check "wartend im Konto" wait_for 20 file_pending
+check "ohne Freigabe nichts kopiert" test ! -e "$HARNESS_HOME/app-files/smoke-file"
+"$H" app approve "$APPROVAL" --yes > "$WORK/approve.log" 2>&1
+check "am Rechner freigegeben" grep -q "Freigegeben" "$WORK/approve.log"
+file_reported() { test "$(api GET /api/devices | json "(v[0].apps?.catalog.find((a) => a.name === 'smoke-file')?.source ?? '') + (v[0].apps?.pending?.length ?? 0)")" = local0; }
+check "im Katalog des Rechners, nicht mehr wartend" wait_for 20 file_reported
+SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","sqlite","smoke-hello","smoke-file"]}')
+check "eigenes Programm und Programmdatei eingeschaltet" test "$(echo "$SWITCHED" | json v.ok)" = true
 
 echo "== Chat schreiben"
 # From a file: arguments of Windows programs lose their umlauts in Git Bash.
@@ -251,6 +270,8 @@ sqlite_in_instance() { in_container 'sqlite3 --version' | grep -q '^3[.]'; }
 check "im Browser eingeschaltete App in der Instanz" sqlite_in_instance
 own_in_instance() { in_container smoke-hello | grep -q 'smoke hallo'; }
 check "eigenes Programm in der Instanz" own_in_instance
+file_in_instance() { in_container smoke-file | grep -q 'datei hallo'; }
+check "Programmdatei in der Instanz" file_in_instance
 api DELETE "/api/app-templates/$OWN_ID" > /dev/null
 own_switched_off() { ! grep -q smoke-hello "$HARNESS_HOME/projects/$NAME.toml"; }
 check "gelöschtes Programm im Projekt ausgeschaltet" wait_for 20 own_switched_off

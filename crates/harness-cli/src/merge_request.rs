@@ -39,12 +39,13 @@ fn dir(config: &ConfigDir) -> PathBuf {
 }
 
 /// Whether `id` can be a request id; anything else never reaches the file
-/// system.
-fn valid(id: &str) -> bool {
+/// system. Also the ids of program file requests (`app_request`).
+pub(crate) fn valid(id: &str) -> bool {
     id.len() == ID_LENGTH && id.bytes().all(|b| ALPHABET.contains(&b))
 }
 
-fn new_id() -> String {
+/// A new short id, as the chat shows it.
+pub(crate) fn new_id() -> String {
     // Not a secret: approving needs this computer's terminal anyway. The id
     // only has to be short and unlikely to repeat.
     let mut hasher = RandomState::new().build_hasher();

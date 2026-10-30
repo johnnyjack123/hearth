@@ -79,8 +79,28 @@ harness_apt() {
     return 0
   fi
   echo "Pakete: $(echo $packages)"
-  # shellcheck disable=SC2086 # one word per package
-  (cd "$WORK/apt/debs" && _harness_apt_get download $packages)
+  # A .deb given as a path (one the user approved) is no download; apt only
+  # brings its dependencies. It is unpacked like the downloaded ones.
+  own=""
+  for argument in "$@"; do
+    case "$argument" in
+      */*.deb)
+        own="$own $(dpkg-deb --show --showformat='${Package}' "$argument")"
+        cp "$argument" "$WORK/apt/debs/"
+        ;;
+    esac
+  done
+  downloads=""
+  for package in $packages; do
+    case " $own " in
+      *" $package "*) ;;
+      *) downloads="$downloads $package" ;;
+    esac
+  done
+  if [ -n "$downloads" ]; then
+    # shellcheck disable=SC2086 # one word per package
+    (cd "$WORK/apt/debs" && _harness_apt_get download $downloads)
+  fi
   for deb in "$WORK/apt/debs"/*.deb; do
     dpkg-deb -x "$deb" "$PREFIX/root"
     # shellcheck disable=SC2016 # dpkg's format, not the shell's
@@ -161,4 +181,74 @@ harness_wrapper() {
     echo ' "$@"'
   } > "$PREFIX/bin/$name"
   chmod 755 "$PREFIX/bin/$name"
+}
+
+# Program files the user approved on the computer ($HARNESS_FILE, see
+# harness-core/src/app_file.rs).
+
+# The program as command $1.
+harness_program() {
+  mkdir -p "$PREFIX/bin"
+  cp "$HARNESS_FILE" "$PREFIX/bin/$1"
+  chmod 755 "$PREFIX/bin/$1"
+}
+
+# The AppImage unpacked, with command $1 starting it: instances have no
+# FUSE to mount it, and unpacking on every start would be slow.
+harness_appimage() {
+  cp "$HARNESS_FILE" "$WORK/app.AppImage"
+  chmod 755 "$WORK/app.AppImage"
+  (cd "$WORK" && ./app.AppImage --appimage-extract > /dev/null)
+  mv "$WORK/squashfs-root" "$PREFIX/app"
+  mkdir -p "$PREFIX/bin"
+  printf '#!/bin/sh\nAPPDIR=%s exec %s "$@"\n' "$PREFIX/app" "$PREFIX/app/AppRun" \
+    > "$PREFIX/bin/$1"
+  chmod 755 "$PREFIX/bin/$1"
+}
+
+# Whether file $1 is a program: executable, or an ELF file or script whose
+# executable bit got lost (zip archives made on Windows).
+_harness_is_program() {
+  [ -x "$1" ] && return 0
+  case "$(od -An -tx1 -N4 "$1" | tr -d ' \n')" in
+    7f454c46 | 2321*) return 0 ;;
+  esac
+  return 1
+}
+
+# The archive $HARNESS_FILE (tar or zip, as $1 says) unpacked to
+# $PREFIX/files, its programs linked into $PREFIX/bin: those at the top or
+# one folder down, and those in any bin folder.
+harness_unpack() {
+  mkdir -p "$PREFIX/files" "$PREFIX/bin"
+  case "$1" in
+    zip) unzip -q "$HARNESS_FILE" -d "$PREFIX/files" ;;
+    *) tar -xf "$HARNESS_FILE" -C "$PREFIX/files" --no-same-owner ;;
+  esac
+  find "$PREFIX/files" -maxdepth 4 -type f | sort > "$WORK/files"
+  while IFS= read -r program; do
+    relative=${program#"$PREFIX/files/"}
+    folder=${program%/*}
+    case "$relative" in
+      */*/*) [ "${folder##*/}" = bin ] || continue ;;
+    esac
+    _harness_is_program "$program" || continue
+    chmod 755 "$program"
+    name=${program##*/}
+    [ -e "$PREFIX/bin/$name" ] || ln -s "$program" "$PREFIX/bin/$name"
+  done < "$WORK/files"
+  if [ -z "$(ls -A "$PREFIX/bin")" ]; then
+    echo "Im Archiv ist kein Programm (oben, einen Ordner tiefer oder in einem bin-Ordner)." >&2
+    exit 1
+  fi
+}
+
+# Records the version program $1 (default: the first in $PREFIX/bin) names
+# for --version, else "Datei". A program that does not know --version may
+# start something else; ten seconds are enough to answer.
+harness_file_version() {
+  program=${1:-$(find "$PREFIX/bin" -mindepth 1 -maxdepth 1 | sort | head -n 1)}
+  version=$(timeout 10 "$program" --version < /dev/null 2>&1 \
+    | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1) || true
+  harness_version "${version:-Datei}"
 }

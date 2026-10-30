@@ -6,6 +6,7 @@
 
 #![warn(missing_docs)]
 
+pub mod app_file;
 pub mod apps;
 pub mod briefing;
 pub mod busy;

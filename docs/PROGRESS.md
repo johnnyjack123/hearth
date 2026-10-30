@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · Releases v0.1.6 (Programme im Browser) und v0.1.7 (eigene Programme, Protokoll 6); App-Katalog Schritt 3a in `main`; nächstes: Programmdateien vom Rechner (Schritt 3b)_
+_Last updated: 2026-10-30 · App-Katalog Schritt 3 fertig (eigene Programme, Programmdateien vom Rechner, Protokoll 7), Release v0.1.8; der Nutzer testet alles; danach Schritt 4 (Gateway fertig gebaut)_
 
 ## Where we are
 
@@ -63,7 +63,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    ✅ **Wünsche des Nutzers vom 28.10.:** Copy-Buttons gehen über `http://` (Rückfall ohne Zwischenablage-API), Mathe mit `\(…\)`/`\[…\]` wird gerendert, Werkzeug `calculate` (math.js im Server, Admin-Schalter „Taschenrechner“). Den Rechner für pi hat der Nutzer am 30.10. nach hinten geschoben (ROADMAP Phase 5).
    **Release v0.1.6 (29.10.):** Der Nutzer meldete „Client zu alt“ im Browser mit dem neuesten Release; v0.1.5 war vom 27.10. und kannte Protokoll 5 noch nicht. Nebenbei: `cargo fmt` aus Schritt 2 nachgeholt, der Gateway-Workflow war daran gescheitert.
    3. ✅ **3a, eigene Programme aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“ (apt, npm, pip oder Skript, „Braucht“), Vorlagen pro Konto auf dem Server, Tunnel-Protokoll 6 (`apps.templates`), Kopie auf dem Rechner in `server-apps.json`. Geänderte Vorlagen installieren beim nächsten Start neu, gelöschte werden in allen Projekten ausgeschaltet. Geprüft: Rust-Tests, Server 196/196, Browser-E2E 15/15 (neue Bilder 43–45), Smoke-Test 82 grün, alle vier Arten in der echten VM.
-      **Als Nächstes:** 3b, Programmdateien vom Rechner (Pfad im Browser, Bestätigung am Rechner per Terminal oder Tray).
+   ✅ **3b, Programmdateien vom Rechner** (30.10.): Browser fragt (Protokoll 7), der Rechner prüft die Datei und legt einen Antrag an, freigeben im Tray oder mit `harness app approve <ID>`, die Freigabe kopiert die Datei nach `app-files/`. Dazu `harness app add|deny|forget`. Geprüft: Rust- und Server-Tests (198), Browser-E2E 15/15 (Bilder 46, 47), Smoke-Test 89 grün, alle Dateiarten außer AppImage echt in der VM. Nicht geprüft: Ja/Nein-Dialog des Tray-Symbols (Win32), echte AppImage.
+   **Als Nächstes:** Test des Nutzers mit v0.1.8, dann Schritt 4 (Gateway fertig gebaut).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
@@ -251,6 +252,10 @@ Stand 18.10. (Block „Recherche“):
 ---
 
 ## Log
+
+### 2026-10-30 (App-Katalog Schritt 3b, Release v0.1.8)
+- Gebaut: Programmdateien vom Rechner (Prüfung der Datei, Antrag, Freigabe im Tray oder Terminal, Kopie in der Konfiguration, Helfer für Programm, AppImage, `.deb`, Archive), Protokoll 7, Abschnitt pro Rechner im Browser.
+- Gefunden: Namen aus Dateinamen waren unhandlich (`archello-tar`); jetzt ohne Endung und Version wie in der Web-App.
 
 ### 2026-10-29/30 (Release v0.1.6, App-Katalog Schritt 3a)
 - Release v0.1.6: Der Nutzer hatte v0.1.5 installiert, die Programme im Browser kamen erst danach.

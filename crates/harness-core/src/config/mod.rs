@@ -20,10 +20,10 @@ use serde::de::DeserializeOwned;
 use toml_edit::DocumentMut;
 
 pub use model::{
-    AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppSource, AppsConfig, DEFAULT_HARNESS,
-    Defaults, DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind, HarnessConfig,
-    LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig, ResourcesConfig,
-    ReviewConfig, ServerConfig, valid_chat_id,
+    AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppFile, AppSource, AppsConfig,
+    DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind,
+    HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig,
+    ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id, valid_file_name,
 };
 use model::{Validate, validate_app_name, validate_harness_name};
 pub use template::{AppKind, AppTemplate, MAX_PACKAGE_LEN, MAX_PACKAGES, MAX_SCRIPT};
@@ -156,6 +156,12 @@ impl ConfigDir {
     /// Folder with app recipes of one's own (the catalog is built in).
     pub fn apps_dir(&self) -> PathBuf {
         self.root.join("apps")
+    }
+
+    /// Copies of the program files the user approved, one folder per app
+    /// (`[file]` of a recipe).
+    pub fn app_files_dir(&self) -> PathBuf {
+        self.root.join("app-files")
     }
 
     /// Copy of the account's app templates, written by the background
@@ -568,6 +574,9 @@ impl ConfigDir {
         };
         let mut app: AppConfig = parse(&file, &text)?;
         app.source = source;
+        if let Some(program) = &mut app.file {
+            program.host = self.app_files_dir().join(name).join(&program.name);
+        }
         if app.name != name {
             return Err(Error::ConfigInvalid {
                 path: file,
@@ -748,6 +757,11 @@ impl ConfigDir {
             path: config.path,
         })
     }
+}
+
+/// Checks a recipe built in code like one read from a file.
+pub(crate) fn check_app(app: &AppConfig) -> std::result::Result<(), String> {
+    app.validate()
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>> {
