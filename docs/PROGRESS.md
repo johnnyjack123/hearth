@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · Release v0.1.6 (Programme im Browser); App-Katalog Schritt 3a: eigene Programme aus dem Browser (Branch `feat/own-apps`); nächstes: Programmdateien vom Rechner (Schritt 3b)_
+_Last updated: 2026-10-30 · Releases v0.1.6 (Programme im Browser) und v0.1.7 (eigene Programme, Protokoll 6); App-Katalog Schritt 3a in `main`; nächstes: Programmdateien vom Rechner (Schritt 3b)_
 
 ## Where we are
 
