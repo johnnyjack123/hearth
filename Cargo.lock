@@ -419,6 +419,9 @@ dependencies = [
 [[package]]
 name = "harness-setup"
 version = "0.1.8"
+dependencies = [
+ "tempfile",
+]
 
 [[package]]
 name = "harness-vmd"
