@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 6;
+pub const TUNNEL_VERSION: u32 = 7;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -36,6 +36,12 @@ pub const VERSION_APPS: u32 = 5;
 /// templates ([`ServerMessage::AppsTemplates`]), and each app in the report
 /// says where it comes from.
 pub const VERSION_TEMPLATES: u32 = 6;
+
+/// Version that brought program files from the computer: the browser asks
+/// for one ([`ServerMessage::AppsFile`]), the device answers with the id of
+/// the request the user approves on the computer, and reports the requests
+/// still waiting.
+pub const VERSION_APP_FILES: u32 = 7;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -450,13 +456,27 @@ impl DeviceMessage {
     /// connection, so it gets a notice instead.
     pub fn for_version(self, version: u32) -> DeviceMessage {
         match self {
-            // Before protocol 6 the server knows no `source`.
-            DeviceMessage::Apps { mut report } if version < VERSION_TEMPLATES => {
-                for app in &mut report.catalog {
-                    app.source = None;
+            // Older servers know neither `source` (6) nor `pending` (7).
+            DeviceMessage::Apps { mut report } if version < VERSION_APP_FILES => {
+                report.pending.clear();
+                if version < VERSION_TEMPLATES {
+                    for app in &mut report.catalog {
+                        app.source = None;
+                    }
                 }
                 DeviceMessage::Apps { report }
             }
+            DeviceMessage::AppsResult {
+                request,
+                ok,
+                message,
+                approval: Some(_),
+            } if version < VERSION_APP_FILES => DeviceMessage::AppsResult {
+                request,
+                ok,
+                message,
+                approval: None,
+            },
             DeviceMessage::SessionEvent {
                 session,
                 event: AgentEvent::Compaction { state, error, .. },
@@ -545,16 +565,20 @@ pub enum DeviceMessage {
         /// The report.
         report: AppsReport,
     },
-    /// Answer to [`ServerMessage::AppsSet`] (protocol 5), after the new
+    /// Answer to [`ServerMessage::AppsSet`] (protocol 5) and
+    /// [`ServerMessage::AppsFile`] (protocol 7), after the new
     /// [`DeviceMessage::Apps`].
     #[serde(rename = "apps.result")]
     AppsResult {
         /// The request's id.
         request: String,
-        /// Whether the project's apps are switched as asked.
+        /// Whether it worked: apps switched, or a file waits for approval.
         ok: bool,
         /// What happened, in German.
         message: String,
+        /// Id of the file request to approve on the computer (protocol 7).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        approval: Option<String>,
     },
 }
 
@@ -567,6 +591,25 @@ pub struct AppsReport {
     pub versions: bool,
     /// Apps switched on per offered project, without the ones they require.
     pub projects: Vec<ProjectApps>,
+    /// Program files the browser asked for, waiting for the user's
+    /// approval on the computer (protocol 7).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pending: Vec<PendingFile>,
+}
+
+/// A program file waiting for approval on the computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PendingFile {
+    /// Id for `harness app approve`.
+    pub id: String,
+    /// App name it becomes.
+    pub name: String,
+    /// Name for people.
+    pub title: String,
+    /// The file on the computer.
+    pub path: String,
+    /// What it is, in German.
+    pub kind: String,
 }
 
 /// One app of an [`AppsReport`].
@@ -781,6 +824,19 @@ pub enum ServerMessage {
         project: String,
         /// Apps it should have switched on from now on.
         enabled: Vec<String>,
+    },
+    /// The browser asks for a program file of this computer (protocol 7).
+    /// Nothing happens before the user approves it here.
+    #[serde(rename = "apps.file")]
+    AppsFile {
+        /// Id to repeat in [`DeviceMessage::AppsResult`].
+        request: String,
+        /// The file on this computer.
+        path: String,
+        /// App name it should become.
+        name: String,
+        /// Name for people.
+        title: String,
     },
     /// The account's own programs, after the hello and whenever they
     /// change (protocol 6). Each stays a raw value until the device reads
@@ -1054,6 +1110,13 @@ mod tests {
                     name: "demo".into(),
                     enabled: vec!["rust".into()],
                 }],
+                pending: vec![PendingFile {
+                    id: "K7QF2M".into(),
+                    name: "tool".into(),
+                    title: "Tool".into(),
+                    path: "C:\\Tools\\tool".into(),
+                    kind: "Archiv (zip)".into(),
+                }],
             },
         };
         assert_eq!(
@@ -1066,10 +1129,12 @@ mod tests {
                       "outdated": false, "source": "server" }
                 ],
                 "versions": true,
-                "projects": [{ "name": "demo", "enabled": ["rust"] }]
+                "projects": [{ "name": "demo", "enabled": ["rust"] }],
+                "pending": [{ "id": "K7QF2M", "name": "tool", "title": "Tool",
+                              "path": "C:\\Tools\\tool", "kind": "Archiv (zip)" }]
             } })
         );
-        // A server before protocol 6 would reject the field.
+        // A server before protocol 6 would reject the fields.
         assert_eq!(
             serde_json::to_value(report.for_version(VERSION_APPS)).unwrap(),
             json!({ "type": "apps", "report": {
@@ -1087,12 +1152,35 @@ mod tests {
             request: "r2".into(),
             ok: false,
             message: "App cobol gibt es nicht".into(),
+            approval: None,
         };
         assert_eq!(
             serde_json::to_value(&result).unwrap(),
             json!({ "type": "apps.result", "request": "r2", "ok": false,
                     "message": "App cobol gibt es nicht" })
         );
+        let waiting = DeviceMessage::AppsResult {
+            request: "r3".into(),
+            ok: true,
+            message: "wartet".into(),
+            approval: Some("K7QF2M".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&waiting).unwrap()["approval"],
+            json!("K7QF2M")
+        );
+        assert!(
+            serde_json::to_value(waiting.for_version(VERSION_TEMPLATES))
+                .unwrap()
+                .get("approval")
+                .is_none()
+        );
+        let file: ServerMessage = serde_json::from_value(json!({
+            "type": "apps.file", "request": "r3", "path": "C:\\x\\tool.zip",
+            "name": "tool", "title": "Tool"
+        }))
+        .unwrap();
+        assert!(matches!(file, ServerMessage::AppsFile { name, .. } if name == "tool"));
     }
 
     #[test]

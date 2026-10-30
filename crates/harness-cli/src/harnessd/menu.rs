@@ -16,6 +16,8 @@ pub enum Action {
     Copy(String),
     /// Asks the service to stop the VM.
     StopVm,
+    /// Asks whether to approve the program file request with this id.
+    ApproveFile(String),
     /// Ends the service and the tray until the next sign-in.
     Quit,
 }
@@ -40,6 +42,26 @@ pub struct Notice {
     pub warning: bool,
     /// What a click on it opens.
     pub target: Option<String>,
+    /// The program file request a click on it asks about.
+    pub file: Option<String>,
+}
+
+/// A program file the browser asked for (`app-requests/`, written by
+/// `harness`), as the tray shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRequest {
+    /// Id for `harness app approve`.
+    pub id: String,
+    /// App name it becomes.
+    pub name: String,
+    /// Name for people, from the browser.
+    pub title: String,
+    /// The file on this computer.
+    pub path: String,
+    /// What it is, in German.
+    pub kind: String,
+    /// Size in bytes.
+    pub size: u64,
 }
 
 /// What the tray read last.
@@ -49,6 +71,8 @@ pub struct View {
     pub status: Option<Value>,
     /// Open merge requests: project and id.
     pub held: Vec<(String, String)>,
+    /// Program files waiting for approval.
+    pub files: Vec<FileRequest>,
     /// The user asked to quit; the service is ending.
     pub quitting: bool,
 }
@@ -76,9 +100,29 @@ impl View {
             })
             .collect();
         held.sort();
+        let mut files: Vec<FileRequest> = fs::read_dir(root.join("app-requests"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| fs::read_to_string(entry.path()).ok())
+            .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
+            .filter_map(|r| {
+                let text = |key: &str| Some(r.get(key)?.as_str()?.to_owned());
+                Some(FileRequest {
+                    id: text("id")?,
+                    name: text("name")?,
+                    title: text("title")?,
+                    path: text("path")?,
+                    kind: text("kind")?,
+                    size: r.get("size")?.as_u64()?,
+                })
+            })
+            .collect();
+        files.sort_by(|a, b| a.id.cmp(&b.id));
         View {
             status,
             held,
+            files,
             quitting: false,
         }
     }
@@ -98,7 +142,7 @@ impl View {
 
     /// Whether something waits for the user.
     pub fn attention(&self) -> bool {
-        !self.questions().is_empty() || !self.held.is_empty()
+        !self.questions().is_empty() || !self.held.is_empty() || !self.files.is_empty()
     }
 
     fn server(&self) -> Option<&str> {
@@ -239,6 +283,16 @@ impl Language {
                 Some(Action::Copy(format!("harness merge --approve {id}"))),
             ));
         }
+        for file in view.files.iter().take(5) {
+            entries.push(Entry::Item(
+                if self.german {
+                    format!("Programm „{}“ freigeben …", file.title)
+                } else {
+                    format!("Approve program “{}” …", file.title)
+                },
+                Some(Action::ApproveFile(file.id.clone())),
+            ));
+        }
         entries.push(Entry::Separator);
         entries.push(Entry::Item(
             self.t("Web-App öffnen", "Open web app").to_owned(),
@@ -281,6 +335,7 @@ impl Language {
                 },
                 warning: false,
                 target: server.as_ref().map(|s| format!("{s}/c/{session}")),
+                file: None,
             })
             .collect();
         notices.extend(view.held.iter().map(|(project, id)| Notice {
@@ -298,8 +353,52 @@ impl Language {
             },
             warning: true,
             target: server.clone(),
+            file: None,
+        }));
+        notices.extend(view.files.iter().map(|file| Notice {
+            key: format!("f:{}", file.id),
+            text: if self.german {
+                format!(
+                    "Der Browser fragt nach einer Programmdatei dieses Rechners: {}. Zum Prüfen \
+                     und Freigeben hier klicken.",
+                    file.title
+                )
+            } else {
+                format!(
+                    "The browser asks for a program file of this computer: {}. Click to check \
+                     and approve it.",
+                    file.title
+                )
+            },
+            warning: true,
+            target: None,
+            file: Some(file.id.clone()),
         }));
         notices
+    }
+
+    /// The question before a program file goes into the VM: the file
+    /// itself, not only what the browser called it.
+    pub fn approval_question(self, file: &FileRequest) -> String {
+        let size = file.size as f64 / 1024.0 / 1024.0;
+        if self.german {
+            format!(
+                "Ein Browser mit deinem Konto möchte diese Datei als Programm in die VM \
+                 geben:\n\n{}\n{}, {size:.1} MB\nApp: {} („{}“)\n\nAgents in Projekten, die \
+                 das Programm einschalten, können die Datei lesen und ausführen. Nur \
+                 freigeben, wenn du das selbst angefragt hast.\n\nJa: freigeben · Nein: \
+                 ablehnen · Abbrechen: später entscheiden",
+                file.path, file.kind, file.name, file.title
+            )
+        } else {
+            format!(
+                "A browser signed in to your account wants to put this file into the VM as a \
+                 program:\n\n{}\n{}, {size:.1} MB\nApp: {} (“{}”)\n\nAgents in projects that \
+                 switch the program on can read and run the file. Only approve it if you \
+                 asked for it yourself.\n\nYes: approve · No: refuse · Cancel: decide later",
+                file.path, file.kind, file.name, file.title
+            )
+        }
     }
 }
 
@@ -316,6 +415,7 @@ mod tests {
         View {
             status: Some(status),
             held: Vec::new(),
+            files: Vec::new(),
             quitting: false,
         }
     }
@@ -404,5 +504,33 @@ mod tests {
         let other = View::read(temp.path(), 43);
         assert!(other.status.is_none());
         assert_eq!(other.held, [("demo".to_owned(), "K7QF2M".to_owned())]);
+    }
+
+    #[test]
+    fn program_files_wait_for_a_click() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("app-requests")).unwrap();
+        fs::write(
+            temp.path().join("app-requests/H3PX7Q.json"),
+            r#"{"id": "H3PX7Q", "name": "tool", "title": "Mein Tool",
+                "path": "C:\\Tools\\tool.zip", "kind": "Archiv (zip)", "size": 3145728,
+                "created": 1}"#,
+        )
+        .unwrap();
+        let view = View::read(temp.path(), 0);
+        assert!(view.attention());
+        let menu = actions(&DE.menu(&view, Path::new("log"), 0));
+        assert_eq!(
+            menu[2],
+            (
+                "Programm „Mein Tool“ freigeben …".into(),
+                Some(Action::ApproveFile("H3PX7Q".into()))
+            )
+        );
+        let notices = DE.notices(&view);
+        assert_eq!(notices[0].file.as_deref(), Some("H3PX7Q"));
+        let question = DE.approval_question(&view.files[0]);
+        assert!(question.contains("C:\\Tools\\tool.zip"), "{question}");
+        assert!(question.contains("Archiv (zip), 3.0 MB"), "{question}");
     }
 }

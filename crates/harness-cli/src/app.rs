@@ -2,19 +2,25 @@
 //! Phase 3). The project file says which apps are on; the VM holds one
 //! install of each, shared by all projects (`harness_core::apps`).
 
+use std::io::IsTerminal as _;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::bail;
 use clap::Subcommand;
 use harness_core::Error;
+use harness_core::app_file;
 use harness_core::apps::{self, Install, Inventory, ReadyApp};
 use harness_core::config::{AppConfig, AppSource, AppTemplate, ConfigDir, Project};
 use harness_core::gateway;
 use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
-use harness_core::tunnel::{AppInfo, AppsReport, ProjectApps, RemoteProject, truncate};
+use harness_core::tunnel::{
+    AppInfo, AppsReport, PendingFile, ProjectApps, RemoteProject, truncate,
+};
 use harness_core::vmd;
 
+use crate::app_request::{self, FileRequest};
 use crate::progress::{Progress, Terminal, step};
 use crate::{login, project};
 
@@ -51,6 +57,36 @@ pub enum AppCommand {
         #[arg(required = true)]
         names: Vec<String>,
     },
+    /// Macht eine Linux-Programmdatei dieses Rechners zur App (Programm, AppImage, .deb oder Archiv)
+    Add {
+        /// Die Datei
+        path: PathBuf,
+        /// Kurzname der App (Standard: aus dem Dateinamen)
+        #[arg(long)]
+        name: Option<String>,
+        /// Name für Menschen (Standard: der Dateiname)
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Gibt eine Programmdatei frei, die der Browser angefragt hat
+    Approve {
+        /// Die ID aus dem Browser oder `harness app list`
+        id: String,
+        /// Ohne Rückfrage (das Tray-Symbol hat schon gefragt)
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Lehnt eine angefragte Programmdatei ab
+    Deny {
+        /// Die ID aus dem Browser oder `harness app list`
+        id: String,
+    },
+    /// Vergisst Apps aus Programmdateien (Rezept und Kopie) und schaltet sie in allen Projekten aus
+    Forget {
+        /// Namen aus `harness app list`
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
 }
 
 /// `harness app [--project NAME] [COMMAND]`.
@@ -67,6 +103,10 @@ pub fn run(
         AppCommand::Install { names } => install(config, machine, project_name, &names, false),
         AppCommand::Update { names } => install(config, machine, project_name, &names, true),
         AppCommand::Remove { names } => remove(machine, &names),
+        AppCommand::Add { path, name, title } => add(config, &path, name, title),
+        AppCommand::Approve { id, yes } => approve(config, &id, yes),
+        AppCommand::Deny { id } => deny(config, &id),
+        AppCommand::Forget { names } => forget(config, &names),
     }
 }
 
@@ -111,11 +151,197 @@ pub(crate) fn report(
             })
         })
         .collect();
+    let pending = app_request::list(config)
+        .into_iter()
+        .map(|request| PendingFile {
+            id: request.id,
+            name: request.name,
+            title: request.title,
+            path: truncate(&request.path, 900),
+            kind: request.kind,
+        })
+        .collect();
     AppsReport {
         catalog,
         versions: inventory.is_some(),
         projects,
+        pending,
     }
+}
+
+/// Whether `name` may become the app of a program file: free, or already
+/// one of a program file (a new file replaces it).
+fn file_app_name_free(config: &ConfigDir, name: &str) -> Result<(), String> {
+    match config.app(name) {
+        Ok(app) if app.file.is_some() => Ok(()),
+        Ok(app) => Err(format!(
+            "Den Namen {name} hat schon {} ({}); bitte einen anderen wählen.",
+            app.title,
+            match app.source {
+                AppSource::Builtin => "Katalog",
+                AppSource::Local => "Rezept auf diesem Rechner",
+                AppSource::Server => "eigenes Programm aus dem Browser",
+            }
+        )),
+        Err(Error::AppUnknown(_)) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// A program file the browser asks for: checked here (only absolute paths
+/// to Linux program files, free names), then stored as a request for the
+/// user to approve on this computer. Returns whether it waits, what to tell
+/// the user (German) and the request's id.
+pub(crate) fn request_from_browser(
+    config: &ConfigDir,
+    path: &str,
+    name: &str,
+    title: &str,
+) -> (bool, String, Option<String>) {
+    let title = title.trim();
+    let checked = (|| -> Result<FileRequest, String> {
+        if title.is_empty() || title.chars().count() > 60 {
+            return Err("Der Name muss 1 bis 60 Zeichen lang sein.".to_owned());
+        }
+        file_app_name_free(config, name)?;
+        let file = Path::new(path);
+        if path.contains('\0') || !file.is_absolute() {
+            return Err(format!(
+                "{path} ist kein vollständiger Pfad (z. B. C:\\Tools\\programm)."
+            ));
+        }
+        let info = app_file::inspect(file)?;
+        app_request::create(config, name, title, path, info).map_err(|e| format!("{e:#}"))
+    })();
+    match checked {
+        Ok(request) => (
+            true,
+            format!(
+                "{} wartet auf Freigabe am Rechner: im Menü des Tray-Symbols oder mit `harness \
+                 app approve {}`.",
+                request.title, request.id
+            ),
+            Some(request.id),
+        ),
+        Err(error) => (false, format!("Nicht angefragt: {error}"), None),
+    }
+}
+
+/// Switches `names` off in every project of this computer; returns the
+/// projects and what went off there.
+fn switch_off_everywhere(
+    config: &ConfigDir,
+    names: &[String],
+) -> anyhow::Result<Vec<(ProjectName, Vec<String>)>> {
+    let mut switched = Vec::new();
+    for name in config.project_names()? {
+        let Ok(project) = config.project(&name) else {
+            continue;
+        };
+        let off: Vec<String> = names
+            .iter()
+            .filter(|app| project.apps.contains(app))
+            .cloned()
+            .collect();
+        if !off.is_empty() {
+            config.set_apps(&name, &[], &off)?;
+            switched.push((name, off));
+        }
+    }
+    Ok(switched)
+}
+
+fn show_file(path: &Path, info: app_file::FileInfo) {
+    println!("  Datei: {}", path.display());
+    println!(
+        "  Art:   {}, {:.1} MB",
+        info.kind.label(),
+        info.size as f64 / 1024.0 / 1024.0
+    );
+}
+
+fn add(
+    config: &ConfigDir,
+    path: &Path,
+    name: Option<String>,
+    title: Option<String>,
+) -> anyhow::Result<bool> {
+    let name = name.unwrap_or_else(|| app_file::suggested_name(path));
+    let title = title.unwrap_or_else(|| name.clone());
+    if let Err(error) = file_app_name_free(config, &name) {
+        bail!(error);
+    }
+    let app = app_file::add(config, &name, &title, path)?;
+    println!(
+        "{} ist jetzt die App {} (Kopie in {}).",
+        app.title,
+        app.name,
+        config.app_files_dir().join(&app.name).display()
+    );
+    println!(
+        "Einschalten mit `harness app on {}` oder im Browser; der nächste Start installiert sie.",
+        app.name
+    );
+    Ok(true)
+}
+
+fn approve(config: &ConfigDir, id: &str, yes: bool) -> anyhow::Result<bool> {
+    let Some(request) = app_request::load(config, id) else {
+        bail!("Keine wartende Programmdatei mit der ID {id} (harness app list zeigt alle).");
+    };
+    let path = PathBuf::from(&request.path);
+    println!(
+        "Der Browser möchte diese Datei als App {} („{}“) in die VM geben:",
+        request.name, request.title
+    );
+    let info = app_file::inspect(&path).map_err(anyhow::Error::msg)?;
+    show_file(&path, info);
+    println!(
+        "Agents in Projekten, die die App einschalten, können die Datei lesen und ausführen. \
+         Nur freigeben, wenn du sie selbst angefragt hast."
+    );
+    if !yes {
+        if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+            bail!("Die Freigabe braucht ein Terminal, in dem du bestätigst.");
+        }
+        if !project::confirm("Freigeben?", false)? {
+            app_request::remove(config, &request.id);
+            println!("Abgelehnt.");
+            return Ok(false);
+        }
+    }
+    file_app_name_free(config, &request.name).map_err(anyhow::Error::msg)?;
+    let app = app_file::add(config, &request.name, &request.title, &path)?;
+    app_request::remove(config, &request.id);
+    println!(
+        "Freigegeben: {} ist die App {}. Einschalten im Browser oder mit `harness app on {}`.",
+        app.title, app.name, app.name
+    );
+    Ok(true)
+}
+
+fn deny(config: &ConfigDir, id: &str) -> anyhow::Result<bool> {
+    let Some(request) = app_request::load(config, id) else {
+        bail!("Keine wartende Programmdatei mit der ID {id}.");
+    };
+    app_request::remove(config, &request.id);
+    println!("Abgelehnt: {} ({}).", request.title, request.path);
+    Ok(true)
+}
+
+fn forget(config: &ConfigDir, names: &[String]) -> anyhow::Result<bool> {
+    for name in names {
+        app_file::forget(config, name)?;
+        println!("{name}: Rezept und Kopie gelöscht.");
+    }
+    for (project, off) in switch_off_everywhere(config, names)? {
+        println!("{project}: ausgeschaltet: {}", off.join(", "));
+    }
+    println!(
+        "Was schon in der VM installiert ist, löscht `harness app remove {}`.",
+        names.join(" ")
+    );
+    Ok(true)
 }
 
 /// Switches a project's apps as the browser asks: only for a project the
@@ -200,23 +426,8 @@ pub(crate) fn apply_templates(
         .map(|template| template.name)
         .filter(|name| matches!(config.app(name), Err(Error::AppUnknown(_))))
         .collect();
-    if !gone.is_empty() {
-        for name in config.project_names()? {
-            let Ok(project) = config.project(&name) else {
-                continue;
-            };
-            if project.apps.iter().any(|app| gone.contains(app)) {
-                config.set_apps(&name, &[], &gone)?;
-                message.push_str(&format!(
-                    "; in {name} ausgeschaltet: {}",
-                    gone.iter()
-                        .filter(|app| project.apps.contains(app))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-        }
+    for (project, off) in switch_off_everywhere(config, &gone)? {
+        message.push_str(&format!("; in {project} ausgeschaltet: {}", off.join(", ")));
     }
     Ok(Some(message))
 }
@@ -274,7 +485,10 @@ pub(crate) fn ready(
         let install = match inventory.latest(&app.name) {
             // If the changed one fails, the old install keeps the project
             // usable; the failed step tells why, and the next start retries.
-            Some(install) if app.source == AppSource::Server && install.outdated(&app) => {
+            Some(install)
+                if (app.source == AppSource::Server || app.file.is_some())
+                    && install.outdated(&app) =>
+            {
                 install_one(config, provider, project, &app, &ready, progress)
                     .unwrap_or_else(|_| install.clone())
             }
@@ -390,6 +604,17 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
     }
     if outdated {
         println!("* Das Rezept ist seither neuer; `harness app update <name>` installiert neu.");
+    }
+    let pending = app_request::list(config);
+    if !pending.is_empty() {
+        println!();
+        println!("Vom Browser angefragt, wartet auf Freigabe:");
+        for request in pending {
+            println!(
+                "  {}  {} ({}, {})  →  harness app approve {}",
+                request.id, request.title, request.kind, request.path, request.id
+            );
+        }
     }
     if project.is_some() {
         println!();

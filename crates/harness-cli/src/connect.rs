@@ -685,6 +685,27 @@ fn dispatch(
                 request,
                 ok,
                 message: truncate(&message, 900),
+                approval: None,
+            });
+        }
+        ServerMessage::AppsFile {
+            request,
+            path,
+            name,
+            title,
+        } => {
+            let (ok, message, approval) =
+                app::request_from_browser(&shared.config, &path, &name, &title);
+            say(shared.mode, &format!("Browser: {message}"));
+            // The waiting request is part of the report.
+            if let Some(report) = changed_apps(shared, &offered(&shared.config)) {
+                let _ = out.send(DeviceMessage::Apps { report });
+            }
+            let _ = out.send(DeviceMessage::AppsResult {
+                request,
+                ok,
+                message: truncate(&message, 900),
+                approval,
             });
         }
         ServerMessage::AppsTemplates { templates } => {

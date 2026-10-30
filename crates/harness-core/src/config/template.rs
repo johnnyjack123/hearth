@@ -137,6 +137,7 @@ impl AppTemplate {
             path,
             env: BTreeMap::new(),
             install,
+            file: None,
             source: AppSource::Server,
         };
         app.validate()?;

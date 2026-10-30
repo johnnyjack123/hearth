@@ -290,15 +290,24 @@ fn run_installer(
     }];
     mounts.extend(app_mounts(requires));
     let mut env = environment(requires.iter().map(|ready| &ready.app))?;
+    let work = format!("{}/.harness-work", app.dir());
     env.extend(
         [
             ("PREFIX", app.dir()),
-            ("WORK", format!("{}/.harness-work", app.dir())),
+            ("WORK", work.clone()),
             ("HARNESS_VERSION_FILE", VERSION_FILE.to_owned()),
             ("HOME", "/tmp".to_owned()),
         ]
         .map(|(key, value)| (key.to_owned(), value)),
     );
+    // The approved copy of a program file goes in before the script runs.
+    let program = app
+        .file
+        .as_ref()
+        .map(|file| (file, format!("{work}/{}", file.name)));
+    if let Some((_, target)) = &program {
+        env.insert("HARNESS_FILE".to_owned(), target.clone());
+    }
     provider.create_container(&ContainerSpec {
         name: container.clone(),
         image: BASE_IMAGE.tag.to_owned(),
@@ -315,6 +324,19 @@ fn run_installer(
         ..ExecSpec::default()
     };
     let result = provider.start_container(&container).and_then(|()| {
+        if let Some((file, target)) = &program {
+            if !file.host.is_file() {
+                return Err(Error::Unsupported(format!(
+                    "Die freigegebene Datei von {} fehlt ({}); bitte mit harness app add neu \
+                     freigeben",
+                    app.title,
+                    file.host.display()
+                )));
+            }
+            let mkdir = vec!["mkdir".into(), "-p".into(), work.clone()];
+            provider.exec(&exec(mkdir))?;
+            provider.copy_into(&container, &file.host, target)?;
+        }
         let script = format!("{LIB}\n{}\n", app.install);
         let code = provider.exec(&exec(vec!["sh".into(), "-c".into(), script]))?;
         if code != 0 {

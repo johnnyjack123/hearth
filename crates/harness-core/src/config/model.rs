@@ -527,9 +527,37 @@ pub struct AppConfig {
     /// Shell script that installs the app into `$PREFIX` (`apps/lib.sh`
     /// documents what it gets).
     pub install: String,
+    /// A program file from this computer the installer gets as
+    /// `$HARNESS_FILE` (`harness app add`, `harness app approve`).
+    #[serde(default)]
+    pub file: Option<AppFile>,
     /// Where the definition comes from; set by whoever loaded it.
     #[serde(skip)]
     pub source: AppSource,
+}
+
+/// `[file]` of a recipe: the copy of a program file that the user approved
+/// on this computer, kept in `app-files/<app>/` of the configuration folder.
+/// Installs only ever read that copy, so changing the original later (by
+/// whatever process) changes nothing until the user approves again.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppFile {
+    /// Its file name, in the configuration folder and in the installer.
+    pub name: String,
+    /// The copy on this computer; set by [`crate::config::ConfigDir::app`].
+    #[serde(skip)]
+    pub host: PathBuf,
+}
+
+/// Whether `name` can name a program file: it becomes part of a path on
+/// the host and in the installer, so only plain characters.
+pub fn valid_file_name(name: &str) -> bool {
+    (1..=100).contains(&name.len())
+        && !name.starts_with(['.', '-'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
 }
 
 /// Where an app's definition comes from.
@@ -592,6 +620,14 @@ impl Validate for AppConfig {
         }
         if self.install.trim().is_empty() {
             return Err("install darf nicht leer sein".to_owned());
+        }
+        if let Some(file) = &self.file
+            && !valid_file_name(&file.name)
+        {
+            return Err(format!(
+                "file.name: {:?} ist kein einfacher Dateiname",
+                file.name
+            ));
         }
         for required in &self.requires {
             validate_app_name(required).map_err(|e| format!("requires: {e}"))?;
