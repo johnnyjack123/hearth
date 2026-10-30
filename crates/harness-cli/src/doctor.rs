@@ -194,7 +194,15 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
 
     for (label, image) in [("Base-Image", BASE_IMAGE), ("Gateway-Image", GATEWAY_IMAGE)] {
         match image.status(&provider) {
-            Ok(ImageStatus::Current) => report.ok(format!("{label} {} aktuell", image.tag)),
+            Ok(ImageStatus::Current) => report.ok(format!(
+                "{label} {} aktuell{}",
+                image.tag,
+                if image.prebuilt() {
+                    " (Programm liegt harness bei)"
+                } else {
+                    ""
+                }
+            )),
             Ok(ImageStatus::Outdated) => report.warn(format!(
                 "{label} {} ist veraltet → harness image build {}",
                 image.tag, image.name

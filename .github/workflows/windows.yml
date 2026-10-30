@@ -9,6 +9,12 @@
 # hand (`gh workflow run windows.yml`), which only keeps them as artifacts.
 # arm64 is cross-compiled on the x64 runner: the MSVC ARM64 tools are part
 # of its Visual Studio, and no dependency compiles C code.
+#
+# harness.exe carries the egress gateway for the VM (x64 Windows runs an
+# x86_64 VM, arm64 an aarch64 one), built first on Linux with the build stage
+# of images/gateway/Containerfile, exactly as the VM would build it. The VM
+# then only packs it (images/gateway/Containerfile.prebuilt) and needs
+# neither the Rust image nor minutes of compiling.
 name: Windows
 
 on:
@@ -30,23 +36,67 @@ env:
   CARGO_BUILD_JOBS: "4"
 
 jobs:
+  gateway:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            vm: x86_64
+          - runner: ubuntu-24.04-arm
+            vm: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build like the VM
+        run: |
+          # The context harness writes for `harness image build gateway`.
+          context="$RUNNER_TEMP/gateway"
+          mkdir -p "$context"
+          cp images/gateway/Containerfile images/gateway/Cargo.lock crates/harness-gateway/Cargo.toml "$context/"
+          cp -r crates/harness-gateway/src "$context/"
+          docker build --target build --tag harness-gateway-build "$context"
+          container=$(docker create harness-gateway-build)
+          docker cp "$container:/src/target/release/harness-gateway" harness-gateway
+          docker rm "$container"
+          file harness-gateway
+          ./harness-gateway --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gateway-${{ matrix.vm }}
+          path: harness-gateway
+          retention-days: 30
+
   build:
+    needs: gateway
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
             target: x86_64-pc-windows-msvc
+            vm: x86_64
           - arch: arm64
             target: aarch64-pc-windows-msvc
+            vm: aarch64
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: gateway-${{ matrix.vm }}
+          path: gateway
 
       - name: Toolchain
         run: rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --target ${{ matrix.target }}
 
       - name: Build
+        env:
+          # Embedded by crates/harness-core/build.rs, which checks the architecture.
+          HARNESS_GATEWAY_BINARY: ${{ github.workspace }}/gateway/harness-gateway
         run: cargo build --release --locked --target ${{ matrix.target }} -p harness-cli -p harness-vmd
 
       - name: Build the installer with these programs inside
