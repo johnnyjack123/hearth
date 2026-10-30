@@ -54,14 +54,41 @@ foreach ($name in $files) {
     if (-not (Test-Path (Join-Path $source $name))) { throw "$name fehlt in $source" }
 }
 
-# A running background service locks its files; setup starts it again.
+# Windows lets nobody open a running program for writing.
+function Test-InUse([string] $Path) {
+    if (-not (Test-Path $Path)) { return $false }
+    try {
+        [System.IO.File]::Open($Path, 'Open', 'Write', 'None').Close()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
+# A running background service locks its files; setup starts it again. Its
+# tray icon (harnessd) ends a moment after it, so wait for both.
 $installed = Join-Path $Target 'harness.exe'
 if (Test-Path $installed) {
     & $installed daemon stop | Out-Null
+    $service = @($installed, (Join-Path $Target 'harnessd.exe'))
+    $deadline = (Get-Date).AddSeconds(30)
+    while ((@($service | Where-Object { Test-InUse $_ }).Count -gt 0) -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 250
+    }
 }
 New-Item -ItemType Directory -Force $Target | Out-Null
+# Programs moved aside by an earlier update, as far as they ended.
+Get-ChildItem $Target -Filter '*.exe.old*' -ErrorAction SilentlyContinue |
+    Remove-Item -ErrorAction SilentlyContinue
 foreach ($name in $files) {
     $copy = Join-Path $Target $name
+    # Still running (harness run in a terminal): a running program cannot be
+    # replaced but can be renamed; it keeps running from there.
+    if (Test-InUse $copy) {
+        $n = 1
+        while (Test-Path "$copy.old$n") { $n++ }
+        Move-Item $copy "$copy.old$n"
+    }
     Copy-Item (Join-Path $source $name) $copy -Force
     # Downloaded files carry the mark of the web; Windows would warn on every start.
     Unblock-File -Path $copy

@@ -373,7 +373,14 @@ fn build_images(
         .ping()
         .context("VM prüfen (harness doctor zeigt Details)")?;
     for image in images {
-        println!("Baue {} …", image.tag);
+        if image.prebuilt() {
+            println!(
+                "Baue {} (Programm liegt bei, nichts zu kompilieren) …",
+                image.tag
+            );
+        } else {
+            println!("Baue {} …", image.tag);
+        }
         image.build(&provider, options)?;
         println!("{} gebaut.", image.tag);
     }

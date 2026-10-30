@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use harness_core::config::ConfigDir;
-use harness_core::image::{BuildOptions, IMAGES, ImageDefinition, ImageStatus};
+use harness_core::image::{BuildOptions, GATEWAY_PREBUILT, IMAGES, ImageDefinition, ImageStatus};
 use harness_core::podman::{MachineConfig, find_podman};
 use harness_core::sync::find_git;
 use harness_core::vmd;
@@ -339,10 +339,16 @@ fn images(assistant: &Assistant, machine: &str) -> anyhow::Result<bool> {
     if missing.is_empty() {
         return Ok(true);
     }
-    if !assistant.agrees(
-        "Images in der VM bauen (lädt Basis-Images, beim ersten Mal etwa 600 MB; dauert einige \
-         Minuten)?",
-    )? {
+    // Without the gateway program in this harness the VM compiles it and
+    // first downloads the Rust image.
+    let question = if GATEWAY_PREBUILT {
+        "Images in der VM bauen (lädt Basis-Images, beim ersten Mal etwa 250 MB; dauert einige \
+         Minuten)?"
+    } else {
+        "Images in der VM bauen (lädt Basis-Images und Rust zum Kompilieren des Gateways, beim \
+         ersten Mal etwa 600 MB; dauert einige Minuten)?"
+    };
+    if !assistant.agrees(question)? {
         return Ok(false);
     }
     crate::build_images(machine, &missing, BuildOptions::default())?;

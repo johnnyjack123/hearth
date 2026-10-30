@@ -10,3 +10,6 @@ publish.workspace = true
 [[bin]]
 name = "llm-harness-setup"
 path = "src/main.rs"
+
+[dev-dependencies]
+tempfile.workspace = true

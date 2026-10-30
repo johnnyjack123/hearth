@@ -262,6 +262,8 @@ export const de = {
     tool: {
       running: 'läuft',
       failed: 'Fehler',
+      exitCode: 'Exit {code}',
+      exitCodeHint: 'Der Befehl lief und endete mit Code {code}, etwa weil grep nichts fand. Der Agent liest das Ergebnis selbst.',
       done: 'fertig',
       showOutput: 'Ausgabe zeigen',
       hideOutput: 'Ausgabe verbergen',

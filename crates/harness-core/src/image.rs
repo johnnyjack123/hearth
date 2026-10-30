@@ -23,6 +23,17 @@ pub struct ContextFile {
     pub contents: &'static str,
 }
 
+/// A program of an image build context: bytes, not text.
+#[derive(Debug, Clone, Copy)]
+pub struct ContextProgram {
+    /// Path inside the context directory.
+    pub name: &'static str,
+    /// The program. A function rather than the bytes: every use of a
+    /// const holding them put another copy into harness.exe (1.6 MB each,
+    /// four of them before).
+    pub bytes: fn() -> &'static [u8],
+}
+
 /// An image with an embedded build context.
 #[derive(Debug, Clone, Copy)]
 pub struct ImageDefinition {
@@ -32,6 +43,8 @@ pub struct ImageDefinition {
     pub tag: &'static str,
     /// Build context; must include a `Containerfile`.
     pub files: &'static [ContextFile],
+    /// A program built elsewhere that the image only packs.
+    pub program: Option<ContextProgram>,
 }
 
 /// The base image all instances run on (`images/base`).
@@ -52,6 +65,7 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
             contents: include_str!("../../../images/base/profile.sh"),
         },
     ],
+    program: None,
 };
 
 /// Images only a build needs (`FROM … AS build`) and that are big enough to
@@ -61,14 +75,50 @@ pub const BASE_IMAGE: ImageDefinition = ImageDefinition {
 /// would download them anew (decision of the user, 27.10.).
 pub const BUILD_ONLY_IMAGES: &[&str] = &["docker.io/library/rust:"];
 
-/// The egress gateway (`images/gateway`), compiled from the
-/// `harness-gateway` crate inside the VM. Every file in that crate's `src/`
-/// must be listed here (checked by a test).
+/// The gateway program the release workflow built for the VM (`build.rs`);
+/// empty in every other build. Only here, once.
+static GATEWAY_PROGRAM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/harness-gateway"));
+
+fn gateway_program() -> &'static [u8] {
+    GATEWAY_PROGRAM
+}
+
+/// Whether this harness brings the gateway program along (`build.rs` says
+/// so); else the VM compiles it, which needs the Rust image (859 MB) and
+/// minutes.
+pub const GATEWAY_PREBUILT: bool = option_env!("HARNESS_GATEWAY_EMBEDDED").is_some();
+
+/// The egress gateway (`images/gateway`): packed from the program the
+/// release brings along, else compiled in the VM.
+pub const GATEWAY_IMAGE: ImageDefinition = if GATEWAY_PREBUILT {
+    GATEWAY_PACKED_IMAGE
+} else {
+    GATEWAY_SOURCE_IMAGE
+};
+
+/// The gateway packed from [`GATEWAY_PROGRAM`]; the runtime is the same as
+/// the last stage of [`GATEWAY_SOURCE_IMAGE`] (checked by a test).
+const GATEWAY_PACKED_IMAGE: ImageDefinition = ImageDefinition {
+    name: "gateway",
+    tag: "localhost/harness/gateway:latest",
+    files: &[ContextFile {
+        name: "Containerfile",
+        contents: include_str!("../../../images/gateway/Containerfile.prebuilt"),
+    }],
+    program: Some(ContextProgram {
+        name: "harness-gateway",
+        bytes: gateway_program,
+    }),
+};
+
+/// The gateway compiled from the `harness-gateway` crate inside the VM.
+/// Every file in that crate's `src/` must be listed here (checked by a
+/// test). The release workflow builds its program with the same stage.
 ///
 /// The lock file is the gateway's own, pruned from the workspace lock
 /// (`scripts/gateway-lock.sh`, checked by a test): with the whole workspace
 /// lock, every unrelated dependency update would mark the image outdated.
-pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
+pub const GATEWAY_SOURCE_IMAGE: ImageDefinition = ImageDefinition {
     name: "gateway",
     tag: "localhost/harness/gateway:latest",
     files: &[
@@ -145,6 +195,7 @@ pub const GATEWAY_IMAGE: ImageDefinition = ImageDefinition {
             contents: include_str!("../../harness-gateway/src/upstream/tls/tests.rs"),
         },
     ],
+    program: None,
 };
 
 /// All images, in build order.
@@ -164,12 +215,17 @@ pub enum ImageStatus {
 /// Stable fingerprint of some texts (FNV-1a, 64 bit, as 16 hex digits).
 /// Only change detection, not a security measure.
 pub(crate) fn fingerprint<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+    fingerprint_bytes(parts.into_iter().map(str::as_bytes))
+}
+
+/// [`fingerprint`] of bytes; for texts both give the same.
+fn fingerprint_bytes<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> String {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     let mut hash = OFFSET;
     for part in parts {
         // NUL separators keep ("ab","c") and ("a","bc") apart.
-        for byte in part.bytes().chain([0]) {
+        for &byte in part.iter().chain(&[0]) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(PRIME);
         }
@@ -190,13 +246,24 @@ pub struct BuildOptions {
 
 impl ImageDefinition {
     /// Stable fingerprint of the build context (FNV-1a, 64 bit). Not a
-    /// security measure, only change detection.
+    /// security measure, only change detection. Images without a program
+    /// keep the fingerprint they had before programs existed.
     pub fn context_hash(&self) -> String {
-        fingerprint(
+        fingerprint_bytes(
             self.files
                 .iter()
-                .flat_map(|file| [file.name, file.contents]),
+                .flat_map(|file| [file.name.as_bytes(), file.contents.as_bytes()])
+                .chain(
+                    self.program
+                        .iter()
+                        .flat_map(|program| [program.name.as_bytes(), (program.bytes)()]),
+                ),
         )
+    }
+
+    /// Whether the image only packs a program built elsewhere.
+    pub fn prebuilt(&self) -> bool {
+        self.program.is_some()
     }
 
     /// Writes the build context into `dir`, replacing whatever was there.
@@ -217,6 +284,11 @@ impl ImageDefinition {
                     .map_err(|e| Error::io(format!("{} anlegen", parent.display()), e))?;
             }
             fs::write(&path, file.contents)
+                .map_err(|e| Error::io(format!("{} schreiben", path.display()), e))?;
+        }
+        if let Some(program) = self.program {
+            let path = dir.join(program.name);
+            fs::write(&path, (program.bytes)())
                 .map_err(|e| Error::io(format!("{} schreiben", path.display()), e))?;
         }
         Ok(())
@@ -308,7 +380,7 @@ mod tests {
 
     #[test]
     fn gateway_context_is_complete() {
-        let embedded: Vec<&str> = GATEWAY_IMAGE.files.iter().map(|f| f.name).collect();
+        let embedded: Vec<&str> = GATEWAY_SOURCE_IMAGE.files.iter().map(|f| f.name).collect();
         let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../harness-gateway");
         let mut on_disk = vec![
             "Containerfile".to_owned(),
@@ -337,10 +409,10 @@ mod tests {
         assert_eq!(
             embedded.len(),
             on_disk.len(),
-            "stale entries in GATEWAY_IMAGE"
+            "stale entries in GATEWAY_SOURCE_IMAGE"
         );
         // The embedded copy is what the build uses, not a stale snapshot.
-        for file in GATEWAY_IMAGE
+        for file in GATEWAY_SOURCE_IMAGE
             .files
             .iter()
             .filter(|f| f.name.starts_with("src/"))
@@ -415,7 +487,7 @@ mod tests {
     fn gateway_lock_matches_the_workspace() {
         let hint = "images/gateway/Cargo.lock passt nicht zu Cargo.lock; neu erzeugen mit \
                     `bash scripts/gateway-lock.sh`";
-        let lock = GATEWAY_IMAGE
+        let lock = GATEWAY_SOURCE_IMAGE
             .files
             .iter()
             .find(|f| f.name == "Cargo.lock")
@@ -474,6 +546,7 @@ mod tests {
                 name: "Containerfile",
                 contents: "FROM x",
             }],
+            program: None,
         };
         let b = ImageDefinition {
             files: &[ContextFile {
@@ -485,6 +558,69 @@ mod tests {
         assert_eq!(a.context_hash(), a.context_hash());
         assert_eq!(a.context_hash().len(), 16);
         assert_ne!(a.context_hash(), b.context_hash());
+        // Images without a program keep their fingerprint from before.
+        assert_eq!(a.context_hash(), fingerprint(["Containerfile", "FROM x"]));
+
+        let packed = |bytes: fn() -> &'static [u8]| ImageDefinition {
+            program: Some(ContextProgram {
+                name: "tool",
+                bytes,
+            }),
+            ..a
+        };
+        let one = packed(|| b"\x7fELF1");
+        let two = packed(|| b"\x7fELF2");
+        assert_ne!(one.context_hash(), two.context_hash());
+        assert_ne!(packed(|| b"").context_hash(), a.context_hash());
+        // Whether the gateway comes packed follows what build.rs embedded.
+        assert_eq!(GATEWAY_PREBUILT, !GATEWAY_PROGRAM.is_empty());
+    }
+
+    #[test]
+    fn the_packed_gateway_runs_like_the_compiled_one() {
+        // Everything after the last FROM, without the line that brings the
+        // program in: built in the VM or packed, the container is the same.
+        let runtime = |containerfile: &str, copy: &str| -> Vec<String> {
+            let lines: Vec<&str> = containerfile.lines().collect();
+            let from = lines
+                .iter()
+                .rposition(|line| line.starts_with("FROM "))
+                .unwrap();
+            lines[from..]
+                .iter()
+                .filter(|line| !line.starts_with(copy))
+                .map(|line| (*line).to_owned())
+                .collect()
+        };
+        let compiled = runtime(
+            GATEWAY_SOURCE_IMAGE.files[0].contents,
+            "COPY --from=build /src/target/release/harness-gateway ",
+        );
+        let packed = runtime(
+            GATEWAY_PACKED_IMAGE.files[0].contents,
+            "COPY --chmod=755 harness-gateway ",
+        );
+        assert_eq!(compiled, packed);
+        assert!(GATEWAY_SOURCE_IMAGE.files[0].contents.contains(
+            "COPY --from=build /src/target/release/harness-gateway /usr/local/bin/harness-gateway"
+        ));
+        assert!(
+            GATEWAY_PACKED_IMAGE.files[0]
+                .contents
+                .contains("COPY --chmod=755 harness-gateway /usr/local/bin/harness-gateway")
+        );
+        // The release workflow takes the program from this stage and path.
+        let workflow = include_str!("../../../.github/workflows/windows.yml");
+        assert!(workflow.contains("--target build"), "windows.yml");
+        assert!(
+            workflow.contains("/src/target/release/harness-gateway"),
+            "windows.yml"
+        );
+        assert!(
+            GATEWAY_SOURCE_IMAGE.files[0]
+                .contents
+                .contains(" AS build\n")
+        );
     }
 
     #[test]
@@ -495,10 +631,20 @@ mod tests {
         fs::write(target.join("stale"), "x").unwrap();
         BASE_IMAGE.write_context(&target).unwrap();
         assert!(target.join("Containerfile").is_file());
+        let packed = ImageDefinition {
+            program: Some(ContextProgram {
+                name: "tool",
+                bytes: || b"\x7fELF\x00\xff",
+            }),
+            ..BASE_IMAGE
+        };
+        let other = dir.path().join("packed");
+        packed.write_context(&other).unwrap();
+        assert_eq!(fs::read(other.join("tool")).unwrap(), b"\x7fELF\x00\xff");
         assert!(target.join("gitconfig").is_file());
         assert!(!target.join("stale").exists());
 
-        GATEWAY_IMAGE.write_context(&target).unwrap();
+        GATEWAY_SOURCE_IMAGE.write_context(&target).unwrap();
         assert!(
             target
                 .join("src")
