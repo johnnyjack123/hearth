@@ -71,7 +71,25 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
         }
         Ok(())
     })?;
+    if let Some(note) = ensure_swap(&provider) {
+        println!("{note}");
+    }
     Ok(provider)
+}
+
+/// Gives the running VM its swap if it has none yet
+/// (`PodmanProvider::ensure_swap`); returns what to tell the user, if
+/// anything. Failing only warns: the VM works without, just tighter.
+pub fn ensure_swap(provider: &PodmanProvider) -> Option<String> {
+    match provider.ensure_swap() {
+        Ok(true) => Some(
+            "Swap in der VM eingerichtet (zram, komprimiert im Arbeitsspeicher): Compiler und \
+             Agent werden bei knappem Speicher nicht mehr beendet, nur langsamer."
+                .to_owned(),
+        ),
+        Ok(false) => None,
+        Err(error) => Some(format!("Swap in der VM nicht eingerichtet: {error}")),
+    }
 }
 
 /// Stops the VM through the VM service; returns the service's message.

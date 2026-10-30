@@ -42,6 +42,15 @@ pub struct PodmanProvider {
     home: PathBuf,
 }
 
+/// Sets up zram swap unless the VM has it (`ensure_swap`). The
+/// configuration lands in /etc, which Fedora CoreOS keeps across restarts.
+const SWAP_SCRIPT: &str = "if grep -q zram0 /proc/swaps; then echo swap=ok; exit 0; fi; \
+printf '[zram0]\\nzram-size = min(ram, 4096)\\ncompression-algorithm = zstd\\n' \
+| sudo tee /etc/systemd/zram-generator.conf > /dev/null \
+&& sudo systemctl daemon-reload \
+&& sudo systemctl start dev-zram0.swap \
+&& grep -q zram0 /proc/swaps && echo swap=new";
+
 impl PodmanProvider {
     /// Provider for the named Hyper-V machine, using the installed podman and
     /// `%LOCALAPPDATA%\llm-harness\podman` for connection state.
@@ -140,11 +149,30 @@ impl PodmanProvider {
 
     /// TRIM inside the VM (`sudo fstrim -av` as the machine's user): tells
     /// the disk which blocks deleted files left free, so the VM service can
-    /// shrink the disk file afterwards. It runs here rather than in the
-    /// service because the machine's key belongs to the user, and Windows'
-    /// ssh refuses a key of another owner to SYSTEM. Uses the pinned host
-    /// key and an empty config, never the user's own SSH setup.
+    /// shrink the disk file afterwards.
     pub fn trim(&self) -> Result<String> {
+        self.vm_shell("sudo fstrim -av", "fstrim in der VM")
+    }
+
+    /// Compressed swap in RAM (zram) for the VM, set up once and kept by
+    /// the VM across restarts. The VM starts with 1 GB and gets more only
+    /// while Windows has some free; without swap its kernel then kills
+    /// compilers and even the harness (seen on 30.10.: `tsc` three times,
+    /// then pi). zstd packs typical memory about threefold, so a swap as
+    /// large as the RAM costs about a third of it when full. Fedora CoreOS
+    /// brings zram-generator, only its configuration is missing. Returns
+    /// whether it set the swap up now.
+    pub fn ensure_swap(&self) -> Result<bool> {
+        let output = self.vm_shell(SWAP_SCRIPT, "Swap in der VM einrichten")?;
+        Ok(output.lines().any(|line| line == "swap=new"))
+    }
+
+    /// Runs `script` in the VM over SSH as the machine's user. It runs here
+    /// rather than in the VM service because the machine's key belongs to
+    /// the user, and Windows' ssh refuses a key of another owner to SYSTEM.
+    /// Uses the pinned host key and an empty config, never the user's own
+    /// SSH setup.
+    fn vm_shell(&self, script: &str, what: &str) -> Result<String> {
         self.ensure_known_hosts()?;
         let config = self.home.join(".ssh").join("config-empty");
         if !config.is_file() {
@@ -177,7 +205,7 @@ impl PodmanProvider {
             .arg("-p")
             .arg(self.machine.ssh_port.to_string())
             .arg(format!("{}@{}", self.machine.ssh_user, Ipv4Addr::LOCALHOST))
-            .arg("sudo fstrim -av")
+            .arg(script)
             .stdin(Stdio::null())
             .output()
             .map_err(|source| Error::Spawn {
@@ -187,7 +215,7 @@ impl PodmanProvider {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
         } else {
-            Err(command_error("fstrim in der VM", &output))
+            Err(command_error(what, &output))
         }
     }
 
