@@ -60,6 +60,15 @@ Fehler beim Test:
 
 Was nach außen geht: die Suchanfragen selbst (an SearXNG und von dort an die Suchmaschinen, bzw. an Brave oder Tavily) und Abrufe der gefundenen Seiten. Das Modell soll keine privaten Details in Suchanfragen schreiben, verhindern lässt sich das aber nicht.
 
+### Dateien im Chat (markitdown)
+
+Bilder und Textdateien gehen ohne weiteren Dienst. PDF, Word, Excel, PowerPoint, EPUB und HTML wandelt der Container `llm-harness-markitdown` in Markdown um, das das Modell liest. Er steht seit dem 31.10. ohne Profil in `docker-compose.yml`, `docker compose up -d` startet ihn also mit. Er hängt nur im internen Netz `documents`: kein Weg ins Internet, nur der Server erreicht ihn (`MARKITDOWN_URL`, Standard `http://markitdown:8080`). Dazu schreibgeschütztes Dateisystem, keine Rechte, höchstens 1 GB RAM. Das Image ist etwa 440 MB groß (ausgepackt), einmal herunterzuladen.
+
+- **Ältere Compose-Datei:** Den Dienst `markitdown`, beim Server `environment` und `networks` sowie das Netz `documents` aus der aktuellen `docker-compose.yml` übernehmen, dann `docker compose pull && docker compose up -d`. Vorher eine Sicherung der Datei daneben legen.
+- **„Dokumente umwandeln geht gerade nicht“:** Der Container läuft nicht. `docker compose ps -a` und `docker compose logs --tail 50 markitdown` zeigen den Grund.
+- **„In dem Dokument steht kein lesbarer Text“:** Ein gescanntes PDF ohne Texterkennung. Als Bild (Screenshot der Seite) geht es mit einem Modell, das Bilder versteht.
+- Hochgeladene Dateien liegen in `data/files`. Löschen eines Chats löscht seine Dateien; Uploads, die nie in einer Nachricht landeten, gehen nach einem Tag.
+
 ### Grenzen heute
 
 - Mit `http://` läuft das Geräte-Token unverschlüsselt durchs Netz. Im Heimnetz mag das gehen, für einen Server im Internet immer HTTPS nehmen (nächster Abschnitt).
