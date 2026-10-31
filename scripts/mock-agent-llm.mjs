@@ -2,8 +2,10 @@
 // scripts/smoke-connect.sh: a request without a tool result gets a `bash`
 // call with MOCK_COMMAND, a request with one gets the answer "fertig". A
 // user message that starts with "!" names the command itself, one that
-// starts with "?" a URL for `web_fetch` instead, and "?search <terms>" calls
-// `web_search`. A request without tools (pi summarizing its history) gets a
+// starts with "?" a URL for `web_fetch` instead, "?search <terms>" calls
+// `web_search`, and "#plan a; b; c" calls `progress` with those steps, the
+// first one done and the second active. A request without tools (pi
+// summarizing its history) gets a
 // summary. It also answers like SearXNG (`/search?format=json`).
 // Every request body is appended to MOCK_LOG if set.
 import fs from 'node:fs';
@@ -65,11 +67,15 @@ http
         const query = /(?:^|\n)\?search (.+)$/.exec(text)?.[1];
         const url = /(?:^|\n)\?(\S+)$/.exec(text)?.[1];
         const wanted = /(?:^|\n)!(.+)$/s.exec(text)?.[1];
-        const [name, input] = query
-          ? ['web_search', { query }]
-          : url
-            ? ['web_fetch', { url }]
-            : ['bash', { command: wanted ?? COMMAND }];
+        const plan = /(?:^|\n)#plan (.+)$/.exec(text)?.[1];
+        const steps = plan?.split(';').map((step, index) => ({ text: step.trim(), state: index === 0 ? 'done' : index === 1 ? 'active' : 'pending' }));
+        const [name, input] = steps
+          ? ['progress', { items: steps }]
+          : query
+            ? ['web_search', { query }]
+            : url
+              ? ['web_fetch', { url }]
+              : ['bash', { command: wanted ?? COMMAND }];
         const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name, arguments: '' } };
         res.write(chunk({ role: 'assistant', tool_calls: [call] }));
         res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(input) } }] }));

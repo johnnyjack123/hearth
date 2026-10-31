@@ -12,6 +12,7 @@ import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
+import { ChecklistPanel, currentChecklist } from './agent-checklist.tsx';
 import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
@@ -99,6 +100,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const busy = status === 'submitted' || status === 'streaming';
   const { link } = conversation;
   const online = useLinkOnline(link);
+  // The agent's plan, as it checks it off.
+  const checklist = link ? currentChecklist(messages) : null;
 
   function setResearch(on: boolean) {
     setChatResearch(on);
@@ -169,6 +172,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           ) : null}
         </AnimatePresence>
         <div className="mx-auto w-full max-w-(--content-width)">
+          {checklist ? <ChecklistPanel items={checklist} live={busy} /> : null}
           <Composer
             value={draft}
             onValueChange={setDraft}

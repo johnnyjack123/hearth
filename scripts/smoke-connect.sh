@@ -341,6 +341,12 @@ check "Werkzeug web_search aufgerufen" grep -q '"toolName":"web_search"' "$WORK/
 check "Treffer der Suche beim Agent" grep -q 'example.com/roesten' "$WORK/m6.log"
 check "Hinweis auf den Recherche-Modus bei pi" grep -q 'Research mode is on' "$WORK/mock-requests.log"
 
+echo "== Fortschrittsliste und Dauer der Werkzeuge"
+say_in_chat m6b '#plan Lesen; Bauen; Testen'
+check "Werkzeug progress in pi geladen" grep -q '"toolName":"progress"' "$WORK/m6b.log"
+check "Liste beim Agent angekommen" grep -q 'Shown: 1/3 done.' "$WORK/m6b.log"
+check "Dauer des Werkzeugs gemeldet" grep -q '"toolMs":{' "$WORK/m6b.log"
+
 echo "== Denktiefe und Zusammenfassen bei pi (Protokoll 4)"
 printf '%s' "{\"message\":{\"id\":\"m7\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"!echo sieben\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"effort\":\"high\"}" > "$WORK/m7.json"
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m7.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m7.log"

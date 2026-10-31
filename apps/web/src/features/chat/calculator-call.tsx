@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/display.tsx';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import { useT } from '@/lib/preferences.tsx';
+import { ToolDuration } from './tool-duration.tsx';
 
 /** The stored output, if it has the expected shape. */
 function readOutput(value: unknown): CalculatorOutput | null {
@@ -15,10 +16,11 @@ function readOutput(value: unknown): CalculatorOutput | null {
  * What the model calculated with the calculator tool: each expression with
  * its result, so the user sees the numbers the answer rests on.
  *
- * @param props - The tool part and whether the reply is still streaming.
+ * @param props - The tool part, whether the reply is still streaming and how
+ *   long the call ran.
  * @returns The card.
  */
-export function CalculatorCall({ part, streaming }: { part: ToolUIPart; streaming: boolean }) {
+export function CalculatorCall({ part, streaming, ms }: { part: ToolUIPart; streaming: boolean; ms?: number | undefined }) {
   const t = useT();
   const output = part.state === 'output-available' ? readOutput(part.output) : null;
   const input = part.input as { expressions?: unknown } | undefined;
@@ -53,6 +55,7 @@ export function CalculatorCall({ part, streaming }: { part: ToolUIPart; streamin
       <div className="flex min-w-0 items-center gap-2 px-3 py-2">
         <Calculator className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate text-foreground">{t('calculator.title')}</span>
+        <ToolDuration ms={ms} running={running} />
         {status}
       </div>
       {entries.length > 0 ? (

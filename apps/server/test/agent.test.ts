@@ -135,8 +135,23 @@ describe('ChunkMapper', () => {
     expect(mapper.usage?.calls?.map((call) => call.ms)).toEqual([2_000, 400]);
   });
 
+  it('times each tool call, failed ones too', () => {
+    let clock = 0;
+    const mapper = new ChunkMapper('m', () => clock);
+    mapper.map({ type: 'tool.start', id: 'a', name: 'bash', input: { command: 'make' } });
+    mapper.map({ type: 'tool.start', id: 'b', name: 'read', input: { path: 'x' } });
+    clock += 300;
+    mapper.map({ type: 'tool.end', id: 'b', output: 'x', isError: false });
+    clock += 4_700;
+    mapper.map({ type: 'tool.end', id: 'a', output: 'Command exited with code 2', isError: true });
+    // An end without a start is no call of this reply.
+    mapper.map({ type: 'tool.end', id: 'c', output: '', isError: false });
+    expect(mapper.toolMs).toEqual({ a: 5_000, b: 300 });
+  });
+
   it('turns agent events into UI chunks and sums usage', () => {
-    const mapper = new ChunkMapper();
+    // A stopped clock: no call gets a duration the expectation below lacks.
+    const mapper = new ChunkMapper(undefined, () => 0);
     const chunks = [
       { type: 'turn.start' },
       { type: 'text.start', id: 't1' },
@@ -654,11 +669,12 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(body).toContain('"type":"tool-input-available"');
     expect(body).toContain('"type":"data-approval"');
     expect(body).toContain('"delta":"Fertig."');
-    // Cost and context arrive with every model call, before the end.
-    const live = body.indexOf('"type":"message-metadata"');
-    expect(live).toBeGreaterThan(-1);
-    expect(body.slice(live, body.indexOf('\n', live))).toContain('"contextTokens":7');
-    expect(live).toBeLessThan(body.indexOf('"type":"finish"'));
+    // Cost and context arrive with every model call, before the end; how
+    // long a tool ran, once it is done.
+    const metadataLines = body.split('\n').filter((line) => line.includes('"type":"message-metadata"'));
+    expect(metadataLines.some((line) => line.includes('"contextTokens":7'))).toBe(true);
+    expect(metadataLines.some((line) => line.includes('"toolMs":{'))).toBe(true);
+    expect(body.indexOf('"type":"message-metadata"')).toBeLessThan(body.indexOf('"type":"finish"'));
 
     const prompt = device.received.find((message) => message.type === 'session.prompt');
     expect(prompt).toMatchObject({

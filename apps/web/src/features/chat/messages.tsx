@@ -10,6 +10,7 @@ import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { ChecklistUpdate, PROGRESS_TOOL, readChecklist } from './agent-checklist.tsx';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { CalculatorCall } from './calculator-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
@@ -140,6 +141,7 @@ function AssistantMessage({
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
   const harness = message.metadata?.agent?.harness ?? 'pi';
+  const toolMs = message.metadata?.toolMs;
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
       {message.metadata?.condensed ? <CondensedNote /> : null}
@@ -147,17 +149,34 @@ function AssistantMessage({
         if (part.type === 'reasoning' && part.text.trim()) {
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
         }
+        if (part.type === 'dynamic-tool' && part.toolName === PROGRESS_TOOL && part.state !== 'output-error') {
+          const items = readChecklist(part.input);
+          if (items) {
+            return <ChecklistUpdate key={part.toolCallId} items={items} live={streaming} />;
+          }
+        }
         if (part.type === 'dynamic-tool') {
-          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
+          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />;
         }
         if (part.type === `tool-${WEB_FETCH_TOOL}`) {
-          return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
+          return (
+            <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />
+          );
         }
         if (part.type === `tool-${CALCULATOR_TOOL}`) {
-          return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} />;
+          return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} />;
         }
         if (part.type === `tool-${WEB_SEARCH_TOOL}`) {
-          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} onAssess={assess(part.toolCallId)} />;
+          return (
+            <WebSearchCall
+              key={part.toolCallId}
+              part={part}
+              streaming={streaming}
+              read={pages}
+              ms={toolMs?.[part.toolCallId]}
+              onAssess={assess(part.toolCallId)}
+            />
+          );
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;

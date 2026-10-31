@@ -784,6 +784,20 @@ try {
         // the chat shows the code instead.
         sendEvent(s, { type: 'tool.start', id: 'call-2', name: 'bash', input: { command: 'grep -r TODO src' } });
         sendEvent(s, { type: 'tool.end', id: 'call-2', output: '\n\nCommand exited with code 1', isError: true });
+        // The agent's plan, shown above the message box.
+        sendEvent(s, {
+          type: 'tool.start',
+          id: 'call-3',
+          name: 'progress',
+          input: {
+            items: [
+              { text: 'Projekt ansehen', state: 'done' },
+              { text: 'example.com prüfen', state: 'active' },
+              { text: 'Bericht schreiben', state: 'pending' },
+            ],
+          },
+        });
+        sendEvent(s, { type: 'tool.end', id: 'call-3', output: 'Shown: 1/3 done.', isError: false });
         sendEvent(s, { type: 'turn.end' });
         sendEvent(s, { type: 'turn.start' });
         sendEvent(s, { type: 'text.start', id: 't2' });
@@ -866,6 +880,26 @@ try {
       );
       if (!grepCard.includes('Exit 1') || grepCard.includes('Fehler') || (await page.$$(text('Command exited with code 1'))).length > 0) {
         throw new Error(`an exit code shows as a failure: ${grepCard}`);
+      }
+      // How long the command ran, waiting for the approval included.
+      const firstCard = await page.evaluate(
+        () =>
+          [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('$ ls -la && curl -sI https://example.com'))?.textContent ??
+          '',
+      );
+      if (!/\d+(,\d)? s/.test(firstCard)) {
+        throw new Error(`no duration on the tool card: ${firstCard}`);
+      }
+      // The agent's plan: a quiet line in the reply, the list above the message box.
+      await page.waitForSelector(`section[aria-label="Fortschritt"] ${text('example.com prüfen')}`, { timeout: 5_000 });
+      await waitForText('Fortschritt: 1 von 3');
+      const panel = await page.$eval('section[aria-label="Fortschritt"]', (element) => element.textContent ?? '');
+      if (!panel.includes('1/3') || !panel.includes('Bericht schreiben')) {
+        throw new Error(`progress panel shows ${panel}`);
+      }
+      const asToolCard = await page.evaluate(() => [...document.querySelectorAll('button span.font-mono')].some((span) => span.textContent === 'progress'));
+      if (asToolCard) {
+        throw new Error('the progress call shows as an ordinary tool card');
       }
       await page.waitForSelector(text('harness: Möglicher Prompt-Injection-Versuch in bash: cat README.md'), { timeout: 5_000 });
       await page.click(text('Details zeigen'));

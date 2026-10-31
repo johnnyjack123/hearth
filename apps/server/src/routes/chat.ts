@@ -557,6 +557,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   let firstToken: number | undefined;
   let running: LanguageModelUsage | undefined;
   let stepTools: string[] = [];
+  // When each tool call started, and how long the finished ones ran.
+  const toolStarted = new Map<string, number>();
+  const toolMs: Record<string, number> = {};
   // The summary at the start of the reply, if the chat ran full.
   const compactCalls: ModelCallUsage[] = [];
 
@@ -587,6 +590,10 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       streamWriter.write({ type: 'data-compaction', id, data: { state: 'failed', trigger: 'auto', error: describeStreamError(error) } });
       return null;
     }
+  }
+
+  function timings(): Pick<MessageMetadata, 'toolMs'> {
+    return Object.keys(toolMs).length > 0 ? { toolMs: { ...toolMs } } : {};
   }
 
   const stream = createUIMessageStream<ChatMessage>({
@@ -622,7 +629,16 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             }
             if (part.type === 'tool-call') {
               stepTools.push(part.toolName);
+              toolStarted.set(part.toolCallId, Date.now());
               return undefined;
+            }
+            if (part.type === 'tool-result' || part.type === 'tool-error') {
+              const started = toolStarted.get(part.toolCallId);
+              if (started === undefined) {
+                return undefined;
+              }
+              toolMs[part.toolCallId] = Date.now() - started;
+              return { ...baseMetadata, toolMs: { ...toolMs } };
             }
             if (part.type === 'finish-step') {
               lastStep = part.usage;
@@ -635,12 +651,14 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               return {
                 ...baseMetadata,
                 usage: withHelpers(usageMetadata(running, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]),
+                ...timings(),
               };
             }
             if (part.type === 'finish') {
               return {
                 ...baseMetadata,
                 usage: withHelpers(usageMetadata(part.totalUsage, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]),
+                ...timings(),
               };
             }
             return undefined;

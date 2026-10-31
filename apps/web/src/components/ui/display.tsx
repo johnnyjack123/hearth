@@ -154,6 +154,32 @@ export function Card({ className, ...props }: ComponentProps<'div'>) {
 }
 
 /**
+ * Thin bar for how much of something is done. The fill grows with a
+ * transform, which reduced motion still allows (it only changes size).
+ *
+ * @param props - Done and total, an accessible label and optional classes.
+ * @returns The bar.
+ */
+export function ProgressBar({ value, max, label, className }: { value: number; max: number; label: string; className?: string }) {
+  const share = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      className={cn('h-1.5 w-full overflow-hidden rounded-full bg-muted', className)}
+    >
+      <div
+        className="h-full w-full origin-left rounded-full bg-primary transition-transform duration-(--duration-normal) ease-standard rtl:origin-right"
+        style={{ transform: `scaleX(${share})` }}
+      />
+    </div>
+  );
+}
+
+/**
  * Horizontal divider.
  *
  * @param props - Optional classes.

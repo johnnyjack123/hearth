@@ -1217,7 +1217,7 @@ fn start(
         &prompt.session,
         prompt.conversation.title.as_deref(),
     ));
-    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress)?;
+    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress, true)?;
     let providers = ready
         .models
         .map(|m| m.by_credential.into_iter().collect())
