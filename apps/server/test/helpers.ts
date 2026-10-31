@@ -11,6 +11,7 @@ import type { ServerConfig } from '../src/config.ts';
 import { createSecretBox } from '../src/crypto.ts';
 import { createDatabase, type Database, type DatabaseKind } from '../src/db/index.ts';
 import { migrateToLatest } from '../src/db/migrations.ts';
+import type { DocumentConverter } from '../src/files/convert.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { createDeviceHub } from '../src/server.ts';
@@ -146,7 +147,13 @@ async function resetPostgres(database: Database): Promise<void> {
  */
 export async function createTestServer(
   kind: DatabaseKind,
-  options: { llm?: MockLlm; webFetch?: Partial<WebFetchConfig>; webSearch?: Partial<SearchEndpoints>; helpers?: HelperOptions } = {},
+  options: {
+    llm?: MockLlm;
+    webFetch?: Partial<WebFetchConfig>;
+    webSearch?: Partial<SearchEndpoints>;
+    helpers?: HelperOptions;
+    converter?: DocumentConverter | null;
+  } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
@@ -173,7 +180,13 @@ export async function createTestServer(
   const hub = createDeviceHub(database.db);
   // A tiny catalog instead of models.dev: tests never go online.
   const pricing = new PricingCatalog(async () => ({
-    openai: { models: { 'mock-1': { limit: { context: 1000 }, cost: { input: 2, output: 8 } } } },
+    openai: {
+      models: {
+        'mock-1': { limit: { context: 1000 }, cost: { input: 2, output: 8 } },
+        // A model the catalog says cannot see images.
+        'mock-blind': { modalities: { input: ['text'] } },
+      },
+    },
   }));
   const app = createApp({
     config,
@@ -186,6 +199,8 @@ export async function createTestServer(
     ...(options.webFetch ? { webFetch: options.webFetch } : {}),
     ...(options.webSearch ? { webSearch: options.webSearch } : {}),
     ...(options.helpers ? { helpers: options.helpers } : {}),
+    // Documents need a converter; tests without one say so explicitly.
+    converter: options.converter ?? null,
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

@@ -44,8 +44,10 @@ export function transcript(messages: ChatMessage[]): string | null {
  * calls, because the AI SDK rejects output for a call it has not seen.
  */
 export class ChunkMapper {
-  // Open tool calls with their name and arguments.
-  readonly #tools = new Map<string, { name: string; input: unknown }>();
+  // Open tool calls with their name, arguments and start.
+  readonly #tools = new Map<string, { name: string; input: unknown; started: number }>();
+  // How long each finished call ran.
+  readonly #toolMs: Record<string, number> = {};
   // Summaries of the agent in this reply; each one updates in place.
   #compactions = 0;
   #compacting = false;
@@ -70,6 +72,11 @@ export class ChunkMapper {
    */
   get usage(): NonNullable<MessageMetadata['usage']> | undefined {
     return this.#usage;
+  }
+
+  /** How long each finished tool call of the reply ran, by id. */
+  get toolMs(): Record<string, number> {
+    return { ...this.#toolMs };
   }
 
   /**
@@ -117,7 +124,7 @@ export class ChunkMapper {
       case 'reasoning.end':
         return [{ type: 'reasoning-end', id: event.id }];
       case 'tool.start':
-        this.#tools.set(event.id, { name: event.name, input: event.input });
+        this.#tools.set(event.id, { name: event.name, input: event.input, started: this.now() });
         return [
           { type: 'tool-input-available', toolCallId: event.id, toolName: event.name, input: event.input, dynamic: true },
         ];
@@ -133,13 +140,17 @@ export class ChunkMapper {
               },
             ]
           : [];
-      case 'tool.end':
-        if (!this.#tools.delete(event.id)) {
+      case 'tool.end': {
+        const open = this.#tools.get(event.id);
+        if (!open) {
           return [];
         }
+        this.#tools.delete(event.id);
+        this.#toolMs[event.id] = Math.max(0, this.now() - open.started);
         return event.isError
           ? [{ type: 'tool-output-error', toolCallId: event.id, errorText: event.output || 'Error', dynamic: true }]
           : [{ type: 'tool-output-available', toolCallId: event.id, output: { ...extra, text: event.output }, dynamic: true }];
+      }
       case 'progress':
         // Same id, so a finished step replaces the running one in place.
         return [
@@ -374,23 +385,27 @@ export function streamAgent(options: StreamAgentOptions): Response {
     execute: async ({ writer }) => {
       writer.write({ type: 'start', messageMetadata: metadata });
       const usage = () => (mapper.usage && options.assess ? withHelpers(mapper.usage, options.assess.helpers.usage) : mapper.usage);
+      const current = (): MessageMetadata => {
+        const now = usage();
+        const toolMs = mapper.toolMs;
+        return { ...metadata, ...(now ? { usage: now } : {}), ...(Object.keys(toolMs).length > 0 ? { toolMs } : {}) };
+      };
       for await (const event of run) {
         for (const chunk of mapper.map(event, await toolExtras(event))) {
           writer.write(chunk);
         }
         // Cost and context after every model call, not only at the end: a
         // long reply shows them as it goes, and one that breaks off (the
-        // agent killed, the device gone) keeps what it used.
-        const now = usage();
-        if ((event.type === 'usage' || event.type === 'compaction') && now) {
-          writer.write({ type: 'message-metadata', messageMetadata: { ...metadata, usage: now } });
+        // agent killed, the device gone) keeps what it used. Likewise how
+        // long each tool ran.
+        if (event.type === 'usage' || event.type === 'compaction' || event.type === 'tool.end') {
+          writer.write({ type: 'message-metadata', messageMetadata: current() });
         }
       }
       for (const chunk of mapper.closeOpenTools()) {
         writer.write(chunk);
       }
-      const final = usage();
-      writer.write({ type: 'finish', messageMetadata: { ...metadata, ...(final ? { usage: final } : {}) } });
+      writer.write({ type: 'finish', messageMetadata: current() });
     },
     onError: (error) => {
       console.error('[agent] stream failed', error);

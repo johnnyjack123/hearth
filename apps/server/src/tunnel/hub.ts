@@ -16,6 +16,7 @@ import {
   TUNNEL_VERSION,
   VERSION_APP_FILES,
   VERSION_APPS,
+  VERSION_FILES,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
   VERSION_TEMPLATES,
@@ -104,11 +105,12 @@ export type CompactMessage = Extract<ServerMessage, { type: 'session.compact' }>
  * before protocol 4 there is no thinking level.
  */
 function forVersion(message: PromptMessage, version: number): PromptMessage {
-  const { thinking, ...rest } = message;
+  const { thinking, files, ...rest } = message;
   return {
     ...rest,
     ...(version < VERSION_TAKEOVER ? { autosync: false } : {}),
     ...(thinking && version >= VERSION_PI_SETTINGS ? { thinking } : {}),
+    ...(files?.length && version >= VERSION_FILES ? { files } : {}),
   };
 }
 
@@ -433,12 +435,30 @@ export class DeviceHub {
    *   refuses with a reason the chat shows.
    */
   startRun(deviceId: string, prompt: PromptMessage, research?: { question: string }): AgentRun {
+    if (prompt.files?.length) {
+      this.assertFiles(deviceId);
+    }
     const run = this.#start(deviceId, prompt);
     const active = this.#runs.get(prompt.session);
     if (active && research) {
       active.research = research;
     }
     return run;
+  }
+
+  /**
+   * Checks that a device takes files with a prompt; call before storing the
+   * message, so an old device leaves no unanswered one behind.
+   *
+   * @param deviceId - Device id.
+   * @throws {HttpError} 409 `device_outdated` below protocol 9. An older
+   *   device would drop the files without a word.
+   */
+  assertFiles(deviceId: string): void {
+    const connection = this.#devices.get(deviceId);
+    if (connection?.greeted && connection.version < VERSION_FILES) {
+      throw new HttpError(409, 'device_outdated', 'The device cannot take files yet; update harness');
+    }
   }
 
   /**

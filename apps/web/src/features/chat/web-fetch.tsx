@@ -11,6 +11,7 @@ import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { ToolText } from './agent-parts.tsx';
 import { InjectionWarning, isAssessment, isFinding, isWarning } from './injection-findings.tsx';
+import { ToolDuration } from './tool-duration.tsx';
 
 /** Reads the stored output defensively: it comes from the server's history. */
 function readOutput(output: unknown): WebFetchOutput | null {
@@ -100,7 +101,17 @@ function errorText(t: TranslateFn, raw: string): { code: string | null; text: st
  * @param props - The `tool-web_fetch` part and whether its message is still streaming.
  * @returns The web fetch block.
  */
-export function WebFetchCall({ part, streaming, onAssess }: { part: ToolUIPart; streaming: boolean; onAssess?: (() => Promise<void>) | undefined }) {
+export function WebFetchCall({
+  part,
+  streaming,
+  ms,
+  onAssess,
+}: {
+  part: ToolUIPart;
+  streaming: boolean;
+  ms?: number | undefined;
+  onAssess?: (() => Promise<void>) | undefined;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const output = part.state === 'output-available' ? readOutput(part.output) : null;
@@ -147,6 +158,7 @@ export function WebFetchCall({ part, streaming, onAssess }: { part: ToolUIPart; 
         <Globe className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{output?.title ? `${output.title} · ${url}` : url}</span>
         {badge ? <Badge className="shrink-0">{badge}</Badge> : null}
+        <ToolDuration ms={ms} running={running} />
         {status}
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}

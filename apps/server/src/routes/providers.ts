@@ -65,7 +65,15 @@ export function providerRoutes(deps: AppDeps) {
     const base = { credentialId: row.id, kind: row.kind, label: row.label };
     try {
       await assertEndpointAllowed(db, user, row.kind, row.baseUrl);
-      return { ...base, models: await llm.listModels(resolveCredential(secretBox, row)), error: null };
+      const models = await llm.listModels(resolveCredential(secretBox, row));
+      // Whether a model reads images decides if the chat offers to attach them.
+      const described = await Promise.all(
+        models.map(async (model) => {
+          const images = (await deps.pricing.lookup(row.kind, row.baseUrl, model.id))?.images;
+          return images === undefined ? model : { ...model, images };
+        }),
+      );
+      return { ...base, models: described, error: null };
     } catch (error) {
       if (error instanceof ProviderRequestError || error instanceof HttpError) {
         return { ...base, models: [], error: error.message };

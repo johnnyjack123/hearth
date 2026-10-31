@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-30 · Release v0.1.10: Stand „übernommen“ im Chat, Kosten und Kontext live, Tokens/s, Denkblöcke und Autoscroll, Jev in Teilen, zram-Swap gegen den OOM-Killer, harness-Befehle im Briefing; der Nutzer testet_
+_Last updated: 2026-10-31 · Release v0.1.11: Dateien im Chat (Bilder, Dokumente über markitdown, auch für Agents), Fortschrittsliste des Agents, Dauer je Werkzeugaufruf; der Nutzer testet_
 
 ## Where we are
 
@@ -76,7 +76,13 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Der vitest-Fund war ein Fehlalarm unserer OSV-Regel („malicious website“), behoben.
    - Verkleinern der VM-Platte im Leerlauf scheiterte, weil Hyper-V die Datei 2 s nach dem Stopp noch hielt; der VM-Dienst versucht es jetzt eine Minute lang (braucht `harness setup`, das den Dienst aktualisiert).
    - Geprüft: Rust-Tests und clippy, Server 199/199, Browser-E2E 15/15 (Bilder 38, 39), Smoke-Test 93 grün.
-   **Als Nächstes:** Test des Nutzers mit v0.1.10, dann nach seiner Wahl (Gedächtnis, Dateien im Chat, Fortschrittsliste des Agents, Dauer je Werkzeugaufruf).
+   ✅ **31.10., Wünsche des Nutzers** (Branch `feat/chat-files`, Release v0.1.11):
+   - Dauer je Werkzeugaufruf an jeder Karte, live hochzählend.
+   - Fortschrittsliste: pi hakt in Web-Chats seinen Plan selbst ab (Werkzeug `progress`), der Chat zeigt ihn über dem Eingabefeld.
+   - Dateien im Chat: Bilder an das Modell, Dokumente über markitdown als Markdown (eigener Container ohne Netz, Image per GitHub, ~440 MB), Textdateien direkt. In Umgebungs-Chats landen sie in `~/uploads` der Instanz (Protokoll 9).
+   - Geprüft: Server 207/207, Rust-Tests und clippy, Browser-E2E 16/16 (Bilder 48, 49), Smoke-Test 99 grün (Fortschrittsliste und Datei mit echtem pi), markitdown-Selbsttest in CI auf amd64 und arm64 (Word, Excel, PowerPoint, PDF, HTML, CSV, ohne Netz).
+   - Der Pi braucht die neue Compose-Datei (Dienst `markitdown`, Netz `documents`), siehe `docs/deploy.md`.
+   **Als Nächstes:** Test des Nutzers mit v0.1.11, dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).

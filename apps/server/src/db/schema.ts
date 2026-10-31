@@ -153,6 +153,27 @@ export interface AppTemplateTable {
 }
 
 /**
+ * Row of `file`: an upload of a user, attached to a chat by its first
+ * message. The bytes lie in `<dataDir>/files/<id>`.
+ */
+export interface FileTable {
+  id: string;
+  userId: string;
+  /** Set when a message first refers to it. */
+  conversationId: string | null;
+  name: string;
+  mediaType: string;
+  /** `ChatFileKind`. */
+  kind: string;
+  size: number;
+  /** What the model reads of a document or text file, cut to `MAX_FILE_TEXT_CHARS`. */
+  text: string | null;
+  /** 1 if `text` was cut. */
+  truncated: number;
+  createdAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -166,4 +187,5 @@ export interface DB {
   chatLink: ChatLinkTable;
   deviceProject: DeviceProjectTable;
   appTemplate: AppTemplateTable;
+  file: FileTable;
 }

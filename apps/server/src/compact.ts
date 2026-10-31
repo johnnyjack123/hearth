@@ -149,6 +149,10 @@ function partText(part: Part): string | null {
   if (part.type === 'text') {
     return part.text;
   }
+  if (part.type === 'file') {
+    // The summary names an attachment; its contents stay in the chat.
+    return `[attached file ${JSON.stringify(part.filename ?? 'file')}]`;
+  }
   const { input = {}, output, state, errorText } = part as {
     input?: Record<string, unknown>;
     output?: Record<string, unknown>;

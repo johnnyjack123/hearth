@@ -12,6 +12,7 @@ import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { pageKey } from './citations.ts';
 import { InjectionWarning, isAssessment, isFinding, isWarning, RevealedText } from './injection-findings.tsx';
+import { ToolDuration } from './tool-duration.tsx';
 
 function isResult(value: unknown): value is WebSearchResult {
   const result = value as Partial<WebSearchResult> | null;
@@ -124,11 +125,13 @@ export function WebSearchCall({
   part,
   streaming,
   read,
+  ms,
   onAssess,
 }: {
   part: ToolUIPart;
   streaming: boolean;
   read: ReadPage[];
+  ms?: number | undefined;
   onAssess?: (() => Promise<void>) | undefined;
 }) {
   const t = useT();
@@ -191,6 +194,7 @@ export function WebSearchCall({
           {t('webSearch.title', { query })}
           {output?.kind ? <span className="text-muted-foreground"> · {t(`webSearch.kinds.${output.kind}`)}</span> : null}
         </span>
+        <ToolDuration ms={ms} running={running} />
         {status}
         <ChevronRight
           className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')}

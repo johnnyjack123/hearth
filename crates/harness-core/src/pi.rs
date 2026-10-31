@@ -23,6 +23,9 @@ pub enum Extension {
     /// The tool `web_fetch` through the harness server, see `pi/web.ts`.
     /// Needs a paired computer.
     Web,
+    /// The tool `progress`, a checklist the web chat shows live, see
+    /// `pi/progress.ts`. Only for web chats.
+    Progress,
 }
 
 impl Extension {
@@ -30,6 +33,7 @@ impl Extension {
         match self {
             Extension::Guard => "guard",
             Extension::Web => "web",
+            Extension::Progress => "progress",
         }
     }
 
@@ -38,6 +42,7 @@ impl Extension {
         match self {
             Extension::Guard => include_str!("../pi/guard.ts"),
             Extension::Web => include_str!("../pi/web.ts"),
+            Extension::Progress => include_str!("../pi/progress.ts"),
         }
     }
 
@@ -402,6 +407,11 @@ mod tests {
             Extension::Web
                 .path()
                 .starts_with("/opt/harness-tools/harness/pi-web-")
+        );
+        assert!(
+            Extension::Progress
+                .path()
+                .starts_with("/opt/harness-tools/harness/pi-progress-")
         );
     }
 

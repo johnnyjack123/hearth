@@ -16,6 +16,8 @@ export interface ModelPricing {
   cacheRead?: number;
   /** Input written to the provider's cache. */
   cacheWrite?: number;
+  /** Whether the model reads images; missing when the catalog does not say. */
+  images?: boolean;
 }
 
 /** Open catalog of models with prices and context windows. */
@@ -65,6 +67,7 @@ type Catalog = Map<CatalogProvider, Map<string, ModelPricing>>;
 
 interface RawModel {
   limit?: { context?: unknown };
+  modalities?: { input?: unknown };
   cost?: { input?: unknown; output?: unknown; cache_read?: unknown; cache_write?: unknown };
 }
 
@@ -110,6 +113,10 @@ export function parseCatalog(raw: unknown): Catalog {
       }
       if (cacheWrite !== undefined) {
         pricing.cacheWrite = cacheWrite;
+      }
+      const inputs = model.modalities?.input;
+      if (Array.isArray(inputs)) {
+        pricing.images = inputs.includes('image');
       }
       prices.set(id.toLowerCase(), pricing);
     }

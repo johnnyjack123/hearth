@@ -34,9 +34,9 @@ use harness_core::server::ServerCa;
 use harness_core::sync::{WORKSPACE, sanitize};
 use harness_core::tunnel::{
     AgentEvent, ApprovalState, AppsReport, CompactionState, CompactionTrigger, Decision,
-    DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, RemoteProject, ServerMessage,
-    TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState, VERSION_APPS,
-    VERSION_VM_CONTROL, VmStatus, truncate,
+    DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, PromptFile, RemoteProject,
+    ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState,
+    VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
@@ -1118,7 +1118,7 @@ fn session(
             if compact {
                 agent.compact();
             } else {
-                agent.prompt(&first);
+                agent.prompt(shared, &first);
             }
             agent.serve(shared, commands);
             agent.stop();
@@ -1217,7 +1217,7 @@ fn start(
         &prompt.session,
         prompt.conversation.title.as_deref(),
     ));
-    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress)?;
+    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress, true)?;
     let providers = ready
         .models
         .map(|m| m.by_credential.into_iter().collect())
@@ -1490,7 +1490,7 @@ impl Agent {
         write_line(&self.stdin, line);
     }
 
-    fn prompt(&mut self, prompt: &Prompt) {
+    fn prompt(&mut self, shared: &Shared, prompt: &Prompt) {
         self.reply_end
             .autosync
             .store(prompt.autosync, Ordering::SeqCst);
@@ -1519,6 +1519,18 @@ impl Agent {
             self.thinking_level = Some(level.clone());
         }
         let mut text = prompt.text.clone();
+        if !prompt.files.is_empty() {
+            // Without them the message would talk about files the agent cannot
+            // see; it still goes out, with a notice in the chat.
+            match self.place_files(shared, &prompt.files) {
+                Ok(note) if text.trim().is_empty() => text = note,
+                Ok(note) => text = format!("{text}\n\n{note}"),
+                Err(error) => self.emit.event(AgentEvent::notice(
+                    NoticeLevel::Warning,
+                    format!("Die angehängten Dateien kamen nicht in die Umgebung: {error:#}"),
+                )),
+            }
+        }
         if self.first_prompt {
             self.first_prompt = false;
             // Asked even without history: the answer also carries the
@@ -1539,6 +1551,45 @@ impl Agent {
             detail: None,
         });
         self.send(&pi_rpc::prompt(&id, &text, false));
+    }
+
+    /// Puts the files of a message into the instance (`uploads::place`),
+    /// shown as a step in the chat.
+    fn place_files(&self, shared: &Shared, files: &[PromptFile]) -> anyhow::Result<String> {
+        let label = format!("{} Datei(en) in die Umgebung legen", files.len());
+        let step = |state, detail| {
+            self.emit.event(AgentEvent::Progress {
+                id: "files".to_owned(),
+                label: label.clone(),
+                state,
+                detail,
+            });
+        };
+        step(ProgressState::Running, None);
+        let started = Instant::now();
+        let placed = (|| {
+            let (client, token) = crate::login::paired(&shared.config)?
+                .context("Rechner nicht gekoppelt (`harness login`)")?;
+            let provider = PodmanProvider::for_machine(&shared.machine)?;
+            crate::uploads::place(
+                &client,
+                &token,
+                &provider,
+                &self.project.name.instance(),
+                files,
+            )
+        })();
+        match &placed {
+            Ok(_) => step(
+                ProgressState::Done,
+                Some(format!("{:.1} s", started.elapsed().as_secs_f32())),
+            ),
+            Err(error) => step(
+                ProgressState::Failed,
+                Some(truncate(&format!("{error:#}"), 500)),
+            ),
+        }
+        placed
     }
 
     /// Has pi summarize its context now. pi reports it with the same events
@@ -1603,7 +1654,7 @@ impl Agent {
     fn serve(&mut self, shared: &Shared, commands: &Receiver<Command>) {
         loop {
             match commands.recv_timeout(Duration::from_millis(500)) {
-                Ok(Command::Prompt(prompt)) => self.prompt(&prompt),
+                Ok(Command::Prompt(prompt)) => self.prompt(shared, &prompt),
                 Ok(Command::Compact) => self.compact(),
                 Ok(Command::Cancel) => self.send(&pi_rpc::abort()),
                 Ok(Command::Decide(id, decision)) => {

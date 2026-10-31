@@ -277,6 +277,15 @@ describe('web fetch in ordinary chats', () => {
     expect(chunks.some((chunk) => chunk.type === 'data-approval')).toBe(false);
     expect(fetches).toBe(1);
     expect(chunks.find((chunk) => chunk.type === 'text-delta')).toMatchObject({ delta: expect.stringContaining('Rösten') });
+    // How long the fetch ran goes with the reply, live and stored.
+    const call = chunks.find((chunk) => chunk.type === 'tool-input-available') as { toolCallId: string } | undefined;
+    const live = chunks.find((chunk) => chunk.type === 'message-metadata' && 'toolMs' in (chunk.messageMetadata as object)) as
+      | { messageMetadata: { toolMs: Record<string, number> } }
+      | undefined;
+    expect(live?.messageMetadata.toolMs[call?.toolCallId ?? '']).toBeGreaterThanOrEqual(0);
+    await eventually(async () => (await load(conversationId)).messages.length === 2);
+    const stored = (await load(conversationId)).messages[1];
+    expect(Object.keys(stored?.metadata?.toolMs ?? {})).toEqual([call?.toolCallId]);
   });
 
   it('asks again when a known host redirects to another one', async () => {

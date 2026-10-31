@@ -497,9 +497,9 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
-- **Fortschrittsliste des Agents im Chat** (Idee des Nutzers, 30.10., vorgemerkt): Der Agent legt zu Beginn einer Aufgabe seine Punkte an (etwa aus der Roadmap) und hakt sie selbst ab; der Chat zeigt sie live als Liste mit Balken.
-  - Umsetzung: Werkzeug `progress` (Liste setzen, Punkt abhaken) als pi-Erweiterung, die ein Agent-Ereignis schickt; im Chat ein Datenteil mit fester ID wie `data-progress`, an Ort und Stelle aktualisiert. Für das Chat-Modell dasselbe Werkzeug im Server.
-  - Kosten: Die Werkzeugbeschreibung (~150 Token) steht fest im Prompt und liegt im Cache; jede Aktualisierung kostet ~50–150 Ausgabe-Token plus einen kurzen Werkzeugaufruf im Verlauf. Bei 10 Punkten also wenige tausend Token je Aufgabe, bei DeepSeek Bruchteile eines Cents.
+- ✅ **Fortschrittsliste des Agents im Chat** (Idee des Nutzers 30.10., gebaut 31.10.): pi bekommt in Web-Chats das Werkzeug `progress` (`pi/progress.ts`) und schickt jedes Mal die ganze Liste; der Chat zeigt die aktuelle über dem Eingabefeld mit Balken, jede Aktualisierung als eine Zeile in der Antwort. Kosten: Beschreibung ~150 Token im Cache, je Aktualisierung einige Dutzend Ausgabe-Token.
+  - Offen: dasselbe Werkzeug für das Chat-Modell in normalen Chats (kostet in jedem Chat die Werkzeugbeschreibung).
+- ✅ **Dauer je Werkzeugaufruf** (31.10.): jede Werkzeugkarte zeigt die Laufzeit, live hochzählend, danach gespeichert (`metadata.toolMs`).
 - **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.harness/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
 - **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., nicht dringend): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.
   - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.harness` wie `web_fetch`.
@@ -537,9 +537,11 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - Projektdateien wie `.pi/` und `AGENTS.md` kämen nach einem Merge vom Agent; pis Projekt-Vertrauen müsste das abfangen.
     - Pfade müssen zwischen Windows und `/workspace` übersetzt werden, und jeder Werkzeugaufruf kostet ohne gehaltene Verbindung ~0,4 s.
   - Einschätzung: als zusätzlicher Modus machbar (ein Spike von 1–2 Tagen), aber nicht als Standard. Standard bleibt pi im Container, weil dort nichts, was das Modell auslöst, den Host erreicht, egal welche pi-Funktion es nutzt.
-- **Dateien im Chat** (Idee des Nutzers, 18.10.):
-  - **Dokumente** (Word, PowerPoint, Excel, PDF, HTML …) per [markitdown](https://github.com/microsoft/markitdown) von Microsoft in Markdown umwandeln und dem Modell geben. markitdown ist Python, der Server Node. Deshalb kommt es als eigener kleiner Container neben den Server, mit Größen- und Zeitlimit, ohne Netz. Datei-Parser sind Angriffsfläche und laufen deshalb nicht im Server-Prozess. In verknüpften Chats kann die Umwandlung auch in der Instanz laufen.
-  - **Bilder für Vision-Modelle:** Anhänge im Composer, an das Modell als AI-SDK-Dateiteil. Ob ein Modell Bilder versteht, steht im Katalog von models.dev (`modalities.input`); sonst Knopf ausgrauen. Bilder im Datenordner speichern, nicht als Base64 in der Datenbank, mit Größenlimit und Herunterskalieren. pi nimmt Bilder per RPC (`images` im `prompt`).
+- ✅ **Dateien im Chat** (Idee des Nutzers 18.10., gebaut 31.10.): Bilder, PDF, Word, Excel, PowerPoint, EPUB, HTML und Textdateien per Knopf, Einfügen oder Hineinziehen, 20 MB, zehn pro Nachricht. Dokumente wandelt markitdown in einem eigenen Container ohne Netz in Markdown um (`apps/markitdown`). In Umgebungs-Chats legt der Rechner die Dateien nach `~/uploads` der Instanz (Tunnel-Protokoll 9). Offen:
+  - lange Dokumente in langen Chats eindampfen wie alte Webseiten (heute bleibt der ganze Text bis 100 000 Zeichen im Verlauf)
+  - Texterkennung (OCR) für gescannte PDFs
+  - Bilder an pi direkt per RPC (`images` im `prompt`), heute liest der Agent sie mit seinem `read`-Werkzeug
+  - das markitdown-Image verkleinern (440 MB; pandas, numpy und Magikas ONNX-Laufzeit sind der größte Teil)
 - **Harnesses aktualisieren** (`harness update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.
 - Git-Worker mit Shim und Richtlinien wie in ARCHITECTURE.md §3.6, Checkpoints
 - weitere Harnesse (opencode, Claude Code, Codex) und Adapter

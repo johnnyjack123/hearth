@@ -1,10 +1,13 @@
-import { ArrowUp, Square } from 'lucide-react';
-import { type FormEvent, type KeyboardEvent, type ReactNode, useLayoutEffect, useRef } from 'react';
+import { ACCEPTED_FILE_EXTENSIONS } from '@harness/shared';
+import type { FileUIPart } from 'ai';
+import { ArrowUp, Paperclip, Square } from 'lucide-react';
+import { type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Kbd } from '@/components/ui/display.tsx';
 import { Tooltip } from '@/components/ui/menu.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { AttachmentList, useAttachments } from './attachments.tsx';
 
 /**
  * Props of {@link Composer}.
@@ -14,8 +17,8 @@ export interface ComposerProps {
   value: string;
   /** Called on every edit. */
   onValueChange: (value: string) => void;
-  /** Called with the trimmed text when the user sends. */
-  onSubmit: (text: string) => void;
+  /** Called with the trimmed text and the uploaded files when the user sends. */
+  onSubmit: (text: string, files: FileUIPart[]) => void;
   /** Called when the user stops a running response. */
   onStop?: () => void;
   /** A response is being generated; the send button becomes a stop button. */
@@ -30,6 +33,11 @@ export interface ComposerProps {
   autoFocus?: boolean;
   /** Placeholder instead of the default one, e.g. for a linked agent. */
   placeholder?: string;
+  /**
+   * Files can be attached; `images` says whether the chosen model reads
+   * images (undefined when unknown). Missing: no attachments.
+   */
+  files?: { images: boolean | undefined };
 }
 
 /**
@@ -50,10 +58,18 @@ export function Composer({
   status,
   autoFocus,
   placeholder,
+  files,
 }: ComposerProps) {
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const canSend = value.trim().length > 0 && !blockedReason && !busy;
+  const pickerRef = useRef<HTMLInputElement>(null);
+  const attachments = useAttachments();
+  const [dragging, setDragging] = useState(false);
+  // A blind model gets no images; the user removes them or picks another model.
+  const blocked =
+    blockedReason ??
+    (attachments.uploading ? t('files.waitUpload') : files?.images === false && attachments.hasImages ? t('files.imagesUnsupported') : null);
+  const canSend = (value.trim().length > 0 || attachments.parts.length > 0) && !blocked && !busy;
 
   // Grow with the content; the max height comes from the max-h class.
   useLayoutEffect(() => {
@@ -70,7 +86,28 @@ export function Composer({
     if (!canSend) {
       return;
     }
-    onSubmit(value.trim());
+    onSubmit(value.trim(), attachments.parts);
+    attachments.clear();
+  }
+
+  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    // Text stays text (copying from a page or Word brings an image along);
+    // a screenshot or copied files become attachments.
+    const pasted = [...event.clipboardData.files];
+    if (!files || pasted.length === 0 || event.clipboardData.types.includes('text/plain')) {
+      return;
+    }
+    event.preventDefault();
+    attachments.add(pasted);
+  }
+
+  function onDrop(event: DragEvent<HTMLFormElement>) {
+    setDragging(false);
+    if (!files || event.dataTransfer.files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    attachments.add([...event.dataTransfer.files]);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -101,16 +138,31 @@ export function Composer({
   return (
     <form
       onSubmit={submit}
+      onDragOver={(event) => {
+        if (files && event.dataTransfer.types.includes('Files')) {
+          event.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setDragging(false);
+        }
+      }}
+      onDrop={onDrop}
       className={cn(
         'flex flex-col rounded-2xl bg-card shadow-elevation-2 ring-1 ring-border',
         'transition-shadow duration-(--duration-fast) ease-standard focus-within:ring-(length:--focus-ring-width) focus-within:ring-ring/40',
+        dragging && 'ring-(length:--focus-ring-width) ring-ring',
       )}
     >
+      {files ? <AttachmentList items={attachments.items} onRemove={attachments.remove} /> : null}
       <textarea
         ref={textareaRef}
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         placeholder={placeholder ?? t('chat.placeholder')}
         aria-label={placeholder ?? t('chat.placeholder')}
         rows={1}
@@ -118,14 +170,44 @@ export function Composer({
         className="max-h-60 min-h-12 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
       />
       <div className="flex items-center gap-2 px-2 pb-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {files ? (
+            <>
+              <Tooltip content={files.images === false ? t('files.attachNoImages') : t('files.attachHint')}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  aria-label={t('files.attach')}
+                  onClick={() => pickerRef.current?.click()}
+                >
+                  <Paperclip />
+                </Button>
+              </Tooltip>
+              <input
+                ref={pickerRef}
+                type="file"
+                multiple
+                hidden
+                accept={[...ACCEPTED_FILE_EXTENSIONS, 'image/*'].join(',')}
+                onChange={(event) => {
+                  attachments.add([...(event.target.files ?? [])]);
+                  // The same file again must fire another change.
+                  event.target.value = '';
+                }}
+              />
+            </>
+          ) : null}
+          {toolbar}
+        </div>
         {status}
         {busy ? (
           <Button type="button" variant="secondary" size="icon-sm" className="rounded-full" aria-label={t('chat.stop')} onClick={onStop}>
             <Square className="size-3.5 fill-current" />
           </Button>
-        ) : blockedReason ? (
-          <Tooltip content={blockedReason}>{sendButton}</Tooltip>
+        ) : blocked ? (
+          <Tooltip content={blocked}>{sendButton}</Tooltip>
         ) : (
           sendButton
         )}

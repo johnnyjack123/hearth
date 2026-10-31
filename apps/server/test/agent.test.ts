@@ -5,6 +5,7 @@ import {
   type AgentEvent,
   type AppTemplate,
   type AppsReport,
+  type ChatFile,
   type ConversationDetail,
   DEFAULT_IDLE_MINUTES,
   type ConversationSummary,
@@ -26,7 +27,7 @@ import { ChunkMapper, transcript } from '../src/routes/agent.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { DeviceHub, type TunnelConnection, type TunnelSocket } from '../src/tunnel/hub.ts';
 import { attachTunnel } from '../src/tunnel/socket.ts';
-import { createTestServer, DIALECTS, eventually, type TestServer } from './helpers.ts';
+import { createTestServer, DIALECTS, eventually, ORIGIN, type TestServer } from './helpers.ts';
 
 const CLI = { origin: '' };
 const PROJECT = { name: 'demo', harnesses: ['pi'] };
@@ -135,8 +136,23 @@ describe('ChunkMapper', () => {
     expect(mapper.usage?.calls?.map((call) => call.ms)).toEqual([2_000, 400]);
   });
 
+  it('times each tool call, failed ones too', () => {
+    let clock = 0;
+    const mapper = new ChunkMapper('m', () => clock);
+    mapper.map({ type: 'tool.start', id: 'a', name: 'bash', input: { command: 'make' } });
+    mapper.map({ type: 'tool.start', id: 'b', name: 'read', input: { path: 'x' } });
+    clock += 300;
+    mapper.map({ type: 'tool.end', id: 'b', output: 'x', isError: false });
+    clock += 4_700;
+    mapper.map({ type: 'tool.end', id: 'a', output: 'Command exited with code 2', isError: true });
+    // An end without a start is no call of this reply.
+    mapper.map({ type: 'tool.end', id: 'c', output: '', isError: false });
+    expect(mapper.toolMs).toEqual({ a: 5_000, b: 300 });
+  });
+
   it('turns agent events into UI chunks and sums usage', () => {
-    const mapper = new ChunkMapper();
+    // A stopped clock: no call gets a duration the expectation below lacks.
+    const mapper = new ChunkMapper(undefined, () => 0);
     const chunks = [
       { type: 'turn.start' },
       { type: 'text.start', id: 't1' },
@@ -654,11 +670,12 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(body).toContain('"type":"tool-input-available"');
     expect(body).toContain('"type":"data-approval"');
     expect(body).toContain('"delta":"Fertig."');
-    // Cost and context arrive with every model call, before the end.
-    const live = body.indexOf('"type":"message-metadata"');
-    expect(live).toBeGreaterThan(-1);
-    expect(body.slice(live, body.indexOf('\n', live))).toContain('"contextTokens":7');
-    expect(live).toBeLessThan(body.indexOf('"type":"finish"'));
+    // Cost and context arrive with every model call, before the end; how
+    // long a tool ran, once it is done.
+    const metadataLines = body.split('\n').filter((line) => line.includes('"type":"message-metadata"'));
+    expect(metadataLines.some((line) => line.includes('"contextTokens":7'))).toBe(true);
+    expect(metadataLines.some((line) => line.includes('"toolMs":{'))).toBe(true);
+    expect(body.indexOf('"type":"message-metadata"')).toBeLessThan(body.indexOf('"type":"finish"'));
 
     const prompt = device.received.find((message) => message.type === 'session.prompt');
     expect(prompt).toMatchObject({
@@ -885,6 +902,63 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
       project: 'demo',
       text: 'Los',
     });
+  });
+
+  async function uploadNote(): Promise<ChatFile> {
+    const response = await server.app.request('/api/files', {
+      method: 'POST',
+      headers: { origin: ORIGIN, cookie, 'content-type': 'application/octet-stream', 'x-file-name': 'notiz.txt' },
+      body: new TextEncoder().encode('Bohnen kaufen'),
+    });
+    expect(response.status).toBe(201);
+    return (await response.json()) as ChatFile;
+  }
+
+  function chatWithFile(conversationId: string, file: ChatFile) {
+    return server.request('POST', `/api/conversations/${conversationId}/chat`, {
+      cookie,
+      body: {
+        message: { id: `m-${file.id.slice(0, 8)}`, role: 'user', parts: [{ type: 'file', url: `/api/files/${file.id}`, mediaType: 'text/plain' }] },
+        credentialId: credential.id,
+        modelId: 'mock-1',
+      },
+    });
+  }
+
+  it('hands the files of a linked chat to its device, and only to it', async () => {
+    const { deviceId, userId, token } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
+    const file = await uploadNote();
+    device.onPrompt = (prompt) => device.emit(prompt.session, { type: 'done', aborted: false });
+    await (await chatWithFile(conversation.id, file)).text();
+    expect(device.received.find((message) => message.type === 'session.prompt')).toMatchObject({
+      files: [{ id: file.id, name: 'notiz.txt', kind: 'text', mediaType: 'text/plain', size: 13 }],
+    });
+
+    // The device fetches it with its token: the bytes and the model's text.
+    const bearer = { ...CLI, authorization: `Bearer ${token}` };
+    expect(await (await server.request('GET', `/api/device/files/${file.id}`, { headers: bearer })).text()).toBe('Bohnen kaufen');
+    expect(await (await server.request('GET', `/api/device/files/${file.id}/text`, { headers: bearer })).text()).toBe('Bohnen kaufen');
+    // Another computer of the same account does not: the chat is not linked to it.
+    const other = await pair();
+    const refused = await server.request('GET', `/api/device/files/${file.id}`, { headers: { ...CLI, authorization: `Bearer ${other.token}` } });
+    expect(refused.status).toBe(404);
+  });
+
+  it('refuses files for a device too old for them, before storing the message', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.say({ type: 'hello', version: 8, projects: [PROJECT] });
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
+    const response = await chatWithFile(conversation.id, await uploadNote());
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe('device_outdated');
+    expect((await load(conversation.id)).messages).toHaveLength(0);
+    expect(device.received.some((message) => message.type === 'session.prompt')).toBe(false);
   });
 
   it('takes the agent work over and keeps the report with the chat', async () => {

@@ -43,6 +43,10 @@ pub const MAX_ASSESSED_CHARS: usize = 12_000;
 /// Most files Jev assesses per merge (server limit).
 pub const MAX_ASSESSED_FILES: usize = 60;
 
+/// Largest file the device downloads from a linked chat: the server's
+/// upload limit (20 MiB) plus room for the response.
+pub const MAX_DEVICE_FILE_BYTES: u64 = 21 * 1024 * 1024;
+
 /// Added lines of one changed file, for Jev.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiffFile {
@@ -362,6 +366,32 @@ impl ServerClient {
             .header("authorization", format!("Bearer {token}"))
             .send_json(serde_json::json!({ "files": files }));
         self.read(response)
+    }
+
+    /// Downloads a file attached in a linked chat (protocol 9): its bytes,
+    /// or with `text` the Markdown the model would read. At most
+    /// [`MAX_DEVICE_FILE_BYTES`].
+    pub fn device_file(&self, token: &str, id: &str, text: bool) -> Result<Vec<u8>> {
+        // The id goes into the path; the server makes them, but checked anyway.
+        let valid = id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+        if !valid {
+            return Err(Error::Server(format!("unerwartete Datei-ID {id:?}")));
+        }
+        let suffix = if text { "/text" } else { "" };
+        let response = self
+            .agent
+            .get(format!("{}/api/device/files/{id}{suffix}", self.url))
+            .header("authorization", format!("Bearer {token}"))
+            .call();
+        match response {
+            Ok(mut response) if response.status().is_success() => response
+                .body_mut()
+                .with_config()
+                .limit(MAX_DEVICE_FILE_BYTES)
+                .read_to_vec()
+                .map_err(|e| Error::Server(format!("Datei vom Server unvollständig: {e}"))),
+            other => self.read::<serde_json::Value>(other).map(|_| Vec::new()),
+        }
     }
 
     /// Revokes the token on the server.

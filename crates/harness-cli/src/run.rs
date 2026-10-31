@@ -175,6 +175,7 @@ pub fn run(
         harness,
         harness.command.clone(),
         &Terminal::default(),
+        false,
     )?
     .command;
     command.extend(args);
@@ -196,13 +197,15 @@ pub(crate) struct ReadyHarness {
 }
 
 /// Installs `harness` if needed, points it at the server and adds guard and
-/// briefing to `base` (its terminal or its machine command).
+/// briefing to `base` (its terminal or its machine command). `web_chat` adds
+/// what only the web chat shows, such as pi's progress list.
 pub(crate) fn ready_harness(
     config: &ConfigDir,
     prepared: &Prepared,
     harness: &HarnessConfig,
     base: Vec<String>,
     progress: &dyn Progress,
+    web_chat: bool,
 ) -> anyhow::Result<ReadyHarness> {
     let installed =
         instance::harness_installed(&prepared.provider, &prepared.project.name, harness)?;
@@ -239,6 +242,12 @@ pub(crate) fn ready_harness(
         match pi::Extension::Web.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
             Err(error) => println!("pi: web_fetch nicht geladen: {error}"),
+        }
+    }
+    if web_chat && harness.llm == Some(LlmWiring::Pi) {
+        match pi::Extension::Progress.ensure(&prepared.provider, &prepared.project) {
+            Ok(path) => command.extend(["-e".to_owned(), path]),
+            Err(error) => println!("pi: Fortschrittsliste nicht geladen: {error}"),
         }
     }
     if let Some(flag) = &harness.prompt_flag {

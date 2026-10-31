@@ -1,5 +1,6 @@
 import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
+import type { FileUIPart } from 'ai';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Bug, KeyRound, Lightbulb, ListChecks, PenLine } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -40,7 +41,7 @@ export function NewChatPage() {
   const navigate = useNavigate();
   const { data: session } = useSession();
   const providers = useProviders();
-  const { selection, select, models } = useModelSelection(null);
+  const { selection, select, models, images } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const { research: lastResearch, setResearch: setLastResearch, effort: lastEffort, setEffort: setLastEffort } = usePreferences();
@@ -68,7 +69,7 @@ export function NewChatPage() {
   }
   const online = useLinkOnline(environment);
 
-  async function submit(text: string) {
+  async function submit(text: string, files: FileUIPart[]) {
     if (!selection) {
       return;
     }
@@ -82,7 +83,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research, environment ? null : effort).chat.sendMessage({ text });
+      void getChat(conversation.id, [], selection, research, environment ? null : effort).chat.sendMessage({ text, files });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -150,7 +151,8 @@ export function NewChatPage() {
               <Composer
                 value={draft}
                 onValueChange={setDraft}
-                onSubmit={(text) => void submit(text)}
+                onSubmit={(text, files) => void submit(text, files)}
+                files={{ images }}
                 blockedReason={
                   creating
                     ? t('common.loading')

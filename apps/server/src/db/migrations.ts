@@ -213,6 +213,28 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('appTemplate').execute();
     },
   },
+  '0010_files': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('file')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('conversationId', 'text', (col) => col.references('conversation.id').onDelete('cascade'))
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('mediaType', 'text', (col) => col.notNull())
+        .addColumn('kind', 'text', (col) => col.notNull())
+        .addColumn('size', 'bigint', (col) => col.notNull())
+        .addColumn('text', 'text')
+        .addColumn('truncated', 'integer', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema.createIndex('file_userId_idx').on('file').column('userId').execute();
+      await db.schema.createIndex('file_conversationId_idx').on('file').column('conversationId').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('file').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

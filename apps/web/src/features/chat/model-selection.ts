@@ -29,7 +29,8 @@ function rememberModel(selection: ModelSelection): void {
  * no longer exists is replaced once the model list has loaded.
  *
  * @param initial - Model stored with the conversation, if any.
- * @returns Current selection, a setter that also remembers the choice, and the model list query.
+ * @returns Current selection, a setter that also remembers the choice, the model list query and
+ *   whether the chosen model reads images.
  */
 export function useModelSelection(initial: { credentialId: string | null; modelId: string | null } | null) {
   const models = useModels();
@@ -59,5 +60,10 @@ export function useModelSelection(initial: { credentialId: string | null; modelI
     setSelection(next);
   }, []);
 
-  return { selection, select, models };
+  // Whether the chosen model reads images, as the catalog says; undefined when unknown.
+  const images = models.data
+    ?.find((group) => group.credentialId === selection?.credentialId)
+    ?.models.find((model) => model.id === selection?.modelId)?.images;
+
+  return { selection, select, models, images };
 }

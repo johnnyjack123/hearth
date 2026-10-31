@@ -121,6 +121,24 @@ function calculatorStep(payload) {
   return null;
 }
 
+/**
+ * Attached files: says whether an image came and what the document's text
+ * (converted by the stand-in below) says, so the test sees both arrived.
+ */
+function fileStep(payload) {
+  const last = payload.messages?.at(-1);
+  if (last?.role !== 'user' || !Array.isArray(last.content)) {
+    return null;
+  }
+  const image = last.content.some((part) => part.type === 'image_url' && String(part.image_url?.url ?? '').startsWith('data:image/png;base64,'));
+  const text = textOf(last.content);
+  if (!image && !text.includes('<file>')) {
+    return null;
+  }
+  const document = /Die Bohnen rösten bei 210 °C/.test(text) ? 'die Bohnen rösten bei 210 °C' : 'nichts';
+  return { text: `Ich sehe ${image ? 'ein Bild' : 'kein Bild'}, im Dokument steht: ${document}.` };
+}
+
 /** The reply of a tool-using model, or null to answer as usual. */
 function webFetchStep(payload) {
   const research = researchStep(payload);
@@ -192,6 +210,12 @@ http
         res.end(JSON.stringify({ data, usage: { prompt_tokens: 2400, cost: 0.000048 } }));
         return;
       }
+      // Stand-in for the document converter (apps/markitdown).
+      if (req.method === 'POST' && req.url === '/convert') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ markdown: ['# Röstprotokoll', '', 'Die Bohnen rösten bei 210 °C.'].join('\n'), truncated: false }));
+        return;
+      }
       if (req.method === 'GET' && req.url === '/handbuch') {
         console.log('[mock] handbook fetched');
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -240,7 +264,7 @@ http
           return;
         }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-        const step = effortStep(payload) ?? calculatorStep(payload) ?? webFetchStep(payload);
+        const step = effortStep(payload) ?? calculatorStep(payload) ?? fileStep(payload) ?? webFetchStep(payload);
         if (step?.call) {
           const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));

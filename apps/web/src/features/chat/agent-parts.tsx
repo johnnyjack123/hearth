@@ -12,6 +12,7 @@ import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { InjectionWarning, isAssessment, isFinding } from './injection-findings.tsx';
+import { ToolDuration } from './tool-duration.tsx';
 
 function stringField(input: unknown, key: string): string | undefined {
   if (input && typeof input === 'object' && key in input) {
@@ -76,10 +77,21 @@ function outputText(part: DynamicToolUIPart): string {
  * A tool call of an agent: a one-line summary that expands to input and
  * output. Failed calls open by themselves.
  *
- * @param props - The tool part and whether its message is still streaming.
+ * @param props - The tool part, whether its message is still streaming and
+ *   how long the call ran.
  * @returns The tool block.
  */
-export function ToolCall({ part, streaming, onAssess }: { part: DynamicToolUIPart; streaming: boolean; onAssess?: (() => Promise<void>) | undefined }) {
+export function ToolCall({
+  part,
+  streaming,
+  ms,
+  onAssess,
+}: {
+  part: DynamicToolUIPart;
+  streaming: boolean;
+  ms?: number | undefined;
+  onAssess?: (() => Promise<void>) | undefined;
+}) {
   const t = useT();
   const exitCode = part.state === 'output-error' ? bashExitCode(part.toolName, part.errorText) : null;
   const failed = part.state === 'output-error' && exitCode === null;
@@ -112,6 +124,7 @@ export function ToolCall({ part, streaming, onAssess }: { part: DynamicToolUIPar
       >
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{summary}</span>
+        <ToolDuration ms={ms} running={running} />
         {running ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />

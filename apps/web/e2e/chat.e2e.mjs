@@ -1,7 +1,7 @@
 // End-to-end check of the chat flow in a headless Chromium-based browser
 // against an isolated server and Vite instance started by run-e2e.mjs.
 // Uses an installed browser (puppeteer-core) so nothing large is downloaded.
-import { existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -530,6 +530,39 @@ try {
     }
   });
 
+  await step('images and documents in an ordinary chat', async () => {
+    // A real picture (the screenshot just taken) and a document the
+    // stand-in converter turns into Markdown.
+    const picture = path.join(OUT, 'anhang-bild.png');
+    copyFileSync(path.join(OUT, '42-calculator-math.png'), picture);
+    const pdf = path.join(OUT, 'bericht.pdf');
+    writeFileSync(pdf, ['%PDF-1.4', '1 0 obj', '<< >>', 'endobj', '%%EOF', ''].join('\n'));
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Datei anhängen"]', { timeout: 10_000 });
+    const picker = await page.$('form input[type=file]');
+    await picker.uploadFile(picture, pdf);
+    await waitForText('anhang-bild.png');
+    await waitForText('bericht.pdf');
+    await page.waitForFunction(() => !document.body.innerText.includes('Wird hochgeladen'), { timeout: 15_000 });
+    if (await page.$('[aria-label="Angehängte Dateien"] .border-destructive')) {
+      throw new Error('an upload failed');
+    }
+    await page.type('textarea', 'Was steht in den Dateien?');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('48-attachments');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    await waitForText('Ich sehe ein Bild, im Dokument steht: die Bohnen rösten bei 210 °C.', 15_000);
+    // The message shows the picture and the document; after a reload, too.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => [...document.querySelectorAll('img[alt="anhang-bild.png"]')].some((image) => image.naturalWidth > 0), {
+      timeout: 10_000,
+    });
+    await page.waitForSelector('a[download="bericht.pdf"]', { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('49-files-in-chat');
+  });
+
   await step('pair a device that then uses the LLM through the server', async () => {
     // What `harness login` does: start a pairing without any session.
     const json = { 'content-type': 'application/json' };
@@ -784,6 +817,20 @@ try {
         // the chat shows the code instead.
         sendEvent(s, { type: 'tool.start', id: 'call-2', name: 'bash', input: { command: 'grep -r TODO src' } });
         sendEvent(s, { type: 'tool.end', id: 'call-2', output: '\n\nCommand exited with code 1', isError: true });
+        // The agent's plan, shown above the message box.
+        sendEvent(s, {
+          type: 'tool.start',
+          id: 'call-3',
+          name: 'progress',
+          input: {
+            items: [
+              { text: 'Projekt ansehen', state: 'done' },
+              { text: 'example.com prüfen', state: 'active' },
+              { text: 'Bericht schreiben', state: 'pending' },
+            ],
+          },
+        });
+        sendEvent(s, { type: 'tool.end', id: 'call-3', output: 'Shown: 1/3 done.', isError: false });
         sendEvent(s, { type: 'turn.end' });
         sendEvent(s, { type: 'turn.start' });
         sendEvent(s, { type: 'text.start', id: 't2' });
@@ -866,6 +913,26 @@ try {
       );
       if (!grepCard.includes('Exit 1') || grepCard.includes('Fehler') || (await page.$$(text('Command exited with code 1'))).length > 0) {
         throw new Error(`an exit code shows as a failure: ${grepCard}`);
+      }
+      // How long the command ran, waiting for the approval included.
+      const firstCard = await page.evaluate(
+        () =>
+          [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('$ ls -la && curl -sI https://example.com'))?.textContent ??
+          '',
+      );
+      if (!/\d+(,\d)? s/.test(firstCard)) {
+        throw new Error(`no duration on the tool card: ${firstCard}`);
+      }
+      // The agent's plan: a quiet line in the reply, the list above the message box.
+      await page.waitForSelector(`section[aria-label="Fortschritt"] ${text('example.com prüfen')}`, { timeout: 5_000 });
+      await waitForText('Fortschritt: 1 von 3');
+      const panel = await page.$eval('section[aria-label="Fortschritt"]', (element) => element.textContent ?? '');
+      if (!panel.includes('1/3') || !panel.includes('Bericht schreiben')) {
+        throw new Error(`progress panel shows ${panel}`);
+      }
+      const asToolCard = await page.evaluate(() => [...document.querySelectorAll('button span.font-mono')].some((span) => span.textContent === 'progress'));
+      if (asToolCard) {
+        throw new Error('the progress call shows as an ordinary tool card');
       }
       await page.waitForSelector(text('harness: Möglicher Prompt-Injection-Versuch in bash: cat README.md'), { timeout: 5_000 });
       await page.click(text('Details zeigen'));

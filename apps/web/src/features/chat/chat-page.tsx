@@ -1,4 +1,5 @@
 import { useChat } from '@ai-sdk/react';
+import type { FileUIPart } from 'ai';
 import type { ConversationDetail, EffortLevel } from '@harness/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
@@ -12,6 +13,7 @@ import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
+import { ChecklistPanel, currentChecklist } from './agent-checklist.tsx';
 import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
@@ -74,7 +76,7 @@ function ChatSkeleton() {
 
 function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessage> }) {
   const t = useT();
-  const { selection, select, models } = useModelSelection(conversation);
+  const { selection, select, models, images } = useModelSelection(conversation);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
   // Each chat keeps its own switch; the one used last is the default for
   // new chats.
@@ -99,6 +101,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const busy = status === 'submitted' || status === 'streaming';
   const { link } = conversation;
   const online = useLinkOnline(link);
+  // The agent's plan, as it checks it off.
+  const checklist = link ? currentChecklist(messages) : null;
 
   function setResearch(on: boolean) {
     setChatResearch(on);
@@ -122,12 +126,12 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
     }
   }
 
-  function submit(text: string) {
+  function submit(text: string, files: FileUIPart[]) {
     setDraft('');
     scrollToBottom('auto');
     setLastResearch(research);
     setLastEffort(effort);
-    void sendMessage({ text });
+    void sendMessage({ text, files });
   }
 
   return (
@@ -169,6 +173,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           ) : null}
         </AnimatePresence>
         <div className="mx-auto w-full max-w-(--content-width)">
+          {checklist ? <ChecklistPanel items={checklist} live={busy} /> : null}
           <Composer
             value={draft}
             onValueChange={setDraft}
@@ -178,6 +183,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
             placeholder={link ? t('agent.placeholder', { harness: link.harness, project: link.project }) : undefined}
+            files={{ images }}
             status={
               <ContextMeter
                 messages={messages}

@@ -12,6 +12,7 @@ const envSchema = z.object({
   HARNESS_SECRET: z.string().min(32, 'HARNESS_SECRET must be at least 32 characters').optional(),
   TRUSTED_ORIGINS: z.string().optional(),
   WEB_DIST: z.string().optional(),
+  MARKITDOWN_URL: z.url().optional(),
 });
 
 /**
@@ -34,6 +35,11 @@ export interface ServerConfig {
   trustedOrigins: string[];
   /** Directory of the built web app, or null to serve the API only. */
   webDist: string | null;
+  /**
+   * Document converter (apps/markitdown), e.g. `http://markitdown:8080`;
+   * without it, chats take images and text files but no documents.
+   */
+  markitdownUrl?: string | null;
 }
 
 const SECRET_FILE = 'server-secret';
@@ -117,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     secret: parsed.HARNESS_SECRET ?? readOrCreateSecret(dataDir),
     trustedOrigins: [...new Set([new URL(publicUrl).origin, ...extraOrigins])],
     webDist: resolveWebDist(parsed.WEB_DIST),
+    markitdownUrl: parsed.MARKITDOWN_URL?.replace(/\/+$/, '') ?? null,
   };
 }
 

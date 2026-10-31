@@ -6,7 +6,7 @@ import { Logo } from '@/components/brand/logo.tsx';
 import { Button } from '@/components/ui/button.tsx';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command.tsx';
 import { ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog.tsx';
-import { Avatar, Badge, Card, EmptyState, Kbd, MarqueeText, Separator, Skeleton } from '@/components/ui/display.tsx';
+import { Avatar, Badge, Card, EmptyState, Kbd, MarqueeText, ProgressBar, Separator, Skeleton } from '@/components/ui/display.tsx';
 import { Field } from '@/components/ui/field.tsx';
 import { Input, Textarea } from '@/components/ui/input.tsx';
 import {
@@ -252,6 +252,13 @@ export function DesignPage() {
             <Button variant="outline" className="group/marquee w-56 justify-start">
               <MarqueeText text="example-model-small" />
             </Button>
+          </Row>
+          <Row label="ProgressBar">
+            <div className="flex w-full max-w-sm flex-col gap-2">
+              <ProgressBar value={0} max={5} label="0/5" />
+              <ProgressBar value={2} max={5} label="2/5" />
+              <ProgressBar value={5} max={5} label="5/5" />
+            </div>
           </Row>
           <Row label="Skeleton">
             <div className="flex w-full max-w-sm flex-col gap-2">

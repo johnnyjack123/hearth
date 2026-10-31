@@ -22,6 +22,12 @@ export type ApiErrorCode =
   | 'conflict'
   | 'app_name_taken'
   | 'too_many_apps'
+  | 'file_too_large'
+  | 'file_unsupported'
+  | 'file_empty'
+  | 'converter_unavailable'
+  | 'convert_failed'
+  | 'no_text'
   | 'internal';
 
 /**
@@ -224,6 +230,11 @@ export interface ModelInfo {
   id: string;
   /** Display name; falls back to the id when the provider has none. */
   name: string;
+  /**
+   * Whether the model reads images, as the models.dev catalog says;
+   * missing when unknown (local models, other endpoints).
+   */
+  images?: boolean;
 }
 
 /**
@@ -286,6 +297,12 @@ export interface MessageMetadata {
    * from now on. On the reply to it: so the chat can say so.
    */
   condensed?: boolean;
+  /**
+   * How long each tool call of the reply ran, in milliseconds by tool call
+   * id, from its start to its result; a web fetch includes the wait for the
+   * user's answer. Missing for replies from before 31.10.2026.
+   */
+  toolMs?: Record<string, number>;
   /** Set on replies of an agent in a linked environment. */
   agent?: {
     /** Project the agent worked in. */

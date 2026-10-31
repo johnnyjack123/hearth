@@ -10,6 +10,8 @@ import type { ChatMessage } from '@/lib/api.ts';
 import { riseIn, transitions } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { ChecklistUpdate, PROGRESS_TOOL, readChecklist } from './agent-checklist.tsx';
+import { MessageFiles } from './attachments.tsx';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { CalculatorCall } from './calculator-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
@@ -104,14 +106,16 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
 }
 
 function UserMessage({ message, animate }: { message: ChatMessage; animate: boolean }) {
+  const text = messageText(message);
+  const files = message.parts.filter((part) => part.type === 'file');
   return (
-    <motion.div
-      variants={riseIn}
-      initial={animate ? 'initial' : false}
-      animate="animate"
-      className="ms-auto max-w-4/5 whitespace-pre-wrap break-words rounded-2xl rounded-ee-sm bg-bubble px-4 py-2.5 text-base leading-7 text-bubble-foreground"
-    >
-      {messageText(message)}
+    <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="ms-auto flex max-w-full flex-col items-end gap-2">
+      <MessageFiles parts={files} />
+      {text ? (
+        <div className="max-w-4/5 whitespace-pre-wrap break-words rounded-2xl rounded-ee-sm bg-bubble px-4 py-2.5 text-base leading-7 text-bubble-foreground">
+          {text}
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -140,6 +144,7 @@ function AssistantMessage({
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
   const harness = message.metadata?.agent?.harness ?? 'pi';
+  const toolMs = message.metadata?.toolMs;
   return (
     <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="group flex min-w-0 flex-col gap-3">
       {message.metadata?.condensed ? <CondensedNote /> : null}
@@ -147,17 +152,34 @@ function AssistantMessage({
         if (part.type === 'reasoning' && part.text.trim()) {
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
         }
+        if (part.type === 'dynamic-tool' && part.toolName === PROGRESS_TOOL && part.state !== 'output-error') {
+          const items = readChecklist(part.input);
+          if (items) {
+            return <ChecklistUpdate key={part.toolCallId} items={items} live={streaming} />;
+          }
+        }
         if (part.type === 'dynamic-tool') {
-          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
+          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />;
         }
         if (part.type === `tool-${WEB_FETCH_TOOL}`) {
-          return <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} onAssess={assess(part.toolCallId)} />;
+          return (
+            <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />
+          );
         }
         if (part.type === `tool-${CALCULATOR_TOOL}`) {
-          return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} />;
+          return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} />;
         }
         if (part.type === `tool-${WEB_SEARCH_TOOL}`) {
-          return <WebSearchCall key={part.toolCallId} part={part} streaming={streaming} read={pages} onAssess={assess(part.toolCallId)} />;
+          return (
+            <WebSearchCall
+              key={part.toolCallId}
+              part={part}
+              streaming={streaming}
+              read={pages}
+              ms={toolMs?.[part.toolCallId]}
+              onAssess={assess(part.toolCallId)}
+            />
+          );
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;
