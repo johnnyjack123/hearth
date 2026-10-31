@@ -1,0 +1,127 @@
+# Builds the document converter (apps/markitdown) for amd64 and arm64 on
+# native runners, runs its self-test in each image without network, and
+# publishes one multi-arch image to GHCR:
+# ghcr.io/<owner>/llm-harness-markitdown:{latest,sha-<commit>,<version>}.
+name: Markitdown-Image
+
+on:
+  push:
+    # Feature branches too, so the image is tested before a merge; only
+    # main gets `latest`.
+    branches: [main, "feat/**"]
+    tags: ["v*"]
+    paths:
+      - apps/markitdown/**
+      - .github/workflows/markitdown-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: markitdown-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/llm-harness-markitdown
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build for the self-test
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/markitdown
+          platforms: ${{ matrix.platform }}
+          tags: selftest:${{ matrix.arch }}
+          load: true
+          cache-from: type=gha,scope=markitdown-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=markitdown-${{ matrix.arch }}
+
+      - name: Self-test without network, read-only, as in compose
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges selftest:${{ matrix.arch }} python -I /app/selftest.py
+          docker run --rm selftest:${{ matrix.arch }} sh -c 'test "$(id -u)" != 0'
+          docker image ls selftest:${{ matrix.arch }}
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push by digest
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/markitdown
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=markitdown-${{ matrix.arch }}
+
+      - name: Keep the digest for the manifest
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: markitdown-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: markitdown-digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+
+      - name: Create the multi-arch image
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Show it
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
