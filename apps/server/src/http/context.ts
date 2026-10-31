@@ -6,6 +6,7 @@ import type { ServerConfig } from '../config.ts';
 import type { SecretBox } from '../crypto.ts';
 import type { Database } from '../db/index.ts';
 import type { DB } from '../db/schema.ts';
+import type { DocumentConverter } from '../files/convert.ts';
 import type { LlmGateway } from '../llm.ts';
 import type { PricingCatalog } from '../pricing.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
@@ -48,6 +49,11 @@ export interface AppDeps {
   helpers?: HelperOptions;
   /** The calculator's math.js worker; one shared by the whole server when unset. */
   calculator?: Calculator;
+  /**
+   * Turns documents into Markdown; by default markitdown at
+   * `config.markitdownUrl`, null for none. Tests pass a stand-in.
+   */
+  converter?: DocumentConverter | null;
 }
 
 /**

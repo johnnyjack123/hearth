@@ -1,7 +1,7 @@
 // End-to-end check of the chat flow in a headless Chromium-based browser
 // against an isolated server and Vite instance started by run-e2e.mjs.
 // Uses an installed browser (puppeteer-core) so nothing large is downloaded.
-import { existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -528,6 +528,39 @@ try {
     } finally {
       await insecure.close();
     }
+  });
+
+  await step('images and documents in an ordinary chat', async () => {
+    // A real picture (the screenshot just taken) and a document the
+    // stand-in converter turns into Markdown.
+    const picture = path.join(OUT, 'anhang-bild.png');
+    copyFileSync(path.join(OUT, '42-calculator-math.png'), picture);
+    const pdf = path.join(OUT, 'bericht.pdf');
+    writeFileSync(pdf, ['%PDF-1.4', '1 0 obj', '<< >>', 'endobj', '%%EOF', ''].join('\n'));
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('[aria-label="Datei anhängen"]', { timeout: 10_000 });
+    const picker = await page.$('form input[type=file]');
+    await picker.uploadFile(picture, pdf);
+    await waitForText('anhang-bild.png');
+    await waitForText('bericht.pdf');
+    await page.waitForFunction(() => !document.body.innerText.includes('Wird hochgeladen'), { timeout: 15_000 });
+    if (await page.$('[aria-label="Angehängte Dateien"] .border-destructive')) {
+      throw new Error('an upload failed');
+    }
+    await page.type('textarea', 'Was steht in den Dateien?');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('48-attachments');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    await waitForText('Ich sehe ein Bild, im Dokument steht: die Bohnen rösten bei 210 °C.', 15_000);
+    // The message shows the picture and the document; after a reload, too.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForFunction(() => [...document.querySelectorAll('img[alt="anhang-bild.png"]')].some((image) => image.naturalWidth > 0), {
+      timeout: 10_000,
+    });
+    await page.waitForSelector('a[download="bericht.pdf"]', { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('49-files-in-chat');
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {

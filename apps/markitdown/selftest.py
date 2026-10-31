@@ -153,8 +153,13 @@ def main() -> None:
         expect("unknown type refused", status == 415, (status, body))
         status, body = post("kaputt.pdf", b"%PDF-1.4 not really")
         expect("broken file answered", status in (200, 422), (status, body))
-        status, body = post("gross.pdf", b"0" * (20 * 1024 * 1024 + 1))
-        expect("too large refused", status == 413, (status, body))
+        # The server answers before reading 20 MB it will not use, so the
+        # client may see the refusal or a broken pipe while still sending.
+        try:
+            status, body = post("gross.pdf", b"0" * (20 * 1024 * 1024 + 1))
+            expect("too large refused", status == 413, (status, body))
+        except (urllib.error.URLError, ConnectionError) as error:
+            expect("too large refused", "Broken pipe" in str(error) or "reset" in str(error), error)
         if failures:
             raise SystemExit(f"{len(failures)} failed")
         print("all passed")

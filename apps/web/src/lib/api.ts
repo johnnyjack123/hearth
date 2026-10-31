@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   AppsSetResult,
   AppTemplate,
+  ChatFile,
   CompactRequestBody,
   ConversationDetail,
   ConversationSummary,
@@ -83,10 +84,33 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await response.json()) as T;
 }
 
+async function uploadFile(file: Blob, name: string): Promise<ChatFile> {
+  let response: Response;
+  try {
+    // The raw bytes as the body; the server decides the type by the contents.
+    response = await fetch('/api/files', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name) },
+      body: file,
+    });
+  } catch (error) {
+    throw new ApiError(0, 'network', error instanceof Error ? error.message : 'Network error');
+  }
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;
+    throw new ApiError(response.status, payload?.error.code ?? 'internal', payload?.error.message ?? response.statusText);
+  }
+  return (await response.json()) as ChatFile;
+}
+
 /**
  * Typed client for the app's JSON API (everything except `/api/auth`).
  */
 export const api = {
+  files: {
+    upload: uploadFile,
+  },
   settings: {
     public: () => request<PublicSettings>('GET', '/settings'),
     get: () => request<ServerSettings>('GET', '/admin/settings'),

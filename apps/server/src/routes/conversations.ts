@@ -3,6 +3,8 @@ import {
   approvalDecisionSchema,
   assessmentRequestSchema,
   type ChatLink,
+  chatFileId,
+  chatFileUrl,
   chatRequestSchema,
   compactRequestSchema,
   type ConversationDetail,
@@ -41,6 +43,7 @@ import { findDevice, loadDeviceProjects } from '../services/devices.ts';
 import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { ActiveStreams } from '../streams.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
+import { describeFile, fileStore } from '../files/store.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
 import { sharedCalculator } from '../calculator/engine.ts';
 import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
@@ -123,6 +126,7 @@ export function conversationRoutes(deps: AppDeps) {
   const calculator = deps.calculator ?? sharedCalculator();
   // Replies being written, for a page that reloads in the middle of one.
   const streams = new ActiveStreams();
+  const files = fileStore(db, deps.config.dataDir);
 
   /**
    * Has the agent of a linked chat summarize its context and stores pi's
@@ -265,6 +269,7 @@ export function conversationRoutes(deps: AppDeps) {
       }
       // A reply no page reads any more would otherwise run on.
       streams.stop(conversation.id);
+      await files.removeConversation(conversation.id);
       await deleteConversation(db, conversation.id);
       return c.body(null, 204);
     })
@@ -395,12 +400,28 @@ export function conversationRoutes(deps: AppDeps) {
       }
       await assertEndpointAllowed(db, user, row.kind, row.baseUrl);
       const credential = resolveCredential(secretBox, row);
-      const userMessage = await parseUserMessage(body.message);
+      const parsed = await parseUserMessage(body.message);
+      // The sender's own uploads only; name and type as the server stored them.
+      const attached = new Map(
+        (await files.attach(user.id, conversation.id, parsed.parts.flatMap((part) => (part.type === 'file' ? [chatFileId(part.url) ?? ''] : [])))).map(
+          (file) => [file.id, file],
+        ),
+      );
+      const userMessage: ChatMessage = {
+        ...parsed,
+        parts: parsed.parts.map((part) => {
+          const file = part.type === 'file' ? attached.get(chatFileId(part.url) ?? '') : undefined;
+          return file ? { type: 'file', url: chatFileUrl(file.id), mediaType: file.mediaType, filename: file.name } : part;
+        }),
+      };
       const { link } = conversation;
       if (link) {
         // Checked before anything is stored, so an offline device leaves no
         // unanswered message behind.
         assertOnline(link.deviceId);
+        if (attached.size > 0) {
+          hub.assertFiles(link.deviceId);
+        }
       }
 
       // A known message id means "regenerate" or "edit": the old branch is replaced.
@@ -431,12 +452,14 @@ export function conversationRoutes(deps: AppDeps) {
 
       const model = llm.createModel(credential, body.modelId);
       const text = userMessage.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+      const fileNames = [...attached.values()].map((file) => file.name);
       // Only the stop route ends the reply: a closed or reloaded page is a
       // disconnect, and the page picks the reply up again (`GET …/stream`).
       const stop = new AbortController();
       const follow = (stream: ReadableStream<string>) => streams.add(conversation.id, stream, () => stop.abort());
       // Its cost joins the first reply of an ordinary chat.
-      const title = conversation.title ? null : assignTitle(db, conversation.id, model, text);
+      // A message with only files gets its title from their names.
+      const title = conversation.title ? null : assignTitle(db, conversation.id, model, text.trim() || fileNames.join(', '));
 
       if (link) {
         const run = hub.startRun(link.deviceId, {
@@ -454,6 +477,8 @@ export function conversationRoutes(deps: AppDeps) {
           history: transcript(previous),
           model: { credentialId: row.id, modelId: body.modelId },
           autosync: link.autosync,
+          // The device fetches them and puts them where the agent can read them.
+          ...(attached.size > 0 ? { files: [...attached.values()].map(describeFile) } : {}),
         }, research ? { question: text } : undefined);
         return streamAgent({
           db,
@@ -494,6 +519,7 @@ export function conversationRoutes(deps: AppDeps) {
         assess: body.assess === true,
         effort: effortOptions(row.kind, row.baseUrl, body.effort),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
+        files,
       });
     })
     // Summarizes the chat now, on the user's request: everything but the

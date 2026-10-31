@@ -28,6 +28,7 @@ import {
   startPairing,
   updateDevice,
 } from '../services/devices.ts';
+import { fileStore } from '../files/store.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessDiff } from '../helpers/review.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
@@ -143,8 +144,44 @@ export function deviceRoutes(deps: AppDeps) {
  */
 export function deviceSelfRoutes(deps: AppDeps) {
   const { db } = deps.database;
+  const files = fileStore(db, deps.config.dataDir);
+
+  /**
+   * A file the device may read: the owner's, attached to a chat that is
+   * linked to this device. A device of the same account cannot read the
+   * files of chats on another computer.
+   */
+  async function deviceFile(owner: string, deviceId: string, id: string) {
+    const file = await files.find(owner, id);
+    const linked =
+      file?.conversationId &&
+      (await db
+        .selectFrom('chatLink')
+        .select('conversationId')
+        .where('conversationId', '=', file.conversationId)
+        .where('deviceId', '=', deviceId)
+        .executeTakeFirst());
+    if (!file || !linked) {
+      throw notFound('File');
+    }
+    return file;
+  }
+
   return new Hono<DeviceEnv>()
     .use(requireDevice(db))
+    // The original bytes of a file attached in a linked chat.
+    .get('/files/:id', async (c) => {
+      const file = await deviceFile(c.get('owner').id, c.get('device').id, c.req.param('id'));
+      return c.body(new Uint8Array(await files.read(file.id)), 200, { 'content-type': 'application/octet-stream' });
+    })
+    // The text the model would read (documents as Markdown).
+    .get('/files/:id/text', async (c) => {
+      const file = await deviceFile(c.get('owner').id, c.get('device').id, c.req.param('id'));
+      if (file.text === null) {
+        throw notFound('File text');
+      }
+      return c.body(file.text, 200, { 'content-type': 'text/plain; charset=utf-8' });
+    })
     .get('/', async (c) => {
       const owner = c.get('owner');
       const device = c.get('device');

@@ -1,6 +1,8 @@
 import {
   CALCULATOR_TOOL,
   type CalculatorOutput,
+  chatFileId,
+  MAX_FILES_PER_MESSAGE,
   type MessageMetadata,
   type ModelCallUsage,
   parseWebFetchError,
@@ -34,6 +36,8 @@ import { condenseHistory } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
+import { withFileContents } from '../files/model.ts';
+import type { FileStore } from '../files/store.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
@@ -134,8 +138,12 @@ const MESSAGE_ID_PATTERN = /^[\w-]{1,100}$/;
 
 /**
  * Validates the message sent by the client and reduces it to what users may
- * send: role `user` with text parts. Anything else (system or assistant
- * messages, tool parts) would let a client forge conversation history.
+ * send: role `user` with text parts and references to uploaded files.
+ * Anything else (system or assistant messages, tool parts, files from
+ * elsewhere) would let a client forge conversation history. Whether the
+ * files are the sender's is checked when they are attached
+ * (`FileStore.attach`), which also replaces name and type with the stored
+ * ones.
  *
  * @param raw - Untrusted message from the request body.
  * @returns The sanitized user message.
@@ -151,11 +159,25 @@ export async function parseUserMessage(raw: unknown): Promise<ChatMessage> {
   if (!message || message.role !== 'user' || !MESSAGE_ID_PATTERN.test(message.id)) {
     throw new HttpError(400, 'validation', 'Only user messages can be sent');
   }
-  const parts = message.parts.flatMap((part) =>
-    part.type === 'text' && part.text.trim() ? [{ type: 'text' as const, text: part.text }] : [],
-  );
-  const length = parts.reduce((sum, part) => sum + part.text.length, 0);
-  if (parts.length === 0 || length > MAX_MESSAGE_CHARS) {
+  const parts = message.parts.flatMap((part): ChatMessage['parts'] => {
+    if (part.type === 'text' && part.text.trim()) {
+      return [{ type: 'text', text: part.text }];
+    }
+    if (part.type === 'file') {
+      if (!chatFileId(part.url)) {
+        throw new HttpError(400, 'validation', 'Files must be uploaded to /api/files first');
+      }
+      return [{ type: 'file', url: part.url, mediaType: part.mediaType, ...(part.filename ? { filename: part.filename } : {}) }];
+    }
+    return [];
+  });
+  const length = parts.reduce((sum, part) => sum + (part.type === 'text' ? part.text.length : 0), 0);
+  const files = parts.filter((part) => part.type === 'file').length;
+  if (files > MAX_FILES_PER_MESSAGE) {
+    throw new HttpError(400, 'validation', `A message may carry at most ${MAX_FILES_PER_MESSAGE} files`);
+  }
+  // A file alone is a message, too ("what is in this picture?" goes without saying).
+  if ((length === 0 && files === 0) || length > MAX_MESSAGE_CHARS) {
     throw new HttpError(400, 'validation', `Message must contain 1 to ${MAX_MESSAGE_CHARS} characters of text`);
   }
   return { id: message.id, role: 'user', parts };
@@ -423,6 +445,8 @@ export interface StreamChatOptions {
    * turns, keeping this many tokens of the latest ones word for word.
    */
   compaction?: { keepRecentTokens: number } | null;
+  /** Where the chat's uploads are; their contents replace the references for the model. */
+  files: FileStore;
 }
 
 /**
@@ -528,9 +552,12 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
    * model saw; a call cut off by stop has no result and is left out.
    */
   async function modelMessagesFor(latest: { through: string; summary: string } | null) {
+    const history = agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(withCompaction(messages, latest))), missing));
     return pruneMessages({
       messages: await convertToModelMessages(
-        agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(withCompaction(messages, latest))), missing)),
+        // Images as data, documents as text; a model the catalog says is
+        // blind to images gets a note instead.
+        await withFileContents(history, options.files, pricing?.images),
         {
           ...(hasTools ? { tools } : {}),
           ignoreIncompleteToolCalls: true,

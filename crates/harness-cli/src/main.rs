@@ -22,6 +22,7 @@ mod setup;
 mod status;
 mod takeover;
 mod terminal;
+mod uploads;
 mod vm;
 mod vmd;
 

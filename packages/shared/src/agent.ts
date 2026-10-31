@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { EffortLevel } from './api.ts';
 import type { DeviceAppTemplate } from './app-templates.ts';
+import type { ChatFile } from './files.ts';
 import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './web-fetch.ts';
 
 /**
@@ -25,8 +26,10 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * requests still waiting (`pending`).
  * Version 8: after each reply and takeover the device says what of the
  * agent's work the user's folder lacks (`workspace` event).
+ * Version 9: prompts carry the files attached in the chat (`files`); the
+ * device downloads them from the server and copies them into the instance.
  */
-export const TUNNEL_VERSION = 8;
+export const TUNNEL_VERSION = 9;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -66,6 +69,9 @@ export const VERSION_APP_FILES = 7;
 
 /** First protocol with the `workspace` event. */
 export const VERSION_WORKSPACE = 8;
+
+/** First protocol with files in prompts. */
+export const VERSION_FILES = 9;
 
 /** Ids of requests the user approves on the computer (`harness app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
@@ -435,6 +441,11 @@ export type ServerMessage =
       autosync: boolean;
       /** pi's thinking level chosen in the chat; missing for pi's own setting (protocol 4). */
       thinking?: EffortLevel;
+      /**
+       * Files attached to the message (protocol 9); the device fetches them
+       * with its token from `/api/device/files/<id>`.
+       */
+      files?: ChatFile[];
     }
   | {
       type: 'session.compact';

@@ -1,6 +1,8 @@
 # Server und Web-App von llm-harness. Einstellungen stehen in .env neben
 # dieser Datei (Vorlage: .env.example). Die Daten liegen in ./data (SQLite,
-# erzeugtes Geheimnis) und ./postgres; beide Ordner sichern.
+# erzeugtes Geheimnis, Dateien aus Chats) und ./postgres; beide Ordner sichern.
+# markitdown wandelt Dokumente (PDF, Word, Excel, PowerPoint) für das Modell
+# in Text um; es läuft immer mit, ohne Netz.
 #
 #   mkdir -p data && sudo chown 1000:1000 data   einmal vorher: der Server läuft als uid 1000
 #   docker compose up -d                          mit SQLite in ./data
@@ -26,8 +28,26 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      MARKITDOWN_URL: ${MARKITDOWN_URL:-http://markitdown:8080}
     volumes:
       - ./data:/data
+    networks: [default, documents]
+
+  # Wandelt hochgeladene Dokumente in Markdown um. Datei-Parser sind
+  # Angriffsfläche, deshalb ohne Netz (nur der Server erreicht es), mit
+  # schreibgeschütztem Dateisystem, ohne Rechte und mit Speichergrenze.
+  markitdown:
+    image: ghcr.io/johnnyjack123/llm-harness-markitdown:${HARNESS_IMAGE_TAG:-latest}
+    container_name: llm-harness-markitdown
+    restart: unless-stopped
+    networks: [documents]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
 
   postgres:
     image: docker.io/library/postgres:17-alpine
@@ -57,6 +77,11 @@ services:
     configs:
       - source: searxng-settings
         target: /etc/searxng/settings.yml
+
+networks:
+  # Nur Server und markitdown; ohne Weg nach draußen.
+  documents:
+    internal: true
 
 configs:
   # JSON-Ausgabe an (ohne sie antwortet SearXNG dem Server mit 403), Limiter

@@ -68,6 +68,8 @@ try {
       PUBLIC_URL: 'http://127.0.0.1:5174',
       TRUSTED_ORIGINS: 'http://127.0.0.1:5174',
       WEB_DIST: path.join(dataDir, 'no-web-build'),
+      // The mock stands in for markitdown, too.
+      MARKITDOWN_URL: 'http://127.0.0.1:8091',
     },
   });
   const viteLog = start('vite', [path.join(webDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5174'], {

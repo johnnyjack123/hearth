@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 8;
+pub const TUNNEL_VERSION: u32 = 9;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -46,6 +46,10 @@ pub const VERSION_APP_FILES: u32 = 7;
 /// Version that brought the `workspace` event: after each reply and
 /// takeover, what of the agent's work the user's folder lacks.
 pub const VERSION_WORKSPACE: u32 = 8;
+
+/// Version that brought files in prompts: the device downloads them from
+/// the server and copies them into the instance.
+pub const VERSION_FILES: u32 = 9;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -718,6 +722,34 @@ pub struct Prompt {
     /// pi's own setting (protocol 4).
     #[serde(default)]
     pub thinking: Option<String>,
+    /// Files attached to the message (protocol 9).
+    #[serde(default)]
+    pub files: Vec<PromptFile>,
+}
+
+/// A file attached to a message of a linked chat, as the server describes
+/// it; the bytes come from `/api/device/files/<id>`. Name and kind come
+/// from the server, which checked the contents; the device cleans the
+/// name once more before it becomes a path.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptFile {
+    /// File id (UUID).
+    pub id: String,
+    /// Name as uploaded.
+    pub name: String,
+    /// Media type the server determined.
+    pub media_type: String,
+    /// `image`, `document` or `text`.
+    pub kind: String,
+    /// Size in bytes.
+    pub size: u64,
+    /// Characters of text the model reads, for documents and text files.
+    #[serde(default)]
+    pub chars: Option<u64>,
+    /// Set when that text was cut.
+    #[serde(default)]
+    pub truncated: Option<bool>,
 }
 
 /// A request to summarize the agent's context of a session's chat.
@@ -747,6 +779,7 @@ impl CompactRequest {
             model: None,
             autosync: false,
             thinking: None,
+            files: Vec::new(),
         }
     }
 }
@@ -923,8 +956,24 @@ mod tests {
         }))
         .unwrap();
         assert!(
-            matches!(prompt, ServerMessage::Prompt(p) if p.thinking.as_deref() == Some("high"))
+            matches!(prompt, ServerMessage::Prompt(p) if p.thinking.as_deref() == Some("high") && p.files.is_empty())
         );
+        // Files attached in the chat (protocol 9).
+        let with_files: ServerMessage = serde_json::from_value(json!({
+            "type": "session.prompt", "session": "s", "project": "p", "harness": "pi",
+            "conversation": { "id": "s", "title": null }, "text": "", "history": null, "model": null,
+            "autosync": false, "files": [{
+                "id": "01a1928b-95d4-715f-b716-44769d398636", "name": "bericht.pdf",
+                "mediaType": "application/pdf", "size": 1234, "kind": "document", "chars": 99
+            }]
+        }))
+        .unwrap();
+        let ServerMessage::Prompt(prompt) = with_files else {
+            panic!("no prompt");
+        };
+        assert_eq!(prompt.files[0].media_type, "application/pdf");
+        assert_eq!(prompt.files[0].chars, Some(99));
+        assert_eq!(prompt.files[0].truncated, None);
         let compact: ServerMessage = serde_json::from_value(json!({
             "type": "session.compact", "session": "s", "project": "p", "harness": "pi",
             "conversation": { "id": "s", "title": null }

@@ -22,6 +22,12 @@ export type ApiErrorCode =
   | 'conflict'
   | 'app_name_taken'
   | 'too_many_apps'
+  | 'file_too_large'
+  | 'file_unsupported'
+  | 'file_empty'
+  | 'converter_unavailable'
+  | 'convert_failed'
+  | 'no_text'
   | 'internal';
 
 /**
@@ -224,6 +230,11 @@ export interface ModelInfo {
   id: string;
   /** Display name; falls back to the id when the provider has none. */
   name: string;
+  /**
+   * Whether the model reads images, as the models.dev catalog says;
+   * missing when unknown (local models, other endpoints).
+   */
+  images?: boolean;
 }
 
 /**
