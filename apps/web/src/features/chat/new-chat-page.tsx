@@ -83,7 +83,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research, environment ? null : effort).chat.sendMessage({ text, files });
+      void getChat(conversation.id, [], selection, research, effort).chat.sendMessage({ text, files });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -169,7 +169,7 @@ export function NewChatPage() {
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
                     <NewChatEnvironment value={environment} onChange={setEnvironment} />
                     {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
-                    {environment ? null : <EffortControl effort={effort} onEffortChange={setEffort} />}
+                    <EffortControl effort={effort} onEffortChange={setEffort} {...(environment ? { agent: environment.harness } : {})} />
                   </>
                 }
               />

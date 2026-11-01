@@ -1173,8 +1173,20 @@ try {
       await page.click(text('Neuer Chat in dieser Umgebung'));
       await page.waitForFunction(() => location.pathname === '/' && location.search.includes('project=demo'), { timeout: 5_000 });
       await page.waitForFunction(() => document.querySelector('textarea')?.placeholder.includes('pi in demo'), { timeout: 10_000 });
+      // The thinking level is there before the first message, too (it was
+      // hidden with an environment, and pi got its default).
+      await page.click('[aria-label="Denktiefe: Standard"]');
+      await page.waitForSelector('[role=slider]');
+      await waitForText('Wie pi ab Werk: Mittel.', 5_000);
+      await page.focus('[role=slider]');
+      for (let press = 0; press < 5; press += 1) {
+        await page.keyboard.press('ArrowRight');
+      }
+      await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+      await page.keyboard.press('Escape');
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('37-new-chat-environment');
+      await page.focus('textarea');
       await page.type('textarea', 'Neu mit Umgebung');
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
@@ -1184,6 +1196,16 @@ try {
       if (fresh?.text !== 'Neu mit Umgebung' || fresh.project !== 'demo' || fresh.session === prompts[0]?.session) {
         throw new Error(`new chat sent ${JSON.stringify(fresh)}`);
       }
+      if (fresh.thinking !== 'high') {
+        throw new Error(`new chat in an environment sent thinking ${fresh.thinking}`);
+      }
+      // The chat keeps it; back to the default for the steps after this one.
+      await page.click('[aria-label="Denktiefe: Hoch"]');
+      await page.waitForSelector('[role=slider]');
+      await page.focus('[role=slider]');
+      await page.keyboard.press('Home');
+      await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
+      await page.keyboard.press('Escape');
       await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
       await page.waitForSelector('[data-workspace="saved"][aria-label="Alles übernommen"]', { timeout: 5_000 });
       await shot('38-new-chat-environment-reply');
