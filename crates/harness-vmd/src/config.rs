@@ -21,7 +21,9 @@ pub struct Config {
     /// The one user allowed on the pipe besides administrators.
     pub user_sid: String,
     /// Memory Hyper-V reserves when the VM starts. Small, because the
-    /// start fails when the host lacks it (spike §12.1, finding 2).
+    /// start fails when the host lacks it (spike §12.1, finding 2); on
+    /// ARM64 the VM starts with more when Windows has it free, because it
+    /// cannot grow later (`machine::startup_memory_mb`).
     #[serde(default = "default_startup")]
     pub startup_memory_mb: u32,
     /// Lower bound of dynamic memory.

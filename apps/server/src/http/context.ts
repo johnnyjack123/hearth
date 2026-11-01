@@ -8,6 +8,7 @@ import type { Database } from '../db/index.ts';
 import type { DB } from '../db/schema.ts';
 import type { DocumentConverter } from '../files/convert.ts';
 import type { LlmGateway } from '../llm.ts';
+import type { OpenRouterRouting } from '../openrouter.ts';
 import type { PricingCatalog } from '../pricing.ts';
 import type { DeviceHub } from '../tunnel/hub.ts';
 import type { WebFetchConfig } from '../webfetch/tool.ts';
@@ -35,6 +36,8 @@ export interface AppDeps {
   hub: DeviceHub;
   /** Prices and context windows of models. */
   pricing: PricingCatalog;
+  /** Picks OpenRouter's cheapest hosts; one loading the public lists when unset. Tests pass a stand-in. */
+  openRouter?: OpenRouterRouting;
   /**
    * Overrides of the web fetch limits and checks, for tests that fetch from
    * a local server. The server itself never sets it.

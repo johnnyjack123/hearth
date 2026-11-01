@@ -12,6 +12,7 @@ import { WebFetchError } from '../webfetch/errors.ts';
 import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers.ts';
 import { runSearch, searchModelText } from '../websearch/tool.ts';
+import { cheapestProvider, meterBill } from '../openrouter.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
 /** What an agent sends to search: the same as the web chat's tool. */
@@ -203,15 +204,16 @@ export function llmRoutes(deps: AppDeps) {
       const method = c.req.method;
       const hasBody = method !== 'GET' && method !== 'HEAD';
       const target = `${proxyRoot(row.kind, row.baseUrl)}/${path}${new URL(c.req.url).search}`;
+      // Chat requests to OpenRouter go to the cheapest hosts first; that
+      // needs the body, everything else streams through as it comes.
+      const body = hasBody && row.kind === 'openrouter' && path === 'chat/completions' ? await cheapest(await c.req.text()) : null;
 
       let upstream: Response;
       try {
         upstream = await fetch(target, {
           method,
           headers,
-          body: hasBody ? c.req.raw.body : undefined,
-          // Streams the request body instead of buffering it.
-          ...(hasBody ? { duplex: 'half' } : {}),
+          ...(body !== null ? { body } : hasBody ? { body: c.req.raw.body, duplex: 'half' } : {}),
           redirect: 'error',
           signal: c.req.raw.signal,
         } as RequestInit);
@@ -230,6 +232,42 @@ export function llmRoutes(deps: AppDeps) {
           responseHeaders.set(name, value);
         }
       });
-      return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+      // What the provider billed (OpenRouter says it in every answer) waits
+      // for the agent's report of the call; see `agentCallCost`.
+      const type = upstream.headers.get('content-type') ?? '';
+      const stream = type.includes('text/event-stream');
+      const device = c.get('device').id;
+      const metered =
+        upstream.ok && upstream.body && protocol === 'openai' && (stream || type.includes('application/json'))
+          ? meterBill(upstream.body, stream, (bill) => deps.hub.bills.record(device, bill))
+          : upstream.body;
+      return new Response(metered, { status: upstream.status, headers: responseHeaders });
     });
+
+  /**
+   * An OpenRouter chat request with the cheapest hosts first, unless the
+   * admin turned that off or the request routes itself.
+   */
+  async function cheapest(text: string): Promise<string> {
+    const settings = await getServerSettings(db);
+    if (!settings.openRouterCheapest) {
+      return text;
+    }
+    let request: unknown;
+    try {
+      request = JSON.parse(text);
+    } catch {
+      return text;
+    }
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      return text;
+    }
+    const fields = request as Record<string, unknown>;
+    if (typeof fields.model !== 'string') {
+      return text;
+    }
+    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit })) ?? null;
+    const provider = cheapestProvider(fields.provider, order);
+    return provider ? JSON.stringify({ ...fields, provider }) : text;
+  }
 }

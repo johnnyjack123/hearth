@@ -99,6 +99,31 @@ export function ServerPanel() {
                   />
                 }
               />
+              <Separator />
+              <SettingRow
+                label={t('admin.openRouterCheapest')}
+                description={t('admin.openRouterCheapestHint')}
+                control={
+                  <Switch
+                    aria-label={t('admin.openRouterCheapest')}
+                    checked={settings.data.openRouterCheapest}
+                    onCheckedChange={(checked) => update.mutate({ openRouterCheapest: checked })}
+                  />
+                }
+              />
+              <Separator />
+              <SettingRow
+                label={t('admin.openRouterNoFourBit')}
+                description={t('admin.openRouterNoFourBitHint')}
+                control={
+                  <Switch
+                    aria-label={t('admin.openRouterNoFourBit')}
+                    checked={settings.data.openRouterNoFourBit}
+                    disabled={!settings.data.openRouterCheapest}
+                    onCheckedChange={(checked) => update.mutate({ openRouterNoFourBit: checked })}
+                  />
+                }
+              />
             </>
           ) : (
             <div className="flex flex-col gap-4 p-4">

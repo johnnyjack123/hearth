@@ -799,6 +799,12 @@ export const de = {
     calculator: 'Taschenrechner',
     calculatorHint:
       'Modelle in normalen Chats rechnen mit math.js auf diesem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    openRouterCheapest: 'OpenRouter: immer der günstigste Anbieter',
+    openRouterCheapestHint:
+      'Jede Anfrage geht zuerst an den Anbieter, der das Modell gerade am günstigsten rechnet, mit Rabatten, Cache-Preisen und Tageszeit. Fällt er aus, folgen die nächstgünstigen. Aus: OpenRouter entscheidet selbst.',
+    openRouterNoFourBit: 'Anbieter mit 4-Bit-Modellen auslassen',
+    openRouterNoFourBitHint:
+      'Die günstigsten Anbieter rechnen oft mit auf 4 Bit verkleinerten Modellen (fp4, int4). Das spart Geld, kann aber schlechtere Antworten geben.',
     saved: 'Einstellung gespeichert',
     condense: {
       title: 'Lange Chats eindampfen',

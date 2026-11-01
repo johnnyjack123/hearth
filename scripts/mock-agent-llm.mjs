@@ -7,6 +7,7 @@
 // first one done and the second active. A request without tools (pi
 // summarizing its history) gets a
 // summary. It also answers like SearXNG (`/search?format=json`).
+// Every answer ends with a usage that carries a cost, like OpenRouter's.
 // Every request body is appended to MOCK_LOG if set.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -20,6 +21,9 @@ function lastUserText(messages) {
   const content = messages.findLast((message) => message.role === 'user')?.content ?? '';
   return typeof content === 'string' ? content : content.map((part) => part.text ?? '').join('');
 }
+
+/** What every answer costs, in dollars; the chat should show it as billed. */
+const COST = 0.000123;
 
 const chunk = (delta, finish = null) =>
   `data: ${JSON.stringify({
@@ -81,6 +85,10 @@ http
         res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(input) } }] }));
         res.write(chunk({}, 'tool_calls'));
       }
+      // Tokens as OpenAI counts them; the server matches the bill to pi's
+      // report of the call by these.
+      const usage = { prompt_tokens: Math.ceil(body.length / 4), completion_tokens: 7, cost: COST };
+      res.write(`data: ${JSON.stringify({ id: 'mock', object: 'chat.completion.chunk', created: 0, model: request.model, choices: [], usage })}\n\n`);
       res.end('data: [DONE]\n\n');
     });
   })

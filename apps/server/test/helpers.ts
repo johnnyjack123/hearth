@@ -15,6 +15,7 @@ import type { DocumentConverter } from '../src/files/convert.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { createDeviceHub } from '../src/server.ts';
+import { OpenRouterRouting } from '../src/openrouter.ts';
 import type { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import type { SearchEndpoints } from '../src/websearch/providers.ts';
@@ -153,6 +154,7 @@ export async function createTestServer(
     webSearch?: Partial<SearchEndpoints>;
     helpers?: HelperOptions;
     converter?: DocumentConverter | null;
+    openRouter?: OpenRouterRouting;
   } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
@@ -201,6 +203,8 @@ export async function createTestServer(
     ...(options.helpers ? { helpers: options.helpers } : {}),
     // Documents need a converter; tests without one say so explicitly.
     converter: options.converter ?? null,
+    // No endpoint lists unless a test brings some: tests never go online.
+    openRouter: options.openRouter ?? new OpenRouterRouting(async () => null),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

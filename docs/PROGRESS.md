@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-10-31 · Release v0.1.11: Dateien im Chat (Bilder, Dokumente über markitdown, auch für Agents), Fortschrittsliste des Agents, Dauer je Werkzeugaufruf; der Nutzer testet_
+_Last updated: 2026-11-01 · Release v0.1.12: VM-Abstürze (Chromium, ARM-VM wächst nicht), richtige Kosten bei DeepSeek und OpenRouter, Modellwahl erreicht pi, günstigster OpenRouter-Anbieter, Denktiefe im neuen Umgebungs-Chat_
 
 ## Where we are
 
@@ -82,7 +82,14 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Dateien im Chat: Bilder an das Modell, Dokumente über markitdown als Markdown (eigener Container ohne Netz, Image per GitHub, ~440 MB), Textdateien direkt. In Umgebungs-Chats landen sie in `~/uploads` der Instanz (Protokoll 9).
    - Geprüft: Server 207/207, Rust-Tests und clippy, Browser-E2E 16/16 (Bilder 48, 49), Smoke-Test 99 grün (Fortschrittsliste und Datei mit echtem pi), markitdown-Selbsttest in CI auf amd64 und arm64 (Word, Excel, PowerPoint, PDF, HTML, CSV, ohne Netz).
    - Der Pi braucht die neue Compose-Datei (Dienst `markitdown`, Netz `documents`), siehe `docs/deploy.md`.
-   **Als Nächstes:** Test des Nutzers mit v0.1.11, dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats).
+   ✅ **1.11., Meldungen des Nutzers** (Branch `fix/costs-memory-effort`, Release v0.1.12). Der Rechner lief noch mit 0.1.8.
+   - **„VM stürzt ab“:** Hyper-V meldet keinen Absturz; am 31.10. 15:30 UTC hat der Agent puppeteer, `chrome-headless-shell` und `@sparticuz/chromium` nach `/tmp` (RAM) installiert und Chromium gestartet, der OOM-Killer schlug bei vollem Swap zu, danach stoppte der Nutzer die VM. Ursache dahinter: `hv_balloon: Memory hot add disabled on ARM64`, die VM bleibt bei ihrem Startspeicher (936 MB), das Maximum von 4 GB wirkt nie. Jetzt: Der VM-Dienst startet die VM auf ARM64 mit dem, was Windows frei hat (abzüglich 512 MB, 1–4 GB); das Briefing verbietet Browser und große Dinge in `/tmp`. Braucht den neuen VM-Dienst (`harness setup`, UAC).
+   - **Kosten:** DeepSeek rechnet außerhalb von werktags 01–04 und 06–10 Uhr UTC zum halben Preis; pi kennt nur den vollen, models.dev nur den halben. Der Server rechnet DeepSeek jetzt selbst nach Uhrzeit (normale und Agent-Chats). Die „11 Cent bei OpenRouter“ waren ein Agent-Chat, den pi mit DeepSeek direkt und `deepseek-v4-pro` beantwortete: pi kannte `deepseek/deepseek-v4.1-flash-1017` nicht, `set_model` scheiterte, pi blieb bei seinem Standard. Jetzt trägt der Rechner unbekannte Modelle mit den Daten aus dem Katalog des Servers in `models.json` ein und startet pi neu; ein Modell, das pi nicht nutzen kann, beendet die Antwort mit Meldung. OpenRouter-Kosten von Agents liest der Server aus den Antworten im Durchgang (abgerechnet statt geschätzt).
+   - **Günstigster OpenRouter-Anbieter** (Wunsch): Der Server lädt OpenRouters Endpunktliste je Modell (öffentlich, 10 min), rechnet je Anbieter einen typischen Aufruf (90 % Eingabe aus dem Cache, Ausgabe 5 %) mit Rabatt und Tageszeit und schickt `provider.order` mit den günstigsten acht, Ausweichen erlaubt. Admin-Schalter, dazu „4-Bit-Anbieter auslassen“ (aus).
+   - **Denktiefe:** Im neuen Chat mit Umgebung fehlte der Regler, und die erste Nachricht ging ohne Stufe (pi: Mittel). Jetzt immer sichtbar und mitgeschickt.
+   - **Kontext-Füllstand** stimmt (an pis Sitzungsdaten nachgerechnet: DeepSeek behält die Denk-Token im Verlauf); falsch war nur das Fenster im Chat mit dem falschen Modell.
+   - Geprüft: Server 218/218, Rust-Tests und clippy, Browser-E2E 16/16 (Bild 37 mit Denktiefe), Smoke-Test 104 grün (unbekanntes Modell lernt pi nach Neustart, Kosten wie abgerechnet), echtes pi nimmt ein zusätzliches Modell beim eingebauten Anbieter `openrouter` an (Wegwerf-Container ohne Netz). Nicht geprüft: echtes OpenRouter mit `provider.order`, der neue VM-Dienst mit größerem Startspeicher beim Nutzer.
+   **Als Nächstes:** Test des Nutzers mit v0.1.12 (neuer VM-Dienst über `harness setup`), dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats). Offen aus dem 1.11.: Speichergrenze für Instanzen, damit ein Prozess im Container nicht die ganze VM in den Swap treibt.
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).

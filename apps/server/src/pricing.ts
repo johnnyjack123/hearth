@@ -1,4 +1,4 @@
-import type { MessageMetadata, ModelCallUsage, ProviderKind } from '@harness/shared';
+import type { AgentModelInfo, MessageMetadata, ModelCallUsage, ProviderKind } from '@harness/shared';
 import type { LanguageModelUsage, ProviderMetadata } from 'ai';
 
 /**
@@ -18,6 +18,12 @@ export interface ModelPricing {
   cacheWrite?: number;
   /** Whether the model reads images; missing when the catalog does not say. */
   images?: boolean;
+  /** Display name. */
+  name?: string;
+  /** Longest answer in tokens. */
+  maxOutput?: number;
+  /** Whether the model thinks before it answers. */
+  reasoning?: boolean;
 }
 
 /** Open catalog of models with prices and context windows. */
@@ -35,7 +41,8 @@ const LOOKUP_WAIT_MS = 3_000;
 /** Catalog providers kept in memory; the full file has hundreds. */
 const PROVIDERS = ['openai', 'anthropic', 'google', 'mistral', 'openrouter', 'deepseek'] as const;
 
-type CatalogProvider = (typeof PROVIDERS)[number];
+/** A provider of the catalog harness keeps. */
+export type CatalogProvider = (typeof PROVIDERS)[number];
 
 /**
  * The catalog's provider for a credential, or null if it has none (local
@@ -66,7 +73,9 @@ export function catalogProvider(kind: ProviderKind, baseUrl: string | null): Cat
 type Catalog = Map<CatalogProvider, Map<string, ModelPricing>>;
 
 interface RawModel {
-  limit?: { context?: unknown };
+  name?: unknown;
+  reasoning?: unknown;
+  limit?: { context?: unknown; output?: unknown };
   modalities?: { input?: unknown };
   cost?: { input?: unknown; output?: unknown; cache_read?: unknown; cache_write?: unknown };
 }
@@ -117,6 +126,16 @@ export function parseCatalog(raw: unknown): Catalog {
       const inputs = model.modalities?.input;
       if (Array.isArray(inputs)) {
         pricing.images = inputs.includes('image');
+      }
+      const maxOutput = number(model.limit?.output);
+      if (maxOutput !== undefined && maxOutput > 0) {
+        pricing.maxOutput = maxOutput;
+      }
+      if (typeof model.name === 'string' && model.name.trim()) {
+        pricing.name = model.name.trim().slice(0, 200);
+      }
+      if (typeof model.reasoning === 'boolean') {
+        pricing.reasoning = model.reasoning;
       }
       prices.set(id.toLowerCase(), pricing);
     }
@@ -171,14 +190,31 @@ export class PricingCatalog {
   }
 
   /**
-   * Prices of a model.
+   * Prices of a model at a moment (DeepSeek's depend on the hour, see
+   * {@link pricesAt}).
    *
    * @param kind - Credential kind.
    * @param baseUrl - Its custom endpoint, if any.
    * @param modelId - The provider's model id.
+   * @param at - When the model is called.
    * @returns The pricing, or null if unknown.
    */
-  async lookup(kind: ProviderKind, baseUrl: string | null, modelId: string): Promise<ModelPricing | null> {
+  async lookup(kind: ProviderKind, baseUrl: string | null, modelId: string, at: Date = new Date()): Promise<ModelPricing | null> {
+    const provider = catalogProvider(kind, baseUrl);
+    const entry = await this.entry(kind, baseUrl, modelId);
+    return entry && provider && provider !== 'free' ? pricesAt(provider, entry, at) : entry;
+  }
+
+  /**
+   * A model's catalog entry as listed, for prices that depend on the hour
+   * of each call (agents); see {@link pricesAt}.
+   *
+   * @param kind - Credential kind.
+   * @param baseUrl - Its custom endpoint, if any.
+   * @param modelId - The provider's model id.
+   * @returns The entry, or null if unknown.
+   */
+  async entry(kind: ProviderKind, baseUrl: string | null, modelId: string): Promise<ModelPricing | null> {
     const provider = catalogProvider(kind, baseUrl);
     if (provider === 'free') {
       return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -192,6 +228,140 @@ export class PricingCatalog {
     }
     return this.#catalog?.get(provider)?.get(modelId.toLowerCase()) ?? null;
   }
+}
+
+/**
+ * Whether DeepSeek charges its peak prices at a moment: Monday to Friday,
+ * 01:00–04:00 and 06:00–10:00 UTC (api-docs.deepseek.com, 1.11.2026;
+ * OpenRouter's DeepSeek endpoint lists the same hours). Outside them, at
+ * weekends and on Chinese holidays it charges half. Holidays are not known
+ * here, so on those the estimate is too high during these hours.
+ *
+ * @param at - The moment.
+ * @returns True in peak hours.
+ */
+export function deepSeekPeak(at: Date): boolean {
+  const day = at.getUTCDay();
+  if (day === 0 || day === 6) {
+    return false;
+  }
+  const minute = at.getUTCHours() * 60 + at.getUTCMinutes();
+  return (minute >= 60 && minute < 240) || (minute >= 360 && minute < 600);
+}
+
+/**
+ * A model's prices at a moment. models.dev lists DeepSeek's off-peak prices
+ * (1.11.2026: 0.15 $ input for `deepseek-flash`, DeepSeek's page says 0.15
+ * off-peak and 0.30 peak), so they double in {@link deepSeekPeak} hours.
+ * pi's catalog lists the peak prices instead, which made agent chats show
+ * twice what DeepSeek billed in the evening and at weekends.
+ *
+ * @param provider - Catalog provider.
+ * @param pricing - The catalog's prices.
+ * @param at - The moment.
+ * @returns The prices that apply then.
+ */
+export function pricesAt(provider: CatalogProvider, pricing: ModelPricing, at: Date): ModelPricing {
+  if (provider !== 'deepseek' || !deepSeekPeak(at)) {
+    return pricing;
+  }
+  const double = (price: number | undefined) => (price === undefined ? undefined : price * 2);
+  const peak: ModelPricing = { ...pricing };
+  for (const key of ['input', 'output', 'cacheRead', 'cacheWrite'] as const) {
+    const price = double(pricing[key]);
+    if (price !== undefined) {
+      peak[key] = price;
+    }
+  }
+  return peak;
+}
+
+/**
+ * What a harness needs to use a model its own catalog lacks, from the
+ * server's catalog entry.
+ *
+ * @param pricing - The entry, if the catalog has the model.
+ * @returns The description for the device; empty without an entry.
+ */
+export function agentModelInfo(pricing: ModelPricing | null): AgentModelInfo {
+  if (!pricing) {
+    return {};
+  }
+  const info: AgentModelInfo = {};
+  if (pricing.name) {
+    info.name = pricing.name;
+  }
+  if (pricing.contextWindow) {
+    info.contextWindow = pricing.contextWindow;
+  }
+  if (pricing.maxOutput) {
+    info.maxOutput = pricing.maxOutput;
+  }
+  if (pricing.reasoning !== undefined) {
+    info.reasoning = pricing.reasoning;
+  }
+  if (pricing.images !== undefined) {
+    info.images = pricing.images;
+  }
+  if (pricing.input !== undefined && pricing.output !== undefined) {
+    info.cost = {
+      input: pricing.input,
+      output: pricing.output,
+      ...(pricing.cacheRead !== undefined ? { cacheRead: pricing.cacheRead } : {}),
+      ...(pricing.cacheWrite !== undefined ? { cacheWrite: pricing.cacheWrite } : {}),
+    };
+  }
+  return info;
+}
+
+/**
+ * Tokens of one model call of an agent, as pi reports them.
+ */
+export interface AgentCallTokens {
+  /** Input, cached tokens included. */
+  input: number;
+  /** Part of the input read from the cache. */
+  cacheRead: number;
+  /** Output, reasoning included. */
+  output: number;
+  /** What pi's own catalog says the call cost. */
+  agentCost?: number;
+}
+
+/**
+ * The cost of an agent's model call. pi prices calls from its own catalog,
+ * which knows neither where OpenRouter sent a call nor DeepSeek's hours. So:
+ * what the provider billed if the pass-through saw it (OpenRouter), DeepSeek
+ * from the server's catalog at the time of the call, everything else as pi
+ * says (pi knows cache writes, which reach the server only inside `input`).
+ *
+ * @param call - The call's tokens.
+ * @param provider - Catalog provider of the chat's credential.
+ * @param pricing - The server's prices at the time of the call, if known.
+ * @param billed - What the provider billed, if known.
+ * @returns The call's cost fields for `usage.calls`.
+ */
+export function agentCallCost(
+  call: AgentCallTokens,
+  provider: CatalogProvider | 'free' | null,
+  pricing: ModelPricing | null,
+  billed: BilledCost | null,
+): Pick<ModelCallUsage, 'cost' | 'billed'> {
+  if (billed) {
+    return { cost: billed, billed: true };
+  }
+  if ((provider === 'deepseek' || provider === 'free') && pricing?.input !== undefined && pricing.output !== undefined) {
+    const usage: LanguageModelUsage = {
+      inputTokens: call.input,
+      inputTokenDetails: { noCacheTokens: Math.max(0, call.input - call.cacheRead), cacheReadTokens: call.cacheRead, cacheWriteTokens: 0 },
+      outputTokens: call.output,
+      outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
+      totalTokens: call.input + call.output,
+    };
+    const { cost } = callUsage(usage, pricing, []);
+    return cost ? { cost } : {};
+  }
+  return call.agentCost === undefined ? {} : { cost: { total: call.agentCost } };
 }
 
 /** What a provider billed for one model call, as OpenRouter reports it. */

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway", "crates/harness-setup", "crates/harness-vmd"]
 
 [workspace.package]
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 rust-version = "1.88"
 license = "UNLICENSED"
@@ -48,6 +48,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Pipes",
     "Win32_System_Registry",
     "Win32_System_Services",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_HiDpi",
     "Win32_UI_Shell",

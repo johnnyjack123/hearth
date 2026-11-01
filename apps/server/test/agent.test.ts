@@ -23,6 +23,7 @@ import {
 } from '@harness/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
+import { OpenRouterRouting } from '../src/openrouter.ts';
 import { ChunkMapper, transcript } from '../src/routes/agent.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { DeviceHub, type TunnelConnection, type TunnelSocket } from '../src/tunnel/hub.ts';
@@ -684,7 +685,8 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
       harness: 'pi',
       text: 'Liste die Dateien',
       history: null,
-      model: { credentialId: credential.id, modelId: 'mock-1' },
+      // What the catalog knows, for a model the agent's catalog lacks.
+      model: { credentialId: credential.id, modelId: 'mock-1', info: { contextWindow: 1000, cost: { input: 2, output: 8 } } },
     });
 
     await eventually(async () => (await load(conversation.id)).messages.length === 2);
@@ -704,6 +706,94 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     });
     expect(answer.status).toBe(204);
     expect(device.received.at(-1)).toEqual({ type: 'approval.decide', session: conversation.id, id: 7, decision: 'session' });
+  });
+
+  it('sends agent calls to the cheapest OpenRouter host and shows what OpenRouter billed', async () => {
+    // A stand-in for OpenRouter that bills like it.
+    const bodies: Record<string, unknown>[] = [];
+    const upstream = createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk) => (body += chunk));
+      request.on('end', () => {
+        bodies.push(JSON.parse(body) as Record<string, unknown>);
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        const usage = { prompt_tokens: 1200, completion_tokens: 30, cost: 0.0004 };
+        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' } }] })}
+
+`);
+        response.end(`data: ${JSON.stringify({ choices: [], usage })}
+
+data: [DONE]
+
+`);
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    try {
+      await server.close();
+      server = await createTestServer(kind, {
+        openRouter: new OpenRouterRouting(async () => ({
+          data: {
+            endpoints: [
+              { tag: 'no-cache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
+              { tag: 'cached/fp8', pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' } },
+            ],
+          },
+        })),
+      });
+      cookie = await server.signUp('owner@example.com');
+      const port = (upstream.address() as AddressInfo).port;
+      credential = (await (
+        await server.request('POST', '/api/providers', {
+          cookie,
+          body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-0123456789abcdef' },
+        })
+      ).json()) as ProviderCredential;
+      // The API takes no own endpoint for OpenRouter; the test points it at the stand-in.
+      await server.database.db
+        .updateTable('providerCredential')
+        .set({ baseUrl: `http://127.0.0.1:${port}/api/v1` })
+        .where('id', '=', credential.id)
+        .execute();
+      const { token, deviceId, userId } = await pair();
+      const device = connect(server.hub, deviceId, userId);
+      device.hello();
+      const conversation = await newConversation();
+      await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
+
+      device.onPrompt = async (prompt) => {
+        // pi's call through the gateway, then its report with pi's own estimate.
+        const call = await server.request('POST', `/api/llm/proxy/${credential.id}/chat/completions`, {
+          body: { model: 'deepseek/deepseek-v4.1-flash-1017', stream: true, messages: [] },
+          headers: { ...CLI, authorization: `Bearer ${token}` },
+        });
+        expect(await call.text()).toContain('[DONE]');
+        device.emit(
+          prompt.session,
+          { type: 'turn.start' },
+          { type: 'usage', inputTokens: 1200, outputTokens: 30, cachedInputTokens: 1000, cost: 0.05 },
+          { type: 'turn.end' },
+          { type: 'done', aborted: false },
+        );
+      };
+      const response = await server.request('POST', `/api/conversations/${conversation.id}/chat`, {
+        cookie,
+        body: {
+          message: { id: 'm-or', role: 'user', parts: [{ type: 'text', text: 'Los' }] },
+          credentialId: credential.id,
+          modelId: 'deepseek/deepseek-v4.1-flash-1017',
+        },
+      });
+      await response.text();
+
+      // The host with a cache price first, although the other lists less.
+      expect(bodies[0]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
+      await eventually(async () => (await load(conversation.id)).messages.length === 2);
+      const usage = (await load(conversation.id)).messages[1]?.metadata?.usage;
+      expect(usage).toMatchObject({ cost: 0.0004, billed: true, calls: [{ billed: true, cost: { total: 0.0004 } }] });
+    } finally {
+      await new Promise((resolve) => upstream.close(resolve));
+    }
   });
 
   it('keeps the agent working when the page goes away, and cancels it only on stop', async () => {

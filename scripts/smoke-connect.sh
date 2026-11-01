@@ -357,6 +357,16 @@ check "Datei in ~/uploads der Instanz" grep -q 'Bohnen kaufen' "$WORK/m6c.log"
 check "Hinweis an den Agent mit dem Pfad" grep -q 'saved outside the project' "$WORK/mock-requests.log"
 check "Datei nicht im Projekt" bash -c "! '$PM' exec 'harness-$NAME' test -e /workspace/notiz.txt"
 
+echo "== Modell, das pi nicht kennt, und abgerechnete Kosten"
+# The mock lists only mock-model; pi learns the other one from models.json.
+printf '%s' "{\"message\":{\"id\":\"m6d\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"!echo neu\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-unknown\"}" > "$WORK/m6d.json"
+curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6d.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m6d.log"
+check "pi lernt das Modell und startet neu" grep -q 'pi kannte das Modell mock-unknown noch nicht' "$WORK/m6d.log"
+check "Anfrage mit dem gewählten Modell" grep -q '"model":"mock-unknown"' "$WORK/mock-requests.log"
+check "Antwort trotz Neustart" grep -q '"delta":"fertig"' "$WORK/m6d.log"
+check "Modell in models.json" bash -c "'$PM' exec 'harness-$NAME' cat /home/agent/.pi/agent/models.json | grep -q mock-unknown"
+check "Kosten wie vom Anbieter abgerechnet" test "$(api GET "/api/conversations/$CONVERSATION" | json 'v.messages.at(-1).metadata.usage.billed + " " + v.messages.at(-1).metadata.usage.calls.every((c) => c.cost.total === 0.000123)')" = "true true"
+
 echo "== Denktiefe und Zusammenfassen bei pi (Protokoll 4)"
 printf '%s' "{\"message\":{\"id\":\"m7\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"!echo sieben\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"effort\":\"high\"}" > "$WORK/m7.json"
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m7.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m7.log"

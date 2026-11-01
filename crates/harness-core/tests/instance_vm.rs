@@ -154,7 +154,7 @@ fn instances_install_harnesses_and_keep_their_volumes() {
         id: "qwen".into(),
         name: "Qwen".into(),
     }]);
-    let models = pi::models_json(&[credential]);
+    let models = pi::models_json(&[credential], &[]);
     let instance_name = name.instance();
     let read = || pi::read_models(&provider, &instance_name).unwrap();
     assert_eq!(read(), Existing::Missing);
