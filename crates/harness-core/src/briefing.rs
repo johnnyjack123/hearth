@@ -56,6 +56,19 @@ between sessions.
 - There are no secrets in here, and the model's API key is handled outside; do not \
 look for credentials.
 
+## Memory: no web browsers
+- The VM has little memory (often 1 to 2 GB, it cannot grow while running), shared by \
+you, your tools and everything you start. When it runs out, the kernel kills processes, \
+often you, and the user's session hangs.
+- Never install or start a web browser: no Chromium, Chrome, Firefox, Playwright, \
+Puppeteer, `@sparticuz/chromium`, headless shells or Selenium, not even for a screenshot. \
+Check web code with the build, type checks, tests, `node` scripts and a DOM library such \
+as jsdom or happy-dom, then ask the user to look at it in their own browser.
+- `/tmp` is kept in memory: put large downloads and builds in your home directory or \
+`/workspace`.
+- Run one heavy command at a time (builds, type checks, test runners) and stop dev \
+servers and watchers when you no longer need them.
+
 ## If the user asks how harness works
 The user runs these on their Windows computer (you cannot run them from here):
 - Take over your commits: \"Fortschritt sichern\" or the Autosync switch in the web chat, \
@@ -200,6 +213,8 @@ mod tests {
         // It can tell the user how to take its work over and what else there is.
         assert!(text.contains("`harness merge --approve <ID>`"));
         assert!(text.contains("`harness app add <file>`"));
+        // A browser filled the VM's memory on 31.10.
+        assert!(text.contains("Never install or start a web browser"));
         assert!(!text.contains("  "), "no run of spaces from a line break");
         assert!(!text.ends_with('\n'));
     }

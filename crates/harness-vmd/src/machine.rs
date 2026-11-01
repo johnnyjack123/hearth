@@ -32,8 +32,8 @@ const OUTPUT_GRACE: Duration = Duration::from_secs(3);
 /// How long SSH may take to answer after podman reports the machine started.
 const SSH_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// Prepares a stopped VM: small startup memory (the host's free RAM decides
-/// whether Hyper-V can start it at all), shut down rather than saved when
+/// Prepares a stopped VM: its startup memory ([`startup_memory_mb`]), shut
+/// down rather than saved when
 /// the host shuts down, no saved state, and no Ignition items left over
 /// from a failed start (they make every further start fail with 32773).
 /// The machine name comes from the environment, never from the script text.
@@ -162,6 +162,50 @@ fn unix_now() -> u64 {
 
 fn file_size(path: &Path) -> u64 {
     fs::metadata(path).map_or(0, |m| m.len())
+}
+
+/// Memory Windows keeps for itself when the VM starts with what is free.
+const HOST_RESERVE_MB: u64 = 512;
+
+/// What Hyper-V gives the VM at its start, in MB.
+///
+/// On ARM64 the guest cannot take memory Hyper-V adds later: its kernel
+/// says "hv_balloon: Memory hot add disabled on ARM64" (seen 1.11.), and
+/// the VM stayed at 936 MB with a maximum of 4 GB until the OOM killer
+/// struck. So it starts with what Windows can spare, between the configured
+/// startup and maximum; what Linux does not use, the balloon driver hands
+/// back. Elsewhere dynamic memory grows the VM when it needs more, and a
+/// small start fails less often for lack of free memory.
+///
+/// `available_mb` is Windows' available memory, if known.
+fn startup_memory_mb(config: &Config, available_mb: Option<u64>, grows_later: bool) -> u64 {
+    let floor = u64::from(config.startup_memory_mb);
+    let Some(available) = available_mb.filter(|_| !grows_later) else {
+        return floor;
+    };
+    let spare = available.saturating_sub(HOST_RESERVE_MB);
+    let startup = spare.clamp(floor, u64::from(config.maximum_memory_mb).max(floor));
+    // Hyper-V wants whole 2 MB pages; round steps read better in the log.
+    (startup - startup % 128).max(floor)
+}
+
+/// Windows' available physical memory (what Task Manager shows as
+/// available, standby cache included) in MB.
+#[cfg(windows)]
+fn available_memory_mb() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        // SAFETY: a plain C struct, all zeros is a valid value.
+        ..unsafe { std::mem::zeroed() }
+    };
+    // SAFETY: `status` is a valid MEMORYSTATUSEX with its length set.
+    (unsafe { GlobalMemoryStatusEx(&mut status) } != 0).then_some(status.ullAvailPhys / (1 << 20))
+}
+
+#[cfg(not(windows))]
+fn available_memory_mb() -> Option<u64> {
+    None
 }
 
 /// Hard power-off after a failed start or stop.
@@ -413,7 +457,16 @@ impl Vm {
             }
             VmState::Stopped | VmState::Unknown => {}
         }
-        let (ok, output) = run(self.powershell(PREPARE_PS), SCRIPT_TIMEOUT);
+        let available = available_memory_mb();
+        let startup =
+            startup_memory_mb(&self.config, available, cfg!(not(target_arch = "aarch64")));
+        log::line(&format!(
+            "Startspeicher der VM: {startup} MB (Windows: {} MB verfügbar)",
+            available.map_or("?".to_owned(), |mb| mb.to_string())
+        ));
+        let mut prepare = self.powershell(PREPARE_PS);
+        prepare.env("HARNESS_STARTUP_MB", startup.to_string());
+        let (ok, output) = run(prepare, SCRIPT_TIMEOUT);
         if !ok {
             return Err(format!("Vorbereitung fehlgeschlagen: {}", tail(&output)));
         }
@@ -623,6 +676,27 @@ mod tests {
         };
         let text = serde_json::to_string(&record).unwrap();
         assert_eq!(serde_json::from_str::<Compacted>(&text).unwrap(), record);
+    }
+
+    #[test]
+    fn arm_vms_start_with_what_windows_can_spare() {
+        let config = Config {
+            machine: "harness".into(),
+            podman: r"C:\Program Files\RedHat\Podman\podman.exe".into(),
+            user_sid: "S-1-5-21-1-2-3-1001".into(),
+            startup_memory_mb: 1024,
+            minimum_memory_mb: 512,
+            maximum_memory_mb: 4096,
+        };
+        // Plenty free: the maximum.
+        assert_eq!(startup_memory_mb(&config, Some(9000), false), 4096);
+        // 2 GB available (as on 1.11.): what is left after the reserve.
+        assert_eq!(startup_memory_mb(&config, Some(2091), false), 1536);
+        // Little free or unknown: never below the configured start.
+        assert_eq!(startup_memory_mb(&config, Some(900), false), 1024);
+        assert_eq!(startup_memory_mb(&config, None, false), 1024);
+        // Where the VM grows later, it starts small.
+        assert_eq!(startup_memory_mb(&config, Some(9000), true), 1024);
     }
 
     #[test]
