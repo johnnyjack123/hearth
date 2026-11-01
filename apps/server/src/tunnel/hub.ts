@@ -25,6 +25,7 @@ import {
   type VmStopResult,
 } from '@harness/shared';
 import { HttpError } from '../http/errors.ts';
+import { AgentBills } from '../openrouter.ts';
 
 /**
  * The part of a WebSocket the hub needs; `ws` sockets satisfy it, and tests
@@ -225,6 +226,11 @@ interface ActiveRun {
 export class DeviceHub {
   readonly #devices = new Map<string, Connection>();
   readonly #runs = new Map<string, ActiveRun>();
+  /**
+   * What OpenRouter billed for the agents' model calls through the
+   * pass-through, until the agent's report of each call picks it up.
+   */
+  readonly bills = new AgentBills();
 
   /**
    * @param listener - Optional hooks, e.g. to store reported projects.

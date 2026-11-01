@@ -7,9 +7,29 @@ import { type ChatMessage, saveMessage, updateConversation } from '../services/c
 import type { AgentRun } from '../tunnel/hub.ts';
 import { agentWarning, type Assessor } from '../assess.ts';
 import type { Helpers } from '../helpers/openrouter.ts';
-import { withHelpers } from '../pricing.ts';
+import { type AgentCallTokens, withHelpers } from '../pricing.ts';
 
 type Chunk = InferUIMessageChunk<ChatMessage>;
+
+/**
+ * Prices one model call of an agent (see `agentCallCost`); without one,
+ * pi's own figure counts.
+ */
+export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost' | 'billed'>;
+
+/**
+ * The cost fields of a call as pi reports it, through `price` if given.
+ *
+ * @param call - The call's tokens and pi's figure.
+ * @param price - The server's pricing, if any.
+ * @returns `cost` and `billed` for the call's entry.
+ */
+function priceCall(call: AgentCallTokens, price: AgentPricer | undefined): Pick<ModelCallUsage, 'cost' | 'billed'> {
+  if (price) {
+    return price(call);
+  }
+  return call.agentCost === undefined ? {} : { cost: { total: call.agentCost } };
+}
 
 /** Earlier messages passed to a new agent session, newest kept. */
 const MAX_HISTORY_CHARS = 20_000;
@@ -60,10 +80,12 @@ export class ChunkMapper {
   /**
    * @param model - Model chosen in the chat; pi writes its summaries with it.
    * @param now - The clock, for tests.
+   * @param price - Prices the agent's model calls; pi's figures without it.
    */
   constructor(
     readonly model?: string,
     private readonly now: () => number = Date.now,
+    private readonly price?: AgentPricer,
   ) {}
 
   /**
@@ -194,11 +216,22 @@ export class ChunkMapper {
         if (before?.helpers) {
           next.helpers = before.helpers;
         }
-        if (event.cost !== undefined || before?.cost !== undefined) {
-          next.cost = (before?.cost ?? 0) + (event.cost ?? 0);
+        // pi reports each model call with its own total; the server's price
+        // replaces it where it knows better (what OpenRouter billed,
+        // DeepSeek's hours).
+        const priced = priceCall(
+          {
+            input: event.inputTokens,
+            cacheRead: event.cachedInputTokens ?? 0,
+            output: event.outputTokens,
+            ...(event.cost !== undefined ? { agentCost: event.cost } : {}),
+          },
+          this.price,
+        );
+        if (priced.cost !== undefined || before?.cost !== undefined) {
+          next.cost = (before?.cost ?? 0) + (priced.cost?.total ?? 0);
         }
-        // pi reports each model call with its own total; tool names stay
-        // unknown here, the tool blocks of the reply show them.
+        // Tool names stay unknown here, the tool blocks of the reply show them.
         const ended = this.now();
         const ms = ended - (this.#firstToken ?? this.#callStarted ?? ended);
         next.calls = [
@@ -209,10 +242,13 @@ export class ChunkMapper {
             cacheWrite: 0,
             output: event.outputTokens,
             tools: [],
-            ...(event.cost !== undefined ? { cost: { total: event.cost } } : {}),
+            ...priced,
             ...(ms > 0 ? { ms } : {}),
           },
         ];
+        if (next.calls.every((call) => call.billed)) {
+          next.billed = true;
+        }
         // A turn may hold more calls; the next one starts now.
         this.#callStarted = ended;
         this.#firstToken = undefined;
@@ -231,7 +267,7 @@ export class ChunkMapper {
         }
         this.#compacting = event.state === 'running';
         // Writing the summary is a model call of its own; it costs like one.
-        const call = event.state === 'done' ? compactionCall(event, this.model) : null;
+        const call = event.state === 'done' ? compactionCall(event, this.model, this.price) : null;
         if (call) {
           this.#usage = withCall(this.#usage, call);
         }
@@ -290,21 +326,24 @@ export function agentCompaction(event: CompactionEvent): Compaction {
  *
  * @param event - pi's report of a finished summary.
  * @param model - Model chosen in the chat, if known.
+ * @param price - The server's pricing of agent calls, if any.
  * @returns The call, or null if pi said nothing about tokens or cost.
  */
-export function compactionCall(event: CompactionEvent, model: string | undefined): ModelCallUsage | null {
+export function compactionCall(event: CompactionEvent, model: string | undefined, price?: AgentPricer): ModelCallUsage | null {
   if (event.cost === undefined && event.inputTokens === undefined && event.outputTokens === undefined) {
     return null;
   }
+  const input = event.inputTokens ?? 0;
+  const output = event.outputTokens ?? 0;
   return {
-    input: event.inputTokens ?? 0,
+    input,
     cacheRead: 0,
     cacheWrite: 0,
-    output: event.outputTokens ?? 0,
+    output,
     tools: [],
     ...(model ? { model } : {}),
     purpose: 'compact',
-    ...(event.cost !== undefined ? { cost: { total: event.cost } } : {}),
+    ...priceCall({ input, cacheRead: 0, output, ...(event.cost !== undefined ? { agentCost: event.cost } : {}) }, price),
   };
 }
 
@@ -344,6 +383,8 @@ export interface StreamAgentOptions {
    * is shown; null unless the user wants that. Its cost joins the reply.
    */
   assess?: { assessor: Assessor; helpers: Helpers } | null;
+  /** Prices the agent's model calls; pi's own figures without it. */
+  price?: AgentPricer;
 }
 
 /**
@@ -362,7 +403,7 @@ export function streamAgent(options: StreamAgentOptions): Response {
     credentialId: selection.credentialId,
     agent: { project: link.project, harness: link.harness },
   };
-  const mapper = new ChunkMapper(selection.modelId);
+  const mapper = new ChunkMapper(selection.modelId, Date.now, options.price);
   // The server checks tool output itself: the device's guard only reports
   // a notice, without the places.
   async function toolExtras(event: AgentEvent): Promise<Partial<AgentToolOutput> | undefined> {

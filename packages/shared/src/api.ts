@@ -74,6 +74,14 @@ export interface ServerSettings {
   webFetch: boolean;
   /** The calculator tool (math.js on the server) in ordinary chats. */
   calculator: boolean;
+  /**
+   * OpenRouter requests go to the host that is cheapest right now (its
+   * discounts, cache prices and hours included), the next ones as fallback;
+   * off leaves the choice to OpenRouter.
+   */
+  openRouterCheapest: boolean;
+  /** With {@link openRouterCheapest}: skip hosts that run a model in 4 bits (fp4, int4), which may answer worse. */
+  openRouterNoFourBit: boolean;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -153,6 +161,8 @@ export const updateServerSettingsSchema = z
     allowCustomBaseUrls: z.boolean(),
     webFetch: z.boolean(),
     calculator: z.boolean(),
+    openRouterCheapest: z.boolean(),
+    openRouterNoFourBit: z.boolean(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,

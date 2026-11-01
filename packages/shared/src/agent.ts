@@ -412,6 +412,27 @@ export const APPROVAL_DECISIONS = ['once', 'minutes', 'session', 'always', 'deny
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
 /**
+ * What the server's model catalog says about the model of a linked chat.
+ * pi only lets a chat pick models it knows (31.10.: OpenRouter's
+ * `deepseek/deepseek-v4.1-flash-1017` was missing, and pi silently kept
+ * another model); with this the device adds the model to `models.json`.
+ */
+export interface AgentModelInfo {
+  /** Display name. */
+  name?: string;
+  /** Context window in tokens. */
+  contextWindow?: number;
+  /** Longest answer in tokens. */
+  maxOutput?: number;
+  /** Whether the model thinks before it answers. */
+  reasoning?: boolean;
+  /** Whether it reads images. */
+  images?: boolean;
+  /** US dollars per million tokens. */
+  cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+}
+
+/**
  * Messages the server sends to a device. The device checks each against its
  * own configuration (released projects, confirmed chats) before acting.
  */
@@ -435,8 +456,12 @@ export type ServerMessage =
       text: string;
       /** Earlier messages as text; used only when the agent session is new. */
       history: string | null;
-      /** Model chosen in the chat; the device maps it to the harness's provider. */
-      model: { credentialId: string; modelId: string } | null;
+      /**
+       * Model chosen in the chat; the device maps it to the harness's
+       * provider. `info` lets the harness use a model its own catalog lacks
+       * (older devices ignore it).
+       */
+      model: { credentialId: string; modelId: string; info?: AgentModelInfo } | null;
       /** Take the work over after the reply if the check allows (protocol 3). */
       autosync: boolean;
       /** pi's thinking level chosen in the chat; missing for pi's own setting (protocol 4). */

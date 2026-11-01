@@ -25,6 +25,10 @@ const DEFAULTS: ServerSettings = {
   allowCustomBaseUrls: false,
   webFetch: true,
   calculator: true,
+  // The user's wish (1.11.): always the cheapest host. 4-bit hosts stay in,
+  // they are often the cheapest; admins can leave them out.
+  openRouterCheapest: true,
+  openRouterNoFourBit: false,
   search: {
     provider: 'off',
     searxngUrl: null,

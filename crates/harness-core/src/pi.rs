@@ -129,8 +129,98 @@ fn slug(label: &str) -> String {
     slug.trim_matches('-').to_owned()
 }
 
-/// Builds `models.json` for the account's credentials.
-pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
+/// A model chosen in a web chat that pi's catalog lacks. harness adds it to
+/// its provider in `models.json`: pi only switches to models it knows, and
+/// on 31.10. it kept its own default after `set_model` failed for
+/// OpenRouter's `deepseek/deepseek-v4.1-flash-1017`, billing another
+/// provider and model than the user chose.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraModel {
+    /// Credential on the server.
+    pub credential_id: String,
+    /// The provider's model id.
+    pub model_id: String,
+    /// What the server's catalog says about it (see [`model_entry`]).
+    pub info: Option<Value>,
+}
+
+/// The API pi speaks with a built-in provider, for models added to it.
+fn builtin_api(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" => "anthropic-messages",
+        "google" => "google-generative-ai",
+        "openai" => "openai-responses",
+        _ => "openai-completions",
+    }
+}
+
+/// pi's entry for an added model. `info` comes from the server's catalog
+/// (`AgentModelInfo`); only fields of the expected type are taken, and
+/// without a context window pi uses its default.
+pub fn model_entry(model_id: &str, api: Option<&str>, info: Option<&Value>) -> Value {
+    let field = |key: &str| info.and_then(|info| info.get(key));
+    let count = |key: &str| field(key).and_then(Value::as_u64).filter(|n| *n > 0);
+    let mut entry = Map::new();
+    entry.insert("id".into(), model_id.into());
+    if let Some(api) = api {
+        entry.insert("api".into(), api.into());
+    }
+    if let Some(name) = field("name").and_then(Value::as_str) {
+        entry.insert(
+            "name".into(),
+            name.chars().take(200).collect::<String>().into(),
+        );
+    }
+    if let Some(reasoning) = field("reasoning").and_then(Value::as_bool) {
+        entry.insert("reasoning".into(), reasoning.into());
+    }
+    if let Some(images) = field("images").and_then(Value::as_bool) {
+        let input: &[&str] = if images {
+            &["text", "image"]
+        } else {
+            &["text"]
+        };
+        entry.insert("input".into(), json!(input));
+    }
+    if let Some(window) = count("contextWindow") {
+        entry.insert("contextWindow".into(), window.into());
+    }
+    if let Some(max) = count("maxOutput") {
+        entry.insert("maxTokens".into(), max.into());
+    }
+    let price = |key: &str| {
+        field("cost")
+            .and_then(|cost| cost.get(key))
+            .and_then(Value::as_f64)
+            .filter(|price| price.is_finite() && *price >= 0.0)
+    };
+    if let (Some(input), Some(output)) = (price("input"), price("output")) {
+        // Without cache prices pi counts cached tokens at the input price.
+        entry.insert(
+            "cost".into(),
+            json!({
+                "input": input,
+                "output": output,
+                "cacheRead": price("cacheRead").unwrap_or(input),
+                "cacheWrite": price("cacheWrite").unwrap_or(input),
+            }),
+        );
+    }
+    Value::Object(entry)
+}
+
+fn extras_for<'a>(
+    extra: &'a [ExtraModel],
+    credential: &'a str,
+) -> impl Iterator<Item = &'a ExtraModel> {
+    extra
+        .iter()
+        .filter(move |model| model.credential_id == credential)
+}
+
+/// Builds `models.json` for the account's credentials, with `extra` models
+/// added to their providers.
+pub fn models_json(credentials: &[DeviceCredential], extra: &[ExtraModel]) -> PiModels {
     let mut providers: BTreeMap<String, Value> = BTreeMap::new();
     let mut order = Vec::new();
     let mut by_credential = BTreeMap::new();
@@ -139,10 +229,17 @@ pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
         let base = format!("http://{LLM_HOST}/{}", credential.id);
         if let Some((id, path)) = builtin(credential).filter(|(id, _)| !providers.contains_key(*id))
         {
-            providers.insert(
-                id.to_owned(),
-                json!({ "baseUrl": format!("{base}{path}"), "apiKey": DUMMY_KEY }),
-            );
+            let mut entry = json!({ "baseUrl": format!("{base}{path}"), "apiKey": DUMMY_KEY });
+            // Added to the built-in ones; pi's own models keep their entries.
+            let added: Vec<Value> = extras_for(extra, &credential.id)
+                .map(|model| {
+                    model_entry(&model.model_id, Some(builtin_api(id)), model.info.as_ref())
+                })
+                .collect();
+            if !added.is_empty() {
+                entry["models"] = Value::Array(added);
+            }
+            providers.insert(id.to_owned(), entry);
             order.push(id.to_owned());
             by_credential.insert(credential.id.clone(), id.to_owned());
             continue;
@@ -173,10 +270,15 @@ pub fn models_json(credentials: &[DeviceCredential]) -> PiModels {
             id = format!("harness-{stem}-{n}");
             n += 1;
         }
-        let models: Vec<Value> = models
+        let mut models: Vec<Value> = models
             .iter()
             .map(|m| json!({ "id": m.id, "name": m.name }))
             .collect();
+        for model in extras_for(extra, &credential.id) {
+            if !models.iter().any(|m| m["id"] == model.model_id.as_str()) {
+                models.push(model_entry(&model.model_id, None, model.info.as_ref()));
+            }
+        }
         providers.insert(
             id.clone(),
             json!({
@@ -417,17 +519,20 @@ mod tests {
 
     #[test]
     fn builtin_providers_only_change_their_base_url() {
-        let models = models_json(&[
-            credential(
-                "c1",
-                "openai-compatible",
-                "DeepSeek",
-                Some("https://api.deepseek.com"),
-            ),
-            credential("c2", "anthropic", "Claude", None),
-            credential("c3", "google", "Gemini", None),
-            credential("c4", "anthropic", "Second", None),
-        ]);
+        let models = models_json(
+            &[
+                credential(
+                    "c1",
+                    "openai-compatible",
+                    "DeepSeek",
+                    Some("https://api.deepseek.com"),
+                ),
+                credential("c2", "anthropic", "Claude", None),
+                credential("c3", "google", "Gemini", None),
+                credential("c4", "anthropic", "Second", None),
+            ],
+            &[],
+        );
         assert_eq!(models.providers, ["deepseek", "anthropic", "google"]);
         let providers = &models.json["providers"];
         assert_eq!(
@@ -458,12 +563,15 @@ mod tests {
         }]);
         let mut empty = credential("c6", "openai-compatible", "Leer", Some("http://x/v1"));
         empty.models = Some(vec![]);
-        let models = models_json(&[
-            ollama.clone(),
-            ollama,
-            empty,
-            credential("c7", "mistral", "Mistral", None),
-        ]);
+        let models = models_json(
+            &[
+                ollama.clone(),
+                ollama,
+                empty,
+                credential("c7", "mistral", "Mistral", None),
+            ],
+            &[],
+        );
         assert_eq!(
             models.providers,
             ["harness-mein-ollama", "harness-mein-ollama-2"]
@@ -485,16 +593,77 @@ mod tests {
     }
 
     #[test]
+    fn models_pi_lacks_join_their_provider() {
+        let info = json!({
+            "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+            "contextWindow": 1_048_576,
+            "reasoning": true,
+            "images": false,
+            "cost": { "input": 0.15, "output": 0.6, "cacheRead": 0.003 },
+            "unexpected": "ignored",
+        });
+        let mut ollama = credential("c5", "ollama", "Ollama", Some("http://localhost:11434/v1"));
+        ollama.models = Some(vec![ModelInfo {
+            id: "known".into(),
+            name: "Known".into(),
+        }]);
+        let extra = [
+            ExtraModel {
+                credential_id: "c1".into(),
+                model_id: "deepseek/deepseek-v4.1-flash-1017".into(),
+                info: Some(info),
+            },
+            ExtraModel {
+                credential_id: "c5".into(),
+                model_id: "new".into(),
+                info: None,
+            },
+            ExtraModel {
+                credential_id: "c5".into(),
+                model_id: "known".into(),
+                info: None,
+            },
+        ];
+        let models = models_json(
+            &[credential("c1", "openrouter", "OpenRouter", None), ollama],
+            &extra,
+        );
+        assert_eq!(
+            models.json["providers"]["openrouter"],
+            json!({
+                "baseUrl": "http://llm.harness/c1",
+                "apiKey": "harness",
+                "models": [{
+                    "id": "deepseek/deepseek-v4.1-flash-1017",
+                    "api": "openai-completions",
+                    "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+                    "reasoning": true,
+                    "input": ["text"],
+                    "contextWindow": 1_048_576,
+                    "cost": { "input": 0.15, "output": 0.6, "cacheRead": 0.003, "cacheWrite": 0.15 },
+                }],
+            })
+        );
+        assert_eq!(
+            models.json["providers"]["harness-ollama"]["models"],
+            json!([{ "id": "known", "name": "Known" }, { "id": "new" }])
+        );
+    }
+
+    #[test]
     fn the_users_own_entries_stay() {
-        let models = models_json(&[
-            credential(
-                "c1",
-                "openai-compatible",
-                "DeepSeek",
-                Some("https://api.deepseek.com"),
-            ),
-            credential("c2", "anthropic", "Claude", None),
-        ]);
+        let models = models_json(
+            &[
+                credential(
+                    "c1",
+                    "openai-compatible",
+                    "DeepSeek",
+                    Some("https://api.deepseek.com"),
+                ),
+                credential("c2", "anthropic", "Claude", None),
+            ],
+            &[],
+        );
         let users = json!({
             // Same id as one of harness's: the user's entry wins.
             "anthropic": { "baseUrl": "https://proxy.example.com", "apiKey": "own" },

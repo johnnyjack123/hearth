@@ -14,6 +14,7 @@ import { fileRoutes } from './routes/files.ts';
 import { llmRoutes } from './routes/llm.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
+import { OpenRouterRouting } from './openrouter.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
 const TOKEN_ROUTES = /^\/api\/(pairing|device|llm)(\/|$)/;
@@ -30,11 +31,13 @@ export interface CreateAppOptions {
  * Builds the HTTP application: auth, JSON API and, if a web build is
  * configured, the single-page app.
  *
- * @param deps - Application dependencies.
+ * @param given - Application dependencies.
  * @param options - See {@link CreateAppOptions}.
  * @returns The Hono app; pass `app.fetch` to a server or call `app.request` in tests.
  */
-export function createApp(deps: AppDeps, options: CreateAppOptions = {}) {
+export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
+  // One routing for chats and the agents' pass-through, so both share its lists.
+  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting() };
   const app = new Hono<AppEnv>();
   app.onError(handleError);
 

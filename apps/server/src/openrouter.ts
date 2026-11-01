@@ -1,0 +1,412 @@
+/**
+ * OpenRouter specifics shared by ordinary chats and the pass-through for
+ * agents: each request goes to the host that is cheapest right now, and
+ * what OpenRouter billed is read back from its answer.
+ */
+import type { JSONValue } from 'ai';
+import type { EffortOptions } from './effort.ts';
+import type { BilledCost } from './pricing.ts';
+
+/** Endpoint lists stay this long; prices and discounts change rarely. */
+const ENDPOINTS_TTL_MS = 10 * 60_000;
+
+/** After a failed fetch, the next try waits this long. */
+const RETRY_MS = 60_000;
+
+/** A request waits at most this long for the list. */
+const FETCH_TIMEOUT_MS = 5_000;
+
+/** Hosts named in `provider.order`; OpenRouter falls back to the rest. */
+const MAX_ORDER = 8;
+
+/**
+ * The call prices are compared on: most input from the cache (agent chats
+ * read ~99 % of it from there, 31.10.), output a few percent of the input.
+ * Comparing list prices alone would favor hosts without a cache, which
+ * cost an agent ten times as much.
+ */
+const MIX = { input: 0.1, cacheRead: 0.9, output: 0.05 };
+
+/** Quantizations of hosts that run a model in 4 bits. */
+const FOUR_BIT = new Set(['fp4', 'mxfp4', 'nvfp4', 'int4']);
+
+/** Model ids whose endpoints can be listed; variants (`:free`, `:nitro`) route by their own rules. */
+const ROUTABLE_MODEL = /^[a-z0-9][\w.-]*\/[\w.-]+$/i;
+
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+interface RawPrice {
+  prompt?: unknown;
+  completion?: unknown;
+  input_cache_read?: unknown;
+}
+
+interface RawOverride extends RawPrice {
+  utc_days?: unknown;
+  utc_start?: unknown;
+  utc_end?: unknown;
+}
+
+interface RawEndpoint {
+  tag?: unknown;
+  status?: unknown;
+  uptime_last_30m?: unknown;
+  quantization?: unknown;
+  pricing?: RawPrice & { overrides?: unknown };
+}
+
+function price(value: unknown): number | undefined {
+  const number = typeof value === 'string' ? Number(value) : value;
+  return typeof number === 'number' && Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+/** Whether an override (hours as HHMM in UTC, 0 as end meaning midnight) applies at `at`. */
+function overrideApplies(override: RawOverride, at: Date): boolean {
+  if (Array.isArray(override.utc_days) && !override.utc_days.includes(WEEKDAYS[at.getUTCDay()])) {
+    return false;
+  }
+  const start = typeof override.utc_start === 'number' ? override.utc_start : 0;
+  const end = typeof override.utc_end === 'number' && override.utc_end !== 0 ? override.utc_end : 2400;
+  const now = at.getUTCHours() * 100 + at.getUTCMinutes();
+  return start <= end ? now >= start && now < end : now >= start || now < end;
+}
+
+/**
+ * A host's prices at a moment, its discount included (OpenRouter's prices
+ * already carry it) and its hours (DeepSeek halves its prices at night).
+ *
+ * @param endpoint - One entry of OpenRouter's endpoint list.
+ * @param at - The moment.
+ * @returns Dollars per token, or null without a prompt and completion price.
+ */
+export function endpointPrices(endpoint: RawEndpoint, at: Date): { prompt: number; completion: number; cacheRead?: number } | null {
+  const base = endpoint.pricing ?? {};
+  let prices: RawPrice = base;
+  if (Array.isArray(base.overrides)) {
+    const found = (base.overrides as RawOverride[]).find((override) => override && typeof override === 'object' && overrideApplies(override, at));
+    if (found) {
+      prices = { ...base, ...found };
+    }
+  }
+  const prompt = price(prices.prompt);
+  const completion = price(prices.completion);
+  if (prompt === undefined || completion === undefined) {
+    return null;
+  }
+  const cacheRead = price(prices.input_cache_read);
+  return { prompt, completion, ...(cacheRead !== undefined ? { cacheRead } : {}) };
+}
+
+/**
+ * The hosts of a model from cheapest to dearest for a typical call (see
+ * {@link MIX}). Hosts that are down or failed often in the last half hour
+ * are left out; OpenRouter still falls back to them.
+ *
+ * @param raw - OpenRouter's answer of `/models/<id>/endpoints`.
+ * @param at - When the call goes out.
+ * @param options - `noFourBit` leaves out hosts that run the model in 4 bits.
+ * @returns Endpoint tags for `provider.order`, at most {@link MAX_ORDER}.
+ */
+export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: boolean }): string[] {
+  const endpoints = (raw as { data?: { endpoints?: unknown } } | null)?.data?.endpoints;
+  if (!Array.isArray(endpoints)) {
+    return [];
+  }
+  const ranked: { tag: string; score: number; index: number }[] = [];
+  endpoints.forEach((entry: RawEndpoint, index) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.tag !== 'string' || !entry.tag) {
+      return;
+    }
+    if (typeof entry.status === 'number' && entry.status < 0) {
+      return;
+    }
+    if (typeof entry.uptime_last_30m === 'number' && entry.uptime_last_30m < 80) {
+      return;
+    }
+    if (options.noFourBit && typeof entry.quantization === 'string' && FOUR_BIT.has(entry.quantization.toLowerCase())) {
+      return;
+    }
+    const prices = endpointPrices(entry, at);
+    if (!prices) {
+      return;
+    }
+    const score = MIX.input * prices.prompt + MIX.cacheRead * (prices.cacheRead ?? prices.prompt) + MIX.output * prices.completion;
+    ranked.push({ tag: entry.tag, score, index });
+  });
+  // On a tie OpenRouter's own order stands.
+  ranked.sort((a, b) => a.score - b.score || a.index - b.index);
+  return ranked.slice(0, MAX_ORDER).map((endpoint) => endpoint.tag);
+}
+
+/** Loads OpenRouter's endpoint list of a model; tests pass a stand-in. */
+export type EndpointFetcher = (modelId: string) => Promise<unknown>;
+
+const fetchEndpoints: EndpointFetcher = async (modelId) => {
+  const response = await fetch(`https://openrouter.ai/api/v1/models/${modelId}/endpoints`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+};
+
+/**
+ * Which hosts a request for a model should try first. The endpoint lists
+ * are public and kept for {@link ENDPOINTS_TTL_MS}; without one, OpenRouter
+ * routes as it likes and nothing breaks.
+ */
+export class OpenRouterRouting {
+  readonly #lists = new Map<string, { loadedAt: number; raw: unknown }>();
+  readonly #failed = new Map<string, number>();
+  readonly #loading = new Map<string, Promise<unknown>>();
+
+  /**
+   * @param load - Loads an endpoint list.
+   * @param now - The clock, for tests.
+   */
+  constructor(
+    private readonly load: EndpointFetcher = fetchEndpoints,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /**
+   * The cheapest hosts for a model right now.
+   *
+   * @param modelId - OpenRouter's model id.
+   * @param options - See {@link rankEndpoints}.
+   * @returns Tags for `provider.order`, or null if none are known.
+   */
+  async order(modelId: string, options: { noFourBit: boolean }): Promise<string[] | null> {
+    if (!ROUTABLE_MODEL.test(modelId)) {
+      return null;
+    }
+    const raw = await this.#list(modelId);
+    const order = raw === null ? [] : rankEndpoints(raw, new Date(this.now()), options);
+    return order.length > 0 ? order : null;
+  }
+
+  async #list(modelId: string): Promise<unknown> {
+    const now = this.now();
+    const cached = this.#lists.get(modelId);
+    if (cached && now - cached.loadedAt < ENDPOINTS_TTL_MS) {
+      return cached.raw;
+    }
+    if (now - (this.#failed.get(modelId) ?? -RETRY_MS) < RETRY_MS) {
+      return cached?.raw ?? null;
+    }
+    let loading = this.#loading.get(modelId);
+    if (!loading) {
+      loading = this.load(modelId)
+        .then((raw) => {
+          this.#lists.set(modelId, { loadedAt: this.now(), raw });
+          this.#failed.delete(modelId);
+          return raw;
+        })
+        .catch((error: unknown) => {
+          this.#failed.set(modelId, this.now());
+          console.warn(`[openrouter] endpoints of ${modelId} not loaded:`, error instanceof Error ? error.message : error);
+          return cached?.raw ?? null;
+        })
+        .finally(() => this.#loading.delete(modelId));
+      this.#loading.set(modelId, loading);
+    }
+    return loading;
+  }
+}
+
+/**
+ * The `provider` field of a request with the cheapest hosts first. A
+ * request that already says how to route (order, sort, only) keeps that.
+ *
+ * @param existing - The request's own `provider` field.
+ * @param order - Hosts from {@link OpenRouterRouting.order}.
+ * @returns The field to send, or undefined to leave it alone.
+ */
+export function cheapestProvider(existing: unknown, order: string[] | null): Record<string, unknown> | undefined {
+  if (!order) {
+    return undefined;
+  }
+  const current = existing && typeof existing === 'object' && !Array.isArray(existing) ? (existing as Record<string, unknown>) : {};
+  if (current.order !== undefined || current.sort !== undefined || current.only !== undefined) {
+    return undefined;
+  }
+  // A fixed first choice also keeps the prompt cache on one host.
+  return { ...current, order, allow_fallbacks: true };
+}
+
+/**
+ * Call options of an ordinary chat with the cheapest hosts first; agents'
+ * requests get them in the pass-through.
+ *
+ * @param options - The call's options so far (thinking effort).
+ * @param order - Hosts from {@link OpenRouterRouting.order}, if any.
+ * @returns The options with `provider` in OpenRouter's request body.
+ */
+export function withProviderOrder(options: EffortOptions, order: string[] | null | undefined): EffortOptions {
+  const openrouter = options.providerOptions?.openrouter ?? {};
+  const provider = cheapestProvider(openrouter.provider, order ?? null);
+  if (!provider) {
+    return options;
+  }
+  return {
+    ...options,
+    providerOptions: { ...options.providerOptions, openrouter: { ...openrouter, provider: provider as JSONValue } },
+  };
+}
+
+/** What OpenRouter billed for a call, with the tokens it counted. */
+export interface BilledUsage {
+  /** The bill. */
+  cost: BilledCost;
+  /** Prompt tokens, cached ones included. */
+  promptTokens: number;
+  /** Completion tokens, reasoning included. */
+  completionTokens: number;
+}
+
+/**
+ * Reads the bill from an answer's `usage`.
+ *
+ * @param usage - The `usage` object of a chunk or answer.
+ * @returns The bill, or null if the answer has no cost.
+ */
+export function billedUsage(usage: unknown): BilledUsage | null {
+  const raw = (usage ?? {}) as {
+    cost?: unknown;
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    cost_details?: Record<string, unknown> | null;
+  };
+  const total = price(raw.cost);
+  const promptTokens = price(raw.prompt_tokens);
+  const completionTokens = price(raw.completion_tokens);
+  if (total === undefined || promptTokens === undefined || completionTokens === undefined) {
+    return null;
+  }
+  const input = price(raw.cost_details?.upstream_inference_prompt_cost);
+  const output = price(raw.cost_details?.upstream_inference_completions_cost);
+  return {
+    cost: { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) },
+    promptTokens,
+    completionTokens,
+  };
+}
+
+/** A JSON answer is read for its bill only up to this size. */
+const MAX_JSON_CHARS = 8 << 20;
+
+/**
+ * Passes a response body through unchanged and reports the bill of the
+ * answer: in a stream it comes with the last chunk, in a JSON answer at
+ * its end.
+ *
+ * @param body - The provider's response body.
+ * @param stream - Whether it is an event stream.
+ * @param onBill - Gets the bill once the body ended, if there was one.
+ * @returns The body to send on.
+ */
+export function meterBill(body: ReadableStream<Uint8Array>, stream: boolean, onBill: (bill: BilledUsage) => void): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  let pending = '';
+  let bill: BilledUsage | null = null;
+  const readLine = (line: string) => {
+    // Cheap test first: only the last chunk carries the usage.
+    if (!line.startsWith('data:') || !line.includes('"usage"')) {
+      return;
+    }
+    try {
+      bill = billedUsage((JSON.parse(line.slice(5)) as { usage?: unknown }).usage) ?? bill;
+    } catch {
+      // Not JSON (`[DONE]`, a broken line): nothing to read.
+    }
+  };
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        if (!stream && pending.length > MAX_JSON_CHARS) {
+          return;
+        }
+        pending += decoder.decode(chunk, { stream: true });
+        if (stream) {
+          const lines = pending.split('\n');
+          pending = lines.pop() ?? '';
+          for (const line of lines) {
+            readLine(line.trimEnd());
+          }
+        }
+      },
+      flush() {
+        pending += decoder.decode();
+        if (stream) {
+          readLine(pending.trimEnd());
+        } else if (pending.length <= MAX_JSON_CHARS) {
+          try {
+            bill = billedUsage((JSON.parse(pending) as { usage?: unknown }).usage);
+          } catch {
+            // An error page or no JSON at all.
+          }
+        }
+        if (bill) {
+          onBill(bill);
+        }
+      },
+    }),
+  );
+}
+
+/** Bills wait this long for the agent's report of their call. */
+const BILL_TTL_MS = 15 * 60_000;
+
+/** Bills kept per device at most. */
+const MAX_BILLS = 200;
+
+/**
+ * Bills of agent calls that went through the pass-through, until the
+ * agent's report of the same call picks them up. They are matched by the
+ * tokens of the call, so replies running side by side on one device do not
+ * swap their bills.
+ */
+export class AgentBills {
+  readonly #bills = new Map<string, { bill: BilledUsage; at: number }[]>();
+
+  /**
+   * @param now - The clock, for tests.
+   */
+  constructor(private readonly now: () => number = Date.now) {}
+
+  /**
+   * Keeps a bill.
+   *
+   * @param deviceId - Device whose agent made the call.
+   * @param bill - The bill.
+   */
+  record(deviceId: string, bill: BilledUsage): void {
+    const now = this.now();
+    const bills = (this.#bills.get(deviceId) ?? []).filter((entry) => now - entry.at < BILL_TTL_MS);
+    bills.push({ bill, at: now });
+    this.#bills.set(deviceId, bills.slice(-MAX_BILLS));
+  }
+
+  /**
+   * Takes the bill of a call the agent reported.
+   *
+   * @param deviceId - Device of the agent.
+   * @param input - Input tokens of the call, cached ones included.
+   * @param output - Output tokens of the call.
+   * @returns The bill, or null if none matches.
+   */
+  take(deviceId: string, input: number, output: number): BilledCost | null {
+    const now = this.now();
+    const bills = this.#bills.get(deviceId) ?? [];
+    const index = bills.findIndex(
+      (entry) => now - entry.at < BILL_TTL_MS && entry.bill.promptTokens === input && entry.bill.completionTokens === output,
+    );
+    if (index < 0) {
+      return null;
+    }
+    const [found] = bills.splice(index, 1);
+    return found?.bill.cost ?? null;
+  }
+}

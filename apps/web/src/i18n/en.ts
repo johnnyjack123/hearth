@@ -799,6 +799,12 @@ export const en: Messages = {
     calculator: 'Calculator',
     calculatorHint:
       'Models in ordinary chats calculate with math.js on this server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',
+    openRouterCheapest: 'OpenRouter: always the cheapest host',
+    openRouterCheapestHint:
+      'Every request goes first to the host that serves the model cheapest right now, discounts, cache prices and time of day included. If it fails, the next cheapest follow. Off: OpenRouter decides itself.',
+    openRouterNoFourBit: 'Skip hosts with 4-bit models',
+    openRouterNoFourBitHint:
+      'The cheapest hosts often run models shrunk to 4 bits (fp4, int4). That saves money but may give worse answers.',
     saved: 'Setting saved',
     condense: {
       title: 'Condense long chats',

@@ -176,6 +176,7 @@ pub fn run(
         harness.command.clone(),
         &Terminal::default(),
         false,
+        &[],
     )?
     .command;
     command.extend(args);
@@ -198,7 +199,8 @@ pub(crate) struct ReadyHarness {
 
 /// Installs `harness` if needed, points it at the server and adds guard and
 /// briefing to `base` (its terminal or its machine command). `web_chat` adds
-/// what only the web chat shows, such as pi's progress list.
+/// what only the web chat shows, such as pi's progress list; `extra` are
+/// models pi lacks that a web chat chose.
 pub(crate) fn ready_harness(
     config: &ConfigDir,
     prepared: &Prepared,
@@ -206,6 +208,7 @@ pub(crate) fn ready_harness(
     base: Vec<String>,
     progress: &dyn Progress,
     web_chat: bool,
+    extra: &[pi::ExtraModel],
 ) -> anyhow::Result<ReadyHarness> {
     let installed =
         instance::harness_installed(&prepared.provider, &prepared.project.name, harness)?;
@@ -224,7 +227,7 @@ pub(crate) fn ready_harness(
         )?;
     }
     let models = if harness.llm == Some(LlmWiring::Pi) {
-        wire_pi(config, prepared)?
+        wire_pi(config, prepared, extra)?
     } else {
         None
     };
@@ -265,7 +268,11 @@ pub(crate) fn ready_harness(
 /// Points pi at `llm.harness` when this computer is paired; otherwise
 /// removes that wiring again, so pi uses its own logins. Returns the
 /// providers it wired.
-fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<Option<pi::PiModels>> {
+fn wire_pi(
+    config: &ConfigDir,
+    prepared: &Prepared,
+    extra: &[pi::ExtraModel],
+) -> anyhow::Result<Option<pi::PiModels>> {
     let Some((client, token)) = login::paired(config)? else {
         if pi::unwire(&prepared.provider, &prepared.instance())? {
             println!(
@@ -291,7 +298,7 @@ fn wire_pi(config: &ConfigDir, prepared: &Prepared) -> anyhow::Result<Option<pi:
             return Ok(None);
         }
     };
-    let models = pi::models_json(&credentials);
+    let models = pi::models_json(&credentials, extra);
     let own = pi::wire(&prepared.provider, &prepared.instance(), &models)?;
     let wired: Vec<&str> = models
         .providers

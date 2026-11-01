@@ -695,6 +695,11 @@ pub struct ModelRef {
     pub credential_id: String,
     /// Provider's model id.
     pub model_id: String,
+    /// What the server's catalog says about the model (name, context window,
+    /// prices), so pi can use a model its own catalog lacks
+    /// (`pi::model_entry`); older servers do not send it.
+    #[serde(default)]
+    pub info: Option<serde_json::Value>,
 }
 
 /// A user message for a session.

@@ -50,10 +50,11 @@ import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
 import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
-import { callUsage, withHelpers } from '../pricing.ts';
+import { agentCallCost, agentModelInfo, callUsage, catalogProvider, pricesAt, withHelpers } from '../pricing.ts';
+import { withProviderOrder } from '../openrouter.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
-import { agentCompaction, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
+import { agentCompaction, type AgentPricer, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
 import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
@@ -194,6 +195,23 @@ export function conversationRoutes(deps: AppDeps) {
   }
 
   /** Jev for an agent reply: the assessor and the helpers whose cost joins the reply. */
+  /**
+   * Prices the model calls of an agent's reply: what OpenRouter billed (the
+   * pass-through keeps the bills, matched by the call's tokens), DeepSeek at
+   * the hour of the call, everything else as pi says.
+   */
+  async function agentPricer(deviceId: string, chat: CredentialRow, modelId: string): Promise<AgentPricer> {
+    const provider = catalogProvider(chat.kind, chat.baseUrl);
+    const entry = await deps.pricing.entry(chat.kind, chat.baseUrl, modelId);
+    return (call) =>
+      agentCallCost(
+        call,
+        provider,
+        entry && provider && provider !== 'free' ? pricesAt(provider, entry, new Date()) : entry,
+        hub.bills.take(deviceId, call.input, call.output),
+      );
+  }
+
   async function agentAssessor(userId: string, chat: CredentialRow, signal: AbortSignal) {
     const helpers = await loadHelpers(db, secretBox, userId, chat, deps.helpers);
     const assess = assessor(helpers, signal);
@@ -462,6 +480,9 @@ export function conversationRoutes(deps: AppDeps) {
       const title = conversation.title ? null : assignTitle(db, conversation.id, model, text.trim() || fileNames.join(', '));
 
       if (link) {
+        // Also tells the device about a model pi's own catalog lacks.
+        const pricing = await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId);
+        const info = agentModelInfo(pricing);
         const run = hub.startRun(link.deviceId, {
           type: 'session.prompt',
           session: conversation.id,
@@ -475,7 +496,7 @@ export function conversationRoutes(deps: AppDeps) {
           // session, so the chat's "default" has to be named, too.
           thinking: body.effort ?? AGENT_DEFAULT_THINKING,
           history: transcript(previous),
-          model: { credentialId: row.id, modelId: body.modelId },
+          model: { credentialId: row.id, modelId: body.modelId, ...(Object.keys(info).length > 0 ? { info } : {}) },
           autosync: link.autosync,
           // The device fetches them and puts them where the agent can read them.
           ...(attached.size > 0 ? { files: [...attached.values()].map(describeFile) } : {}),
@@ -490,6 +511,7 @@ export function conversationRoutes(deps: AppDeps) {
           abortSignal: stop.signal,
           consumeSseStream: follow,
           assess: body.assess ? await agentAssessor(user.id, row, stop.signal) : null,
+          price: await agentPricer(link.deviceId, row, body.modelId),
         });
       }
 
@@ -517,7 +539,12 @@ export function conversationRoutes(deps: AppDeps) {
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
         assess: body.assess === true,
-        effort: effortOptions(row.kind, row.baseUrl, body.effort),
+        effort: withProviderOrder(
+          effortOptions(row.kind, row.baseUrl, body.effort),
+          row.kind === 'openrouter' && settings.openRouterCheapest
+            ? await deps.openRouter?.order(body.modelId, { noFourBit: settings.openRouterNoFourBit })
+            : null,
+        ),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
         files,
       });

@@ -26,6 +26,7 @@ use harness_core::Provider;
 use harness_core::apps::Inventory;
 use harness_core::config::{ConfigDir, HarnessConfig, Project};
 use harness_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
+use harness_core::pi::ExtraModel;
 use harness_core::pi_rpc::{self, Output, Translator};
 use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
@@ -204,6 +205,7 @@ fn keep_connected(
         idle,
         status,
         apps: Mutex::new(AppsState::default()),
+        pi_models: Mutex::new(Vec::new()),
     });
     let projects = offered(config);
     print_offer(mode, &projects);
@@ -350,6 +352,9 @@ struct Shared {
     status: Arc<StatusFile>,
     /// The apps as last reported to the browser.
     apps: Mutex<AppsState>,
+    /// Models chats chose that pi's catalog lacks; every pi gets them in
+    /// its `models.json`.
+    pi_models: Mutex<Vec<ExtraModel>>,
 }
 
 /// What the browser knows about this computer's apps.
@@ -1099,45 +1104,76 @@ fn session(
         idle: Arc::clone(&shared.idle),
         status: Arc::clone(&shared.status),
     };
-    let title = first
-        .conversation
-        .title
-        .clone()
-        .unwrap_or_else(|| "ohne Titel".to_owned());
-    match start(shared, &first, &emit, &sanitize(&title)) {
-        Ok(Some(mut agent)) => {
-            say(
-                shared.mode,
-                &format!(
-                    "Chat „{}“: {} läuft im Projekt {}.",
-                    sanitize(&title),
-                    agent.harness.name,
-                    agent.project.name
-                ),
-            );
-            if compact {
-                agent.compact();
-            } else {
-                agent.prompt(shared, &first);
+    let title = sanitize(
+        &first
+            .conversation
+            .title
+            .clone()
+            .unwrap_or_else(|| "ohne Titel".to_owned()),
+    );
+    // The message pi has yet to get; a summary asked for comes first.
+    let mut next = (!compact).then(|| first.clone());
+    let mut compact = compact;
+    loop {
+        let mut agent = match start(shared, &first, &emit, &title) {
+            Ok(Some(agent)) => agent,
+            Ok(None) => return,
+            Err(error) => {
+                say(shared.mode, &format!("Chat „{title}“: {error:#}"));
+                emit.closed(Some(format!(
+                    "Start auf dem Rechner gescheitert: {error:#}"
+                )));
+                return;
             }
-            agent.serve(shared, commands);
-            agent.stop();
-            say(
-                shared.mode,
-                &format!("Chat „{}“: Sitzung beendet.", sanitize(&title)),
-            );
+        };
+        say(
+            shared.mode,
+            &format!(
+                "Chat „{title}“: {} läuft im Projekt {}.",
+                agent.harness.name, agent.project.name
+            ),
+        );
+        if std::mem::take(&mut compact) {
+            agent.compact();
         }
-        Ok(None) => {}
-        Err(error) => {
-            say(
-                shared.mode,
-                &format!("Chat „{}“: {error:#}", sanitize(&title)),
-            );
-            emit.closed(Some(format!(
-                "Start auf dem Rechner gescheitert: {error:#}"
-            )));
+        let restart = match next.take() {
+            Some(prompt) => agent.deliver(shared, prompt),
+            None => None,
         }
+        .or_else(|| agent.serve(shared, commands));
+        agent.stop();
+        let Some((prompt, model)) = restart else {
+            say(shared.mode, &format!("Chat „{title}“: Sitzung beendet."));
+            return;
+        };
+        // pi reads models.json only when it starts.
+        say(
+            shared.mode,
+            &format!(
+                "Chat „{title}“: pi kennt das Modell {} nicht, es kommt in models.json, pi startet neu.",
+                sanitize(&model.model_id)
+            ),
+        );
+        emit.event(AgentEvent::notice(
+            NoticeLevel::Info,
+            format!(
+                "pi kannte das Modell {} noch nicht. harness hat es eingetragen und startet pi neu.",
+                model.model_id
+            ),
+        ));
+        lock(&shared.pi_models).push(model);
+        next = Some(prompt);
     }
+}
+
+/// Whether pi can answer with the model a chat chose.
+enum ModelChoice {
+    /// pi uses it.
+    Ready,
+    /// pi's catalog lacks it; pi has to start again with it in `models.json`.
+    Unknown(ExtraModel),
+    /// It cannot be used; the reply ends with this.
+    Failed(String),
 }
 
 /// A running harness for one session.
@@ -1217,7 +1253,16 @@ fn start(
         &prompt.session,
         prompt.conversation.title.as_deref(),
     ));
-    let ready = run::ready_harness(&shared.config, &prepared, &harness, base, &progress, true)?;
+    let extra = lock(&shared.pi_models).clone();
+    let ready = run::ready_harness(
+        &shared.config,
+        &prepared,
+        &harness,
+        base,
+        &progress,
+        true,
+        &extra,
+    )?;
     let providers = ready
         .models
         .map(|m| m.by_credential.into_iter().collect())
@@ -1425,8 +1470,8 @@ fn read_agent(
                             context_window = window;
                         }
                         let _ = responses.send(response);
-                    } else if response.command == "compact" {
-                        // The session waits for it; `compaction_end` told the chat why.
+                    } else if response.command == "compact" || response.command == "set_model" {
+                        // The session waits for these and tells the chat why.
                         let _ = responses.send(response);
                     } else if response.command == "prompt" {
                         emit.event(AgentEvent::error(format!(
@@ -1460,8 +1505,8 @@ fn ended_message(name: &str, code: Option<i32>) -> String {
         Some(137) => format!(
             "{name} wurde vom System beendet, vermutlich weil der Arbeitsspeicher der VM voll war \
              (Exit-Code 137). Die nächste Nachricht startet {name} neu, der Verlauf bleibt. \
-             Mehr freier Arbeitsspeicher auf dem Rechner hilft; harness richtet in der VM \
-             zusätzlich Swap ein."
+             Die VM bekommt beim Start, was Windows gerade frei hat, und kann danach nicht \
+             wachsen: Programme schließen und die VM neu starten hilft."
         ),
         Some(0) => format!("{name} hat sich beendet."),
         Some(code) => format!("{name} wurde beendet (Exit-Code {code})."),
@@ -1490,27 +1535,89 @@ impl Agent {
         write_line(&self.stdin, line);
     }
 
+    /// Hands a message to pi with the model the chat chose. Returns the
+    /// message and the model if pi does not know the model: pi then has to
+    /// start again with it in `models.json`.
+    fn deliver(&mut self, shared: &Shared, prompt: Prompt) -> Option<(Prompt, ExtraModel)> {
+        match self.select_model(shared, &prompt) {
+            ModelChoice::Ready => self.prompt(shared, &prompt),
+            ModelChoice::Unknown(model) => return Some((prompt, model)),
+            ModelChoice::Failed(reason) => self.emit.event(AgentEvent::error(reason)),
+        }
+        None
+    }
+
+    /// Switches pi to the chat's model and waits until it did. A model pi
+    /// cannot use ends the reply: answering with another one would bill
+    /// another provider than the user chose (31.10.).
+    fn select_model(&mut self, shared: &Shared, prompt: &Prompt) -> ModelChoice {
+        let Some(model) = &prompt.model else {
+            return ModelChoice::Ready;
+        };
+        let Some(provider) = self.providers.get(&model.credential_id).cloned() else {
+            return ModelChoice::Failed(format!(
+                "Der im Chat gewählte Zugang ist für {} nicht angebunden. Bitte einen anderen \
+                 Zugang wählen.",
+                self.harness.name
+            ));
+        };
+        let wanted = (provider, model.model_id.clone());
+        if self.model.as_ref() == Some(&wanted) {
+            return ModelChoice::Ready;
+        }
+        let id = self.id("model");
+        self.send(&pi_rpc::set_model(&id, &wanted.0, &wanted.1));
+        match self.wait_for(&id, Duration::from_secs(30)) {
+            Some(response) if response.success => {
+                self.model = Some(wanted);
+                ModelChoice::Ready
+            }
+            Some(response) => {
+                let error = response.error.unwrap_or_default();
+                let added = lock(&shared.pi_models).iter().any(|known| {
+                    known.credential_id == model.credential_id && known.model_id == model.model_id
+                });
+                // pi says "Model not found: <provider>/<id>".
+                if error.contains("not found") && !added {
+                    ModelChoice::Unknown(ExtraModel {
+                        credential_id: model.credential_id.clone(),
+                        model_id: model.model_id.clone(),
+                        info: model.info.clone(),
+                    })
+                } else {
+                    ModelChoice::Failed(format!(
+                        "{} kann das Modell {} nicht nutzen: {}",
+                        self.harness.name,
+                        model.model_id,
+                        truncate(&error, MAX_NOTICE)
+                    ))
+                }
+            }
+            None => ModelChoice::Failed(format!(
+                "{} hat nicht auf die Wahl des Modells {} geantwortet.",
+                self.harness.name, model.model_id
+            )),
+        }
+    }
+
+    /// pi's response to the command `id`, if it comes within `timeout`;
+    /// responses to other commands on the way are dropped.
+    fn wait_for(&self, id: &str, timeout: Duration) -> Option<pi_rpc::Response> {
+        let deadline = Instant::now() + timeout;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match self.responses.recv_timeout(left) {
+                Ok(response) if response.id.as_deref() == Some(id) => return Some(response),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        None
+    }
+
     fn prompt(&mut self, shared: &Shared, prompt: &Prompt) {
         self.reply_end
             .autosync
             .store(prompt.autosync, Ordering::SeqCst);
-        if let Some(model) = &prompt.model {
-            match self.providers.get(&model.credential_id) {
-                Some(provider) => {
-                    let wanted = (provider.clone(), model.model_id.clone());
-                    if self.model.as_ref() != Some(&wanted) {
-                        let id = self.id("model");
-                        self.send(&pi_rpc::set_model(&id, &wanted.0, &wanted.1));
-                        self.model = Some(wanted);
-                    }
-                }
-                None => self.emit.event(AgentEvent::notice(
-                    NoticeLevel::Warning,
-                    "Das im Chat gewählte Modell ist für pi nicht angebunden, pi nutzt sein \
-                     zuletzt gewähltes Modell.",
-                )),
-            }
-        }
         if let Some(level) = &prompt.thinking
             && self.thinking_level.as_ref() != Some(level)
         {
@@ -1634,27 +1741,30 @@ impl Agent {
     fn session_is_new(&mut self) -> bool {
         let id = self.id("state");
         self.send(&pi_rpc::get_state(&id));
-        let deadline = Instant::now() + Duration::from_secs(15);
-        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-            match self.responses.recv_timeout(left) {
-                Ok(response) if response.id.as_deref() == Some(id.as_str()) => {
-                    return response
-                        .data
-                        .get("messageCount")
-                        .and_then(serde_json::Value::as_u64)
-                        == Some(0);
-                }
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-        false
+        self.wait_for(&id, Duration::from_secs(15))
+            .is_some_and(|response| {
+                response
+                    .data
+                    .get("messageCount")
+                    .and_then(serde_json::Value::as_u64)
+                    == Some(0)
+            })
     }
 
-    fn serve(&mut self, shared: &Shared, commands: &Receiver<Command>) {
+    /// Runs the session's commands until it ends; returns a message whose
+    /// model pi has to learn first (see [`Agent::deliver`]).
+    fn serve(
+        &mut self,
+        shared: &Shared,
+        commands: &Receiver<Command>,
+    ) -> Option<(Prompt, ExtraModel)> {
         loop {
             match commands.recv_timeout(Duration::from_millis(500)) {
-                Ok(Command::Prompt(prompt)) => self.prompt(shared, &prompt),
+                Ok(Command::Prompt(prompt)) => {
+                    if let Some(restart) = self.deliver(shared, *prompt) {
+                        return Some(restart);
+                    }
+                }
                 Ok(Command::Compact) => self.compact(),
                 Ok(Command::Cancel) => self.send(&pi_rpc::abort()),
                 Ok(Command::Decide(id, decision)) => {
@@ -1662,7 +1772,7 @@ impl Agent {
                         bridge.decide(&shared.config, &self.project, id, decision);
                     }
                 }
-                Ok(Command::Close) | Err(RecvTimeoutError::Disconnected) => return,
+                Ok(Command::Close) | Err(RecvTimeoutError::Disconnected) => return None,
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.finished.try_recv().is_ok() {
@@ -1689,7 +1799,7 @@ impl Agent {
                 };
                 self.emit
                     .closed(Some(ended_message(&self.harness.name, code)));
-                return;
+                return None;
             }
         }
     }
