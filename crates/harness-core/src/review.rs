@@ -10,7 +10,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::lang::tr;
 use crate::sync::{Incoming, IncomingFile, sanitize};
+use crate::tr;
 
 /// How much a finding matters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -34,7 +36,7 @@ pub struct Finding {
     pub path: String,
     /// Line in the new file, if the finding is about a line.
     pub line: Option<u32>,
-    /// What and why (German).
+    /// What and why, in the user's language.
     pub message: String,
     /// The line in question, made safe for the terminal and shortened.
     pub excerpt: Option<String>,
@@ -67,7 +69,11 @@ pub fn review(incoming: &Incoming) -> Vec<Finding> {
             rule: "too-large",
             path: String::new(),
             line: None,
-            message: "Die Änderungen sind zu umfangreich; nur der Anfang wurde geprüft".to_owned(),
+            message: tr(
+                "Die Änderungen sind zu umfangreich; nur der Anfang wurde geprüft",
+                "The changes are too large; only the beginning was checked",
+            )
+            .to_owned(),
             excerpt: None,
         });
     }
@@ -129,9 +135,9 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
     let lower = path.to_ascii_lowercase();
     let name = file_name(&lower);
     let new = if file.status == 'A' {
-        "neu"
+        tr("neu", "added")
     } else {
-        "geändert"
+        tr("geändert", "changed")
     };
     let rule = |severity, rule, message: String| finding(file, severity, rule, None, message);
     let hook_dirs = [".husky/", ".githooks/", ".git-hooks/", ".hooks/"];
@@ -144,30 +150,41 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::High,
             "git-hook",
-            format!("Git-Hook {new}: läuft bei git-Befehlen auf deinem Rechner"),
+            tr!(
+                "Git-Hook {new}: läuft bei git-Befehlen auf deinem Rechner",
+                "Git hook {new}: runs with git commands on your computer"
+            ),
         ));
     }
     if name == ".envrc" {
         findings.push(rule(
             Severity::High,
             "envrc",
-            format!(".envrc {new}: direnv führt sie beim Betreten des Ordners aus"),
+            tr!(
+                ".envrc {new}: direnv führt sie beim Betreten des Ordners aus",
+                ".envrc {new}: direnv runs it when you enter the folder"
+            ),
         ));
     }
     if name == ".pnpmfile.cjs" || name == ".pnpmfile.js" {
         findings.push(rule(
             Severity::High,
             "pnpmfile",
-            format!("{name} {new}: läuft bei jedem pnpm install"),
+            tr!(
+                "{name} {new}: läuft bei jedem pnpm install",
+                "{name} {new}: runs on every pnpm install"
+            ),
         ));
     }
     if lower == ".cargo/config.toml" || lower == ".cargo/config" {
         findings.push(rule(
             Severity::High,
             "cargo-config",
-            format!(
+            tr!(
                 "Cargo-Konfiguration {new}: kann Wrapper und Runner festlegen, die bei \
-                 cargo build/run starten"
+                 cargo build/run starten",
+                "Cargo configuration {new}: can set wrappers and runners that start on \
+                 cargo build/run"
             ),
         ));
     }
@@ -178,7 +195,10 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::High,
             "registry-config",
-            format!("{name} {new}: kann Paketquellen und Skripte umstellen"),
+            tr!(
+                "{name} {new}: kann Paketquellen und Skripte umstellen",
+                "{name} {new}: can change package sources and scripts"
+            ),
         ));
     }
     if lower.starts_with(".vscode/") {
@@ -189,13 +209,18 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         let (severity, message) = if name == "tasks.json" && folder_open {
             (
                 Severity::High,
-                "VS-Code-Task startet beim Öffnen des Ordners (runOn: folderOpen)".to_owned(),
+                tr(
+                    "VS-Code-Task startet beim Öffnen des Ordners (runOn: folderOpen)",
+                    "VS Code task starts when the folder is opened (runOn: folderOpen)",
+                )
+                .to_owned(),
             )
         } else {
             (
                 Severity::Medium,
-                format!(
-                    "VS-Code-Einstellung {new}: Tasks und Einstellungen können Programme starten"
+                tr!(
+                    "VS-Code-Einstellung {new}: Tasks und Einstellungen können Programme starten",
+                    "VS Code setting {new}: tasks and settings can start programs"
                 ),
             )
         };
@@ -205,7 +230,10 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::Medium,
             "editor-config",
-            format!("IDE-/Devcontainer-Konfiguration {new}"),
+            tr!(
+                "IDE-/Devcontainer-Konfiguration {new}",
+                "IDE/devcontainer configuration {new}"
+            ),
         ));
     }
     if lower.starts_with(".github/workflows/")
@@ -218,21 +246,31 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::Medium,
             "ci",
-            format!("CI-Konfiguration {new}: läuft nach einem Push mit den Secrets des CI"),
+            tr!(
+                "CI-Konfiguration {new}: läuft nach einem Push mit den Secrets des CI",
+                "CI configuration {new}: runs after a push with the CI's secrets"
+            ),
         ));
     }
     if matches!(name, "setup.py" | "build.rs" | "conftest.py") {
         findings.push(rule(
             Severity::Medium,
             "build-script",
-            format!("{name} {new}: läuft beim Bauen, Installieren oder Testen"),
+            tr!(
+                "{name} {new}: läuft beim Bauen, Installieren oder Testen",
+                "{name} {new}: runs when building, installing or testing"
+            ),
         ));
     }
     if name == ".gitmodules" {
         findings.push(rule(
             Severity::Medium,
             "submodule",
-            "Submodule geändert: holt Code aus anderen Repositories".to_owned(),
+            tr(
+                "Submodule geändert: holt Code aus anderen Repositories",
+                "Submodules changed: fetch code from other repositories",
+            )
+            .to_owned(),
         ));
     }
     if name == ".gitattributes"
@@ -244,7 +282,11 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::Medium,
             "gitattributes",
-            ".gitattributes setzt Filter-, Diff- oder Merge-Treiber".to_owned(),
+            tr(
+                ".gitattributes setzt Filter-, Diff- oder Merge-Treiber",
+                ".gitattributes sets filter, diff or merge drivers",
+            )
+            .to_owned(),
         ));
     }
     let ext = extension(&lower);
@@ -255,7 +297,10 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         findings.push(rule(
             Severity::Medium,
             "windows-script",
-            format!("Windows-Skript {new} (.{ext})"),
+            tr!(
+                "Windows-Skript {new} (.{ext})",
+                "Windows script {new} (.{ext})"
+            ),
         ));
     }
     if file.binary {
@@ -271,9 +316,15 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
             },
             "binary",
             if executable {
-                format!("Ausführbare Binärdatei {new} (.{ext}); der Inhalt lässt sich nicht prüfen")
+                tr!(
+                    "Ausführbare Binärdatei {new} (.{ext}); der Inhalt lässt sich nicht prüfen",
+                    "Executable binary {new} (.{ext}); its content cannot be checked"
+                )
             } else {
-                format!("Binärdatei {new}; der Inhalt lässt sich nicht prüfen")
+                tr!(
+                    "Binärdatei {new}; der Inhalt lässt sich nicht prüfen",
+                    "Binary file {new}; its content cannot be checked"
+                )
             },
         ));
     }
@@ -305,7 +356,10 @@ fn check_package_scripts(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::High,
                 "install-script",
                 Some((*line, text)),
-                format!("Installations-Skript „{script}“: läuft bei npm/pnpm install automatisch"),
+                tr!(
+                    "Installations-Skript „{script}“: läuft bei npm/pnpm install automatisch",
+                    "Install script “{script}”: runs automatically on npm/pnpm install"
+                ),
             ));
         }
     }
@@ -330,7 +384,11 @@ fn check_mode(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 "symlink",
                 file.added.first().map(|(n, t)| (*n, t.as_str())),
                 if escapes {
-                    "Symlink zeigt aus dem Repository hinaus".to_owned()
+                    tr(
+                        "Symlink zeigt aus dem Repository hinaus",
+                        "Symlink points out of the repository",
+                    )
+                    .to_owned()
                 } else {
                     "Symlink".to_owned()
                 },
@@ -341,14 +399,17 @@ fn check_mode(file: &IncomingFile, findings: &mut Vec<Finding>) {
             Severity::Medium,
             "submodule",
             None,
-            "Submodule-Eintrag: verweist auf Code in einem anderen Repository",
+            tr(
+                "Submodule-Eintrag: verweist auf Code in einem anderen Repository",
+                "Submodule entry: points to code in another repository",
+            ),
         )),
         "100755" if file.old_mode != "100755" => findings.push(finding(
             file,
             Severity::Low,
             "executable",
             None,
-            "Datei wird ausführbar",
+            tr("Datei wird ausführbar", "File becomes executable"),
         )),
         _ => {}
     }
@@ -362,236 +423,328 @@ fn is_zero_width(c: char) -> bool {
     matches!(c, '\u{200B}'..='\u{200D}' | '\u{2060}' | '\u{FEFF}')
 }
 
-/// Patterns that fetch and run code or hide what runs. Lower case; each
-/// entry is (needles that must all appear, severity, rule, message).
-const PATTERNS: &[(&[&str], Severity, &str, &str)] = &[
+/// A rule over added lines: needles that must all appear, severity, rule,
+/// message in German and English.
+type Pattern = (
+    &'static [&'static str],
+    Severity,
+    &'static str,
+    (&'static str, &'static str),
+);
+
+/// Patterns that fetch and run code or hide what runs. Lower case.
+const PATTERNS: &[Pattern] = &[
     (
         &["curl ", "| sh"],
         Severity::High,
         "download-exec",
-        "lädt ein Skript und führt es aus",
+        (
+            "lädt ein Skript und führt es aus",
+            "downloads a script and runs it",
+        ),
     ),
     (
         &["curl ", "|sh"],
         Severity::High,
         "download-exec",
-        "lädt ein Skript und führt es aus",
+        (
+            "lädt ein Skript und führt es aus",
+            "downloads a script and runs it",
+        ),
     ),
     (
         &["curl ", "| bash"],
         Severity::High,
         "download-exec",
-        "lädt ein Skript und führt es aus",
+        (
+            "lädt ein Skript und führt es aus",
+            "downloads a script and runs it",
+        ),
     ),
     (
         &["wget ", "| sh"],
         Severity::High,
         "download-exec",
-        "lädt ein Skript und führt es aus",
+        (
+            "lädt ein Skript und führt es aus",
+            "downloads a script and runs it",
+        ),
     ),
     (
         &["wget ", "| bash"],
         Severity::High,
         "download-exec",
-        "lädt ein Skript und führt es aus",
+        (
+            "lädt ein Skript und führt es aus",
+            "downloads a script and runs it",
+        ),
     ),
     (
         &["invoke-expression"],
         Severity::High,
         "powershell-exec",
-        "PowerShell führt Text als Code aus (Invoke-Expression)",
+        (
+            "PowerShell führt Text als Code aus (Invoke-Expression)",
+            "PowerShell runs text as code (Invoke-Expression)",
+        ),
     ),
     (
         &["iex "],
         Severity::High,
         "powershell-exec",
-        "PowerShell führt Text als Code aus (iex)",
+        (
+            "PowerShell führt Text als Code aus (iex)",
+            "PowerShell runs text as code (iex)",
+        ),
     ),
     (
         &["iex("],
         Severity::High,
         "powershell-exec",
-        "PowerShell führt Text als Code aus (iex)",
+        (
+            "PowerShell führt Text als Code aus (iex)",
+            "PowerShell runs text as code (iex)",
+        ),
     ),
     (
         &["-encodedcommand"],
         Severity::High,
         "powershell-exec",
-        "PowerShell mit verschlüsseltem Befehl",
+        (
+            "PowerShell mit verschlüsseltem Befehl",
+            "PowerShell with an encoded command",
+        ),
     ),
     (
         &["powershell", " -enc "],
         Severity::High,
         "powershell-exec",
-        "PowerShell mit verschlüsseltem Befehl",
+        (
+            "PowerShell mit verschlüsseltem Befehl",
+            "PowerShell with an encoded command",
+        ),
     ),
     (
         &["frombase64string"],
         Severity::Medium,
         "decode",
-        "dekodiert Base64 zur Laufzeit",
+        (
+            "dekodiert Base64 zur Laufzeit",
+            "decodes Base64 at run time",
+        ),
     ),
     (
         &["certutil", "-decode"],
         Severity::High,
         "lolbin",
-        "certutil dekodiert eine Datei (bekannter Trick)",
+        (
+            "certutil dekodiert eine Datei (bekannter Trick)",
+            "certutil decodes a file (a known trick)",
+        ),
     ),
     (
         &["mshta"],
         Severity::High,
         "lolbin",
-        "mshta startet HTML-Anwendungen (bekannter Trick)",
+        (
+            "mshta startet HTML-Anwendungen (bekannter Trick)",
+            "mshta starts HTML applications (a known trick)",
+        ),
     ),
     (
         &["rundll32"],
         Severity::Medium,
         "lolbin",
-        "rundll32 startet Code aus DLLs",
+        (
+            "rundll32 startet Code aus DLLs",
+            "rundll32 starts code from DLLs",
+        ),
     ),
     (
         &["regsvr32"],
         Severity::Medium,
         "lolbin",
-        "regsvr32 kann Code nachladen",
+        ("regsvr32 kann Code nachladen", "regsvr32 can load code"),
     ),
     (
         &["bitsadmin", "/transfer"],
         Severity::High,
         "lolbin",
-        "bitsadmin lädt Dateien herunter",
+        (
+            "bitsadmin lädt Dateien herunter",
+            "bitsadmin downloads files",
+        ),
     ),
     (
         &["eval(", "atob("],
         Severity::High,
         "decode-exec",
-        "führt dekodierten Text als Code aus",
+        (
+            "führt dekodierten Text als Code aus",
+            "runs decoded text as code",
+        ),
     ),
     (
         &["eval(", "base64"],
         Severity::High,
         "decode-exec",
-        "führt dekodierten Text als Code aus",
+        (
+            "führt dekodierten Text als Code aus",
+            "runs decoded text as code",
+        ),
     ),
     (
         &["eval(", "fromcharcode"],
         Severity::High,
         "decode-exec",
-        "führt zusammengesetzten Text als Code aus",
+        (
+            "führt zusammengesetzten Text als Code aus",
+            "runs assembled text as code",
+        ),
     ),
     (
         &["exec(", "base64"],
         Severity::High,
         "decode-exec",
-        "führt dekodierten Text als Code aus",
+        (
+            "führt dekodierten Text als Code aus",
+            "runs decoded text as code",
+        ),
     ),
     (
         &["exec(", "b64decode"],
         Severity::High,
         "decode-exec",
-        "führt dekodierten Text als Code aus",
+        (
+            "führt dekodierten Text als Code aus",
+            "runs decoded text as code",
+        ),
     ),
     (
         &["new function("],
         Severity::Medium,
         "dynamic-code",
-        "erzeugt Code zur Laufzeit (new Function)",
+        (
+            "erzeugt Code zur Laufzeit (new Function)",
+            "creates code at run time (new Function)",
+        ),
     ),
     (
         &["base64 -d", "| sh"],
         Severity::High,
         "decode-exec",
-        "dekodiert und führt aus",
+        ("dekodiert und führt aus", "decodes and runs"),
     ),
     (
         &["base64 --decode", "| sh"],
         Severity::High,
         "decode-exec",
-        "dekodiert und führt aus",
+        ("dekodiert und führt aus", "decodes and runs"),
     ),
     (
         &["/.ssh/"],
         Severity::Medium,
         "credentials",
-        "greift auf SSH-Schlüssel zu",
+        ("greift auf SSH-Schlüssel zu", "accesses SSH keys"),
     ),
     (
         &["id_rsa"],
         Severity::Medium,
         "credentials",
-        "greift auf SSH-Schlüssel zu",
+        ("greift auf SSH-Schlüssel zu", "accesses SSH keys"),
     ),
     (
         &[".aws/credentials"],
         Severity::Medium,
         "credentials",
-        "greift auf AWS-Zugangsdaten zu",
+        ("greift auf AWS-Zugangsdaten zu", "accesses AWS credentials"),
     ),
     (
         &["login data"],
         Severity::High,
         "credentials",
-        "greift auf gespeicherte Browser-Passwörter zu",
+        (
+            "greift auf gespeicherte Browser-Passwörter zu",
+            "accesses saved browser passwords",
+        ),
     ),
     (
         &["local state", "appdata"],
         Severity::High,
         "credentials",
-        "greift auf Browser-Schlüssel zu",
+        ("greift auf Browser-Schlüssel zu", "accesses browser keys"),
     ),
     (
         &["\\cookies"],
         Severity::Medium,
         "credentials",
-        "greift auf Browser-Cookies zu",
+        ("greift auf Browser-Cookies zu", "accesses browser cookies"),
     ),
     (
         &["json.stringify(process.env"],
         Severity::High,
         "env-dump",
-        "sammelt alle Umgebungsvariablen (oft mit Zugangsdaten)",
+        (
+            "sammelt alle Umgebungsvariablen (oft mit Zugangsdaten)",
+            "collects all environment variables (often with credentials)",
+        ),
     ),
     (
         &["dict(os.environ"],
         Severity::High,
         "env-dump",
-        "sammelt alle Umgebungsvariablen (oft mit Zugangsdaten)",
+        (
+            "sammelt alle Umgebungsvariablen (oft mit Zugangsdaten)",
+            "collects all environment variables (often with credentials)",
+        ),
     ),
     (
         &["os.environ.copy()"],
         Severity::Medium,
         "env-dump",
-        "kopiert alle Umgebungsvariablen",
+        (
+            "kopiert alle Umgebungsvariablen",
+            "copies all environment variables",
+        ),
     ),
     (
         &["get-childitem env:"],
         Severity::Medium,
         "env-dump",
-        "liest alle Umgebungsvariablen",
+        (
+            "liest alle Umgebungsvariablen",
+            "reads all environment variables",
+        ),
     ),
     (
         &["discord.com/api/webhooks"],
         Severity::High,
         "exfiltration",
-        "schickt Daten an einen Discord-Webhook",
+        (
+            "schickt Daten an einen Discord-Webhook",
+            "sends data to a Discord webhook",
+        ),
     ),
     (
         &["api.telegram.org/bot"],
         Severity::High,
         "exfiltration",
-        "schickt Daten an einen Telegram-Bot",
+        (
+            "schickt Daten an einen Telegram-Bot",
+            "sends data to a Telegram bot",
+        ),
     ),
     (
         &["pastebin.com"],
         Severity::Medium,
         "exfiltration",
-        "spricht mit pastebin.com",
+        ("spricht mit pastebin.com", "talks to pastebin.com"),
     ),
     (
         &["ngrok.io"],
         Severity::Medium,
         "exfiltration",
-        "spricht mit einem ngrok-Tunnel",
+        ("spricht mit einem ngrok-Tunnel", "talks to an ngrok tunnel"),
     ),
 ];
 
@@ -636,7 +789,10 @@ fn check_lines(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::High,
                 "bidi",
                 at,
-                "Unsichtbare Richtungszeichen: Der Code läuft anders, als er aussieht (Trojan Source)",
+                tr(
+                    "Unsichtbare Richtungszeichen: Der Code läuft anders, als er aussieht (Trojan Source)",
+                    "Invisible direction characters: the code runs differently than it looks (Trojan Source)",
+                ),
             ));
         } else if text.chars().skip(1).any(is_zero_width)
             || (*line > 1 && text.starts_with('\u{FEFF}'))
@@ -646,7 +802,10 @@ fn check_lines(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::Medium,
                 "zero-width",
                 at,
-                "Unsichtbare Zeichen im Text",
+                tr(
+                    "Unsichtbare Zeichen im Text",
+                    "Invisible characters in the text",
+                ),
             ));
         }
         if has_homoglyph_word(text) {
@@ -655,14 +814,17 @@ fn check_lines(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::Medium,
                 "homoglyph",
                 at,
-                "Wort mischt lateinische mit kyrillischen oder griechischen Buchstaben",
+                tr(
+                    "Wort mischt lateinische mit kyrillischen oder griechischen Buchstaben",
+                    "Word mixes Latin with Cyrillic or Greek letters",
+                ),
             ));
         }
         let lower = text.to_lowercase();
-        for (needles, severity, rule, message) in PATTERNS {
+        for (needles, severity, rule, (de, en)) in PATTERNS {
             // One finding per rule and file line is enough.
             if needles.iter().all(|n| lower.contains(n)) && seen.insert(rule) {
-                findings.push(finding(file, *severity, rule, at, *message));
+                findings.push(finding(file, *severity, rule, at, tr(*de, *en)));
             }
         }
         if !data {
@@ -676,8 +838,9 @@ fn check_lines(file: &IncomingFile, findings: &mut Vec<Finding>) {
                     Severity::Medium,
                     "blob",
                     at,
-                    format!(
+                    tr!(
                         "Langer kodierter Block ({} Zeichen): kann versteckten Code enthalten",
+                        "Long encoded block ({} characters): may contain hidden code",
                         base64.max(hex)
                     ),
                 ));
@@ -687,7 +850,11 @@ fn check_lines(file: &IncomingFile, findings: &mut Vec<Finding>) {
                     Severity::Low,
                     "long-line",
                     at,
-                    format!("Sehr lange Zeile ({} Zeichen)", text.chars().count()),
+                    tr!(
+                        "Sehr lange Zeile ({} Zeichen)",
+                        "Very long line ({} characters)",
+                        text.chars().count()
+                    ),
                 ));
             }
         }
@@ -995,7 +1162,10 @@ fn check_dependencies(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 severity,
                 "typosquat",
                 Some((line, text)),
-                format!("Paket „{name}“ ähnelt „{original}“: eine bekannte Falle mit Schadpaketen"),
+                tr!(
+                    "Paket „{name}“ ähnelt „{original}“: eine bekannte Falle mit Schadpaketen",
+                    "Package “{name}” resembles “{original}”: a known trap with malicious packages"
+                ),
             ));
         }
     }
@@ -1029,7 +1199,10 @@ fn check_dependencies(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::High,
                 "foreign-source",
                 Some((*line, text)),
-                "Paket kommt nicht aus der üblichen Registry",
+                tr(
+                    "Paket kommt nicht aus der üblichen Registry",
+                    "Package does not come from the usual registry",
+                ),
             ));
         }
         if name == "package.json"
@@ -1044,7 +1217,10 @@ fn check_dependencies(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 Severity::Medium,
                 "foreign-source",
                 Some((*line, text)),
-                "Abhängigkeit direkt von einer URL oder einem Git-Repository",
+                tr(
+                    "Abhängigkeit direkt von einer URL oder einem Git-Repository",
+                    "Dependency straight from a URL or a Git repository",
+                ),
             ));
         }
     }

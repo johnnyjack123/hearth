@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use anyhow::bail;
 use harness_core::busy::{self, Marker};
+use harness_core::lang::tr;
 use harness_core::podman::PodmanProvider;
+use harness_core::tr;
 use harness_core::tunnel::VmStatus;
 use harness_core::vmd::{self, Request, VmState};
 
@@ -49,25 +51,35 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
         return Ok(provider);
     }
     if !vmd::available() {
-        bail!(
+        bail!(tr!(
             "Die VM {machine} läuft nicht. Einmalig `harness vmd install` einrichten, dann startet \
-             harness sie selbst. Sonst in einer Admin-PowerShell: podman machine start {machine}"
-        );
+             harness sie selbst. Sonst in einer Admin-PowerShell: podman machine start {machine}",
+            "The VM {machine} is not running. Set up `harness vmd install` once, then harness \
+             starts it itself. Otherwise, in an admin PowerShell: podman machine start {machine}"
+        ));
     }
     // A stop of this process (the idle one may first shrink the disk)
     // holds the service until it is done.
     let label = if STOPPING.load(Ordering::SeqCst) {
-        format!(
-            "VM {machine} starten, sobald der laufende Stopp fertig ist (bis zu einigen Minuten)"
+        tr!(in progress.lang();
+            "VM {machine} starten, sobald der laufende Stopp fertig ist (bis zu einigen Minuten)",
+            "Starting VM {machine} once the running stop is done (up to a few minutes)"
         )
     } else {
-        format!("VM {machine} starten (bis zu einer Minute)")
+        tr!(in progress.lang();
+            "VM {machine} starten (bis zu einer Minute)",
+            "Starting VM {machine} (up to a minute)"
+        )
     };
     step(progress, "vm", &label, || {
         let _starting = Flag::raise(&STARTING);
         let answer = vmd::request(Request::Start)?;
         if !answer.ok {
-            bail!("VM-Start über den Dienst: {}", answer.message);
+            bail!(tr!(
+                "VM-Start über den Dienst: {}",
+                "VM start through the service: {}",
+                answer.message
+            ));
         }
         Ok(())
     })?;
@@ -83,12 +95,19 @@ pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<P
 pub fn ensure_swap(provider: &PodmanProvider) -> Option<String> {
     match provider.ensure_swap() {
         Ok(true) => Some(
-            "Swap in der VM eingerichtet (zram, komprimiert im Arbeitsspeicher): Compiler und \
-             Agent werden bei knappem Speicher nicht mehr beendet, nur langsamer."
-                .to_owned(),
+            tr(
+                "Swap in der VM eingerichtet (zram, komprimiert im Arbeitsspeicher): Compiler und \
+                 Agent werden bei knappem Speicher nicht mehr beendet, nur langsamer.",
+                "Swap set up in the VM (zram, compressed in memory): compiler and agent are no \
+                 longer killed when memory runs short, only slower.",
+            )
+            .to_owned(),
         ),
         Ok(false) => None,
-        Err(error) => Some(format!("Swap in der VM nicht eingerichtet: {error}")),
+        Err(error) => Some(tr!(
+            "Swap in der VM nicht eingerichtet: {error}",
+            "Swap not set up in the VM: {error}"
+        )),
     }
 }
 
@@ -105,7 +124,10 @@ pub fn stop_idle() -> anyhow::Result<String> {
 
 fn stop_with(request: Request) -> anyhow::Result<String> {
     if !vmd::available() {
-        bail!("Ohne VM-Dienst (`harness vmd install`) kann harness die VM nicht stoppen.");
+        bail!(tr(
+            "Ohne VM-Dienst (`harness vmd install`) kann harness die VM nicht stoppen.",
+            "Without the VM service (`harness vmd install`), harness cannot stop the VM."
+        ));
     }
     let _stopping = Flag::raise(&STOPPING);
     let mut answer = vmd::request(request)?;

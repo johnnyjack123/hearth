@@ -5,7 +5,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use harness_core::lang::tr;
 use harness_core::provider::validate_resource_name;
+use harness_core::tr;
 use harness_core::vmd::{below_program_files, is_user_sid};
 use serde::Deserialize;
 
@@ -49,24 +51,31 @@ fn default_maximum() -> u32 {
 impl Config {
     /// Reads and validates `path`.
     pub fn load(path: &Path) -> Result<Config, String> {
-        let text =
-            fs::read_to_string(path).map_err(|e| format!("{} lesen: {e}", path.display()))?;
-        let config: Config =
-            toml::from_str(&text).map_err(|e| format!("{} ist ungültig: {e}", path.display()))?;
+        let text = fs::read_to_string(path)
+            .map_err(|e| tr!("{} lesen: {e}", "Reading {}: {e}", path.display()))?;
+        let config: Config = toml::from_str(&text)
+            .map_err(|e| tr!("{} ist ungültig: {e}", "{} is invalid: {e}", path.display()))?;
         config.validate()?;
         Ok(config)
     }
 
     /// Checks the values the service relies on.
     pub fn validate(&self) -> Result<(), String> {
-        validate_resource_name("Machine-Name", &self.machine).map_err(|e| e.to_string())?;
+        validate_resource_name(tr("Machine-Name", "machine name"), &self.machine)
+            .map_err(|e| e.to_string())?;
         if !is_user_sid(&self.user_sid) {
-            return Err(format!("user_sid {:?} ist keine Nutzer-SID", self.user_sid));
+            return Err(tr!(
+                "user_sid {:?} ist keine Nutzer-SID",
+                "user_sid {:?} is not a user SID",
+                self.user_sid
+            ));
         }
         if !below_program_files(&self.podman) {
-            return Err(format!(
+            return Err(tr!(
                 "podman {} liegt nicht unter Program Files; als SYSTEM wird nur ausgeführt, was \
                  nur Administratoren ändern können",
+                "podman {} is not below Program Files; as SYSTEM, the service only runs what \
+                 only administrators can change",
                 self.podman.display()
             ));
         }
@@ -76,8 +85,9 @@ impl Config {
             self.maximum_memory_mb,
         );
         if !(256..=start).contains(&min) || start > max || max > 65536 {
-            return Err(format!(
-                "Speicher muss 256 ≤ minimum ({min}) ≤ startup ({start}) ≤ maximum ({max}) ≤ 65536 MB erfüllen"
+            return Err(tr!(
+                "Speicher muss 256 ≤ minimum ({min}) ≤ startup ({start}) ≤ maximum ({max}) ≤ 65536 MB erfüllen",
+                "Memory must satisfy 256 ≤ minimum ({min}) ≤ startup ({start}) ≤ maximum ({max}) ≤ 65536 MB"
             ));
         }
         Ok(())

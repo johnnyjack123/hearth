@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::lang::tr;
 use crate::paths::home_dir;
 use crate::provider::validate_resource_name;
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 /// Name of the machine the harness manages.
 pub const DEFAULT_MACHINE: &str = "harness";
@@ -57,7 +58,7 @@ impl MachineConfig {
     /// (`harness-vmd`) if it owns the machine, else the user's own
     /// `%USERPROFILE%\.config\containers\podman\machine\hyperv\<name>.json`.
     pub fn default_path(name: &str) -> Result<PathBuf> {
-        validate_resource_name("Machine-Name", name)?;
+        validate_resource_name(tr("Machine-Name", "machine name"), name)?;
         let service = crate::vmd::machine_json(name);
         if service.is_file() {
             return Ok(service);
@@ -84,7 +85,7 @@ impl MachineConfig {
                     path: path.to_owned(),
                 }
             } else {
-                Error::io(format!("{} lesen", path.display()), e)
+                Error::io(tr!("{} lesen", "reading {}", path.display()), e)
             }
         })?;
         Self::parse(&text, path)

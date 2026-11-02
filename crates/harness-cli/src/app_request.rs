@@ -41,7 +41,8 @@ fn dir(config: &ConfigDir) -> PathBuf {
     config.root().join("app-requests")
 }
 
-/// Stores a request and returns it. One of the same name is replaced.
+/// Stores a request and returns it. One of the same name is replaced. Its
+/// errors go to the browser that asked, so they stay German.
 pub fn create(
     config: &ConfigDir,
     name: &str,

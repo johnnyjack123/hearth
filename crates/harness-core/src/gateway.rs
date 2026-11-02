@@ -19,10 +19,11 @@ pub use harness_gateway::{Host, LLM_HOST, LlmUpstream, Mode, Policy, Reason};
 
 use crate::config::{DomainPattern, NetworkPreset, Project};
 use crate::image::{CONTEXT_HASH_LABEL, GATEWAY_IMAGE, ImageStatus};
+use crate::lang::tr;
 use crate::project::ProjectName;
 use crate::provider::{ContainerStatus, ExecSpec, GatewaySpec, Labels, NetworkSpec, Provider};
 use crate::sync::sanitize;
-use crate::{Error, PROJECT_LABEL, Result};
+use crate::{Error, PROJECT_LABEL, Result, tr};
 
 /// Name the instances reach the gateway under; `HTTP(S)_PROXY` in the base
 /// image points to `http://gateway:8888`.
@@ -129,14 +130,16 @@ pub fn ensure_running(
     match GATEWAY_IMAGE.status(provider)? {
         ImageStatus::Current => {}
         ImageStatus::Missing => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Gateway-Image {} fehlt → harness image build",
+                "Gateway image {} is missing → harness image build",
                 GATEWAY_IMAGE.tag
             )));
         }
         ImageStatus::Outdated => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Gateway-Image {} ist veraltet → harness image build",
+                "Gateway image {} is outdated → harness image build",
                 GATEWAY_IMAGE.tag
             )));
         }
@@ -239,7 +242,11 @@ impl<'a> GatewayControl<'a> {
         collect_answers(&lines, requests.len(), || {
             let detail = sanitize(output.stderr.trim());
             if detail.is_empty() {
-                format!("keine vollständige Antwort (Exit-Code {})", output.code)
+                tr!(
+                    "keine vollständige Antwort (Exit-Code {})",
+                    "no complete answer (exit code {})",
+                    output.code
+                )
             } else {
                 detail
             }
@@ -253,7 +260,9 @@ impl<'a> GatewayControl<'a> {
         let mut child = self.provider.exec_piped(&self.ctl(&[]))?;
         let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
-            return Err(Error::Gateway("keine Verbindung zu ctl".to_owned()));
+            return Err(Error::Gateway(
+                tr("keine Verbindung zu ctl", "no connection to ctl").to_owned(),
+            ));
         };
         let mut text = String::new();
         for request in requests.iter().chain([&Request::Bye]) {
@@ -271,12 +280,16 @@ impl<'a> GatewayControl<'a> {
             .collect();
         let status = child.wait();
         if let Err(error) = written {
-            return Err(Error::Gateway(format!("Senden fehlgeschlagen: {error}")));
+            return Err(Error::Gateway(tr!(
+                "Senden fehlgeschlagen: {error}",
+                "sending failed: {error}"
+            )));
         }
         let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
         collect_answers(&lines, requests.len(), || {
-            format!(
+            tr!(
                 "keine vollständige Antwort ({})",
+                "no complete answer ({})",
                 status.map_or_else(|e| e.to_string(), |s| s.to_string())
             )
         })
@@ -321,7 +334,9 @@ impl<'a> GatewayControl<'a> {
         let mut child = self.provider.exec_piped(&self.ctl(&[]))?;
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
-            return Err(Error::Gateway("keine Verbindung zu ctl".to_owned()));
+            return Err(Error::Gateway(
+                tr("keine Verbindung zu ctl", "no connection to ctl").to_owned(),
+            ));
         };
         let (tx, replies) = mpsc::channel();
         thread::spawn(move || {
@@ -379,7 +394,12 @@ impl Watch {
     fn send(&mut self, request: &Request) -> Result<()> {
         writeln!(self.stdin, "{request}")
             .and_then(|()| self.stdin.flush())
-            .map_err(|e| Error::Gateway(format!("Verbindung unterbrochen: {e}")))
+            .map_err(|e| {
+                Error::Gateway(tr!(
+                    "Verbindung unterbrochen: {e}",
+                    "connection interrupted: {e}"
+                ))
+            })
     }
 
     /// Answers a question: `Some(scope)` allows, `None` refuses.
@@ -399,7 +419,11 @@ impl Watch {
             Ok(reply) => Ok(Some(reply)),
             Err(RecvTimeoutError::Timeout) => Ok(None),
             Err(RecvTimeoutError::Disconnected) => Err(Error::Gateway(
-                "Verbindung zum Gateway beendet (gestoppt?)".to_owned(),
+                tr(
+                    "Verbindung zum Gateway beendet (gestoppt?)",
+                    "connection to the gateway ended (stopped?)",
+                )
+                .to_owned(),
             )),
         }
     }

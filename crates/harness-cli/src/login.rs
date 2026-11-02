@@ -10,10 +10,12 @@ use anyhow::{Context as _, bail};
 use harness_core::Provider;
 use harness_core::config::ConfigDir;
 use harness_core::gateway::LlmUpstream;
+use harness_core::lang::tr;
 use harness_core::server::{
     self, DEFAULT_SERVER_URL, PairingPoll, ServerCa, ServerClient, delete_token, load_token,
     save_token,
 };
+use harness_core::tr;
 
 /// Pairs this computer with a server (device flow).
 pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> anyhow::Result<bool> {
@@ -27,58 +29,114 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
     let previous = load_token(client.url())?;
     let pairing = client.start_pairing(&device_name())?;
 
-    println!("Bestätige diesen Code in der Web-App von {}:", client.url());
+    println!(
+        "{}",
+        tr!(
+            "Bestätige diesen Code in der Web-App von {}:",
+            "Confirm this code in the web app of {}:",
+            client.url()
+        )
+    );
     println!();
     println!("    {}", pairing.user_code);
     println!();
     println!("    {}", pairing.verification_uri_complete);
     println!();
     if open_browser && open(&pairing.verification_uri_complete) {
-        println!("Der Browser öffnet die Seite. Warte auf Bestätigung … (Strg+C bricht ab)");
+        println!(
+            "{}",
+            tr(
+                "Der Browser öffnet die Seite. Warte auf Bestätigung … (Strg+C bricht ab)",
+                "The browser opens the page. Waiting for confirmation … (Ctrl+C cancels)"
+            )
+        );
     } else {
-        println!("Warte auf Bestätigung … (Strg+C bricht ab)");
+        println!(
+            "{}",
+            tr(
+                "Warte auf Bestätigung … (Strg+C bricht ab)",
+                "Waiting for confirmation … (Ctrl+C cancels)"
+            )
+        );
     }
 
+    let expired = || {
+        tr(
+            "Der Code ist abgelaufen. `harness login` erneut starten",
+            "The code has expired. Start `harness login` again",
+        )
+    };
     let deadline = Instant::now() + Duration::from_secs(pairing.expires_in);
     let interval = Duration::from_secs(pairing.interval.clamp(1, 30));
     let token = loop {
         if Instant::now() >= deadline {
-            bail!("Der Code ist abgelaufen. `harness login` erneut starten");
+            bail!(expired());
         }
         thread::sleep(interval);
         match client.poll_pairing(&pairing.device_code)? {
             PairingPoll::Pending => {}
-            PairingPoll::Denied => bail!("In der Web-App abgelehnt, das Gerät ist nicht gekoppelt"),
-            PairingPoll::Expired => {
-                bail!("Der Code ist abgelaufen. `harness login` erneut starten")
-            }
+            PairingPoll::Denied => bail!(tr(
+                "In der Web-App abgelehnt, das Gerät ist nicht gekoppelt",
+                "Refused in the web app, the device is not paired"
+            )),
+            PairingPoll::Expired => bail!(expired()),
             PairingPoll::Approved { token, .. } => break token,
         }
     };
 
-    save_token(client.url(), &token).context("Geräte-Token speichern")?;
+    save_token(client.url(), &token)
+        .context(tr("Geräte-Token speichern", "Saving the device token"))?;
     config.set_server_url(Some(client.url()))?;
     let me = client.device(&token)?;
     println!(
-        "Angemeldet als {} ({}), Gerät „{}“.",
-        me.user.name, me.user.email, me.device.name
+        "{}",
+        tr!(
+            "Angemeldet als {} ({}), Gerät „{}“.",
+            "Signed in as {} ({}), device “{}”.",
+            me.user.name,
+            me.user.email,
+            me.device.name
+        )
     );
     // A re-login replaces the old token; it should not stay valid.
     if let Some(old) = previous.filter(|old| *old != token) {
         let _ = client.revoke(&old);
     }
-    println!("Laufende Gateways übernehmen den Zugang mit `harness net start`.");
+    println!(
+        "{}",
+        tr(
+            "Laufende Gateways übernehmen den Zugang mit `harness net start`.",
+            "Running gateways take over the access with `harness net start`."
+        )
+    );
     announce_projects(config);
     // Web chats need this computer connected; the background service does
     // that from now on, also after the next logon.
     if crate::daemon::automatic() {
         match crate::daemon::install(config) {
             Ok(true) => println!(
-                "Hintergrunddienst läuft und startet bei jeder Anmeldung: Web-Chats deines Kontos \
-                 können die Projekte dieses Rechners nutzen (`harness daemon`)."
+                "{}",
+                tr(
+                    "Hintergrunddienst läuft und startet bei jeder Anmeldung: Web-Chats deines \
+                     Kontos können die Projekte dieses Rechners nutzen (`harness daemon`).",
+                    "Background service running and starting at every sign-in: web chats of your \
+                     account can use the projects of this computer (`harness daemon`)."
+                )
             ),
-            Ok(false) => println!("Hintergrunddienst startet nicht, siehe `harness daemon`."),
-            Err(error) => println!("Hintergrunddienst nicht eingerichtet: {error:#}"),
+            Ok(false) => println!(
+                "{}",
+                tr(
+                    "Hintergrunddienst startet nicht, siehe `harness daemon`.",
+                    "Background service does not start, see `harness daemon`."
+                )
+            ),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "Hintergrunddienst nicht eingerichtet: {error:#}",
+                    "Background service not set up: {error:#}"
+                )
+            ),
         }
     }
     Ok(true)
@@ -91,13 +149,25 @@ pub fn announce_projects(config: &ConfigDir) {
         Ok(Some(paired)) => paired,
         Ok(None) => return,
         Err(error) => {
-            println!("Projekte nicht an den Server gemeldet: {error:#}");
+            println!(
+                "{}",
+                tr!(
+                    "Projekte nicht an den Server gemeldet: {error:#}",
+                    "Projects not reported to the server: {error:#}"
+                )
+            );
             return;
         }
     };
     let (client, token) = paired;
     if let Err(error) = client.set_projects(&token, &crate::connect::offered(config)) {
-        println!("Projekte nicht an den Server gemeldet: {error}");
+        println!(
+            "{}",
+            tr!(
+                "Projekte nicht an den Server gemeldet: {error}",
+                "Projects not reported to the server: {error}"
+            )
+        );
     }
 }
 
@@ -105,7 +175,7 @@ pub fn announce_projects(config: &ConfigDir) {
 pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
     let server = config.global()?.server;
     let Some(url) = server.url.clone() else {
-        println!("Nicht angemeldet.");
+        println!("{}", tr("Nicht angemeldet.", "Not signed in."));
         return Ok(true);
     };
     if crate::daemon::running(config) {
@@ -119,12 +189,20 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
             .and_then(|ca| ServerClient::new(&url, ca.as_ref()))
             .and_then(|client| client.revoke(&token));
         match revoke {
-            Ok(()) => println!("Gerät auf {url} entfernt."),
+            Ok(()) => println!(
+                "{}",
+                tr!("Gerät auf {url} entfernt.", "Device removed on {url}.")
+            ),
             Err(error) => {
                 revoked = false;
                 println!(
-                    "Konnte das Gerät auf dem Server nicht entfernen ({error}). Bitte in der \
-                     Web-App unter Einstellungen → Geräte löschen."
+                    "{}",
+                    tr!(
+                        "Konnte das Gerät auf dem Server nicht entfernen ({error}). Bitte in der \
+                         Web-App unter Einstellungen → Geräte löschen.",
+                        "Could not remove the device on the server ({error}). Please delete it in \
+                         the web app under Settings → Devices."
+                    )
                 );
             }
         }
@@ -132,10 +210,20 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
     }
     config.set_server_url(None)?;
     if revoked {
-        println!("Abgemeldet. Laufende Gateways haben ab sofort keinen LLM-Zugang mehr.");
+        println!(
+            "{}",
+            tr(
+                "Abgemeldet. Laufende Gateways haben ab sofort keinen LLM-Zugang mehr.",
+                "Signed out. Running gateways have no LLM access any more from now on."
+            )
+        );
     } else {
         println!(
-            "Abgemeldet. Laufende Gateways nutzen das Token, bis es in der Web-App gelöscht ist."
+            "{}",
+            tr(
+                "Abgemeldet. Laufende Gateways nutzen das Token, bis es in der Web-App gelöscht ist.",
+                "Signed out. Running gateways use the token until it is deleted in the web app."
+            )
         );
     }
     Ok(true)
@@ -163,18 +251,36 @@ pub fn gateway_llm(
 ) -> anyhow::Result<(Option<LlmUpstream>, String)> {
     let server = config.global()?.server;
     let Some(url) = &server.url else {
-        return Ok((None, "nicht eingerichtet (harness login)".to_owned()));
+        return Ok((
+            None,
+            tr(
+                "nicht eingerichtet (harness login)",
+                "not set up (harness login)",
+            )
+            .to_owned(),
+        ));
     };
     let Some(token) = load_token(url)? else {
-        return Ok((None, format!("kein Geräte-Token für {url} (harness login)")));
+        return Ok((
+            None,
+            tr!(
+                "kein Geräte-Token für {url} (harness login)",
+                "no device token for {url} (harness login)"
+            ),
+        ));
     };
     let ca = match ServerCa::from_config(&server) {
         Ok(ca) => ca,
         Err(error) => return Ok((None, error.to_string())),
     };
     match server::llm_upstream(url, provider.host_address(), &token, ca.as_ref()) {
-        Ok(upstream) if upstream.ca().is_empty() => Ok((Some(upstream), format!("über {url}"))),
-        Ok(upstream) => Ok((Some(upstream), format!("über {url} (eigene CA)"))),
+        Ok(upstream) if upstream.ca().is_empty() => {
+            Ok((Some(upstream), tr!("über {url}", "through {url}")))
+        }
+        Ok(upstream) => Ok((
+            Some(upstream),
+            tr!("über {url} (eigene CA)", "through {url} (own CA)"),
+        )),
         Err(error) => Ok((None, error.to_string())),
     }
 }
@@ -191,7 +297,7 @@ fn device_name() -> String {
     if host.is_empty() {
         "harness".to_owned()
     } else {
-        format!("harness auf {host}")
+        tr!("harness auf {host}", "harness on {host}")
     }
 }
 

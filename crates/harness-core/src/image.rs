@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::paths::local_data_dir;
 use crate::provider::{ImageBuild, ImageInfo, Labels, Provider};
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 /// Image label holding [`ImageDefinition::context_hash`], used to detect an
 /// image built from an older Containerfile.
@@ -271,25 +271,29 @@ impl ImageDefinition {
         match fs::remove_dir_all(dir) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::io(format!("{} leeren", dir.display()), e)),
+            Err(e) => {
+                return Err(Error::io(tr!("{} leeren", "emptying {}", dir.display()), e));
+            }
         }
-        fs::create_dir_all(dir).map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
+        fs::create_dir_all(dir)
+            .map_err(|e| Error::io(tr!("{} anlegen", "creating {}", dir.display()), e))?;
         for file in self.files {
             let path = file
                 .name
                 .split('/')
                 .fold(dir.to_path_buf(), |p, part| p.join(part));
             if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| Error::io(format!("{} anlegen", parent.display()), e))?;
+                fs::create_dir_all(parent).map_err(|e| {
+                    Error::io(tr!("{} anlegen", "creating {}", parent.display()), e)
+                })?;
             }
             fs::write(&path, file.contents)
-                .map_err(|e| Error::io(format!("{} schreiben", path.display()), e))?;
+                .map_err(|e| Error::io(tr!("{} schreiben", "writing {}", path.display()), e))?;
         }
         if let Some(program) = self.program {
             let path = dir.join(program.name);
             fs::write(&path, (program.bytes)())
-                .map_err(|e| Error::io(format!("{} schreiben", path.display()), e))?;
+                .map_err(|e| Error::io(tr!("{} schreiben", "writing {}", path.display()), e))?;
         }
         Ok(())
     }

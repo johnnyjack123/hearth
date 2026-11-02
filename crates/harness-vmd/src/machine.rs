@@ -13,7 +13,9 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use harness_core::lang::{self, tr};
 use harness_core::podman::MachineConfig;
+use harness_core::tr;
 use harness_core::vmd::{self, SSH_BANNER_TIMEOUT, VmState};
 use serde::{Deserialize, Serialize};
 
@@ -229,7 +231,9 @@ fn run(mut command: Command, timeout: Duration) -> (bool, String) {
         .stderr(Stdio::piped());
     let mut child = match command.spawn() {
         Ok(child) => child,
-        Err(e) => return (false, format!("Start fehlgeschlagen: {e}")),
+        Err(e) => {
+            return (false, tr!("Start fehlgeschlagen: {e}", "Start failed: {e}"));
+        }
     };
     // Output is collected as it arrives: a process the command started can
     // inherit the pipes and keep them open long after the command ended
@@ -286,7 +290,11 @@ fn run(mut command: Command, timeout: Duration) -> (bool, String) {
         Some(status) => (status.success(), output),
         None => (
             false,
-            format!("nach {} s abgebrochen\n{output}", timeout.as_secs()),
+            tr!(
+                "nach {} s abgebrochen\n{output}",
+                "cancelled after {} s\n{output}",
+                timeout.as_secs()
+            ),
         ),
     }
 }
@@ -448,12 +456,20 @@ impl Vm {
         let (_, resumed) = run(self.powershell(RESUME_PS), SCRIPT_TIMEOUT);
         if resumed.contains("fortgesetzt") {
             // Whether it still answers decides below, as for any running VM.
-            log::line("VM war pausiert (Standby?) und läuft weiter");
+            log::line(tr(
+                "VM war pausiert (Standby?) und läuft weiter",
+                "VM was paused (standby?) and has been resumed",
+            ));
         }
         match self.state() {
-            VmState::Running => return Ok("Die VM läuft bereits.".to_owned()),
+            VmState::Running => {
+                return Ok(tr("Die VM läuft bereits.", "The VM is already running.").to_owned());
+            }
             VmState::Unresponsive => {
-                log::line("VM läuft, SSH antwortet nicht: Neustart");
+                log::line(tr(
+                    "VM läuft, SSH antwortet nicht: Neustart",
+                    "VM running, SSH does not answer: restarting",
+                ));
                 self.stop()?;
             }
             VmState::Stopped | VmState::Unknown => {}
@@ -461,18 +477,23 @@ impl Vm {
         let available = available_memory_mb();
         let startup =
             startup_memory_mb(&self.config, available, cfg!(not(target_arch = "aarch64")));
-        log::line(&format!(
+        log::line(&tr!(
             "Startspeicher der VM: {startup} MB (Windows: {} MB verfügbar)",
+            "Startup memory of the VM: {startup} MB (Windows: {} MB available)",
             available.map_or("?".to_owned(), |mb| mb.to_string())
         ));
         let mut prepare = self.powershell(PREPARE_PS);
         prepare.env("HARNESS_STARTUP_MB", startup.to_string());
         let (ok, output) = run(prepare, SCRIPT_TIMEOUT);
         if !ok {
-            return Err(format!("Vorbereitung fehlgeschlagen: {}", tail(&output)));
+            return Err(tr!(
+                "Vorbereitung fehlgeschlagen: {}",
+                "Preparation failed: {}",
+                tail(&output)
+            ));
         }
         if !output.trim().is_empty() {
-            log::line(&format!("Vorbereitung: {}", tail(&output)));
+            log::line(&tr!("Vorbereitung: {}", "Preparation: {}", tail(&output)));
         }
         let started = Instant::now();
         let (ok, output) = run(
@@ -486,22 +507,31 @@ impl Vm {
         ));
         if !ok {
             self.clean_up_failed_start();
-            return Err(format!(
+            return Err(tr!(
                 "Start fehlgeschlagen: {}{}",
+                "Start failed: {}{}",
                 tail(&output),
                 start_hint(&output)
             ));
         }
-        let port = self.ssh_port().ok_or("SSH-Port der Machine unbekannt")?;
+        let port = self.ssh_port().ok_or(tr(
+            "SSH-Port der Machine unbekannt",
+            "SSH port of the machine unknown",
+        ))?;
         let deadline = Instant::now() + SSH_READY_TIMEOUT;
         while !vmd::ssh_answers(port, SSH_BANNER_TIMEOUT) {
             if Instant::now() > deadline {
-                return Err("Die VM läuft, aber SSH antwortet nicht.".to_owned());
+                return Err(tr(
+                    "Die VM läuft, aber SSH antwortet nicht.",
+                    "The VM is running, but SSH does not answer.",
+                )
+                .to_owned());
             }
             std::thread::sleep(Duration::from_secs(1));
         }
-        Ok(format!(
+        Ok(tr!(
             "Die VM ist gestartet ({} s).",
+            "The VM has started ({} s).",
             started.elapsed().as_secs()
         ))
     }
@@ -537,9 +567,10 @@ impl Vm {
         // the next harness command starts the VM anyway.
         Ok(match self.start() {
             Ok(_) => shrunk,
-            Err(error) => {
-                format!("{shrunk} Die VM startet beim nächsten harness-Befehl wieder ({error}).")
-            }
+            Err(error) => tr!(
+                "{shrunk} Die VM startet beim nächsten harness-Befehl wieder ({error}).",
+                "{shrunk} The VM starts again with the next harness command ({error})."
+            ),
         })
     }
 
@@ -555,7 +586,10 @@ impl Vm {
         let Some(disk) = due else {
             return Ok(stopped);
         };
-        log::line("Leerlauf: Festplatte der VM wird verkleinert");
+        log::line(tr(
+            "Leerlauf: Festplatte der VM wird verkleinert",
+            "Idle: shrinking the VM's disk",
+        ));
         Ok(match self.shrink(&disk) {
             Ok(shrunk) => format!("{stopped} {shrunk}"),
             Err(error) => format!("{stopped} {error}"),
@@ -566,7 +600,13 @@ impl Vm {
         MachineConfig::from_path(&vmd::machine_json(&self.config.machine))
             .ok()
             .and_then(|machine| machine.disk)
-            .ok_or_else(|| "Festplatte der VM unbekannt (die Machine-JSON nennt keine)".to_owned())
+            .ok_or_else(|| {
+                tr(
+                    "Festplatte der VM unbekannt (die Machine-JSON nennt keine)",
+                    "Disk of the VM unknown (the machine JSON names none)",
+                )
+                .to_owned()
+            })
     }
 
     /// Compacts the disk file of the stopped VM.
@@ -585,7 +625,11 @@ impl Vm {
         if ok {
             Ok(compacted(&output))
         } else {
-            Err(format!("Verkleinern fehlgeschlagen: {}", tail(&output)))
+            Err(tr!(
+                "Verkleinern fehlgeschlagen: {}",
+                "Shrinking failed: {}",
+                tail(&output)
+            ))
         }
     }
 
@@ -597,13 +641,21 @@ impl Vm {
         );
         log::line(&format!("podman machine stop: {}", tail(&output)));
         if ok {
-            return Ok("Die VM ist gestoppt.".to_owned());
+            return Ok(tr("Die VM ist gestoppt.", "The VM is stopped.").to_owned());
         }
         let (off, output) = run(self.powershell(TURN_OFF_PS), SCRIPT_TIMEOUT);
         if off && self.state() == VmState::Stopped {
-            Ok("Die VM wurde hart ausgeschaltet.".to_owned())
+            Ok(tr(
+                "Die VM wurde hart ausgeschaltet.",
+                "The VM was powered off hard.",
+            )
+            .to_owned())
         } else {
-            Err(format!("Stopp fehlgeschlagen: {}", tail(&output)))
+            Err(tr!(
+                "Stopp fehlgeschlagen: {}",
+                "Stop failed: {}",
+                tail(&output)
+            ))
         }
     }
 }
@@ -617,10 +669,22 @@ fn compacted(output: &str) -> String {
         .take(2)
         .filter_map(|word| word.parse::<f64>().ok())
         .collect();
-    let gb = |bytes: f64| format!("{:.1} GB", bytes / 1e9).replace('.', ",");
+    let gb = |bytes: f64| {
+        let text = format!("{:.1} GB", bytes / 1e9);
+        if lang::german() {
+            text.replace('.', ",")
+        } else {
+            text
+        }
+    };
     match sizes[..] {
-        [after, before] => format!("Festplatte der VM: {} → {}.", gb(before), gb(after)),
-        _ => "Festplatte der VM verkleinert.".to_owned(),
+        [after, before] => tr!(
+            "Festplatte der VM: {} → {}.",
+            "Disk of the VM: {} → {}.",
+            gb(before),
+            gb(after)
+        ),
+        _ => tr("Festplatte der VM verkleinert.", "Disk of the VM shrunk.").to_owned(),
     }
 }
 
@@ -629,8 +693,12 @@ fn compacted(output: &str) -> String {
 /// little free memory as well (event 3030 in Hyper-V-Worker-Admin).
 fn start_hint(output: &str) -> &'static str {
     if output.contains("32788") || output.contains("32778") {
-        " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB. \
-             Programme schließen und erneut versuchen.)"
+        tr(
+            " (Vermutlich zu wenig freier Arbeitsspeicher: Die VM braucht beim Start 1 GB. \
+             Programme schließen und erneut versuchen.)",
+            " (Probably too little free memory: the VM needs 1 GB to start. Close programs \
+             and try again.)",
+        )
     } else {
         ""
     }

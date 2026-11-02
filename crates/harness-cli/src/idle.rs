@@ -21,7 +21,7 @@ use harness_core::podman::PodmanProvider;
 use harness_core::tunnel::{
     DEFAULT_IDLE_MINUTES, DeviceMessage, MAX_IDLE_MINUTES, VERSION_VM_CONTROL, VmActivity, VmStatus,
 };
-use harness_core::{MANAGED_LABEL, Provider as _};
+use harness_core::{MANAGED_LABEL, Provider as _, tr};
 
 use crate::connect::{Mode, say};
 use crate::status::{StatusFile, unix_in};
@@ -298,8 +298,9 @@ fn stop_idle(idle: &Idle, machine: &str, mode: Mode, minutes: u32) {
         Ok(names) if !names.is_empty() => {
             say(
                 mode,
-                &format!(
+                &tr!(
                     "VM bleibt an: Es laufen Container, die harness nicht angelegt hat ({}).",
+                    "VM stays on: containers run that harness did not create ({}).",
                     names.join(", ")
                 ),
             );
@@ -310,7 +311,10 @@ fn stop_idle(idle: &Idle, machine: &str, mode: Mode, minutes: u32) {
         Err(error) => {
             say(
                 mode,
-                &format!("VM bleibt an: laufende Container nicht lesbar ({error:#})."),
+                &tr!(
+                    "VM bleibt an: laufende Container nicht lesbar ({error:#}).",
+                    "VM stays on: running containers not readable ({error:#})."
+                ),
             );
             idle.touch();
             return;
@@ -318,18 +322,36 @@ fn stop_idle(idle: &Idle, machine: &str, mode: Mode, minutes: u32) {
     }
     say(
         mode,
-        &format!("VM seit {minutes} min unbenutzt, wird gestoppt."),
+        &tr!(
+            "VM seit {minutes} min unbenutzt, wird gestoppt.",
+            "VM unused for {minutes} min, stopping it."
+        ),
     );
     idle.show(VmStatus::Stopping);
     // Marks the space of deleted files as free, so the VM service can give
     // it back to Windows after the stop.
     if let Err(error) = PodmanProvider::for_machine(machine).and_then(|p| p.trim()) {
-        say(mode, &format!("fstrim in der VM gescheitert: {error}"));
+        say(
+            mode,
+            &tr!(
+                "fstrim in der VM gescheitert: {error}",
+                "fstrim in the VM failed: {error}"
+            ),
+        );
     }
     match crate::vm::stop_idle() {
-        Ok(message) => say(mode, &format!("VM gestoppt: {message}")),
+        Ok(message) => say(
+            mode,
+            &tr!("VM gestoppt: {message}", "VM stopped: {message}"),
+        ),
         Err(error) => {
-            say(mode, &format!("VM-Stopp gescheitert: {error:#}"));
+            say(
+                mode,
+                &tr!(
+                    "VM-Stopp gescheitert: {error:#}",
+                    "VM stop failed: {error:#}"
+                ),
+            );
             // Next try after another idle period, not every few seconds.
             idle.touch();
         }

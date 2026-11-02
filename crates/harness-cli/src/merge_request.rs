@@ -13,6 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context as _;
 use harness_core::config::ConfigDir;
 use harness_core::project::ProjectName;
+use harness_core::tr;
 use serde::{Deserialize, Serialize};
 
 /// Without 0/O and 1/I, so an id read off the screen cannot be mistyped.
@@ -67,7 +68,8 @@ pub(crate) fn new_id() -> String {
 
 /// Stores a request for `branch` at `commit` and returns its id. An older
 /// request of the same project is replaced: only the newest state can be
-/// approved.
+/// approved. Its errors end up in a chat's takeover report, so they stay
+/// German.
 pub fn create(
     config: &ConfigDir,
     project: &ProjectName,
@@ -104,13 +106,11 @@ pub fn load(config: &ConfigDir, id: &str) -> anyhow::Result<Option<MergeRequest>
     }
     let file = dir(config).join(format!("{id}.json"));
     match fs::read(&file) {
-        Ok(bytes) => {
-            Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
-                format!("{} ist beschädigt", file.display())
-            })?))
-        }
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
+            tr!("{} ist beschädigt", "{} is damaged", file.display())
+        })?)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("{} lesen", file.display())),
+        Err(error) => Err(error).with_context(|| tr!("{} lesen", "Reading {}", file.display())),
     }
 }
 

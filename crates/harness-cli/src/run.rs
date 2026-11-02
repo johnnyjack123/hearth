@@ -11,12 +11,14 @@ use harness_core::briefing::briefing;
 use harness_core::config::{AppConfig, ConfigDir, GuardKind, HarnessConfig, LlmWiring, Project};
 use harness_core::gateway::{self, GatewayState};
 use harness_core::instance::{self, InstanceState};
+use harness_core::lang::tr;
 use harness_core::pi;
 use harness_core::podman::PodmanProvider;
 use harness_core::provider::ExecSpec;
 use harness_core::sync::{
     self, HostRepo, ImportOutcome, MergeOutcome, PullOutcome, WORKSPACE, WorkspaceState, sanitize,
 };
+use harness_core::tr;
 
 use crate::progress::{Progress, Terminal, step};
 use crate::terminal::{self, Approvals};
@@ -73,14 +75,25 @@ pub(crate) fn prepare_project(
     let created = step(
         progress,
         "instance",
-        &format!("Instanz {}", project.name.instance()),
+        &tr!(in progress.lang();
+            "Instanz {}",
+            "Instance {}",
+            project.name.instance()
+        ),
         || Ok(instance::ensure_running(&provider, &project, &refs, &apps)?),
     )?;
     if created {
-        println!("  (neu angelegt; Arbeitskopie und Home liegen in Volumes und bleiben erhalten)");
+        println!(
+            "{}",
+            tr(
+                "  (neu angelegt; Arbeitskopie und Home liegen in Volumes und bleiben erhalten)",
+                "  (newly created; working copy and home live in volumes and are kept)",
+            )
+        );
     }
     let repo = HostRepo::open(&project.path)?;
-    let state = step(progress, "workspace", "Arbeitskopie", || {
+    let label = progress.lang().pick("Arbeitskopie", "Working copy");
+    let state = step(progress, "workspace", label, || {
         Ok(sync::push_to_workspace(
             &provider,
             &project.name.instance(),
@@ -89,12 +102,21 @@ pub(crate) fn prepare_project(
         )?)
     })?;
     match state {
-        WorkspaceState::Cloned { branch } => {
-            println!("  geklont nach {WORKSPACE}, Branch {}", sanitize(&branch))
-        }
+        WorkspaceState::Cloned { branch } => println!(
+            "{}",
+            tr!(
+                "  geklont nach {WORKSPACE}, Branch {}",
+                "  cloned to {WORKSPACE}, branch {}",
+                sanitize(&branch)
+            )
+        ),
         WorkspaceState::Fetched { branch } => println!(
-            "  Stand des Hosts als host/* geholt, Branch {}",
-            sanitize(&branch)
+            "{}",
+            tr!(
+                "  Stand des Hosts als host/* geholt, Branch {}",
+                "  fetched the host's state as host/*, branch {}",
+                sanitize(&branch)
+            )
         ),
     }
     Ok(Prepared {
@@ -140,8 +162,13 @@ fn attach(
     };
     if prepared.project.ask && !terminal::shows_questions(&spec) {
         println!(
-            "Rückfragen des Gateways (nicht freigegebene Domains) beantwortest du mit \
-             `harness net watch` in einem zweiten Fenster."
+            "{}",
+            tr(
+                "Rückfragen des Gateways (nicht freigegebene Domains) beantwortest du mit \
+                 `harness net watch` in einem zweiten Fenster.",
+                "You answer the gateway's questions (domains that are not allowed) with \
+                 `harness net watch` in a second window.",
+            )
         );
     }
     println!();
@@ -183,8 +210,12 @@ pub fn run(
     let code = attach(config, &prepared, command, &harness.env, false)?;
     println!();
     println!(
-        "{} beendet. Commits des Agents holst du mit `harness sync`, übernehmen mit `harness merge`.",
-        harness.name
+        "{}",
+        tr!(
+            "{} beendet. Commits des Agents holst du mit `harness sync`, übernehmen mit `harness merge`.",
+            "{} ended. Fetch the agent's commits with `harness sync`, take them over with `harness merge`.",
+            harness.name
+        )
     );
     Ok(code == 0)
 }
@@ -216,7 +247,11 @@ pub(crate) fn ready_harness(
         step(
             progress,
             "install",
-            &format!("{} installieren (einmalig)", harness.name),
+            &tr!(in progress.lang();
+                "{} installieren (einmalig)",
+                "Installing {} (once)",
+                harness.name
+            ),
             || {
                 Ok(instance::install_harness(
                     &prepared.provider,
@@ -236,7 +271,13 @@ pub(crate) fn ready_harness(
         // A warning, not a stop: pi without the guard still beats no pi.
         match pi::Extension::Guard.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
-            Err(error) => println!("Schutz gegen Prompt-Injection nicht geladen: {error}"),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "Schutz gegen Prompt-Injection nicht geladen: {error}",
+                    "Protection against prompt injection not loaded: {error}"
+                )
+            ),
         }
     }
     // web_fetch goes through the server like the model does, so only pi
@@ -244,18 +285,36 @@ pub(crate) fn ready_harness(
     if models.is_some() {
         match pi::Extension::Web.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
-            Err(error) => println!("pi: web_fetch nicht geladen: {error}"),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "pi: web_fetch nicht geladen: {error}",
+                    "pi: web_fetch not loaded: {error}"
+                )
+            ),
         }
         // The memories live on the server as well.
         match pi::Extension::Memory.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
-            Err(error) => println!("pi: Gedächtnis nicht geladen: {error}"),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "pi: Gedächtnis nicht geladen: {error}",
+                    "pi: memory not loaded: {error}"
+                )
+            ),
         }
     }
     if web_chat && harness.llm == Some(LlmWiring::Pi) {
         match pi::Extension::Progress.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),
-            Err(error) => println!("pi: Fortschrittsliste nicht geladen: {error}"),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "pi: Fortschrittsliste nicht geladen: {error}",
+                    "pi: progress list not loaded: {error}"
+                )
+            ),
         }
     }
     if let Some(flag) = &harness.prompt_flag {
@@ -281,12 +340,20 @@ fn wire_pi(
     let Some((client, token)) = login::paired(config)? else {
         if pi::unwire(&prepared.provider, &prepared.instance())? {
             println!(
-                "pi: nicht mehr gekoppelt, die Anbieter über llm.harness sind aus {} entfernt.",
-                pi::MODELS_FILE
+                "{}",
+                tr!(
+                    "pi: nicht mehr gekoppelt, die Anbieter über llm.harness sind aus {} entfernt.",
+                    "pi: no longer paired, the providers through llm.harness are removed from {}.",
+                    pi::MODELS_FILE
+                )
             );
         }
         println!(
-            "pi: nicht mit einem harness-Server gekoppelt, pi nutzt seine eigene Anmeldung (/login)."
+            "{}",
+            tr(
+                "pi: nicht mit einem harness-Server gekoppelt, pi nutzt seine eigene Anmeldung (/login).",
+                "pi: not paired with a harness server, pi uses its own login (/login).",
+            )
         );
         return Ok(None);
     };
@@ -297,8 +364,13 @@ fn wire_pi(
         Ok(credentials) => credentials,
         Err(error) => {
             println!(
-                "pi: {error}. pi startet trotzdem; Anfragen ans Modell klappen erst, wenn der \
-                 harness-Server läuft."
+                "{}",
+                tr!(
+                    "pi: {error}. pi startet trotzdem; Anfragen ans Modell klappen erst, wenn der \
+                     harness-Server läuft.",
+                    "pi: {error}. pi starts anyway; requests to the model only work once the \
+                     harness server runs."
+                )
             );
             return Ok(None);
         }
@@ -313,24 +385,36 @@ fn wire_pi(
         .collect();
     if wired.is_empty() {
         println!(
-            "pi: In der Web-App von {} ist noch kein passender Anbieter hinterlegt.",
-            client.url()
+            "{}",
+            tr!(
+                "pi: In der Web-App von {} ist noch kein passender Anbieter hinterlegt.",
+                "pi: The web app of {} has no matching provider yet.",
+                client.url()
+            )
         );
     } else {
         println!(
-            "pi: Anbieter über {}: {} (Modell wählen mit /model)",
-            client.url(),
-            wired.join(", ")
+            "{}",
+            tr!(
+                "pi: Anbieter über {}: {} (Modell wählen mit /model)",
+                "pi: providers through {}: {} (pick a model with /model)",
+                client.url(),
+                wired.join(", ")
+            )
         );
     }
     for id in &own {
         println!(
-            "  {id}: dein eigener Eintrag in {} hat Vorrang",
-            pi::MODELS_FILE
+            "{}",
+            tr!(
+                "  {id}: dein eigener Eintrag in {} hat Vorrang",
+                "  {id}: your own entry in {} takes precedence",
+                pi::MODELS_FILE
+            )
         );
     }
     for note in &models.skipped {
-        println!("  übersprungen: {note}");
+        println!("{}", tr!("  übersprungen: {note}", "  skipped: {note}"));
     }
     Ok(Some(models))
 }
@@ -360,10 +444,11 @@ fn running_instance(
     let project = project::resolve(config, None)?;
     let provider = PodmanProvider::for_machine(machine)?;
     if instance::state(&provider, &project.name)? != InstanceState::Running {
-        bail!(
+        bail!(tr!(
             "Instanz {} läuft nicht. `harness run` oder `harness shell` startet sie",
+            "Instance {} is not running. `harness run` or `harness shell` starts it",
             project.name.instance()
-        );
+        ));
     }
     Ok((provider, project))
 }
@@ -381,19 +466,54 @@ pub fn sync(config: &ConfigDir, machine: &str, force: bool) -> anyhow::Result<bo
         force,
     )?;
     match outcome {
-        PullOutcome::NoWorkspace => println!("Im Container gibt es noch keine Arbeitskopie."),
-        PullOutcome::NoBranch => println!("Der Agent hat noch nichts auf {branch} committet."),
-        PullOutcome::NothingNew => println!("Keine neuen Commits auf {branch}."),
-        PullOutcome::Imported(ImportOutcome::Unchanged) => println!("{branch} ist schon aktuell."),
+        PullOutcome::NoWorkspace => println!(
+            "{}",
+            tr(
+                "Im Container gibt es noch keine Arbeitskopie.",
+                "There is no working copy in the container yet.",
+            )
+        ),
+        PullOutcome::NoBranch => println!(
+            "{}",
+            tr!(
+                "Der Agent hat noch nichts auf {branch} committet.",
+                "The agent has not committed anything on {branch} yet."
+            )
+        ),
+        PullOutcome::NothingNew => println!(
+            "{}",
+            tr!(
+                "Keine neuen Commits auf {branch}.",
+                "No new commits on {branch}."
+            )
+        ),
+        PullOutcome::Imported(ImportOutcome::Unchanged) => println!(
+            "{}",
+            tr!(
+                "{branch} ist schon aktuell.",
+                "{branch} is up to date already."
+            )
+        ),
         PullOutcome::Imported(ImportOutcome::Updated { to, commits, .. }) => {
             let short: String = to.chars().take(9).collect();
             println!(
-                "{branch} steht jetzt auf {short} ({commits} Commit(s), die sonst kein Branch hat). \
-                 Übernehmen mit `harness merge`."
+                "{}",
+                tr!(
+                    "{branch} steht jetzt auf {short} ({commits} Commit(s), die sonst kein Branch \
+                     hat). Übernehmen mit `harness merge`.",
+                    "{branch} is now at {short} ({commits} commit(s) no other branch has). Take \
+                     them over with `harness merge`."
+                )
             );
         }
         PullOutcome::Imported(ImportOutcome::NeedsFullBundle) => {
-            println!("Der Host konnte das Bundle nicht einlesen. Bitte erneut versuchen.");
+            println!(
+                "{}",
+                tr(
+                    "Der Host konnte das Bundle nicht einlesen. Bitte erneut versuchen.",
+                    "The host could not read the bundle. Please try again.",
+                )
+            );
             return Ok(false);
         }
     }
@@ -408,21 +528,36 @@ fn report_leftovers(provider: &PodmanProvider, project: &Project) -> anyhow::Res
     let branch = project.name.agent_branch();
     if !status.branch.is_empty() && status.branch != branch {
         println!(
-            "Im Container ist Branch {} ausgecheckt, `harness sync` holt nur {branch}.",
-            status.branch
+            "{}",
+            tr!(
+                "Im Container ist Branch {} ausgecheckt, `harness sync` holt nur {branch}.",
+                "Branch {} is checked out in the container, `harness sync` only fetches {branch}.",
+                status.branch
+            )
         );
     }
     if !status.changes.is_empty() {
-        println!("Noch nicht committet im Container (sync holt nur Commits):");
+        println!(
+            "{}",
+            tr(
+                "Noch nicht committet im Container (sync holt nur Commits):",
+                "Not committed yet in the container (sync only fetches commits):",
+            )
+        );
         for change in &status.changes {
             println!("  {change}");
         }
         if status.more {
-            println!("  … und weitere");
+            println!("{}", tr("  … und weitere", "  … and more"));
         }
         println!(
-            "Bitte den Agent, das zu committen, oder committe selbst in `harness shell`. \
-             Danach erneut `harness sync`."
+            "{}",
+            tr(
+                "Bitte den Agent, das zu committen, oder committe selbst in `harness shell`. \
+                 Danach erneut `harness sync`.",
+                "Ask the agent to commit it, or commit yourself in `harness shell`. Then run \
+                 `harness sync` again.",
+            )
         );
     }
     Ok(())
@@ -446,24 +581,52 @@ pub fn merge(config: &ConfigDir, ignore_findings: bool) -> anyhow::Result<bool> 
 pub(crate) fn print_merge(repo: &HostRepo, branch: &str) -> anyhow::Result<bool> {
     match repo.merge(branch)? {
         MergeOutcome::UpToDate => {
-            println!("Alles von {branch} ist schon im aktuellen Branch.");
+            println!(
+                "{}",
+                tr!(
+                    "Alles von {branch} ist schon im aktuellen Branch.",
+                    "Everything from {branch} is in the current branch already."
+                )
+            );
             Ok(false)
         }
         MergeOutcome::FastForward { commits } => {
-            println!("{commits} Commit(s) von {branch} per Fast-Forward übernommen.");
+            println!(
+                "{}",
+                tr!(
+                    "{commits} Commit(s) von {branch} per Fast-Forward übernommen.",
+                    "{commits} commit(s) from {branch} taken over by fast-forward."
+                )
+            );
             Ok(true)
         }
         MergeOutcome::Merged { commits } => {
-            println!("{commits} Commit(s) von {branch} mit Merge-Commit übernommen.");
+            println!(
+                "{}",
+                tr!(
+                    "{commits} Commit(s) von {branch} mit Merge-Commit übernommen.",
+                    "{commits} commit(s) from {branch} taken over with a merge commit."
+                )
+            );
             Ok(true)
         }
         MergeOutcome::Conflict { files } => {
-            println!("Nicht übernommen, der Merge hätte Konflikte in:");
+            println!(
+                "{}",
+                tr(
+                    "Nicht übernommen, der Merge hätte Konflikte in:",
+                    "Not taken over, the merge would have conflicts in:",
+                )
+            );
             for file in files {
                 println!("  {}", sanitize(&file));
             }
             println!(
-                "Dein Arbeitsbaum ist unverändert. Lös den Konflikt z. B. mit `git merge {branch}`."
+                "{}",
+                tr!(
+                    "Dein Arbeitsbaum ist unverändert. Lös den Konflikt z. B. mit `git merge {branch}`.",
+                    "Your working tree is unchanged. Resolve the conflict e.g. with `git merge {branch}`."
+                )
             );
             Ok(false)
         }
@@ -477,9 +640,13 @@ pub fn stop(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
     instance::stop(&provider, &project.name)?;
     gateway::stop(&provider, &project.name)?;
     println!(
-        "{} und {} gestoppt. Arbeitskopie und Home bleiben in den Volumes.",
-        project.name.instance(),
-        project.name.gateway()
+        "{}",
+        tr!(
+            "{} und {} gestoppt. Arbeitskopie und Home bleiben in den Volumes.",
+            "{} and {} stopped. Working copy and home stay in the volumes.",
+            project.name.instance(),
+            project.name.gateway()
+        )
     );
     Ok(true)
 }
@@ -489,15 +656,24 @@ pub fn status(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
     let project = project::resolve(config, None)?;
     let provider = PodmanProvider::for_machine(machine)?;
     let describe = |running: bool, missing: bool| match (running, missing) {
-        (true, _) => "läuft",
-        (false, true) => "nicht angelegt",
-        (false, false) => "gestoppt",
+        (true, _) => tr("läuft", "running"),
+        (false, true) => tr("nicht angelegt", "not created"),
+        (false, false) => tr("gestoppt", "stopped"),
     };
     let instance_state = instance::state(&provider, &project.name)?;
     let gateway_state = gateway::state(&provider, &project.name)?;
-    println!("Projekt {} ({})", project.name, project.path.display());
     println!(
-        "  Instanz:  {} ({})",
+        "{}",
+        tr!(
+            "Projekt {} ({})",
+            "Project {} ({})",
+            project.name,
+            project.path.display()
+        )
+    );
+    println!(
+        "  {}{} ({})",
+        tr("Instanz:  ", "Instance: "),
         project.name.instance(),
         describe(
             instance_state == InstanceState::Running,
@@ -518,7 +694,10 @@ pub fn status(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
         if llm.is_some() {
             note
         } else {
-            format!("{note}; harnesses nutzen ihre eigene Anmeldung")
+            tr!(
+                "{note}; harnesses nutzen ihre eigene Anmeldung",
+                "{note}; harnesses use their own login"
+            )
         }
     );
     println!(

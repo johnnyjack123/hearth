@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 
+use crate::lang::tr;
 use crate::{Error, Result};
 
 /// Key/value labels attached to images, containers, volumes and networks.
@@ -370,7 +371,10 @@ pub fn validate_resource_name(what: &'static str, name: &str) -> Result<()> {
         return Err(Error::invalid(
             what,
             name,
-            "muss 1 bis 63 Zeichen lang sein",
+            tr(
+                "muss 1 bis 63 Zeichen lang sein",
+                "must be 1 to 63 characters long",
+            ),
         ));
     }
     let mut chars = name.chars();
@@ -379,14 +383,20 @@ pub fn validate_resource_name(what: &'static str, name: &str) -> Result<()> {
         return Err(Error::invalid(
             what,
             name,
-            "muss mit einem Buchstaben oder einer Ziffer beginnen",
+            tr(
+                "muss mit einem Buchstaben oder einer Ziffer beginnen",
+                "must start with a letter or a digit",
+            ),
         ));
     }
     if !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) {
         return Err(Error::invalid(
             what,
             name,
-            "darf nur Buchstaben, Ziffern, '_', '.' und '-' enthalten",
+            tr(
+                "darf nur Buchstaben, Ziffern, '_', '.' und '-' enthalten",
+                "may only contain letters, digits, '_', '.' and '-'",
+            ),
         ));
     }
     Ok(())
@@ -395,13 +405,27 @@ pub fn validate_resource_name(what: &'static str, name: &str) -> Result<()> {
 pub(crate) fn validate_image_ref(image: &str) -> Result<()> {
     const WHAT: &str = "Image";
     if image.is_empty() || image.starts_with('-') {
-        return Err(Error::invalid(WHAT, image, "ist leer oder beginnt mit '-'"));
+        return Err(Error::invalid(
+            WHAT,
+            image,
+            tr(
+                "ist leer oder beginnt mit '-'",
+                "is empty or starts with '-'",
+            ),
+        ));
     }
     if !image
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | ':' | '@'))
     {
-        return Err(Error::invalid(WHAT, image, "enthält unzulässige Zeichen"));
+        return Err(Error::invalid(
+            WHAT,
+            image,
+            tr(
+                "enthält unzulässige Zeichen",
+                "contains characters that are not allowed",
+            ),
+        ));
     }
     Ok(())
 }
@@ -410,17 +434,28 @@ pub(crate) fn validate_image_ref(image: &str) -> Result<()> {
 /// inject options into `--mount` arguments.
 pub(crate) fn validate_container_path(what: &'static str, path: &str) -> Result<()> {
     if !path.starts_with('/') {
-        return Err(Error::invalid(what, path, "muss absolut sein"));
+        return Err(Error::invalid(
+            what,
+            path,
+            tr("muss absolut sein", "must be absolute"),
+        ));
     }
     if path.chars().any(|c| c == ',' || c.is_control()) {
         return Err(Error::invalid(
             what,
             path,
-            "darf keine Kommas oder Steuerzeichen enthalten",
+            tr(
+                "darf keine Kommas oder Steuerzeichen enthalten",
+                "must not contain commas or control characters",
+            ),
         ));
     }
     if path.split('/').any(|part| part == "..") {
-        return Err(Error::invalid(what, path, "darf kein '..' enthalten"));
+        return Err(Error::invalid(
+            what,
+            path,
+            tr("darf kein '..' enthalten", "must not contain '..'"),
+        ));
     }
     Ok(())
 }
@@ -435,9 +470,12 @@ pub(crate) fn validate_env_key(key: &str) -> Result<()> {
         Ok(())
     } else {
         Err(Error::invalid(
-            "Umgebungsvariable",
+            tr("Umgebungsvariable", "environment variable"),
             key,
-            "erlaubt sind Buchstaben, Ziffern und '_', nicht am Anfang eine Ziffer",
+            tr(
+                "erlaubt sind Buchstaben, Ziffern und '_', nicht am Anfang eine Ziffer",
+                "letters, digits and '_' are allowed, but no digit at the start",
+            ),
         ))
     }
 }
@@ -449,10 +487,21 @@ pub(crate) fn validate_label(key: &str, value: &str) -> Result<()> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'));
     if !key_valid {
-        return Err(Error::invalid("Label", key, "ungültiger Schlüssel"));
+        return Err(Error::invalid(
+            "Label",
+            key,
+            tr("ungültiger Schlüssel", "invalid key"),
+        ));
     }
     if value.chars().any(char::is_control) {
-        return Err(Error::invalid("Label", value, "Wert enthält Steuerzeichen"));
+        return Err(Error::invalid(
+            "Label",
+            value,
+            tr(
+                "Wert enthält Steuerzeichen",
+                "value contains control characters",
+            ),
+        ));
     }
     Ok(())
 }
@@ -462,9 +511,9 @@ pub(crate) fn validate_memory(memory: &str) -> Result<()> {
     let suffix_len = memory.len() - digits.len();
     if digits.is_empty() || suffix_len > 1 || !digits.chars().all(|c| c.is_ascii_digit()) {
         return Err(Error::invalid(
-            "Speicherlimit",
+            tr("Speicherlimit", "memory limit"),
             memory,
-            "erwartet z. B. 512m oder 2g",
+            tr("erwartet z. B. 512m oder 2g", "expects e.g. 512m or 2g"),
         ));
     }
     Ok(())

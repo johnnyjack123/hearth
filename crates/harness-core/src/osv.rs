@@ -17,8 +17,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use ureq::Agent;
 
+use crate::lang::tr;
 use crate::review::{Dependency, Finding, Severity, excerpt};
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 const QUERY_BATCH: &str = "https://api.osv.dev/v1/querybatch";
 const VULN: &str = "https://api.osv.dev/v1/vulns/";
@@ -81,10 +82,10 @@ pub fn malicious(dependencies: &[Dependency]) -> Result<Vec<Finding>> {
     let answer: Value = agent
         .post(QUERY_BATCH)
         .send_json(json!({ "queries": queries }))
-        .map_err(|e| failed("Abfrage", e))?
+        .map_err(|e| failed(tr("Abfrage", "query"), e))?
         .body_mut()
         .read_json()
-        .map_err(|e| failed("Antwort", e))?;
+        .map_err(|e| failed(tr("Antwort", "answer"), e))?;
     let results = answer["results"].as_array().cloned().unwrap_or_default();
 
     let mut findings = Vec::new();
@@ -126,8 +127,9 @@ pub fn malicious(dependencies: &[Dependency]) -> Result<Vec<Finding>> {
                 rule: "osv-malware",
                 path: dependency.path.clone(),
                 line: Some(dependency.line),
-                message: format!(
+                message: tr!(
                     "„{}“ ist als Schadpaket bekannt ({})",
+                    "“{}” is known as a malicious package ({})",
                     dependency.name,
                     malware.join(", ")
                 ),

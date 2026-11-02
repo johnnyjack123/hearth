@@ -13,7 +13,7 @@ use crate::image::BASE_IMAGE;
 use crate::project::ProjectName;
 use crate::provider::{ContainerSpec, ExecSpec, Mount, MountSource, NetworkSpec, Provider};
 use crate::sync::{HostRepo, MAX_OUT_BUNDLE_BYTES, WORKSPACE, sanitize};
-use crate::{Error, PROJECT_LABEL, Result};
+use crate::{Error, PROJECT_LABEL, Result, tr};
 
 /// Internal network of the check containers; they need no network at all.
 const NETWORK: &str = "harness-rescue";
@@ -183,8 +183,9 @@ fn run(provider: &dyn Provider, container: &str, script: &str, args: &[&str]) ->
         ..ExecSpec::default()
     })?;
     if output.code != 0 {
-        return Err(Error::Sync(format!(
+        return Err(Error::Sync(tr!(
             "Git im Container ist fehlgeschlagen (Exit-Code {}): {}",
+            "Git in the container failed (exit code {}): {}",
             output.code,
             sanitize(output.stderr.trim())
         )));
@@ -201,8 +202,9 @@ fn value<'a>(output: &'a str, key: &str) -> Option<&'a str> {
 }
 
 fn unexpected(output: &str) -> Error {
-    Error::Sync(format!(
+    Error::Sync(tr!(
         "Unerwartete Ausgabe aus dem Container: {}",
+        "Unexpected output from the container: {}",
         sanitize(output.trim())
     ))
 }

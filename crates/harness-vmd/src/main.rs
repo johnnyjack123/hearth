@@ -33,7 +33,13 @@ fn main() {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("harness-vmd gibt es nur unter Windows.");
+    eprintln!(
+        "{}",
+        harness_core::lang::tr(
+            "harness-vmd gibt es nur unter Windows.",
+            "harness-vmd exists only on Windows."
+        )
+    );
     std::process::exit(1);
 }
 
@@ -42,13 +48,18 @@ fn main() {
 fn serve() -> Result<(), String> {
     use std::sync::Mutex;
 
+    use harness_core::tr;
     use harness_core::vmd::{Request, Response, service_dir};
 
     let config = config::Config::load(&service_dir().join("vmd.toml"))?;
     let user_sid = config.user_sid.clone();
     let vm = machine::Vm::new(config);
     vm.prepare_dirs();
-    log::line(&format!("Dienst bereit, Pipe {}", pipe::default_name()));
+    log::line(&tr!(
+        "Dienst bereit, Pipe {}",
+        "Service ready, pipe {}",
+        pipe::default_name()
+    ));
     // One change at a time; `status` does not wait for it.
     let busy = Mutex::new(());
     let handler = move |request: Request| {
@@ -60,7 +71,7 @@ fn serve() -> Result<(), String> {
             | Request::Compact
             | Request::StopIdle => {
                 let _guard = busy.lock().unwrap_or_else(|p| p.into_inner());
-                log::line(&format!("Anfrage: {request:?}"));
+                log::line(&tr!("Anfrage: {request:?}", "Request: {request:?}"));
                 let outcome = match request {
                     Request::Start => vm.start(),
                     Request::Stop => vm.stop(),
@@ -68,7 +79,7 @@ fn serve() -> Result<(), String> {
                     Request::StopIdle => vm.stop_idle(),
                     _ => vm.stop().and_then(|_| vm.start()),
                 };
-                log::line(&format!("Ergebnis: {outcome:?}"));
+                log::line(&tr!("Ergebnis: {outcome:?}", "Outcome: {outcome:?}"));
                 outcome
             }
         };

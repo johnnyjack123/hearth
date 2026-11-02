@@ -22,10 +22,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, bail};
-use harness_core::Provider;
 use harness_core::apps::Inventory;
 use harness_core::config::{ConfigDir, HarnessConfig, Project};
 use harness_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
+use harness_core::lang::tr;
 use harness_core::pi::ExtraModel;
 use harness_core::pi_rpc::{self, Output, Translator};
 use harness_core::podman::PodmanProvider;
@@ -39,6 +39,7 @@ use harness_core::tunnel::{
     ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState,
     VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
 };
+use harness_core::{Provider, tr};
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::http::StatusCode;
 use tungstenite::stream::MaybeTlsStream;
@@ -118,13 +119,18 @@ pub(crate) fn utc_stamp() -> String {
 /// `harness connect`: the connection in this terminal, until Strg+C.
 pub fn connect(config: &ConfigDir, machine: &str) -> anyhow::Result<bool> {
     let Some(instance) = Instance::acquire(config)? else {
-        bail!(
+        bail!(tr(
             "Der Hintergrunddienst hält die Verbindung schon (`harness daemon`). Zum Zuschauen \
-             im Terminal erst `harness daemon stop`."
-        );
+             im Terminal erst `harness daemon stop`.",
+            "The background service already holds the connection (`harness daemon`). To watch \
+             in the terminal, first `harness daemon stop`."
+        ));
     };
     let Some((client, token)) = login::paired(config)? else {
-        bail!("Dieser Rechner ist mit keinem harness-Server gekoppelt: zuerst `harness login`.");
+        bail!(tr(
+            "Dieser Rechner ist mit keinem harness-Server gekoppelt: zuerst `harness login`.",
+            "This computer is not paired with a harness server: first `harness login`."
+        ));
     };
     let ended = keep_connected(
         config,
@@ -143,36 +149,60 @@ pub fn serve_forever(config: &ConfigDir, machine: &str, mode: Mode) -> i32 {
     let instance = match Instance::acquire(config) {
         Ok(Some(instance)) => instance,
         Ok(None) => {
-            say(mode, "Läuft schon (anderer Dienst oder harness connect).");
+            say(
+                mode,
+                tr(
+                    "Läuft schon (anderer Dienst oder harness connect).",
+                    "Already running (another service or harness connect).",
+                ),
+            );
             return 0;
         }
         Err(error) => {
-            say(mode, &format!("Start gescheitert: {error:#}"));
+            say(
+                mode,
+                &tr!("Start gescheitert: {error:#}", "Start failed: {error:#}"),
+            );
             return 1;
         }
     };
     let paired = match login::paired(config) {
         Ok(paired) => paired,
         Err(error) => {
-            say(mode, &format!("Kopplung nicht lesbar: {error:#}"));
+            say(
+                mode,
+                &tr!(
+                    "Kopplung nicht lesbar: {error:#}",
+                    "Pairing not readable: {error:#}"
+                ),
+            );
             return 1;
         }
     };
     let Some((client, token)) = paired else {
         say(
             mode,
-            "Nicht gekoppelt (`harness login`); der Dienst beendet sich.",
+            tr(
+                "Nicht gekoppelt (`harness login`); der Dienst beendet sich.",
+                "Not paired (`harness login`); the service stops.",
+            ),
         );
         return daemon::EXIT_UNPAIRED;
     };
     match keep_connected(config, machine, mode, &instance, &client, &token) {
         Ok(Ended::Stopped) => {
-            say(mode, "Beendet.");
+            say(mode, tr("Beendet.", "Stopped."));
             0
         }
         Ok(_) => daemon::EXIT_UNPAIRED,
         Err(error) => {
-            say(mode, &format!("Beendet mit Fehler: {error:#}"));
+            say(
+                mode,
+                &tr!(
+                    "Beendet mit Fehler: {error:#}",
+                    "Stopped with an error: {error:#}"
+                ),
+            );
             1
         }
     }
@@ -212,7 +242,13 @@ fn keep_connected(
     // Also through the API, so the projects show up while the tunnel is
     // still being built (or cannot be).
     if let Err(error) = client.set_projects(token, &projects) {
-        say(mode, &format!("Projekte nicht gemeldet: {error}"));
+        say(
+            mode,
+            &tr!(
+                "Projekte nicht gemeldet: {error}",
+                "Projects not reported: {error}"
+            ),
+        );
     }
 
     let mut wait = Duration::from_secs(1);
@@ -221,8 +257,12 @@ fn keep_connected(
             Ok(Ended::Revoked) => {
                 say(
                     mode,
-                    "Der Server kennt dieses Gerät nicht mehr (in der Web-App entfernt?). Neu \
-                     koppeln mit `harness login`.",
+                    tr(
+                        "Der Server kennt dieses Gerät nicht mehr (in der Web-App entfernt?). Neu \
+                         koppeln mit `harness login`.",
+                        "The server no longer knows this device (removed in the web app?). Pair \
+                         again with `harness login`.",
+                    ),
                 );
                 shared
                     .status
@@ -231,17 +271,25 @@ fn keep_connected(
             }
             Ok(Ended::Stopped) => return Ok(Ended::Stopped),
             Ok(Ended::Closed) => {
-                say(mode, "Der Server hat die Verbindung beendet.");
+                let closed = tr(
+                    "Der Server hat die Verbindung beendet.",
+                    "The server closed the connection.",
+                );
+                say(mode, closed);
                 shared.status.update(|s| {
                     s.connection = Connection::Offline;
-                    s.error = Some("Der Server hat die Verbindung beendet.".to_owned());
+                    s.error = Some(closed.to_owned());
                 });
                 wait = Duration::from_secs(1);
             }
             Err(error) => {
+                let url = client.url();
                 say(
                     mode,
-                    &format!("Verbindung zu {} unterbrochen: {error:#}", client.url()),
+                    &tr!(
+                        "Verbindung zu {url} unterbrochen: {error:#}",
+                        "Connection to {url} interrupted: {error:#}"
+                    ),
                 );
                 shared.status.update(|s| {
                     s.connection = Connection::Offline;
@@ -249,7 +297,14 @@ fn keep_connected(
                 });
             }
         }
-        say(mode, &format!("Neuer Versuch in {} s …", wait.as_secs()));
+        let seconds = wait.as_secs();
+        say(
+            mode,
+            &tr!(
+                "Neuer Versuch in {seconds} s …",
+                "Trying again in {seconds} s …"
+            ),
+        );
         let deadline = Instant::now() + wait;
         while Instant::now() < deadline {
             if instance.stop_requested() {
@@ -274,7 +329,10 @@ fn tunnel_url(base: &str) -> anyhow::Result<String> {
     } else if let Some(rest) = base.strip_prefix("http://") {
         Ok(format!("ws://{rest}{TUNNEL_PATH}"))
     } else {
-        bail!("Server-Adresse {base} ist weder http:// noch https://")
+        bail!(tr!(
+            "Server-Adresse {base} ist weder http:// noch https://",
+            "Server address {base} is neither http:// nor https://"
+        ))
     }
 }
 
@@ -316,16 +374,23 @@ fn print_offer(mode: Mode, projects: &[RemoteProject]) {
     if projects.is_empty() {
         say(
             mode,
-            "Noch kein Projekt für Web-Chats. Im Projektordner: `harness init`.",
+            tr(
+                "Noch kein Projekt für Web-Chats. Im Projektordner: `harness init`.",
+                "No project for web chats yet. In the project folder: `harness init`.",
+            ),
         );
     } else {
         let names: Vec<String> = projects
             .iter()
             .map(|p| format!("{} ({})", p.name, p.harnesses.join(", ")))
             .collect();
+        let names = names.join(", ");
         say(
             mode,
-            &format!("Für Web-Chats freigegeben: {}", names.join(", ")),
+            &tr!(
+                "Für Web-Chats freigegeben: {names}",
+                "Offered to web chats: {names}"
+            ),
         );
     }
 }
@@ -384,7 +449,10 @@ fn changed_apps(shared: &Shared, projects: &[RemoteProject]) -> Option<AppsRepor
             Ok(inventory) => state.inventory = Some(inventory),
             Err(error) => say(
                 shared.mode,
-                &format!("Apps in der VM nicht gelesen: {error:#}"),
+                &tr!(
+                    "Apps in der VM nicht gelesen: {error:#}",
+                    "Apps in the VM not read: {error:#}"
+                ),
             ),
         }
         state.loaded = Some(Instant::now());
@@ -413,7 +481,9 @@ fn serve(
         {
             return Ok(Ended::Revoked);
         }
-        Err(error) => return Err(error).context("Verbindungsaufbau"),
+        Err(error) => {
+            return Err(error).context(tr("Verbindungsaufbau", "Setting up the connection"));
+        }
     };
     let server_version = match welcome(&mut socket)? {
         Ok(version) => version,
@@ -424,17 +494,21 @@ fn serve(
     if server_version < VERSION_VM_CONTROL {
         say(
             shared.mode,
-            &format!(
+            &tr!(
                 "Der Server spricht noch Protokoll {server_version}: VM-Zustand und -Stopp im \
-                 Browser erst nach einem Update des Servers."
+                 Browser erst nach einem Update des Servers.",
+                "The server still speaks protocol {server_version}: VM state and stopping from \
+                 the browser need an update of the server."
             ),
         );
     } else if server_version > TUNNEL_VERSION {
         say(
             shared.mode,
-            &format!(
+            &tr!(
                 "Der Server spricht Protokoll {server_version}, dieses harness {TUNNEL_VERSION}. \
-                 Neue Funktionen erst nach einem Update von harness."
+                 Neue Funktionen erst nach einem Update von harness.",
+                "The server speaks protocol {server_version}, this harness {TUNNEL_VERSION}. \
+                 New features need an update of harness."
             ),
         );
     }
@@ -454,10 +528,11 @@ fn serve(
     say(
         shared.mode,
         match shared.mode {
-            Mode::Foreground => {
-                "Verbunden. Warte auf Nachrichten aus verknüpften Chats (Beenden: Strg+C)."
-            }
-            Mode::Background => "Verbunden.",
+            Mode::Foreground => tr(
+                "Verbunden. Warte auf Nachrichten aus verknüpften Chats (Beenden: Strg+C).",
+                "Connected. Waiting for messages from linked chats (quit: Ctrl+C).",
+            ),
+            Mode::Background => tr("Verbunden.", "Connected."),
         },
     );
 
@@ -486,7 +561,10 @@ fn serve(
                 }
                 Err(error) => say(
                     shared.mode,
-                    &format!("Unverständliche Nachricht vom Server: {error}"),
+                    &tr!(
+                        "Unverständliche Nachricht vom Server: {error}",
+                        "Message from the server not understood: {error}"
+                    ),
                 ),
             },
             Ok(Message::Close(frame)) => {
@@ -583,10 +661,15 @@ fn welcome(socket: &mut Socket) -> anyhow::Result<Result<u32, Ended>> {
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) => {}
             Err(tungstenite::Error::ConnectionClosed) => return Ok(Err(Ended::Closed)),
-            Err(error) => return Err(error).context("Begrüßung des Servers"),
+            Err(error) => {
+                return Err(error).context(tr("Begrüßung des Servers", "Greeting of the server"));
+            }
         }
     }
-    bail!("Der Server hat nicht gegrüßt.")
+    bail!(tr(
+        "Der Server hat nicht gegrüßt.",
+        "The server did not greet."
+    ))
 }
 
 /// Opens the tunnel. With `[server] ca` only that CA counts for an
@@ -624,9 +707,12 @@ fn open(url: &str, ca: Option<&ServerCa>, token: &str) -> Result<Socket, tungste
             )
             .map_err(|e| match e {
                 tungstenite::HandshakeError::Failure(error) => error,
-                tungstenite::HandshakeError::Interrupted(_) => tungstenite::Error::Io(
-                    io::Error::new(io::ErrorKind::WouldBlock, "TLS-Handshake unterbrochen"),
-                ),
+                tungstenite::HandshakeError::Interrupted(_) => {
+                    tungstenite::Error::Io(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        tr("TLS-Handshake unterbrochen", "TLS handshake interrupted"),
+                    ))
+                }
             })?
             .0
         }
@@ -722,7 +808,10 @@ fn dispatch(
                 Ok(None) => {}
                 Err(error) => say(
                     shared.mode,
-                    &format!("Eigene Programme vom Server nicht gespeichert: {error:#}"),
+                    &tr!(
+                        "Eigene Programme vom Server nicht gespeichert: {error:#}",
+                        "Custom programs from the server not saved: {error:#}"
+                    ),
                 ),
             }
             // The catalog may have changed; the browser lists it per device.
@@ -852,7 +941,7 @@ fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: Ta
             .title
             .as_deref()
             .map(sanitize)
-            .unwrap_or_else(|| "ohne Titel".to_owned());
+            .unwrap_or_else(|| tr("ohne Titel", "untitled").to_owned());
         let report = takeover::takeover(
             &shared.config,
             &shared.machine,
@@ -865,9 +954,13 @@ fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: Ta
                 });
             },
         );
+        let outcome = outcome(&report);
         say(
             shared.mode,
-            &format!("Chat „{title}“: Übernehmen {}", outcome(&report)),
+            &tr!(
+                "Chat „{title}“: Übernehmen {outcome}",
+                "Chat “{title}”: takeover {outcome}"
+            ),
         );
         if let Ok(project) = shared.config.project(&name)
             && let Some(event) = workspace_event(&shared, &project)
@@ -896,20 +989,26 @@ fn workspace_event(shared: &Shared, project: &Project) -> Option<AgentEvent> {
 /// How a takeover ended, for the log.
 fn outcome(report: &TakeoverReport) -> String {
     match report.state {
-        TakeoverState::Merged => format!(
+        TakeoverState::Merged => tr!(
             "fertig, {} Commit(s) in {}",
+            "done, {} commit(s) in {}",
             report.commits.unwrap_or(0),
             report.branch.as_deref().unwrap_or("?")
         ),
-        TakeoverState::UpToDate => "fertig, nichts Neues".to_owned(),
-        TakeoverState::Held => format!(
+        TakeoverState::UpToDate => tr("fertig, nichts Neues", "done, nothing new").to_owned(),
+        TakeoverState::Held => tr!(
             "angehalten (schwere Funde), Freigabe mit harness merge --approve {}",
+            "held (severe findings), approve with harness merge --approve {}",
             report.request.as_deref().unwrap_or("?")
         ),
-        TakeoverState::Conflict => "angehalten, Konflikte".to_owned(),
-        TakeoverState::Refused | TakeoverState::Failed | TakeoverState::Running => format!(
+        TakeoverState::Conflict => tr("angehalten, Konflikte", "held, conflicts").to_owned(),
+        TakeoverState::Refused | TakeoverState::Failed | TakeoverState::Running => tr!(
             "nicht möglich: {}",
-            report.reason.as_deref().unwrap_or("unbekannt")
+            "not possible: {}",
+            report
+                .reason
+                .as_deref()
+                .unwrap_or(tr("unbekannt", "unknown"))
         ),
     }
 }
@@ -978,7 +1077,16 @@ impl StopFrom {
 fn stop_vm_now(shared: &Shared, from: StopFrom) -> (bool, String) {
     say(
         shared.mode,
-        &format!("VM wird gestoppt (aus {}).", from.text("dem", "der")),
+        match from {
+            StopFrom::Browser => tr(
+                "VM wird gestoppt (aus dem Browser).",
+                "Stopping the VM (from the browser).",
+            ),
+            StopFrom::Tray => tr(
+                "VM wird gestoppt (aus der Taskleiste).",
+                "Stopping the VM (from the taskbar).",
+            ),
+        },
     );
     shared.idle.show(VmStatus::Stopping);
     shared.status.update(|s| {
@@ -989,7 +1097,10 @@ fn stop_vm_now(shared: &Shared, from: StopFrom) -> (bool, String) {
         Ok(message) => (true, message),
         Err(error) => (false, format!("{error:#}")),
     };
-    say(shared.mode, &format!("VM-Stopp: {message}"));
+    say(
+        shared.mode,
+        &tr!("VM-Stopp: {message}", "VM stop: {message}"),
+    );
     shared.idle.wake();
     (ok, message)
 }
@@ -1054,6 +1165,10 @@ impl ChatProgress<'_> {
 }
 
 impl Progress for ChatProgress<'_> {
+    fn lang(&self) -> harness_core::lang::Lang {
+        harness_core::lang::Lang::De
+    }
+
     fn start(&self, id: &str, label: &str) {
         lock(&self.steps).insert(id.to_owned(), (label.to_owned(), Instant::now()));
         self.event(id, label, ProgressState::Running, None);
@@ -1064,9 +1179,14 @@ impl Progress for ChatProgress<'_> {
             return;
         };
         let took = format!("{:.1} s", started.elapsed().as_secs_f32());
+        let title = &self.title;
+        // The label stays German: it is the chat's.
         say(
             self.mode,
-            &format!("Chat „{}“: {label} ✓ ({took})", self.title),
+            &tr!(
+                "Chat „{title}“: {label} ✓ ({took})",
+                "Chat “{title}”: {label} ✓ ({took})"
+            ),
         );
         self.event(id, &label, ProgressState::Done, Some(took));
     }
@@ -1075,9 +1195,13 @@ impl Progress for ChatProgress<'_> {
         let label = lock(&self.steps)
             .remove(id)
             .map_or_else(|| id.to_owned(), |(label, _)| label);
+        let title = &self.title;
         say(
             self.mode,
-            &format!("Chat „{}“: {label} ✗ {error}", self.title),
+            &tr!(
+                "Chat „{title}“: {label} ✗ {error}",
+                "Chat “{title}”: {label} ✗ {error}"
+            ),
         );
         self.event(
             id,
@@ -1109,7 +1233,7 @@ fn session(
             .conversation
             .title
             .clone()
-            .unwrap_or_else(|| "ohne Titel".to_owned()),
+            .unwrap_or_else(|| tr("ohne Titel", "untitled").to_owned()),
     );
     // The message pi has yet to get; a summary asked for comes first.
     let mut next = (!compact).then(|| first.clone());
@@ -1119,7 +1243,10 @@ fn session(
             Ok(Some(agent)) => agent,
             Ok(None) => return,
             Err(error) => {
-                say(shared.mode, &format!("Chat „{title}“: {error:#}"));
+                say(
+                    shared.mode,
+                    &tr!("Chat „{title}“: {error:#}", "Chat “{title}”: {error:#}"),
+                );
                 emit.closed(Some(format!(
                     "Start auf dem Rechner gescheitert: {error:#}"
                 )));
@@ -1128,9 +1255,11 @@ fn session(
         };
         say(
             shared.mode,
-            &format!(
+            &tr!(
                 "Chat „{title}“: {} läuft im Projekt {}.",
-                agent.harness.name, agent.project.name
+                "Chat “{title}”: {} runs in project {}.",
+                agent.harness.name,
+                agent.project.name
             ),
         );
         if std::mem::take(&mut compact) {
@@ -1143,15 +1272,22 @@ fn session(
         .or_else(|| agent.serve(shared, commands));
         agent.stop();
         let Some((prompt, model)) = restart else {
-            say(shared.mode, &format!("Chat „{title}“: Sitzung beendet."));
+            say(
+                shared.mode,
+                &tr!(
+                    "Chat „{title}“: Sitzung beendet.",
+                    "Chat “{title}”: session ended."
+                ),
+            );
             return;
         };
         // pi reads models.json only when it starts.
+        let model_id = sanitize(&model.model_id);
         say(
             shared.mode,
-            &format!(
-                "Chat „{title}“: pi kennt das Modell {} nicht, es kommt in models.json, pi startet neu.",
-                sanitize(&model.model_id)
+            &tr!(
+                "Chat „{title}“: pi kennt das Modell {model_id} nicht, es kommt in models.json, pi startet neu.",
+                "Chat “{title}”: pi does not know the model {model_id}; adding it to models.json and restarting pi."
             ),
         );
         emit.event(AgentEvent::notice(
@@ -1368,24 +1504,27 @@ fn confirmed_here(shared: &Shared, name: &ProjectName, prompt: &Prompt) -> anyho
         .title
         .as_deref()
         .map(sanitize)
-        .unwrap_or_else(|| "ohne Titel".to_owned());
-    let question = format!(
+        .unwrap_or_else(|| tr("ohne Titel", "untitled").to_owned());
+    let question = tr!(
         "\nChat „{title}“ möchte im Projekt {} mit {} arbeiten.\n\
          Erste Nachricht: {}\n\
          Erlauben? Der Chat wird gemerkt und fragt nicht wieder. [j/n] ",
+        "\nChat “{title}” wants to work in project {} with {}.\n\
+         First message: {}\n\
+         Allow? The chat is remembered and does not ask again. [y/n] ",
         prompt.project,
         prompt.harness,
         sanitize(&prompt.text.chars().take(200).collect::<String>())
     );
     let Some(answer) = shared.console.ask(&question) else {
-        println!("Keine Antwort, abgelehnt.");
+        println!("{}", tr("Keine Antwort, abgelehnt.", "No answer, refused."));
         return Ok(false);
     };
     if !matches!(
         answer.trim().to_lowercase().as_str(),
         "j" | "ja" | "y" | "yes"
     ) {
-        println!("Abgelehnt.");
+        println!("{}", tr("Abgelehnt.", "Refused."));
         return Ok(false);
     }
     shared
@@ -1838,8 +1977,9 @@ impl Agent {
         }
         say(
             shared.mode,
-            &format!(
+            &tr!(
                 "Projekt {}: Autosync {}",
+                "Project {}: autosync {}",
                 self.project.name,
                 outcome(&report)
             ),

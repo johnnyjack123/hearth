@@ -9,7 +9,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
-use crate::{Error, Result};
+use crate::lang::tr;
+use crate::{Error, Result, tr};
 
 /// Upper bound for the header (signature, capabilities, prerequisites, refs).
 const MAX_HEADER_BYTES: u64 = 4 * 1024 * 1024;
@@ -26,10 +27,14 @@ pub struct BundleHeader {
 impl BundleHeader {
     /// Reads and validates the header of the bundle at `path`.
     pub fn read(path: &Path) -> Result<Self> {
-        let file =
-            File::open(path).map_err(|e| Error::io(format!("{} öffnen", path.display()), e))?;
+        let file = File::open(path)
+            .map_err(|e| Error::io(tr!("{} öffnen", "opening {}", path.display()), e))?;
         Self::parse(BufReader::new(file.take(MAX_HEADER_BYTES))).map_err(|reason| {
-            Error::Sync(format!("Bundle {} ist ungültig: {reason}", path.display()))
+            Error::Sync(tr!(
+                "Bundle {} ist ungültig: {reason}",
+                "Bundle {} is invalid: {reason}",
+                path.display()
+            ))
         })
     }
 
@@ -48,24 +53,28 @@ impl BundleHeader {
             line.clear();
             let read = reader
                 .read_line(line)
-                .map_err(|e| format!("Lesefehler: {e}"))?;
+                .map_err(|e| tr!("Lesefehler: {e}", "read error: {e}"))?;
             if read == 0 {
                 return Ok(false);
             }
             if !line.ends_with('\n') {
-                return Err("Kopf unvollständig oder zu groß".to_owned());
+                return Err(tr(
+                    "Kopf unvollständig oder zu groß",
+                    "header incomplete or too large",
+                )
+                .to_owned());
             }
             line.pop();
             Ok(true)
         };
 
         if !next_line(&mut line)? {
-            return Err("leere Datei".to_owned());
+            return Err(tr("leere Datei", "empty file").to_owned());
         }
         let v3 = match line.as_str() {
             "# v2 git bundle" => false,
             "# v3 git bundle" => true,
-            _ => return Err("keine Git-Bundle-Signatur".to_owned()),
+            _ => return Err(tr("keine Git-Bundle-Signatur", "no git bundle signature").to_owned()),
         };
 
         let mut header = BundleHeader {
@@ -74,7 +83,11 @@ impl BundleHeader {
         };
         loop {
             if !next_line(&mut line)? {
-                return Err("Kopf endet ohne Leerzeile".to_owned());
+                return Err(tr(
+                    "Kopf endet ohne Leerzeile",
+                    "header ends without an empty line",
+                )
+                .to_owned());
             }
             if line.is_empty() {
                 break;
@@ -86,7 +99,10 @@ impl BundleHeader {
                     || !(capability.starts_with("object-format=")
                         || capability.starts_with("filter="))
                 {
-                    return Err(format!("unbekannte Fähigkeit @{capability}"));
+                    return Err(tr!(
+                        "unbekannte Fähigkeit @{capability}",
+                        "unknown capability @{capability}"
+                    ));
                 }
                 continue;
             }
@@ -97,9 +113,12 @@ impl BundleHeader {
             }
             let (oid, name) = line
                 .split_once(' ')
-                .ok_or_else(|| format!("ungültige Zeile {line:?}"))?;
+                .ok_or_else(|| tr!("ungültige Zeile {line:?}", "invalid line {line:?}"))?;
             if name.is_empty() || name.chars().any(|c| c.is_control() || c == ' ') {
-                return Err(format!("ungültiger Ref-Name {name:?}"));
+                return Err(tr!(
+                    "ungültiger Ref-Name {name:?}",
+                    "invalid ref name {name:?}"
+                ));
             }
             header
                 .refs
@@ -116,7 +135,10 @@ fn valid_oid(oid: &str) -> Result<&str, String> {
     if hex && (oid.len() == 40 || oid.len() == 64) {
         Ok(oid)
     } else {
-        Err(format!("ungültige Objekt-ID {oid:?}"))
+        Err(tr!(
+            "ungültige Objekt-ID {oid:?}",
+            "invalid object ID {oid:?}"
+        ))
     }
 }
 

@@ -24,7 +24,7 @@ use crate::provider::{
     VolumeSpec,
 };
 use crate::sync::sanitize;
-use crate::{Error, PROJECT_LABEL, Result};
+use crate::{Error, PROJECT_LABEL, Result, tr};
 
 /// Helpers every recipe gets, run before its `install`.
 const LIB: &str = include_str!("../defaults/apps/lib.sh");
@@ -274,9 +274,11 @@ fn run_installer(
     let container = installer_name(app);
     match provider.container(&container)? {
         Some(info) if info.status == ContainerStatus::Running => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "{} wird gerade schon installiert (Container {container}); bitte warten und \
                  dann erneut starten",
+                "{} is being installed already (container {container}); please wait and \
+                 then start again",
                 app.title
             )));
         }
@@ -326,9 +328,11 @@ fn run_installer(
     let result = provider.start_container(&container).and_then(|()| {
         if let Some((file, target)) = &program {
             if !file.host.is_file() {
-                return Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(tr!(
                     "Die freigegebene Datei von {} fehlt ({}); bitte mit harness app add neu \
                      freigeben",
+                    "The approved file of {} is missing ({}); please approve it again with \
+                     harness app add",
                     app.title,
                     file.host.display()
                 )));
@@ -340,8 +344,9 @@ fn run_installer(
         let script = format!("{LIB}\n{}\n", app.install);
         let code = provider.exec(&exec(vec!["sh".into(), "-c".into(), script]))?;
         if code != 0 {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Installation von {} fehlgeschlagen (Exit-Code {code})",
+                "Installation of {} failed (exit code {code})",
                 app.title
             )));
         }
@@ -397,9 +402,11 @@ pub fn environment<'a>(
             if let Some(existing) = env.get(&key)
                 && *existing != value
             {
-                return Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(tr!(
                     "{} und {} setzen {key} verschieden; eine von beiden ausschalten",
-                    owners[&key], app.title
+                    "{} and {} set {key} differently; switch one of them off",
+                    owners[&key],
+                    app.title
                 )));
             }
             owners.insert(key.clone(), &app.title);

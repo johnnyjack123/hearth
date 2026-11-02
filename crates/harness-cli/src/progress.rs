@@ -7,6 +7,8 @@ use std::io::Write as _;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use harness_core::lang::{self, Lang};
+
 /// Receives the steps of a long preparation.
 pub trait Progress: Sync {
     /// A step starts.
@@ -15,6 +17,11 @@ pub trait Progress: Sync {
     fn done(&self, id: &str);
     /// The step failed.
     fn failed(&self, id: &str, error: &str);
+    /// Language of the labels: the terminal follows Windows, the web chat
+    /// keeps German labels until the web app translates the steps itself.
+    fn lang(&self) -> Lang {
+        lang::current()
+    }
 }
 
 /// Runs `work` as step `id` and reports it to `progress`.

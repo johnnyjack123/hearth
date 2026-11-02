@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::bail;
 use harness_core::config::ConfigDir;
+use harness_core::lang::tr;
+use harness_core::tr;
 
 /// Exit code of `harness daemon run` when reconnecting makes no sense
 /// (not paired, device removed); the launcher then stops too.
@@ -282,10 +284,11 @@ fn launcher() -> anyhow::Result<PathBuf> {
         "harnessd"
     });
     if !launcher.exists() {
-        bail!(
+        bail!(tr!(
             "{} fehlt neben harness. Mit `cargo build` entsteht es mit.",
+            "{} is missing next to harness. `cargo build` builds it as well.",
             launcher.display()
-        );
+        ));
     }
     Ok(launcher)
 }
@@ -342,10 +345,12 @@ pub fn stop(config: &ConfigDir) -> bool {
 /// Starts the service at logon from now on and right away.
 pub fn install(config: &ConfigDir) -> anyhow::Result<bool> {
     if !automatic() {
-        bail!(
+        bail!(tr(
             "Der Autostart gilt nur für ~/.harness. Mit HARNESS_HOME `harness daemon start` \
-             oder `harness connect` nutzen"
-        );
+             oder `harness connect` nutzen",
+            "The autostart only applies to ~/.harness. With HARNESS_HOME, use `harness daemon \
+             start` or `harness connect`"
+        ));
     }
     let launcher = launcher()?;
     #[cfg(windows)]
@@ -384,21 +389,36 @@ pub fn log_tail(path: &Path, lines: usize) -> Vec<String> {
         .collect()
 }
 
-/// Commands of `harness daemon`.
+/// Commands of `harness daemon`. The help texts follow the user's
+/// language, so they are attributes rather than doc comments.
 #[derive(clap::Subcommand)]
 pub enum DaemonCommand {
-    /// Zeigt, ob der Dienst läuft, den Autostart und das Ende des Protokolls (Standard)
+    #[command(about = tr(
+        "Zeigt, ob der Dienst läuft, den Autostart und das Ende des Protokolls (Standard)",
+        "Shows whether the service runs, the autostart and the end of the log (default)"
+    ))]
     Status,
-    /// Startet den Dienst im Hintergrund
+    #[command(about = tr(
+        "Startet den Dienst im Hintergrund",
+        "Starts the service in the background"
+    ))]
     Start,
-    /// Beendet den Dienst
+    #[command(about = tr("Beendet den Dienst", "Stops the service"))]
     Stop,
-    /// Startet den Dienst ab jetzt bei jeder Anmeldung (ohne Admin)
+    #[command(about = tr(
+        "Startet den Dienst ab jetzt bei jeder Anmeldung (ohne Admin)",
+        "Starts the service at every sign-in from now on (without admin)"
+    ))]
     Install,
-    /// Beendet den Dienst und entfernt den Autostart
+    #[command(about = tr(
+        "Beendet den Dienst und entfernt den Autostart",
+        "Stops the service and removes the autostart"
+    ))]
     Uninstall,
-    /// Der Dienst selbst; startet harnessd.exe, nicht von Hand aufrufen
-    #[command(hide = true)]
+    #[command(hide = true, about = tr(
+        "Der Dienst selbst; startet harnessd.exe, nicht von Hand aufrufen",
+        "The service itself; started by harnessd.exe, do not call by hand"
+    ))]
     Run,
 }
 
@@ -418,9 +438,12 @@ pub fn run(
             println!(
                 "{}",
                 if ok {
-                    "Hintergrunddienst läuft."
+                    tr("Hintergrunddienst läuft.", "Background service is running.")
                 } else {
-                    "Hintergrunddienst startet nicht, siehe `harness daemon`."
+                    tr(
+                        "Hintergrunddienst startet nicht, siehe `harness daemon`.",
+                        "Background service does not start, see `harness daemon`.",
+                    )
                 }
             );
             Ok(ok)
@@ -430,9 +453,12 @@ pub fn run(
             println!(
                 "{}",
                 if ok {
-                    "Hintergrunddienst beendet."
+                    tr("Hintergrunddienst beendet.", "Background service stopped.")
                 } else {
-                    "Hintergrunddienst reagiert nicht."
+                    tr(
+                        "Hintergrunddienst reagiert nicht.",
+                        "Background service does not respond.",
+                    )
                 }
             );
             Ok(ok)
@@ -440,18 +466,30 @@ pub fn run(
         DaemonCommand::Install => {
             let ok = install(config)?;
             println!(
-                "Autostart eingerichtet. Der Dienst {}.",
+                "{}",
                 if ok {
-                    "läuft"
+                    tr(
+                        "Autostart eingerichtet. Der Dienst läuft.",
+                        "Autostart set up. The service is running.",
+                    )
                 } else {
-                    "startet nicht, siehe `harness daemon`"
+                    tr(
+                        "Autostart eingerichtet. Der Dienst startet nicht, siehe `harness daemon`.",
+                        "Autostart set up. The service does not start, see `harness daemon`.",
+                    )
                 }
             );
             Ok(ok)
         }
         DaemonCommand::Uninstall => {
             let ok = uninstall(config);
-            println!("Autostart entfernt, Dienst beendet.");
+            println!(
+                "{}",
+                tr(
+                    "Autostart entfernt, Dienst beendet.",
+                    "Autostart removed, service stopped.",
+                )
+            );
             Ok(ok)
         }
         DaemonCommand::Run => {
@@ -479,16 +517,23 @@ pub fn run(
 
 fn status(config: &ConfigDir) {
     println!(
-        "Hintergrunddienst: {}",
+        "{} {}",
+        tr("Hintergrunddienst:", "Background service:"),
         if running(config) {
-            "läuft"
+            tr("läuft", "running")
         } else {
-            "läuft nicht"
+            tr("läuft nicht", "not running")
         }
     );
     match autostart() {
         Some(command) => println!("Autostart: {command}"),
-        None => println!("Autostart: aus (`harness daemon install`)"),
+        None => println!(
+            "{}",
+            tr(
+                "Autostart: aus (`harness daemon install`)",
+                "Autostart: off (`harness daemon install`)",
+            )
+        ),
     }
     let log = log_path(config);
     let tail = log_tail(&log, 15);

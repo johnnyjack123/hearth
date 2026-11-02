@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::model::{AppConfig, AppSource, DomainPattern, Validate};
+use crate::lang::tr;
+use crate::tr;
 
 /// Most packages a template names.
 pub const MAX_PACKAGES: usize = 20;
@@ -54,7 +56,7 @@ impl AppKind {
             AppKind::Apt => "apt",
             AppKind::Npm => "npm",
             AppKind::Pip => "pip",
-            AppKind::Script => "Skript",
+            AppKind::Script => tr("Skript", "script"),
         }
     }
 }
@@ -95,7 +97,10 @@ impl AppTemplate {
         let install = match self.kind {
             AppKind::Script => {
                 if self.script.len() > MAX_SCRIPT {
-                    return Err(format!("script: höchstens {MAX_SCRIPT} Zeichen"));
+                    return Err(tr!(
+                        "script: höchstens {MAX_SCRIPT} Zeichen",
+                        "script: at most {MAX_SCRIPT} characters"
+                    ));
                 }
                 self.script.clone()
             }
@@ -150,7 +155,10 @@ impl AppTemplate {
             return Ok(Vec::new());
         }
         if self.packages.is_empty() || self.packages.len() > MAX_PACKAGES {
-            return Err(format!("packages: 1 bis {MAX_PACKAGES} Pakete"));
+            return Err(tr!(
+                "packages: 1 bis {MAX_PACKAGES} Pakete",
+                "packages: 1 to {MAX_PACKAGES} packages"
+            ));
         }
         for package in &self.packages {
             let valid = package.len() <= MAX_PACKAGE_LEN
@@ -161,8 +169,9 @@ impl AppTemplate {
                     AppKind::Script => true,
                 };
             if !valid {
-                return Err(format!(
+                return Err(tr!(
                     "packages: {package:?} ist kein gültiges {}-Paket",
+                    "packages: {package:?} is not a valid {} package",
                     self.kind.label()
                 ));
             }
