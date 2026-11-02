@@ -113,6 +113,18 @@ export function ServerPanel() {
               />
               <Separator />
               <SettingRow
+                label={t('admin.progress')}
+                description={t('admin.progressHint')}
+                control={
+                  <Switch
+                    aria-label={t('admin.progress')}
+                    checked={settings.data.progress}
+                    onCheckedChange={(checked) => update.mutate({ progress: checked })}
+                  />
+                }
+              />
+              <Separator />
+              <SettingRow
                 label={t('admin.openRouterCheapest')}
                 description={t('admin.openRouterCheapestHint')}
                 control={

@@ -52,6 +52,7 @@ import { createWebSearchTool } from '../websearch/tool.ts';
 import { type Calculator, CalculatorError } from '../calculator/engine.ts';
 import { calculatorText, createCalculatorTool } from '../calculator/tool.ts';
 import { createMemoryTools, MEMORY_INSTRUCTIONS, MemoryError, memoryText } from '../memory/tool.ts';
+import { createProgressTool, PROGRESS_INSTRUCTIONS, PROGRESS_TOOL, type ProgressOutput, progressText } from '../progress/tool.ts';
 
 const INSTRUCTIONS = [
   'You are a helpful assistant inside LLM Harness, a self-hosted chat application.',
@@ -236,6 +237,7 @@ const WEB_SEARCH_PART = `tool-${WEB_SEARCH_TOOL}`;
 const CALCULATOR_PART = `tool-${CALCULATOR_TOOL}`;
 const REMEMBER_PART = `tool-${REMEMBER_TOOL}`;
 const FORGET_PART = `tool-${FORGET_TOOL}`;
+const PROGRESS_PART = `tool-${PROGRESS_TOOL}`;
 
 /**
  * Models guess at arithmetic; the calculator does not. Part of the system
@@ -261,6 +263,9 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
   if (part.type === CALCULATOR_PART) {
     const outcome = error ?? (output ? calculatorText(output as unknown as CalculatorOutput) : '');
     return `[Earlier, calculate${outcome ? `: ${shorten(outcome)}` : ''}]`;
+  }
+  if (part.type === PROGRESS_PART) {
+    return `[Earlier, progress${output ? `: ${progressText(output as unknown as ProgressOutput)}` : ''}]`;
   }
   if (part.type === REMEMBER_PART || part.type === FORGET_PART) {
     const verb = part.type === REMEMBER_PART ? 'Remembered' : 'Forgot';
@@ -460,6 +465,8 @@ export interface StreamChatOptions {
   files: FileStore;
   /** Whose memories the model may change; null when an admin switched the memory off. */
   memory?: { userId: string } | null;
+  /** The progress list for tasks with several steps; off when an admin switched it off. */
+  progress?: boolean;
 }
 
 /**
@@ -547,9 +554,12 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }, options.assess ? assessor(helpers, abortSignal) : null) } : {}),
     ...(options.calculator ? { [CALCULATOR_TOOL]: createCalculatorTool(options.calculator) } : {}),
     ...(options.memory ? createMemoryTools(db, options.memory.userId, conversationId) : {}),
+    ...(options.progress ? { [PROGRESS_TOOL]: createProgressTool() } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
-  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL].filter((name) => !(name in tools)));
+  const missing = new Set(
+    [WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL, PROGRESS_TOOL].filter((name) => !(name in tools)),
+  );
   const instructions = [
     INSTRUCTIONS,
     NOTE_INSTRUCTIONS,
@@ -557,6 +567,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(search ? [researchInstructions(webFetch !== null)] : []),
     ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),
     ...(options.memory ? [MEMORY_INSTRUCTIONS] : []),
+    ...(options.progress ? [PROGRESS_INSTRUCTIONS] : []),
   ].join(' ');
 
   /**

@@ -161,7 +161,10 @@ function AssistantMessage({
         if (part.type === 'reasoning' && part.text.trim()) {
           return <Reasoning key={index} text={part.text} streaming={streaming && part.state === 'streaming'} />;
         }
-        if (part.type === 'dynamic-tool' && part.toolName === PROGRESS_TOOL && part.state !== 'output-error') {
+        if (
+          ((part.type === 'dynamic-tool' && part.toolName === PROGRESS_TOOL) || part.type === `tool-${PROGRESS_TOOL}`) &&
+          part.state !== 'output-error'
+        ) {
           const items = readChecklist(part.input);
           if (items) {
             return <ChecklistUpdate key={part.toolCallId} items={items} live={streaming} />;

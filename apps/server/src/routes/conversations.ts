@@ -574,6 +574,7 @@ export function conversationRoutes(deps: AppDeps) {
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
         files,
         memory: settings.memory ? { userId: user.id } : null,
+        progress: settings.progress,
       });
     })
     // Summarizes the chat now, on the user's request: everything but the

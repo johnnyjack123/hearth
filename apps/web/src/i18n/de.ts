@@ -278,7 +278,7 @@ export const de = {
       pending: 'offen',
       show: 'Liste zeigen',
       hide: 'Liste verbergen',
-      hint: 'Der Agent führt diese Liste selbst und hakt ab, was er erledigt hat.',
+      hint: 'Das Modell führt diese Liste selbst und hakt ab, was es erledigt hat.',
     },
     progressFailed: 'Fehlgeschlagen',
     showDetails: 'Details zeigen',
@@ -833,6 +833,9 @@ export const de = {
     memory: 'Gedächtnis',
     memoryHint:
       'Chat-Modelle und Agents dürfen sich auf Wunsch der Nutzer Vorlieben und Fakten merken, die dann in jedem Chat gelten. Jeder Nutzer sieht und bearbeitet sein Gedächtnis in den Einstellungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    progress: 'Fortschrittsliste',
+    progressHint:
+      'Bei Aufgaben mit mehreren Schritten zeigt das Modell in normalen Chats seinen Plan als Liste über dem Eingabefeld und hakt ab, was erledigt ist. Ausschalten, falls ein Modell keine Werkzeuge kann.',
     openRouterCheapest: 'OpenRouter: immer der günstigste Anbieter',
     openRouterCheapestHint:
       'Jede Anfrage geht zuerst an den Anbieter, der das Modell gerade am günstigsten rechnet, mit Rabatten, Cache-Preisen und Tageszeit. Fällt er aus, folgen die nächstgünstigen. Aus: OpenRouter entscheidet selbst.',

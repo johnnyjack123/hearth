@@ -30,6 +30,7 @@ const DEFAULTS: ServerSettings = {
   openRouterCheapest: true,
   openRouterNoFourBit: false,
   memory: true,
+  progress: true,
   search: {
     provider: 'off',
     searxngUrl: null,

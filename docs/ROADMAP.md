@@ -498,7 +498,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
 - ✅ **Fortschrittsliste des Agents im Chat** (Idee des Nutzers 30.10., gebaut 31.10.): pi bekommt in Web-Chats das Werkzeug `progress` (`pi/progress.ts`) und schickt jedes Mal die ganze Liste; der Chat zeigt die aktuelle über dem Eingabefeld mit Balken, jede Aktualisierung als eine Zeile in der Antwort. Kosten: Beschreibung ~150 Token im Cache, je Aktualisierung einige Dutzend Ausgabe-Token.
-  - Offen: dasselbe Werkzeug für das Chat-Modell in normalen Chats (kostet in jedem Chat die Werkzeugbeschreibung).
+  - ✅ Dasselbe Werkzeug für das Chat-Modell in normalen Chats (2.11., Admin-Schalter „Fortschrittsliste“; die Beschreibung kostet in jedem Chat ~150 Token im Cache).
 - ✅ **Dauer je Werkzeugaufruf** (31.10.): jede Werkzeugkarte zeigt die Laufzeit, live hochzählend, danach gespeichert (`metadata.toolMs`).
 - **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.harness/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
 - ✅ **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., gebaut 2.11.; Umsetzung in CLAUDE.md, Stolpersteine „Gedächtnis“): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.

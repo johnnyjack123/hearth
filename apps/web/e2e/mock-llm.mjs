@@ -122,6 +122,26 @@ function calculatorStep(payload) {
 }
 
 /**
+ * Shows a plan with the progress tool for "Plane: a; b; c" (the first step
+ * done, the second active), then answers.
+ */
+function progressStep(payload) {
+  if (!payload.tools?.some((tool) => tool.function?.name === 'progress')) {
+    return null;
+  }
+  const last = payload.messages?.at(-1);
+  const plan = last?.role === 'user' ? /Plane: (.+)$/.exec(textOf(last.content))?.[1] : undefined;
+  if (plan) {
+    const items = plan.split(';').map((step, index) => ({ text: step.trim(), state: index === 0 ? 'done' : index === 1 ? 'active' : 'pending' }));
+    return { call: { name: 'progress', input: { items } } };
+  }
+  if (last?.role === 'tool' && textOf(last.content).startsWith('Shown: ')) {
+    return { text: 'Ich arbeite die Liste ab.' };
+  }
+  return null;
+}
+
+/**
  * Remembers what follows "Merk dir:" with the memory tool, and confirms; a
  * message after that says whether the memory note reached the model.
  */
@@ -287,7 +307,8 @@ http
           return;
         }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-        const step = effortStep(payload) ?? calculatorStep(payload) ?? memoryStep(payload) ?? fileStep(payload) ?? webFetchStep(payload);
+        const step =
+          effortStep(payload) ?? calculatorStep(payload) ?? memoryStep(payload) ?? progressStep(payload) ?? fileStep(payload) ?? webFetchStep(payload);
         if (step?.call) {
           const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));
