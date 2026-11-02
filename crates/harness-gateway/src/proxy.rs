@@ -1,6 +1,6 @@
 //! The proxy server: one thread per client connection.
 
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -8,8 +8,8 @@ use std::time::Duration;
 use crate::gateway::{Gateway, Verdict};
 use crate::http::{self, HeadError, RequestHead, Target};
 use crate::llm::{
-    CREDENTIAL_HEADERS, LLM_HOST, MEMORY_PATH, URL_HEADER, WEB_FETCH_PATH, WEB_SEARCH_PATH,
-    web_fetch_target,
+    CREDENTIAL_HEADERS, KNOWN_PATH, LLM_HOST, MEMORY_PATH, URL_HEADER, WEB_FETCH_PATH,
+    WEB_SEARCH_PATH, web_fetch_target,
 };
 use crate::pattern::Host;
 use crate::policy::Reason;
@@ -140,11 +140,7 @@ fn decide(gateway: &Gateway, host: &Host, port: u16) -> Result<Reason, Reason> {
 /// that passed the project's rules here, exactly like a direct connection.
 /// Returns that host, or answers the client itself and returns `None`.
 fn check_web_fetch(gateway: &Gateway, client: &TcpStream, head: &RequestHead) -> Option<Host> {
-    let mut urls = head
-        .headers
-        .iter()
-        .filter(|(name, _)| name.eq_ignore_ascii_case(URL_HEADER))
-        .map(|(_, value)| value.as_str());
+    let mut urls = urls_of(head);
     let target = match (urls.next(), urls.next()) {
         (Some(url), None) => web_fetch_target(url),
         _ => Err(format!("web_fetch braucht genau einen Header {URL_HEADER}")),
@@ -156,7 +152,15 @@ fn check_web_fetch(gateway: &Gateway, client: &TcpStream, head: &RequestHead) ->
             return None;
         }
     };
-    match decide(gateway, &host, port) {
+    // A page a search of a research reply found loads without a question,
+    // as in the web chat; the deny list and the rules still come first.
+    let url = urls_of(head).next().unwrap_or_default();
+    let decided = match gateway.check_quietly(&host) {
+        Some(decided) => decided,
+        None if research_hit(gateway, url) => Ok(Reason::Research),
+        None => decide(gateway, &host, port),
+    };
+    match decided {
         Ok(reason) => {
             gateway.record(true, &host, port, reason);
             Some(host)
@@ -167,6 +171,63 @@ fn check_web_fetch(gateway: &Gateway, client: &TcpStream, head: &RequestHead) ->
             None
         }
     }
+}
+
+fn urls_of(head: &RequestHead) -> impl Iterator<Item = &str> {
+    head.headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(URL_HEADER))
+        .map(|(_, value)| value.as_str())
+}
+
+/// How long the server may take to say whether a page is a research hit.
+const KNOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Asks the server whether `url` is a hit of a research reply running on
+/// this computer ([`KNOWN_PATH`], 204 for yes). Any failure counts as no,
+/// and the user is asked as before.
+fn research_hit(gateway: &Gateway, url: &str) -> bool {
+    let Some((upstream, connector)) = gateway.llm() else {
+        return false;
+    };
+    let Some(path) = upstream.path(KNOWN_PATH) else {
+        return false;
+    };
+    let options = gateway.options();
+    let addresses = match upstream.host() {
+        Host::Ip(ip) => Ok(vec![SocketAddr::new(*ip, upstream.port())]),
+        Host::Name(name) => (options.resolve)(name, upstream.port()),
+    };
+    let Some(socket) = addresses.ok().and_then(|addresses| {
+        addresses
+            .iter()
+            .find_map(|address| TcpStream::connect_timeout(address, CONNECT_TIMEOUT).ok())
+    }) else {
+        return false;
+    };
+    let _ = socket.set_read_timeout(Some(KNOWN_TIMEOUT));
+    let _ = socket.set_write_timeout(Some(KNOWN_TIMEOUT));
+    let Ok(mut server) = connector.open(upstream.host(), socket) else {
+        return false;
+    };
+    // The URL passed `web_fetch_target`: printable ASCII; quotes and
+    // backslashes are escaped all the same.
+    let escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
+    let body = format!("{{\"url\":\"{escaped}\"}}");
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\n\
+         Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        upstream.host_header(),
+        upstream.token(),
+        body.len()
+    );
+    if server.writer.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut status = [0u8; 12];
+    let answered = server.reader.read_exact(&mut status).is_ok();
+    let _ = server.socket.shutdown(Shutdown::Both);
+    answered && status.starts_with(b"HTTP/1.") && &status[9..12] == b"204"
 }
 
 /// A request to `llm.harness`: forwarded to the server's LLM endpoint with

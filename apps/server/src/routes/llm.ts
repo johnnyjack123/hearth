@@ -178,6 +178,8 @@ export function llmRoutes(deps: AppDeps) {
       const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
       try {
         const output = await runSearch(backend, input, { helpers, question }, c.req.raw.signal);
+        // Reading the hits needs no question to the user (`_web/known`).
+        deps.hub.researchFound(c.get('device').id, output.results.map((result) => result.url));
         return c.json({ text: searchModelText(output), results: output.results.length, warnings: output.warnings });
       } catch (error) {
         if (error instanceof WebSearchError) {
@@ -185,6 +187,13 @@ export function llmRoutes(deps: AppDeps) {
         }
         throw error;
       }
+    })
+    // Asked by the gateway itself (agents cannot reach this path) before it
+    // asks the user about the host of a `web_fetch`: a hit of a running
+    // research reply loads without a question. 204 yes, 404 no.
+    .post('/proxy/_web/known', async (c) => {
+      const { url } = z.object({ url: z.string().max(4_000) }).parse(await c.req.json());
+      return c.body(null, deps.hub.researchKnows(c.get('device').id, url) ? 204 : 404);
     })
     // The memory tools of agents, under the proxy path like `_web/search`;
     // the memories belong to the device's owner.

@@ -885,12 +885,20 @@ data: [DONE]
       expect(body.results).toBe(1);
       expect(body.text).toContain('https://kaffee.example/roesten');
       expect(body.text).toContain('untrusted data');
+      // The gateway asks before it asks the user: hits load without a question.
+      const known = (url: string) =>
+        server.request('POST', '/api/llm/proxy/_web/known', { body: { url }, headers: { ...CLI, authorization: `Bearer ${token}` } });
+      expect((await known('https://kaffee.example/roesten')).status).toBe(204);
+      expect((await known('https://kaffee.example/roesten/')).status).toBe(204);
+      expect((await known('https://kaffee.example/anderes')).status).toBe(404);
 
       device.emit(conversation.id, { type: 'done', aborted: false });
       await (await reply).text();
       const after = await search();
       expect(after.status).toBe(403);
       expect(((await after.json()) as { error: string }).error).toMatch(/^\[research_off\]/);
+      // With the reply, the hits are gone.
+      expect((await known('https://kaffee.example/roesten')).status).toBe(404);
     } finally {
       await new Promise((resolve) => searxng.close(resolve));
     }

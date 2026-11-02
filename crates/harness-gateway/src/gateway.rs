@@ -150,6 +150,13 @@ impl Gateway {
         self.inner.connections.fetch_sub(1, Ordering::SeqCst);
     }
 
+    /// The rules' decision about `host` without asking anyone: `None` where
+    /// [`Gateway::check`] would ask, so the caller may still find the host
+    /// allowed another way first.
+    pub(crate) fn check_quietly(&self, host: &Host) -> Option<Result<Reason, Reason>> {
+        self.lock().evaluate(host, Instant::now())
+    }
+
     /// Decides about a connection to `host`. Unknown hosts become a question
     /// if the project asks and someone watches; concurrent requests to the
     /// same host share one question.

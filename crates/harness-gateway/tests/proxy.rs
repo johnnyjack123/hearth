@@ -473,11 +473,13 @@ fn web_fetch_hosts_pass_the_rules_first() {
     );
     assert!(control.event().ends_with(" allowed llm.harness 80 llm"));
 
-    // Any other host asks the user like a direct connection, and the server
-    // hears nothing of a refused one.
+    // Any other host asks the user like a direct connection, once the server
+    // said the page is no research hit; it hears nothing more of a refused one.
     let waiting =
         thread::spawn(move || request(proxy, &fetch("X-Harness-Url: http://ask.test/secret\r\n")));
     assert_eq!(control.event(), "event pending 1 ask.test 80");
+    let known = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(known[0], "POST /api/llm/_web/known HTTP/1.1");
     control.send("decide 1 deny");
     let refused = waiting.join().unwrap();
     assert_eq!(refused.status, 403);
@@ -538,6 +540,95 @@ fn web_fetch_hosts_pass_the_rules_first() {
     assert_eq!(chat.status, 200);
     let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(!head.iter().any(|h| h.contains("forged")), "{head:?}");
+}
+
+/// A harness server that knows one page as a research hit (`_web/known`
+/// answers 204 for it, 404 otherwise) and answers everything else with 200.
+fn research_server(hit: &'static str) -> (u16, Receiver<Vec<String>>) {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let head: Vec<String> = reader
+                .by_ref()
+                .lines()
+                .map_while(Result::ok)
+                .take_while(|line| !line.is_empty())
+                .collect();
+            let length = head
+                .iter()
+                .find_map(|line| line.strip_prefix("Content-Length: "))
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(0);
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let answer: &[u8] = if head[0].contains("/_web/known") {
+                if String::from_utf8_lossy(&body).contains(hit) {
+                    b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
+                } else {
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                }
+            } else {
+                b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"
+            };
+            let _ = tx.send(head);
+            let _ = (&stream).write_all(answer);
+        }
+    });
+    (port, rx)
+}
+
+#[test]
+fn research_hits_load_without_asking() {
+    let (gateway, proxy) = start(address::is_public);
+    let (port, heads) = research_server("https://found.test/article?id=7");
+    let mut control = Control::open(&gateway);
+    control.send(&format!(
+        "llm http://127.0.0.1:{port}/api/llm token-0123456789abcdef"
+    ));
+    control.send("policy allowlist ask - blocked.test");
+    control.send("watch");
+    let fetch = |url: &str| {
+        format!(
+            "POST http://llm.harness/_web/fetch HTTP/1.1\r\nX-Harness-Url: {url}\r\n\
+             Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"
+        )
+    };
+
+    // A page a search found: the server says so, no question, and the
+    // fetch goes out with the checked host.
+    let response = request(proxy, &fetch("https://found.test/article?id=7"));
+    assert_eq!(response.status, 200);
+    assert_eq!(
+        heads.recv_timeout(Duration::from_secs(5)).unwrap()[0],
+        "POST /api/llm/_web/known HTTP/1.1"
+    );
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(head[0], "POST /api/llm/_web/fetch HTTP/1.1");
+    assert!(
+        head.contains(&"X-Harness-Approved-Host: found.test".to_owned()),
+        "{head:?}"
+    );
+    let logged = control.event();
+    assert!(
+        logged.contains(" allowed found.test 443 research"),
+        "{logged}"
+    );
+
+    // Another page of the same host still asks: hits are pages, not hosts.
+    let waiting = thread::spawn(move || request(proxy, &fetch("https://found.test/other")));
+    assert!(control.event().starts_with("event log "));
+    assert_eq!(control.event(), "event pending 1 found.test 443");
+    control.send("decide 1 deny");
+    assert_eq!(waiting.join().unwrap().status, 403);
+
+    // The deny list comes first; the server is not even asked.
+    while heads.try_recv().is_ok() {}
+    let blocked = request(proxy, &fetch("https://blocked.test/found"));
+    assert_eq!(blocked.status, 403);
+    assert!(heads.recv_timeout(Duration::from_millis(300)).is_err());
 }
 
 #[test]

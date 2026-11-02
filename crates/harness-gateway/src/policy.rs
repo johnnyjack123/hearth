@@ -138,10 +138,13 @@ pub enum Reason {
     /// `llm.harness`: the TLS handshake with the harness server failed,
     /// e.g. a certificate for another name or from an untrusted CA.
     TlsFailed,
+    /// A page a search of a research reply found (`web_fetch` only); the
+    /// server said so.
+    Research,
 }
 
 impl Reason {
-    const ALL: [Reason; 15] = [
+    const ALL: [Reason; 16] = [
         Reason::Llm,
         Reason::NoLlm,
         Reason::TlsFailed,
@@ -157,6 +160,7 @@ impl Reason {
         Reason::Unanswered,
         Reason::ResolveFailed,
         Reason::ConnectFailed,
+        Reason::Research,
     ];
 
     /// Wire name.
@@ -177,6 +181,7 @@ impl Reason {
             Reason::Llm => "llm",
             Reason::NoLlm => "no-llm",
             Reason::TlsFailed => "tls-failed",
+            Reason::Research => "research",
         }
     }
 
@@ -196,6 +201,7 @@ impl Reason {
             Reason::ResolveFailed => "Name nicht auflösbar",
             Reason::ConnectFailed => "Verbindung fehlgeschlagen",
             Reason::Llm => "LLM über den harness-Server",
+            Reason::Research => "Treffer einer Recherche im Web-Chat",
             Reason::NoLlm => "kein LLM-Zugang eingerichtet (auf dem Host: harness login)",
             Reason::TlsFailed => {
                 "TLS zum harness-Server fehlgeschlagen (Zertifikat ungültig oder für einen anderen Namen)"
@@ -219,6 +225,7 @@ impl Reason {
             Reason::ResolveFailed => "name does not resolve",
             Reason::ConnectFailed => "connection failed",
             Reason::Llm => "LLM via the harness server",
+            Reason::Research => "a page a search of a research reply found",
             Reason::NoLlm => "no LLM access set up (the user runs: harness login)",
             Reason::TlsFailed => {
                 "TLS to the harness server failed (untrusted or wrong certificate)"

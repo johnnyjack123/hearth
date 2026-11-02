@@ -36,6 +36,12 @@ pub const WEB_FETCH_PATH: &str = "/_web/fetch";
 /// this computer runs in research mode, so the gateway passes it on.
 pub const WEB_SEARCH_PATH: &str = "/_web/search";
 
+/// Path below the server's prefix where the gateway itself asks whether a
+/// page is a hit of a research reply running on this computer. Agents
+/// cannot use it: only [`WEB_FETCH_PATH`], [`WEB_SEARCH_PATH`] and
+/// [`MEMORY_PATH`] pass from them.
+pub const KNOWN_PATH: &str = "/_web/known";
+
 /// Path of the memory tools below `llm.harness`. Like a search it names no
 /// target: the server keeps the memories of the computer's owner.
 pub const MEMORY_PATH: &str = "/_memory";
