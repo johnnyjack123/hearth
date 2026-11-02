@@ -41,7 +41,7 @@ export function NewChatPage() {
   const navigate = useNavigate();
   const { data: session } = useSession();
   const providers = useProviders();
-  const { selection, select, models, images } = useModelSelection(null);
+  const { selection, select, models, images, recent } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const { research: lastResearch, setResearch: setLastResearch, effort: lastEffort, setEffort: setLastEffort } = usePreferences();
@@ -166,7 +166,7 @@ export function NewChatPage() {
                 autoFocus
                 toolbar={
                   <>
-                    <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
+                    <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
                     <NewChatEnvironment value={environment} onChange={setEnvironment} />
                     {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
                     <EffortControl effort={effort} onEffortChange={setEffort} {...(environment ? { agent: environment.harness } : {})} />

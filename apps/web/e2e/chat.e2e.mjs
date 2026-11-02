@@ -159,6 +159,17 @@ try {
   await step('reload shows the stored chat', async () => {
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Und noch eine Frage'), { timeout: 10_000 });
+    // The model of the chats so far heads the picker.
+    await page.click(`form ${text('mock-model')}`);
+    await page.waitForSelector('[cmdk-group-heading]', { timeout: 5_000 });
+    const headings = await page.$$eval('[cmdk-group-heading]', (nodes) => nodes.map((node) => node.textContent));
+    if (headings[0] !== 'Zuletzt genutzt') {
+      throw new Error(`model picker starts with ${JSON.stringify(headings)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('07b-recent-models');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[cmdk-group-heading]', { hidden: true, timeout: 5_000 });
   });
 
   let fetchPath = '';

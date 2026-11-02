@@ -164,8 +164,9 @@ fn file_size(path: &Path) -> u64 {
     fs::metadata(path).map_or(0, |m| m.len())
 }
 
-/// Memory Windows keeps for itself when the VM starts with what is free.
-const HOST_RESERVE_MB: u64 = 512;
+/// Memory Windows keeps for itself when the VM starts with what is free
+/// (the user's choice, 2.11.: rather a smaller VM than a slow Windows).
+const HOST_RESERVE_MB: u64 = 1024;
 
 /// What Hyper-V gives the VM at its start, in MB.
 ///
@@ -690,9 +691,10 @@ mod tests {
         };
         // Plenty free: the maximum.
         assert_eq!(startup_memory_mb(&config, Some(9000), false), 4096);
-        // 2 GB available (as on 1.11.): what is left after the reserve.
-        assert_eq!(startup_memory_mb(&config, Some(2091), false), 1536);
-        // Little free or unknown: never below the configured start.
+        // What is left after 1 GB for Windows, in steps of 128 MB.
+        assert_eq!(startup_memory_mb(&config, Some(3000), false), 1920);
+        // 2 GB available (as on 1.11.) or less: never below the configured start.
+        assert_eq!(startup_memory_mb(&config, Some(2091), false), 1024);
         assert_eq!(startup_memory_mb(&config, Some(900), false), 1024);
         assert_eq!(startup_memory_mb(&config, None, false), 1024);
         // Where the VM grows later, it starts small.

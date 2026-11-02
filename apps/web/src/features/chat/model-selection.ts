@@ -1,6 +1,38 @@
-import type { ModelSelection } from '@harness/shared';
+import type { ConversationSummary, CredentialModels, ModelSelection } from '@harness/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { useModels } from '@/lib/queries.ts';
+import { useConversations, useModels } from '@/lib/queries.ts';
+
+/** Models the picker offers as recently used. */
+const RECENT_MODELS = 5;
+
+/**
+ * The models of the latest chats, newest first and each once; only models
+ * the credentials still offer. Taken from the chats, so every device of the
+ * user shows the same.
+ *
+ * @param conversations - The user's chats, newest activity first.
+ * @param groups - Models per credential.
+ * @param limit - How many at most.
+ * @returns The selections.
+ */
+export function recentModels(
+  conversations: ConversationSummary[] | undefined,
+  groups: CredentialModels[] | undefined,
+  limit = RECENT_MODELS,
+): ModelSelection[] {
+  const recent: ModelSelection[] = [];
+  for (const { credentialId, modelId } of conversations ?? []) {
+    if (recent.length >= limit) {
+      break;
+    }
+    const offered = groups?.some((group) => group.credentialId === credentialId && group.models.some((model) => model.id === modelId));
+    if (!credentialId || !modelId || !offered || recent.some((seen) => seen.credentialId === credentialId && seen.modelId === modelId)) {
+      continue;
+    }
+    recent.push({ credentialId, modelId });
+  }
+  return recent;
+}
 
 const LAST_MODEL_KEY = 'harness.lastModel';
 
@@ -29,11 +61,12 @@ function rememberModel(selection: ModelSelection): void {
  * no longer exists is replaced once the model list has loaded.
  *
  * @param initial - Model stored with the conversation, if any.
- * @returns Current selection, a setter that also remembers the choice, the model list query and
- *   whether the chosen model reads images.
+ * @returns Current selection, a setter that also remembers the choice, the model list query,
+ *   whether the chosen model reads images and the models of the latest chats.
  */
 export function useModelSelection(initial: { credentialId: string | null; modelId: string | null } | null) {
   const models = useModels();
+  const conversations = useConversations();
   const [selection, setSelection] = useState<ModelSelection | null>(() =>
     initial?.credentialId && initial.modelId
       ? { credentialId: initial.credentialId, modelId: initial.modelId }
@@ -65,5 +98,5 @@ export function useModelSelection(initial: { credentialId: string | null; modelI
     ?.find((group) => group.credentialId === selection?.credentialId)
     ?.models.find((model) => model.id === selection?.modelId)?.images;
 
-  return { selection, select, models, images };
+  return { selection, select, models, images, recent: recentModels(conversations.data, models.data) };
 }

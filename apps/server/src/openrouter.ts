@@ -123,6 +123,12 @@ export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: bool
     if (typeof entry.uptime_last_30m === 'number' && entry.uptime_last_30m < 80) {
       return;
     }
+    // Flex is a discounted tier OpenRouter only uses on request (`:floor`,
+    // `service_tier`), without promises on waiting or capacity; an agent
+    // waiting in a queue costs the user more time than it saves.
+    if (/\/flex$/i.test(entry.tag)) {
+      return;
+    }
     if (options.noFourBit && typeof entry.quantization === 'string' && FOUR_BIT.has(entry.quantization.toLowerCase())) {
       return;
     }

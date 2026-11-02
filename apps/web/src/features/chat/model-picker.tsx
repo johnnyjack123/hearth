@@ -21,6 +21,8 @@ export interface ModelPickerProps {
   groups: CredentialModels[] | undefined;
   /** True while the model list loads. */
   loading: boolean;
+  /** Models of the latest chats, offered first. */
+  recent?: ModelSelection[];
 }
 
 /**
@@ -29,9 +31,13 @@ export interface ModelPickerProps {
  * @param props - See {@link ModelPickerProps}.
  * @returns The picker.
  */
-export function ModelPicker({ selection, onSelect, groups, loading }: ModelPickerProps) {
+export function ModelPicker({ selection, onSelect, groups, loading, recent = [] }: ModelPickerProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const choose = (next: ModelSelection) => {
+    onSelect(next);
+    setOpen(false);
+  };
   const selectedGroup = groups?.find((group) => group.credentialId === selection?.credentialId);
   const selectedModel = selectedGroup?.models.find((model) => model.id === selection?.modelId);
   const label = selectedModel?.name ?? selection?.modelId ?? t('chat.selectModel');
@@ -58,6 +64,32 @@ export function ModelPicker({ selection, onSelect, groups, loading }: ModelPicke
             ) : (
               <CommandEmpty>{t('chat.noModels')}</CommandEmpty>
             )}
+            {!loading && recent.length > 0 ? (
+              <CommandGroup heading={t('chat.recentModels')}>
+                {recent.map((entry) => {
+                  const group = groups?.find((candidate) => candidate.credentialId === entry.credentialId);
+                  const model = group?.models.find((candidate) => candidate.id === entry.modelId);
+                  if (!group || !model) {
+                    return null;
+                  }
+                  const selected = selection?.credentialId === entry.credentialId && selection.modelId === entry.modelId;
+                  return (
+                    <CommandItem
+                      key={`${entry.credentialId}::${entry.modelId}`}
+                      className="group/marquee"
+                      // Its own value: the same model also appears in its credential's group.
+                      value={`recent::${entry.credentialId}::${entry.modelId}`}
+                      keywords={[model.name, model.id, group.label]}
+                      onSelect={() => choose(entry)}
+                    >
+                      <MarqueeText text={model.name} wrapOnTouch className="flex-1" />
+                      <MarqueeText text={group.label} wrapOnTouch className="max-w-2/5 text-xs text-muted-foreground" />
+                      <Check className={selected ? 'text-primary' : 'invisible'} aria-hidden="true" />
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            ) : null}
             {groups?.map((group) => (
               <CommandGroup key={group.credentialId} heading={`${group.label} · ${providerName(t, group.kind)}`}>
                 {group.error ? (
@@ -77,10 +109,7 @@ export function ModelPicker({ selection, onSelect, groups, loading }: ModelPicke
                       className="group/marquee"
                       value={`${group.credentialId}::${model.id}`}
                       keywords={[model.name, model.id, group.label]}
-                      onSelect={() => {
-                        onSelect({ credentialId: group.credentialId, modelId: model.id });
-                        setOpen(false);
-                      }}
+                      onSelect={() => choose({ credentialId: group.credentialId, modelId: model.id })}
                     >
                       <MarqueeText text={model.name} wrapOnTouch className="flex-1" />
                       {model.name !== model.id ? (
