@@ -38,6 +38,9 @@ export const de = {
     file_too_large: 'Die Datei ist zu groß, höchstens 20 MB gehen.',
     file_unsupported: 'Diese Art Datei geht nicht. Möglich sind Bilder (PNG, JPEG, GIF, WebP), PDF, Word, Excel, PowerPoint, EPUB, HTML und Textdateien.',
     file_empty: 'Die Datei ist leer.',
+    memory_full: 'Das Gedächtnis ist voll (höchstens 50 Einträge). Lösche zuerst etwas in den Einstellungen.',
+    memory_rejected: 'Das sieht nach Anweisungen aus fremden Inhalten aus, nicht nach einer Erinnerung. Nicht gespeichert.',
+    memory_off: 'Das Gedächtnis ist auf diesem Server ausgeschaltet.',
     storage_unavailable:
       'Der Server kann keine Dateien speichern: Sein Datenordner ist nicht beschreibbar. Ein Admin gibt ihn dem Server-Nutzer (uid 1000), siehe docs/deploy.md.',
     converter_unavailable: 'Dokumente umwandeln geht gerade nicht: Der Umwandler (markitdown) läuft nicht. Ein Admin startet ihn mit „docker compose up -d“.',
@@ -407,6 +410,30 @@ export const de = {
       },
     },
   },
+  memory: {
+    title: 'Gedächtnis',
+    description:
+      'Was jeder Chat und jeder Agent über dich weiß, etwa „antworte knapp“ oder „pnpm statt npm“. Modelle legen Einträge an, wenn du sie darum bittest; hier änderst oder löschst du sie.',
+    placeholder: 'Etwas, das jeder Chat wissen soll …',
+    add: 'Merken',
+    edit: 'Bearbeiten',
+    remove: 'Löschen',
+    emptyTitle: 'Noch nichts gemerkt',
+    emptyBody: 'Sag in einem Chat „Merk dir, dass …“ oder trag hier etwas ein.',
+    count: '{count} von {max} Einträgen',
+    source: {
+      user: 'Von dir, {date}',
+      chat: 'Von einem Chat-Modell, {date}',
+      agent: 'Von einem Agent, {date}',
+    },
+    call: {
+      remembered: 'Gemerkt: „{text}“',
+      forgot: 'Vergessen: „{text}“',
+      rememberFailed: 'Nicht gemerkt',
+      forgetFailed: 'Nicht vergessen',
+      manage: 'Gedächtnis',
+    },
+  },
   calculator: {
     title: 'Gerechnet',
     running: 'rechnet …',
@@ -480,6 +507,7 @@ export const de = {
     title: 'Einstellungen',
     tabProviders: 'API-Keys',
     tabDevices: 'Geräte',
+    tabMemory: 'Gedächtnis',
     tabAppearance: 'Darstellung',
     tabAccount: 'Konto',
   },
@@ -802,6 +830,9 @@ export const de = {
     calculator: 'Taschenrechner',
     calculatorHint:
       'Modelle in normalen Chats rechnen mit math.js auf diesem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    memory: 'Gedächtnis',
+    memoryHint:
+      'Chat-Modelle und Agents dürfen sich auf Wunsch der Nutzer Vorlieben und Fakten merken, die dann in jedem Chat gelten. Jeder Nutzer sieht und bearbeitet sein Gedächtnis in den Einstellungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
     openRouterCheapest: 'OpenRouter: immer der günstigste Anbieter',
     openRouterCheapestHint:
       'Jede Anfrage geht zuerst an den Anbieter, der das Modell gerade am günstigsten rechnet, mit Rabatten, Cache-Preisen und Tageszeit. Fällt er aus, folgen die nächstgünstigen. Aus: OpenRouter entscheidet selbst.',

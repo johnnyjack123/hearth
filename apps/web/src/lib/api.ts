@@ -16,6 +16,8 @@ import type {
   CredentialModels,
   DeviceSummary,
   LinkConversationInput,
+  Memory,
+  MemoryInput,
   MessageMetadata,
   PairingInfo,
   ProviderCredential,
@@ -141,6 +143,12 @@ export const api = {
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
+  },
+  memories: {
+    list: () => request<Memory[]>('GET', '/memories'),
+    create: (input: MemoryInput) => request<Memory>('POST', '/memories', input),
+    update: (id: string, input: MemoryInput) => request<Memory>('PUT', `/memories/${encodeURIComponent(id)}`, input),
+    remove: (id: string) => request<void>('DELETE', `/memories/${encodeURIComponent(id)}`),
   },
   appTemplates: {
     list: () => request<AppTemplate[]>('GET', '/app-templates'),

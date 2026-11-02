@@ -1,5 +1,8 @@
 import {
   CALCULATOR_TOOL,
+  FORGET_TOOL,
+  type MemoryToolOutput,
+  REMEMBER_TOOL,
   type CalculatorOutput,
   chatFileId,
   MAX_FILES_PER_MESSAGE,
@@ -48,6 +51,7 @@ import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
 import { createWebSearchTool } from '../websearch/tool.ts';
 import { type Calculator, CalculatorError } from '../calculator/engine.ts';
 import { calculatorText, createCalculatorTool } from '../calculator/tool.ts';
+import { createMemoryTools, MEMORY_INSTRUCTIONS, MemoryError, memoryText } from '../memory/tool.ts';
 
 const INSTRUCTIONS = [
   'You are a helpful assistant inside LLM Harness, a self-hosted chat application.',
@@ -230,6 +234,8 @@ export function agentToolsAsText(messages: ChatMessage[]): ChatMessage[] {
 const WEB_FETCH_PART = `tool-${WEB_FETCH_TOOL}`;
 const WEB_SEARCH_PART = `tool-${WEB_SEARCH_TOOL}`;
 const CALCULATOR_PART = `tool-${CALCULATOR_TOOL}`;
+const REMEMBER_PART = `tool-${REMEMBER_TOOL}`;
+const FORGET_PART = `tool-${FORGET_TOOL}`;
 
 /**
  * Models guess at arithmetic; the calculator does not. Part of the system
@@ -255,6 +261,11 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
   if (part.type === CALCULATOR_PART) {
     const outcome = error ?? (output ? calculatorText(output as unknown as CalculatorOutput) : '');
     return `[Earlier, calculate${outcome ? `: ${shorten(outcome)}` : ''}]`;
+  }
+  if (part.type === REMEMBER_PART || part.type === FORGET_PART) {
+    const verb = part.type === REMEMBER_PART ? 'Remembered' : 'Forgot';
+    const outcome = error ?? (output ? memoryText(verb, output as unknown as MemoryToolOutput) : '');
+    return `[Earlier, ${part.type.slice('tool-'.length)}${outcome ? `: ${shorten(outcome)}` : ''}]`;
   }
   if (part.type === WEB_SEARCH_PART) {
     const query = String(input.query ?? '');
@@ -388,7 +399,7 @@ export async function assignTitle(
 export function describeStreamError(error: unknown): string {
   // Tool errors become the tool's result for the model and the error text in
   // the chat; a web fetch error carries its own code and explanation.
-  if (error instanceof WebFetchError || error instanceof WebSearchError || error instanceof CalculatorError) {
+  if (error instanceof WebFetchError || error instanceof WebSearchError || error instanceof CalculatorError || error instanceof MemoryError) {
     return error.message;
   }
   if (InvalidToolInputError.isInstance(error) || NoSuchToolError.isInstance(error)) {
@@ -447,6 +458,8 @@ export interface StreamChatOptions {
   compaction?: { keepRecentTokens: number } | null;
   /** Where the chat's uploads are; their contents replace the references for the model. */
   files: FileStore;
+  /** Whose memories the model may change; null when an admin switched the memory off. */
+  memory?: { userId: string } | null;
 }
 
 /**
@@ -533,15 +546,17 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       : {}),
     ...(search ? { [WEB_SEARCH_TOOL]: createWebSearchTool(search, known, { helpers, question }, options.assess ? assessor(helpers, abortSignal) : null) } : {}),
     ...(options.calculator ? { [CALCULATOR_TOOL]: createCalculatorTool(options.calculator) } : {}),
+    ...(options.memory ? createMemoryTools(db, options.memory.userId, conversationId) : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
-  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL].filter((name) => !(name in tools)));
+  const missing = new Set([WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL].filter((name) => !(name in tools)));
   const instructions = [
     INSTRUCTIONS,
     NOTE_INSTRUCTIONS,
     ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
     ...(search ? [researchInstructions(webFetch !== null)] : []),
     ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),
+    ...(options.memory ? [MEMORY_INSTRUCTIONS] : []),
   ].join(' ');
 
   /**

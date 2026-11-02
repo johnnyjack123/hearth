@@ -541,6 +541,39 @@ try {
     }
   });
 
+  await step('the memory: remembered in a chat, known in the next, kept in the settings', async () => {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.type('textarea', 'Merk dir: Ich nutze pnpm statt npm.');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    await waitForText('Gemerkt: „Ich nutze pnpm statt npm.“', 15_000);
+    await waitForText('Gemerkt, das gilt ab jetzt in jedem Chat.', 10_000);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('50-memory-remembered');
+
+    // A new chat gets the memory with its first message.
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.type('textarea', 'Was weißt du über mich?');
+    await page.keyboard.press('Enter');
+    await waitForText('Laut Gedächtnis:', 15_000);
+    await waitForText('Ich nutze pnpm statt npm.', 5_000);
+
+    // The settings list it; the user changes and adds entries there.
+    await page.goto(`${BASE}/settings?tab=memory`, { waitUntil: 'networkidle0' });
+    await waitForText('Von einem Chat-Modell', 10_000);
+    await page.type('input[aria-label="Etwas, das jeder Chat wissen soll …"]', 'Antworte knapp.');
+    await page.click(text('Merken'));
+    await waitForText('Von dir', 10_000);
+    await waitForText('2 von 50 Einträgen', 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('51-memory-settings');
+    // Deleting works there too; later steps expect agents to get the message alone.
+    for (let left = 2; left > 0; left -= 1) {
+      await page.click('[aria-label="Löschen"]');
+      await waitForText(left > 1 ? '1 von 50 Einträgen' : 'Noch nichts gemerkt', 10_000);
+    }
+  });
+
   await step('images and documents in an ordinary chat', async () => {
     // A real picture (the screenshot just taken) and a document the
     // stand-in converter turns into Markdown.

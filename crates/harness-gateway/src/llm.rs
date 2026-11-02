@@ -36,6 +36,10 @@ pub const WEB_FETCH_PATH: &str = "/_web/fetch";
 /// this computer runs in research mode, so the gateway passes it on.
 pub const WEB_SEARCH_PATH: &str = "/_web/search";
 
+/// Path of the memory tools below `llm.harness`. Like a search it names no
+/// target: the server keeps the memories of the computer's owner.
+pub const MEMORY_PATH: &str = "/_memory";
+
 /// Header with the URL an agent wants `web_fetch` to load.
 pub const URL_HEADER: &str = "x-harness-url";
 

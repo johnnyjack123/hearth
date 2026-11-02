@@ -235,6 +235,25 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('file').execute();
     },
   },
+  '0011_memories': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('memory')
+        .addColumn('id', 'text', (col) => col.primaryKey())
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('text', 'text', (col) => col.notNull())
+        .addColumn('source', 'text', (col) => col.notNull())
+        // A memory outlives the chat it came from.
+        .addColumn('conversationId', 'text', (col) => col.references('conversation.id').onDelete('set null'))
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+      await db.schema.createIndex('memory_userId_idx').on('memory').column('userId').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('memory').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

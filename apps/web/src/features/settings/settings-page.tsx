@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { KeyRound, Laptop, Palette, UserRound } from 'lucide-react';
+import { BookMarked, KeyRound, Laptop, Palette, UserRound } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { OwnAppsSection } from '../devices/own-apps.tsx';
@@ -7,12 +7,13 @@ import { Page } from '../shell/page.tsx';
 import { AccountPanel } from './account-panel.tsx';
 import { AppearancePanel } from './appearance-panel.tsx';
 import { DevicesPanel } from './devices-panel.tsx';
+import { MemoryPanel } from './memory-panel.tsx';
 import { ProvidersPanel } from './providers-panel.tsx';
 
 /**
  * Tabs of the settings page, also used as the `?tab=` search parameter.
  */
-export const SETTINGS_TABS = ['providers', 'devices', 'appearance', 'account'] as const;
+export const SETTINGS_TABS = ['providers', 'devices', 'memory', 'appearance', 'account'] as const;
 
 /**
  * One of {@link SETTINGS_TABS}.
@@ -20,8 +21,8 @@ export const SETTINGS_TABS = ['providers', 'devices', 'appearance', 'account'] a
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /**
- * Settings page (`/settings`) with tabs for API keys, paired devices,
- * appearance and account.
+ * Settings page (`/settings`) with tabs for API keys, paired devices, the
+ * memory, appearance and account.
  *
  * @returns The settings page.
  */
@@ -42,6 +43,10 @@ export function SettingsPage() {
             <Laptop />
             {t('settings.tabDevices')}
           </TabsTrigger>
+          <TabsTrigger value="memory">
+            <BookMarked />
+            {t('settings.tabMemory')}
+          </TabsTrigger>
           <TabsTrigger value="appearance">
             <Palette />
             {t('settings.tabAppearance')}
@@ -59,6 +64,9 @@ export function SettingsPage() {
             <DevicesPanel />
             <OwnAppsSection />
           </div>
+        </TabsContent>
+        <TabsContent value="memory">
+          <MemoryPanel />
         </TabsContent>
         <TabsContent value="appearance">
           <AppearancePanel />
