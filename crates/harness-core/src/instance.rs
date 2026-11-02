@@ -14,7 +14,8 @@ use crate::gateway::{self, GatewayControl, Mode, Scope};
 use crate::image::{BASE_IMAGE, CONTEXT_HASH_LABEL, ImageStatus, fingerprint};
 use crate::project::ProjectName;
 use crate::provider::{
-    ContainerSpec, ContainerStatus, ExecSpec, Labels, Mount, MountSource, Provider, VolumeSpec,
+    ContainerSpec, ContainerStatus, ExecSpec, Labels, Mount, MountSource, Provider, Resources,
+    VolumeSpec,
 };
 use crate::sync::WORKSPACE;
 use crate::{Error, PROJECT_LABEL, Result};
@@ -33,6 +34,50 @@ const MOUNTS_LABEL: &str = "io.llm-harness.mounts";
 /// version folder, a new variable) recreates the instance. Missing on
 /// instances without apps.
 const ENV_LABEL: &str = "io.llm-harness.env";
+
+/// Records the memory limit an instance was created with. It follows the
+/// VM's memory, so a VM that started with more or less recreates it.
+const MEMORY_LABEL: &str = "io.llm-harness.memory";
+
+/// What the VM keeps for itself besides an instance: systemd, sshd, podman,
+/// conmon and the gateway.
+const VM_RESERVE: u64 = 384 << 20;
+
+/// An instance gets at least this much.
+const MIN_INSTANCE_MEMORY: u64 = 256 << 20;
+
+/// Limits are set in steps of this size.
+const MEMORY_STEP: u64 = 32 << 20;
+
+/// Bytes of a limit in podman notation (`512m`, `3g`, digits alone are
+/// bytes), as `provider::validate_memory` accepts it.
+fn parse_memory(text: &str) -> Option<u64> {
+    let digits = text.trim_end_matches(['b', 'k', 'm', 'g']);
+    let number: u64 = digits.parse().ok()?;
+    let shift = match &text[digits.len()..] {
+        "" | "b" => 0,
+        "k" => 10,
+        "m" => 20,
+        "g" => 30,
+        _ => return None,
+    };
+    number.checked_mul(1 << shift)
+}
+
+/// The memory limit of an instance: the project's own limit, but never more
+/// than the VM can give without starving itself. On 31.10. a browser in an
+/// instance filled the whole VM and with it sshd and podman, and the VM hung
+/// until the user stopped it. With a limit the kernel ends the process in
+/// the instance instead (tested 2.11.: the VM kept answering throughout).
+/// The instance may swap as much again (podman's default).
+pub fn memory_limit(configured: Option<&str>, vm_total: u64) -> String {
+    let cap = vm_total.saturating_sub(VM_RESERVE).max(MIN_INSTANCE_MEMORY);
+    let wanted = configured
+        .and_then(parse_memory)
+        .map_or(cap, |bytes| bytes.min(cap));
+    let limit = (wanted / MEMORY_STEP * MEMORY_STEP).max(MIN_INSTANCE_MEMORY);
+    format!("{}m", limit >> 20)
+}
 
 /// The registry harnesses are installed from; granted to the installer for
 /// a while if the project's rules do not allow it anyway.
@@ -150,11 +195,17 @@ pub fn ensure_running(
         )
     });
 
+    let memory = memory_limit(
+        project.resources.memory.as_deref(),
+        provider.ping()?.mem_total,
+    );
+
     let current = provider.container(&container)?;
     let fits = current.as_ref().is_some_and(|info| {
         info.labels.get(CONTEXT_HASH_LABEL) == Some(&hash)
             && info.labels.get(MOUNTS_LABEL) == Some(&description)
             && info.labels.get(ENV_LABEL) == env_hash.as_ref()
+            && info.labels.get(MEMORY_LABEL) == Some(&memory)
     });
     if fits {
         if current.is_some_and(|info| info.status != ContainerStatus::Running) {
@@ -176,6 +227,7 @@ pub fn ensure_running(
         (PROJECT_LABEL.to_owned(), name.to_string()),
         (CONTEXT_HASH_LABEL.to_owned(), hash),
         (MOUNTS_LABEL.to_owned(), description),
+        (MEMORY_LABEL.to_owned(), memory.clone()),
     ]
     .into();
     if let Some(env_hash) = env_hash {
@@ -189,7 +241,10 @@ pub fn ensure_running(
         env,
         labels,
         workdir: Some(WORKSPACE.to_owned()),
-        resources: project.resources.clone(),
+        resources: Resources {
+            memory: Some(memory),
+            ..project.resources.clone()
+        },
         ..ContainerSpec::default()
     })?;
     provider.start_container(&container)?;
@@ -371,6 +426,26 @@ mod tests {
 
     fn pi() -> HarnessConfig {
         toml::from_str(include_str!("../defaults/harnesses/pi.toml")).unwrap()
+    }
+
+    #[test]
+    fn instances_leave_the_vm_room() {
+        const MB: u64 = 1 << 20;
+        // The user's VM on 2.11.: 936 MB.
+        assert_eq!(memory_limit(Some("3g"), 958_540 * 1024), "544m");
+        assert_eq!(memory_limit(None, 958_540 * 1024), "544m");
+        // A large VM: the project's own limit.
+        assert_eq!(memory_limit(Some("3g"), 8192 * MB), "3072m");
+        assert_eq!(memory_limit(Some("1500m"), 4096 * MB), "1472m");
+        // Tiny VMs and limits keep a minimum.
+        assert_eq!(memory_limit(Some("100m"), 4096 * MB), "256m");
+        assert_eq!(memory_limit(Some("3g"), 512 * MB), "256m");
+        // Unreadable limits fall back to what the VM allows.
+        assert_eq!(memory_limit(Some("viel"), 2048 * MB), "1664m");
+        assert_eq!(parse_memory("2g"), Some(2048 * MB));
+        assert_eq!(parse_memory("512k"), Some(512 * 1024));
+        assert_eq!(parse_memory("12"), Some(12));
+        assert_eq!(parse_memory("1gb"), None);
     }
 
     #[test]
