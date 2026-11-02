@@ -53,6 +53,8 @@ harness = "pi"
 network = "development"
 
 [defaults.resources]
-# Grenzen pro Instanz. Die VM selbst hat höchstens 4 GB.
+# Grenzen pro Instanz. Mehr als der Speicher der VM minus 384 MB für das
+# System bekommt eine Instanz nie, damit die VM ansprechbar bleibt, wenn ein
+# Programm darin zu viel Speicher braucht.
 memory = "3g"
 # cpus = 2

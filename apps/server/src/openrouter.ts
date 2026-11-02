@@ -49,6 +49,7 @@ interface RawOverride extends RawPrice {
 
 interface RawEndpoint {
   tag?: unknown;
+  service_tier?: unknown;
   status?: unknown;
   uptime_last_30m?: unknown;
   quantization?: unknown;
@@ -126,7 +127,7 @@ export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: bool
     // Flex is a discounted tier OpenRouter only uses on request (`:floor`,
     // `service_tier`), without promises on waiting or capacity; an agent
     // waiting in a queue costs the user more time than it saves.
-    if (/\/flex$/i.test(entry.tag)) {
+    if (entry.service_tier === 'flex' || /\/flex$/i.test(entry.tag)) {
       return;
     }
     if (options.noFourBit && typeof entry.quantization === 'string' && FOUR_BIT.has(entry.quantization.toLowerCase())) {

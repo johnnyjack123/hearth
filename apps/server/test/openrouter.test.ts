@@ -34,6 +34,7 @@ const ENDPOINTS = {
       // The discounted flex tier (DeepInfra, 51 % off and 8 bit): left out as well.
       {
         tag: 'deepinfra/fp8/flex',
+        service_tier: 'flex',
         quantization: 'fp8',
         status: 0,
         uptime_last_30m: 100,
