@@ -34,6 +34,8 @@ URL="http://127.0.0.1:$SERVER_PORT"
 WORK="$(mktemp -d)"
 NAME="connect-$$"
 export HARNESS_HOME="$WORK/home"
+# The checks below look for German output, whatever language Windows shows.
+export HARNESS_LANG=de
 # Its tray would otherwise show the test's questions on the desktop.
 export HARNESS_TRAY_QUIET=1
 J='Content-Type: application/json'

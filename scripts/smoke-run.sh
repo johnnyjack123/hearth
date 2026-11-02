@@ -21,6 +21,8 @@ URL="http://127.0.0.1:$SERVER_PORT"
 WORK="$(mktemp -d)"
 NAME="smoke-$$"
 export HARNESS_HOME="$WORK/home"
+# The checks below look for German output, whatever language Windows shows.
+export HARNESS_LANG=de
 
 failures=0
 check() { # check <label> <command…>
