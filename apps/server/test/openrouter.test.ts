@@ -31,6 +31,14 @@ const ENDPOINTS = {
       { tag: 'no-cache', quantization: 'fp8', status: 0, uptime_last_30m: 100, pricing: { prompt: '0.00000004', completion: '0.0000002' } },
       // Down: left out.
       { tag: 'fireworks/spot', status: -5, uptime_last_30m: 46, pricing: { prompt: '0.00000001', completion: '0.00000001' } },
+      // The discounted flex tier (DeepInfra, 51 % off and 8 bit): left out as well.
+      {
+        tag: 'deepinfra/fp8/flex',
+        quantization: 'fp8',
+        status: 0,
+        uptime_last_30m: 100,
+        pricing: { prompt: '0.0000000784', completion: '0.0000002352', input_cache_read: '0.000000002352', discount: 0.51 },
+      },
       {
         tag: 'deepseek',
         status: 0,
@@ -67,6 +75,7 @@ describe('cheapest OpenRouter host', () => {
     // without a cache price comes last although its list price is lowest.
     expect(order).toEqual(['morph/fp8', 'open-inference/fp4', 'deepseek', 'no-cache']);
     expect(order).not.toContain('fireworks/spot');
+    expect(order).not.toContain('deepinfra/fp8/flex');
   });
 
   it('applies the hours of a host and can leave out 4-bit hosts', () => {
