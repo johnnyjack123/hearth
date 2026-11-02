@@ -399,6 +399,8 @@ export interface ModelCallUsage {
   cost?: { total: number; input?: number; cacheRead?: number; cacheWrite?: number; output?: number };
   /** True when {@link cost} is what the provider billed, not an estimate. */
   billed?: boolean;
+  /** Who ran the call, when OpenRouter says: the host it routed to, e.g. `DeepInfra`. */
+  host?: string;
   /**
    * Milliseconds the model wrote, from its first token to the end of the
    * call; with {@link output} the speed in tokens per second. Missing for

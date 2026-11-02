@@ -147,11 +147,11 @@ describe('bills of agent calls', () => {
   }
 
   it('reads the bill from the last chunk of a stream, also when lines are split', async () => {
-    const last = `data: ${JSON.stringify({ choices: [], usage: USAGE })}\n\n`;
+    const last = `data: ${JSON.stringify({ provider: 'Chutes', choices: [], usage: USAGE })}\n\n`;
     const parts = ['data: {"choices":[{"delta":{"content":"Hallo"}}]}\n\n', last.slice(0, 40), last.slice(40), 'data: [DONE]\n\n'];
     const { text, bills } = await pass(parts, true);
     expect(text).toBe(parts.join(''));
-    expect(bills).toEqual([{ cost: { total: 0.0004, input: 0.00025, output: 0.00015 }, promptTokens: 1200, completionTokens: 30 }]);
+    expect(bills).toEqual([{ cost: { total: 0.0004, input: 0.00025, output: 0.00015, host: 'Chutes' }, promptTokens: 1200, completionTokens: 30 }]);
   });
 
   it('reads the bill of a JSON answer, and none without a cost', async () => {
@@ -195,6 +195,7 @@ describe('prices of agent calls', () => {
     expect(deepseek.cost?.total).toBeCloseTo(0.001047, 9);
     expect(deepseek.billed).toBeUndefined();
     expect(agentCallCost(call, 'openrouter', null, { total: 0.0009 })).toEqual({ cost: { total: 0.0009 }, billed: true });
+    expect(agentCallCost(call, 'openrouter', null, { total: 0.0009, host: 'DeepInfra' })).toEqual({ cost: { total: 0.0009 }, billed: true, host: 'DeepInfra' });
     expect(agentCallCost(call, 'anthropic', flash, null)).toEqual({ cost: { total: 0.0055 } });
     expect(agentCallCost({ ...call, agentCost: undefined }, 'deepseek', null, null)).toEqual({});
   });

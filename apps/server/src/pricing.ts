@@ -346,9 +346,9 @@ export function agentCallCost(
   provider: CatalogProvider | 'free' | null,
   pricing: ModelPricing | null,
   billed: BilledCost | null,
-): Pick<ModelCallUsage, 'cost' | 'billed'> {
+): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
   if (billed) {
-    return { cost: billed, billed: true };
+    return billedFields(billed);
   }
   if ((provider === 'deepseek' || provider === 'free') && pricing?.input !== undefined && pricing.output !== undefined) {
     const usage: LanguageModelUsage = {
@@ -372,6 +372,19 @@ export interface BilledCost {
   input?: number;
   /** Part for the completion, reasoning included. */
   output?: number;
+  /** The host OpenRouter routed the call to, e.g. `DeepInfra`. */
+  host?: string;
+}
+
+/**
+ * A billed call's fields in `usage.calls`: the cost without the host, and the host.
+ *
+ * @param billed - The bill.
+ * @returns `cost`, `billed` and `host`.
+ */
+function billedFields(billed: BilledCost): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
+  const { host, ...cost } = billed;
+  return { cost, billed: true, ...(host ? { host } : {}) };
 }
 
 /**
@@ -382,7 +395,7 @@ export interface BilledCost {
  * @returns The billed cost, or null for other providers.
  */
 export function billedCost(metadata: ProviderMetadata | undefined): BilledCost | null {
-  const entry = metadata?.openrouter as { cost?: unknown; promptCost?: unknown; completionCost?: unknown } | undefined;
+  const entry = metadata?.openrouter as { cost?: unknown; promptCost?: unknown; completionCost?: unknown; host?: unknown } | undefined;
   const dollars = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined);
   const total = dollars(entry?.cost);
   if (total === undefined) {
@@ -390,7 +403,8 @@ export function billedCost(metadata: ProviderMetadata | undefined): BilledCost |
   }
   const input = dollars(entry?.promptCost);
   const output = dollars(entry?.completionCost);
-  return { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) };
+  const host = typeof entry?.host === 'string' && entry.host ? entry.host : undefined;
+  return { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}), ...(host ? { host } : {}) };
 }
 
 /**
@@ -525,8 +539,7 @@ export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null
     call.reasoning = reasoning;
   }
   if (billed) {
-    call.cost = billed;
-    call.billed = true;
+    Object.assign(call, billedFields(billed));
   } else if (pricing?.input !== undefined && pricing.output !== undefined) {
     const uncached = step.inputTokenDetails.noCacheTokens ?? Math.max(0, input - cacheRead - cacheWrite);
     const cost = {

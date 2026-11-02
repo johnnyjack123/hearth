@@ -149,8 +149,12 @@ async function fetchModels(credential: ResolvedCredential): Promise<ModelInfo[]>
   }
 }
 
-/** OpenRouter's billed cost from the `usage` of an answer, as provider metadata `openrouter`. */
-function costOf(usage: unknown): ProviderMetadata | undefined {
+/**
+ * OpenRouter's billed cost from the `usage` of an answer, and the host it
+ * routed the call to (`provider` of the answer), as provider metadata
+ * `openrouter`.
+ */
+function costOf(usage: unknown, host: unknown): ProviderMetadata | undefined {
   const { cost, cost_details: details } = (usage ?? {}) as { cost?: unknown; cost_details?: Record<string, unknown> };
   if (typeof cost !== 'number') {
     return undefined;
@@ -161,6 +165,7 @@ function costOf(usage: unknown): ProviderMetadata | undefined {
       cost,
       promptCost: part(details?.upstream_inference_prompt_cost),
       completionCost: part(details?.upstream_inference_completions_cost),
+      host: typeof host === 'string' && host ? host.slice(0, 100) : null,
     },
   };
 }
@@ -172,18 +177,25 @@ function costOf(usage: unknown): ProviderMetadata | undefined {
  * 0.14 $ per million input tokens). `pricing.billedCost` reads it back.
  */
 const openRouterCost: MetadataExtractor = {
-  extractMetadata: async ({ parsedBody }) => costOf((parsedBody as { usage?: unknown } | undefined)?.usage),
+  extractMetadata: async ({ parsedBody }) => {
+    const body = parsedBody as { usage?: unknown; provider?: unknown } | undefined;
+    return costOf(body?.usage, body?.provider);
+  },
   createStreamExtractor: () => {
     let usage: unknown;
+    let host: unknown;
     return {
       processChunk(chunk) {
-        // The usage comes with the last chunk.
-        const next = (chunk as { usage?: unknown } | undefined)?.usage;
+        // The usage comes with the last chunk, the host with every one.
+        const { usage: next, provider } = (chunk ?? {}) as { usage?: unknown; provider?: unknown };
         if (next) {
           usage = next;
         }
+        if (provider) {
+          host = provider;
+        }
       },
-      buildMetadata: () => costOf(usage),
+      buildMetadata: () => costOf(usage, host),
     };
   },
 };
