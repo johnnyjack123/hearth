@@ -1054,6 +1054,10 @@ impl ChatProgress<'_> {
 }
 
 impl Progress for ChatProgress<'_> {
+    fn lang(&self) -> harness_core::lang::Lang {
+        harness_core::lang::Lang::De
+    }
+
     fn start(&self, id: &str, label: &str) {
         lock(&self.steps).insert(id.to_owned(), (label.to_owned(), Instant::now()));
         self.event(id, label, ProgressState::Running, None);

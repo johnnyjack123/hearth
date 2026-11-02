@@ -11,5 +11,9 @@ publish.workspace = true
 name = "llm-harness-setup"
 path = "src/main.rs"
 
+# The UI language of Windows (German or English texts).
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

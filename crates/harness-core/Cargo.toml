@@ -21,3 +21,9 @@ tempfile.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
+[features]
+# German as the UI language unless HARNESS_LANG says otherwise, whatever
+# Windows shows: for the tests of crates that depend on harness-core, whose
+# expected texts are German (lang.rs).
+test-german = []
+
