@@ -116,25 +116,34 @@ def jpeg_size(data: bytes) -> tuple[int, int]:
     raise ValueError("no frame in JPEG")
 
 
-def scanned_pdf(text: str) -> bytes:
-    """A PDF with the page of pdf(text) as a picture only, like a scan."""
+def scanned_pdf(*texts: str) -> bytes:
+    """A PDF with one page per text, each as pdf(text) shows it but as a picture only, like a scan."""
+    jpegs = []
     with tempfile.TemporaryDirectory() as work:
-        source = os.path.join(work, "text.pdf")
-        with open(source, "wb") as file:
-            file.write(pdf(text))
-        subprocess.run(["pdftoppm", "-r", "150", "-jpeg", "-singlefile", source, os.path.join(work, "scan")], check=True)
-        with open(os.path.join(work, "scan.jpg"), "rb") as file:
-            jpeg = file.read()
-    width, height = jpeg_size(jpeg)
+        for text in texts:
+            source = os.path.join(work, "text.pdf")
+            with open(source, "wb") as file:
+                file.write(pdf(text))
+            subprocess.run(["pdftoppm", "-r", "150", "-jpeg", "-singlefile", source, os.path.join(work, "scan")], check=True)
+            with open(os.path.join(work, "scan.jpg"), "rb") as file:
+                jpegs.append(file.read())
     content = b"q 612 0 0 792 0 0 cm /Im1 Do Q"
+    # Objects 1 and 2, then page, picture and contents of each page.
+    kids = " ".join(f"{3 + 3 * index} 0 R" for index in range(len(jpegs)))
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
-        f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB "
-        f"/BitsPerComponent 8 /Filter /DCTDecode /Length {len(jpeg)} >>\nstream\n".encode() + jpeg + b"\nendstream",
-        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(jpegs)} >>".encode(),
     ]
+    for index, jpeg in enumerate(jpegs):
+        page = 3 + 3 * index
+        width, height = jpeg_size(jpeg)
+        objects += [
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 {page + 1} 0 R >> >> "
+            f"/Contents {page + 2} 0 R >>".encode(),
+            f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB "
+            f"/BitsPerComponent 8 /Filter /DCTDecode /Length {len(jpeg)} >>\nstream\n".encode() + jpeg + b"\nendstream",
+            b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+        ]
     out = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, body in enumerate(objects, start=1):
@@ -187,8 +196,12 @@ def main() -> None:
             ("preise.xlsx", xlsx(), ["Arabica", "12", "Preise"]),
             ("plan.pptx", pptx(), ["Röstplan", "Bohnen bei 200 Grad"]),
             ("seite.pdf", pdf("Kaffee roesten"), ["Kaffee roesten"]),
-            # A scan has no text layer: OCR reads the picture.
-            ("scan.pdf", scanned_pdf("Kaffee roesten bei 200 Grad"), ["recognized by OCR", "Kaffee", "200"]),
+            # A scan has no text layer: OCR reads the pictures, page by page.
+            (
+                "scan.pdf",
+                scanned_pdf("Kaffee roesten bei 200 Grad", "Bohnen luftdicht lagern"),
+                ["recognized by OCR", "Kaffee", "200", "## Page 2", "luftdicht"],
+            ),
             ("seite.html", "<html><body><h1>Titel</h1><p>Absatz mit <b>fett</b></p></body></html>".encode(), ["# Titel", "**fett**"]),
             ("tabelle.csv", "Sorte,Preis\nArabica,12\n".encode(), ["Arabica", "|"]),
         ]
@@ -196,6 +209,23 @@ def main() -> None:
             status, body = post(name, data)
             markdown = body.get("markdown", "")
             expect(f"{name} -> Markdown", status == 200 and all(word in markdown for word in wanted), (status, body))
+
+        # Out of time: the first page still comes, and the note says so.
+        with tempfile.TemporaryDirectory() as work:
+            path = os.path.join(work, "lang.pdf")
+            with open(path, "wb") as file:
+                file.write(scanned_pdf("Kaffee roesten bei 200 Grad", "Zweite Seite", "Dritte Seite"))
+            run = subprocess.run(
+                [sys.executable, "-I", os.path.join(HERE, "convert.py"), path],
+                capture_output=True,
+                env={**os.environ, "HARNESS_OCR_SECONDS": "0"},
+            )
+            markdown = run.stdout.decode("utf-8", "replace")
+            expect(
+                "OCR stops at its time limit",
+                "only the first 1 of 3 pages (time limit)" in markdown and "Kaffee" in markdown and "## Page 2" not in markdown,
+                (run.returncode, markdown[:300], run.stderr[-300:]),
+            )
 
         status, body = post("programm.exe", b"MZ")
         expect("unknown type refused", status == 415, (status, body))
