@@ -5,6 +5,10 @@
 //! wait for `harness merge --approve <id>` in a terminal on this computer:
 //! a browser alone never lets them through. After a merge the agent's branch
 //! continues from the merged state, in the container and on the host.
+//!
+//! The report goes to the web chat and stays German, as the web app
+//! translates on its own; `harness merge --approve` follows the user's
+//! language.
 
 use std::io::IsTerminal as _;
 use std::sync::Mutex;
@@ -12,12 +16,14 @@ use std::sync::Mutex;
 use anyhow::{Context as _, bail};
 use harness_core::config::ConfigDir;
 use harness_core::instance::{self, InstanceState};
+use harness_core::lang::{self, Lang, tr};
 use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
 use harness_core::review::{Finding, Severity};
 use harness_core::sync::{
     self, CommitOutcome, HostRepo, MergeOutcome, PullOutcome, RefreshOutcome, sanitize,
 };
+use harness_core::tr;
 use harness_core::tunnel::{
     MAX_NOTICE, MAX_REPORTED_FINDINGS, ReportedFinding, TakeoverReport, TakeoverState, truncate,
 };
@@ -131,7 +137,7 @@ fn run(
     };
 
     step(report, "Änderungen prüfen");
-    let Some(checked) = review::inspect(config, &repo, &branch)? else {
+    let Some(checked) = review::inspect(config, &repo, &branch, Lang::De)? else {
         report.state = TakeoverState::UpToDate;
         return Ok(());
     };
@@ -164,7 +170,9 @@ fn run(
                 report,
                 "Arbeitskopie im Container auf den neuen Stand bringen",
             );
-            if let Some(note) = continue_from_merge(&provider, &repo, name, &checked_commit) {
+            if let Some(note) =
+                continue_from_merge(&provider, &repo, name, &checked_commit, Lang::De)
+            {
                 report.notes.push(note);
             }
         }
@@ -209,17 +217,24 @@ fn reported(findings: &[Finding]) -> Vec<ReportedFinding> {
 
 /// After a merge: the container's agent branch moves to the merged state,
 /// and the host's agent branch follows only if that worked, so both stay
-/// on one line of history. Returns a note if the container kept its state.
+/// on one line of history. Returns a note in `lang` if the container kept
+/// its state.
 fn continue_from_merge(
     provider: &PodmanProvider,
     repo: &HostRepo,
     name: &ProjectName,
     checked_commit: &str,
+    lang: Lang,
 ) -> Option<String> {
     let head = match repo.head_commit() {
         Ok(Some(head)) => head,
         Ok(None) => return None,
-        Err(error) => return Some(format!("Neuer Stand nicht lesbar: {error}")),
+        Err(error) => {
+            return Some(tr!(in lang;
+                "Neuer Stand nicht lesbar: {error}",
+                "New state not readable: {error}"
+            ));
+        }
     };
     let branch = name.agent_branch();
     match sync::refresh_workspace(
@@ -232,17 +247,23 @@ fn continue_from_merge(
     ) {
         Ok(RefreshOutcome::Refreshed) => match repo.set_branch(&branch, &head, checked_commit) {
             Ok(()) => None,
-            Err(error) => Some(format!("{branch} auf dem Host nicht nachgezogen: {error}")),
+            Err(error) => Some(tr!(in lang;
+                "{branch} auf dem Host nicht nachgezogen: {error}",
+                "{branch} not moved along on the host: {error}"
+            )),
         },
-        Ok(RefreshOutcome::Moved) => Some(format!(
-            "Der Agent hat inzwischen weitergearbeitet; {branch} im Container bleibt, wie er ist."
+        Ok(RefreshOutcome::Moved) => Some(tr!(in lang;
+            "Der Agent hat inzwischen weitergearbeitet; {branch} im Container bleibt, wie er ist.",
+            "The agent has kept working in the meantime; {branch} in the container stays as it is."
         )),
-        Ok(RefreshOutcome::OtherBranch) => Some(format!(
-            "Im Container ist nicht {branch} ausgecheckt; dort bleibt alles, wie es ist."
+        Ok(RefreshOutcome::OtherBranch) => Some(tr!(in lang;
+            "Im Container ist nicht {branch} ausgecheckt; dort bleibt alles, wie es ist.",
+            "{branch} is not checked out in the container; everything there stays as it is."
         )),
         Ok(RefreshOutcome::NoWorkspace) => None,
-        Err(error) => Some(format!(
-            "Arbeitskopie im Container nicht aufgefrischt: {error}"
+        Err(error) => Some(tr!(in lang;
+            "Arbeitskopie im Container nicht aufgefrischt: {error}",
+            "Working copy in the container not refreshed: {error}"
         )),
     }
 }
@@ -251,45 +272,69 @@ fn continue_from_merge(
 /// severe findings, after the user saw them here and agreed.
 pub fn approve(config: &ConfigDir, machine: &str, id: &str) -> anyhow::Result<bool> {
     let Some(request) = merge_request::load(config, id)? else {
-        bail!(
+        bail!(tr!(
             "Keine offene Freigabe mit der ID {}. Im Chat erneut „Fortschritt sichern“.",
+            "No open approval with the ID {}. Use “Save progress” in the chat again.",
             sanitize(id)
-        );
+        ));
     };
     let name = ProjectName::new(&request.project)?;
     let project = config.project(&name)?;
     let repo = HostRepo::open(&project.path)?;
     if repo.branch_commit(&request.branch)?.as_deref() != Some(request.commit.as_str()) {
         merge_request::remove(config, &request.id);
-        bail!(
+        bail!(tr!(
             "{} hat sich seit dem Antrag geändert. Im Chat erneut „Fortschritt sichern“, dann \
              wird der neue Stand geprüft.",
+            "{} has changed since the request. Use “Save progress” in the chat again, then the \
+             new state is checked.",
             request.branch
-        );
+        ));
     }
     println!(
-        "Freigabe {} für Projekt {} ({})",
-        request.id,
-        name,
-        project.path.display()
+        "{}",
+        tr!(
+            "Freigabe {} für Projekt {} ({})",
+            "Approval {} for project {} ({})",
+            request.id,
+            name,
+            project.path.display()
+        )
     );
     let Some(_) = review::check(config, &repo, &request.branch)? else {
-        println!("Nichts mehr zu übernehmen.");
+        println!(
+            "{}",
+            tr("Nichts mehr zu übernehmen.", "Nothing left to take over.")
+        );
         merge_request::remove(config, &request.id);
         return Ok(true);
     };
     println!();
     if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
-        bail!("Die Freigabe braucht ein Terminal, in dem du bestätigst.");
+        bail!(tr(
+            "Die Freigabe braucht ein Terminal, in dem du bestätigst.",
+            "The approval needs a terminal in which you confirm."
+        ));
     }
-    let target = repo
-        .current_branch()?
-        .context("HEAD ist kein Branch (detached). Bitte einen Branch auschecken")?;
+    let target = repo.current_branch()?.context(tr(
+        "HEAD ist kein Branch (detached). Bitte einen Branch auschecken",
+        "HEAD is not on a branch (detached). Please check out a branch",
+    ))?;
     if !project::confirm(
-        &format!("Trotzdem in {} übernehmen?", sanitize(&target)),
+        &tr!(
+            "Trotzdem in {} übernehmen?",
+            "Take over into {} anyway?",
+            sanitize(&target)
+        ),
         false,
     )? {
-        println!("Nicht übernommen. Die Freigabe bleibt offen.");
+        println!(
+            "{}",
+            tr(
+                "Nicht übernommen. Die Freigabe bleibt offen.",
+                "Not taken over. The approval stays open.",
+            )
+        );
         return Ok(false);
     }
     let merged = crate::run::print_merge(&repo, &request.branch)?;
@@ -303,9 +348,15 @@ pub fn approve(config: &ConfigDir, machine: &str, id: &str) -> anyhow::Result<bo
         std::time::Duration::from_secs(3),
     ) && instance::state(&provider, &name)? == InstanceState::Running;
     if running {
-        match continue_from_merge(&provider, &repo, &name, &request.commit) {
+        match continue_from_merge(&provider, &repo, &name, &request.commit, lang::current()) {
             Some(note) => println!("{note}"),
-            None => println!("Der Agent arbeitet ab jetzt auf dem übernommenen Stand weiter."),
+            None => println!(
+                "{}",
+                tr(
+                    "Der Agent arbeitet ab jetzt auf dem übernommenen Stand weiter.",
+                    "From now on, the agent continues from the state taken over.",
+                )
+            ),
         }
     }
     Ok(true)

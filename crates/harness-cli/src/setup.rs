@@ -17,8 +17,10 @@ use std::process::Command;
 
 use harness_core::config::ConfigDir;
 use harness_core::image::{BuildOptions, GATEWAY_PREBUILT, IMAGES, ImageDefinition, ImageStatus};
+use harness_core::lang::tr;
 use harness_core::podman::{MachineConfig, find_podman};
 use harness_core::sync::find_git;
+use harness_core::tr;
 use harness_core::vmd;
 
 use crate::vmd::MachineSize;
@@ -70,11 +72,20 @@ impl Assistant {
     /// `--yes`.
     fn agrees(&self, question: &str) -> anyhow::Result<bool> {
         if self.yes {
-            println!("{question} → ja (--yes)");
+            println!(
+                "{}",
+                tr!("{question} → ja (--yes)", "{question} → yes (--yes)")
+            );
             return Ok(true);
         }
         if !self.interactive {
-            println!("{question} → übersprungen (ohne Terminal: harness setup --yes)");
+            println!(
+                "{}",
+                tr!(
+                    "{question} → übersprungen (ohne Terminal: harness setup --yes)",
+                    "{question} → skipped (without a terminal: harness setup --yes)"
+                )
+            );
             return Ok(false);
         }
         project::confirm(question, true)
@@ -83,7 +94,13 @@ impl Assistant {
     /// [`Assistant::agrees`] for a step that changes Windows itself.
     fn agrees_system(&self, question: &str) -> anyhow::Result<bool> {
         if !self.system {
-            println!("{question} → nicht im Testlauf (HARNESS_HOME)");
+            println!(
+                "{}",
+                tr!(
+                    "{question} → nicht im Testlauf (HARNESS_HOME)",
+                    "{question} → not in a test run (HARNESS_HOME)"
+                )
+            );
             return Ok(false);
         }
         self.agrees(question)
@@ -105,16 +122,23 @@ impl Assistant {
 /// `harness setup`. Returns whether everything is ready.
 pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Result<bool> {
     if !cfg!(windows) {
-        anyhow::bail!(
-            "`harness setup` richtet Windows ein; auf anderen Systemen gibt es das noch nicht."
-        );
+        anyhow::bail!(tr(
+            "`harness setup` richtet Windows ein; auf anderen Systemen gibt es das noch nicht.",
+            "`harness setup` sets Windows up; there is nothing like it for other systems yet."
+        ));
     }
     let assistant = Assistant {
         yes: options.yes,
         interactive: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
         system: daemon::automatic(),
     };
-    println!("Einrichtung von harness auf diesem Rechner\n");
+    println!(
+        "{}",
+        tr(
+            "Einrichtung von harness auf diesem Rechner\n",
+            "Setting up harness on this computer\n"
+        )
+    );
 
     if !hyperv(&assistant)? {
         return Ok(false);
@@ -124,7 +148,7 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
         "git",
         find_git().ok(),
         "Git.Git",
-        "etwa 70 MB",
+        tr("etwa 70 MB", "about 70 MB"),
         &["Git", "cmd", "git.exe"],
     )?;
     let podman = tool(
@@ -132,7 +156,7 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
         "Podman",
         find_podman().ok(),
         "RedHat.Podman",
-        "etwa 30 MB",
+        tr("etwa 30 MB", "about 30 MB"),
         &["RedHat", "Podman", "podman.exe"],
     )?;
     if git.is_none() || podman.is_none() {
@@ -152,13 +176,23 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
     println!();
     if paired {
         println!(
-            "Fertig. Im Ordner eines Projekts gibt `harness init` es für Web-Chats frei, \
-             `harness` startet den Agent im Terminal."
+            "{}",
+            tr(
+                "Fertig. Im Ordner eines Projekts gibt `harness init` es für Web-Chats frei, \
+                 `harness` startet den Agent im Terminal.",
+                "Done. In a project's folder, `harness init` offers it to web chats, `harness` \
+                 starts the agent in the terminal."
+            )
         );
     } else {
         println!(
-            "Fertig für das Terminal: Im Ordner eines Projekts startet `harness` den Agent. Für \
-             Web-Chats später `harness login <Server>`."
+            "{}",
+            tr(
+                "Fertig für das Terminal: Im Ordner eines Projekts startet `harness` den Agent. \
+                 Für Web-Chats später `harness login <Server>`.",
+                "Done for the terminal: in a project's folder, `harness` starts the agent. For \
+                 web chats, later `harness login <server>`."
+            )
         );
     }
     Ok(true)
@@ -167,30 +201,44 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
 /// Hyper-V switched on; if not, why not, and an offer to switch it on.
 fn hyperv(assistant: &Assistant) -> anyhow::Result<bool> {
     if sys::service_exists("vmms") {
-        ok("Hyper-V ist eingeschaltet");
+        ok(tr("Hyper-V ist eingeschaltet", "Hyper-V is switched on"));
         return Ok(true);
     }
     let edition = sys::edition().unwrap_or_default();
     if edition.starts_with("Core") {
-        fail(format!(
+        fail(tr!(
             "Windows Home ({edition}) hat kein Hyper-V. harness braucht vorerst Windows Pro, \
-             Enterprise oder Education; ein Weg über WSL ist geplant."
+             Enterprise oder Education; ein Weg über WSL ist geplant.",
+            "Windows Home ({edition}) has no Hyper-V. For now harness needs Windows Pro, \
+             Enterprise or Education; a way through WSL is planned."
         ));
         return Ok(false);
     }
     if sys::firmware_virtualization() == Some(false) {
-        fail(
+        fail(tr(
             "Die Virtualisierung ist im BIOS/UEFI ausgeschaltet. Dort einschalten (Intel VT-x, \
              AMD-V oder SVM), dann `harness setup` erneut.",
-        );
+            "Virtualization is switched off in the BIOS/UEFI. Switch it on there (Intel VT-x, \
+             AMD-V or SVM), then run `harness setup` again.",
+        ));
         return Ok(false);
     }
-    warn("Hyper-V ist ausgeschaltet; die VM von harness braucht es.");
-    if assistant
-        .agrees_system("Hyper-V jetzt einschalten (Administratorrechte, danach Neustart)?")?
-        && crate::vmd::enable_hyperv()?
+    warn(tr(
+        "Hyper-V ist ausgeschaltet; die VM von harness braucht es.",
+        "Hyper-V is switched off; the VM of harness needs it.",
+    ));
+    if assistant.agrees_system(tr(
+        "Hyper-V jetzt einschalten (Administratorrechte, danach Neustart)?",
+        "Switch Hyper-V on now (administrator rights, then a restart)?",
+    ))? && crate::vmd::enable_hyperv()?
     {
-        println!("Bitte Windows neu starten und danach `harness setup` erneut ausführen.");
+        println!(
+            "{}",
+            tr(
+                "Bitte Windows neu starten und danach `harness setup` erneut ausführen.",
+                "Please restart Windows and then run `harness setup` again."
+            )
+        );
     }
     Ok(false)
 }
@@ -210,15 +258,20 @@ fn tool(
         ok(format!("{name}: {}", path.display()));
         return Ok(Some(path));
     }
-    warn(format!("{name} fehlt."));
+    warn(tr!("{name} fehlt.", "{name} is missing."));
     if !winget_available() {
-        fail(format!(
+        fail(tr!(
             "winget ist nicht da. {name} bitte von Hand installieren (winget-Paket {package}), \
-             dann `harness setup` erneut."
+             dann `harness setup` erneut.",
+            "winget is not available. Please install {name} by hand (winget package {package}), \
+             then run `harness setup` again."
         ));
         return Ok(None);
     }
-    if !assistant.agrees_system(&format!("{name} mit winget installieren (lädt {size})?"))? {
+    if !assistant.agrees_system(&tr!(
+        "{name} mit winget installieren (lädt {size})?",
+        "Install {name} with winget (downloads {size})?"
+    ))? {
         return Ok(None);
     }
     let status = Command::new("winget")
@@ -234,7 +287,10 @@ fn tool(
         ])
         .status();
     if !status.is_ok_and(|s| s.success()) {
-        fail(format!("Die Installation von {name} ist gescheitert."));
+        fail(tr!(
+            "Die Installation von {name} ist gescheitert.",
+            "The installation of {name} failed."
+        ));
         return Ok(None);
     }
     let installed = std::env::var_os("ProgramFiles")
@@ -246,7 +302,11 @@ fn tool(
         .filter(|path| path.is_file());
     match installed {
         Some(path) => {
-            ok(format!("{name} installiert: {}", path.display()));
+            ok(tr!(
+                "{name} installiert: {}",
+                "{name} installed: {}",
+                path.display()
+            ));
             // Later steps of this run look it up on PATH.
             if let (Some(dir), Some(current)) = (path.parent(), std::env::var_os("PATH")) {
                 let mut paths: Vec<PathBuf> = std::env::split_paths(&current).collect();
@@ -259,9 +319,11 @@ fn tool(
             Ok(Some(path))
         }
         None => {
-            warn(format!(
+            warn(tr!(
                 "{name} ist installiert, aber nicht am erwarteten Ort. Bitte ein neues Terminal \
-                 öffnen und `harness setup` erneut ausführen."
+                 öffnen und `harness setup` erneut ausführen.",
+                "{name} is installed, but not in the expected place. Please open a new terminal \
+                 and run `harness setup` again."
             ));
             Ok(None)
         }
@@ -280,40 +342,54 @@ fn winget_available() -> bool {
 fn vm_service(assistant: &Assistant, machine: &str) -> anyhow::Result<bool> {
     if vmd::available() {
         if crate::vmd::service_outdated() == Some(true) {
-            warn("Der VM-Dienst ist ein anderer Stand als dieses harness.");
-            if assistant.agrees_system(
+            warn(tr(
+                "Der VM-Dienst ist ein anderer Stand als dieses harness.",
+                "The VM service is a different version than this harness.",
+            ));
+            if assistant.agrees_system(tr(
                 "VM-Dienst aktualisieren (Administratorrechte; die VM startet dabei neu)?",
-            )? {
+                "Update the VM service (administrator rights; the VM restarts)?",
+            ))? {
                 return crate::vmd::install(machine, None);
             }
         }
-        ok("VM-Dienst läuft");
+        ok(tr("VM-Dienst läuft", "VM service running"));
         return Ok(true);
     }
     let exists = MachineConfig::default_path(machine)?.is_file();
     let agreed = if exists {
-        assistant.agrees_system(&format!(
-            "VM-Dienst einrichten und die VM {machine} übernehmen (Administratorrechte)?"
+        assistant.agrees_system(&tr!(
+            "VM-Dienst einrichten und die VM {machine} übernehmen (Administratorrechte)?",
+            "Set up the VM service and let it take over the VM {machine} (administrator rights)?"
         ))?
     } else {
         let size = machine_size();
         println!(
-            "Noch keine VM {machine}. harness legt sie mit {} CPUs, bis {} MiB RAM und {} GiB \
-             Platte an (belegt nur, was sie braucht).",
-            size.cpus, size.memory, size.disk
+            "{}",
+            tr!(
+                "Noch keine VM {machine}. harness legt sie mit {} CPUs, bis {} MiB RAM und {} GiB \
+                 Platte an (belegt nur, was sie braucht).",
+                "No VM {machine} yet. harness creates it with {} CPUs, up to {} MiB RAM and {} GiB \
+                 disk (it only takes up what it needs).",
+                size.cpus,
+                size.memory,
+                size.disk
+            )
         );
-        assistant.agrees_system(
+        assistant.agrees_system(tr(
             "VM anlegen und VM-Dienst einrichten (Administratorrechte, lädt etwa 1 GB)?",
-        )?
+            "Create the VM and set up the VM service (administrator rights, downloads about 1 GB)?",
+        ))?
     };
     if !agreed {
         return Ok(false);
     }
     let size = (!exists).then(machine_size);
     if !crate::vmd::install(machine, size)? || !vmd::available() {
-        fail(
+        fail(tr(
             "Der VM-Dienst läuft nicht; Details oben und in C:\\ProgramData\\llm-harness\\vmd\\vmd.log.",
-        );
+            "The VM service is not running; details above and in C:\\ProgramData\\llm-harness\\vmd\\vmd.log.",
+        ));
         return Ok(false);
     }
     Ok(true)
@@ -325,13 +401,13 @@ fn images(assistant: &Assistant, machine: &str) -> anyhow::Result<bool> {
     let mut missing: Vec<ImageDefinition> = Vec::new();
     for image in IMAGES {
         match image.status(&provider)? {
-            ImageStatus::Current => ok(format!("Image {} aktuell", image.tag)),
+            ImageStatus::Current => ok(tr!("Image {} aktuell", "Image {} up to date", image.tag)),
             ImageStatus::Outdated => {
-                warn(format!("Image {} veraltet", image.tag));
+                warn(tr!("Image {} veraltet", "Image {} outdated", image.tag));
                 missing.push(*image);
             }
             ImageStatus::Missing => {
-                warn(format!("Image {} fehlt", image.tag));
+                warn(tr!("Image {} fehlt", "Image {} missing", image.tag));
                 missing.push(*image);
             }
         }
@@ -342,11 +418,19 @@ fn images(assistant: &Assistant, machine: &str) -> anyhow::Result<bool> {
     // Without the gateway program in this harness the VM compiles it and
     // first downloads the Rust image.
     let question = if GATEWAY_PREBUILT {
-        "Images in der VM bauen (lädt Basis-Images, beim ersten Mal etwa 250 MB; dauert einige \
-         Minuten)?"
+        tr(
+            "Images in der VM bauen (lädt Basis-Images, beim ersten Mal etwa 250 MB; dauert \
+             einige Minuten)?",
+            "Build the images in the VM (downloads base images, about 250 MB the first time; \
+             takes a few minutes)?",
+        )
     } else {
-        "Images in der VM bauen (lädt Basis-Images und Rust zum Kompilieren des Gateways, beim \
-         ersten Mal etwa 600 MB; dauert einige Minuten)?"
+        tr(
+            "Images in der VM bauen (lädt Basis-Images und Rust zum Kompilieren des Gateways, \
+             beim ersten Mal etwa 600 MB; dauert einige Minuten)?",
+            "Build the images in the VM (downloads base images and Rust to compile the gateway, \
+             about 600 MB the first time; takes a few minutes)?",
+        )
     };
     if !assistant.agrees(question)? {
         return Ok(false);
@@ -358,19 +442,21 @@ fn images(assistant: &Assistant, machine: &str) -> anyhow::Result<bool> {
 /// Pairing with a harness server; asks for its address if there is none.
 fn server(assistant: &Assistant, config: &ConfigDir, url: Option<String>) -> anyhow::Result<bool> {
     if let Some((client, _)) = login::paired(config)? {
-        ok(format!("Gekoppelt mit {}", client.url()));
+        ok(tr!("Gekoppelt mit {}", "Paired with {}", client.url()));
         return Ok(true);
     }
     let url = match url {
         Some(url) => Some(url),
-        None => assistant.ask(
+        None => assistant.ask(tr(
             "Adresse deines harness-Servers für Web-Chats (z. B. http://192.168.1.20:8085; leer: später)?",
-        )?,
+            "Address of your harness server for web chats (e.g. http://192.168.1.20:8085; empty: later)?",
+        ))?,
     };
     let Some(url) = url else {
-        warn(
+        warn(tr(
             "Nicht mit einem Server gekoppelt; Web-Chats gehen erst nach `harness login <Server>`.",
-        );
+            "Not paired with a server; web chats only work after `harness login <server>`.",
+        ));
         return Ok(false);
     };
     // Without a terminal (scripts, tests) the link is printed, not opened.
@@ -380,18 +466,31 @@ fn server(assistant: &Assistant, config: &ConfigDir, url: Option<String>) -> any
 /// The background service at logon, for web chats.
 fn background(assistant: &Assistant, config: &ConfigDir) -> anyhow::Result<()> {
     if !daemon::automatic() {
-        warn("Mit HARNESS_HOME richtet setup keinen Autostart ein (`harness daemon start`).");
+        warn(tr(
+            "Mit HARNESS_HOME richtet setup keinen Autostart ein (`harness daemon start`).",
+            "With HARNESS_HOME, setup does not set up an autostart (`harness daemon start`).",
+        ));
         return Ok(());
     }
+    let running = tr(
+        "Hintergrunddienst läuft und startet bei der Anmeldung",
+        "Background service running and starting at sign-in",
+    );
     if daemon::autostart().is_some() && daemon::running(config) {
-        ok("Hintergrunddienst läuft und startet bei der Anmeldung");
+        ok(running);
         return Ok(());
     }
-    if assistant.agrees("Hintergrunddienst für Web-Chats bei jeder Anmeldung starten?")? {
+    if assistant.agrees(tr(
+        "Hintergrunddienst für Web-Chats bei jeder Anmeldung starten?",
+        "Start the background service for web chats at every sign-in?",
+    ))? {
         if daemon::install(config)? {
-            ok("Hintergrunddienst läuft und startet bei der Anmeldung");
+            ok(running);
         } else {
-            fail("Der Hintergrunddienst startet nicht, siehe `harness daemon`.");
+            fail(tr(
+                "Der Hintergrunddienst startet nicht, siehe `harness daemon`.",
+                "The background service does not start, see `harness daemon`.",
+            ));
         }
     }
     Ok(())
@@ -420,11 +519,12 @@ fn path(assistant: &Assistant) -> anyhow::Result<()> {
     let current = std::env::var("PATH").unwrap_or_default();
     let user = sys::user_path().unwrap_or_default();
     if in_path(&current, &dir) || in_path(&user, &dir) {
-        ok(format!("{} ist im PATH", dir.display()));
+        ok(tr!("{} ist im PATH", "{} is on the PATH", dir.display()));
         return Ok(());
     }
-    if assistant.agrees(&format!(
+    if assistant.agrees(&tr!(
         "{} zum PATH hinzufügen, damit `harness` in jedem neuen Terminal geht?",
+        "Add {} to the PATH, so `harness` works in every new terminal?",
         dir.display()
     ))? {
         let value = if user.trim().is_empty() {
@@ -433,7 +533,10 @@ fn path(assistant: &Assistant) -> anyhow::Result<()> {
             format!("{};{}", user.trim_end_matches(';'), dir.display())
         };
         sys::set_user_path(&value)?;
-        ok("PATH ergänzt; gilt in neuen Terminals");
+        ok(tr(
+            "PATH ergänzt; gilt in neuen Terminals",
+            "PATH extended; applies to new terminals",
+        ));
     }
     Ok(())
 }
@@ -545,10 +648,11 @@ mod sys {
             )
         };
         if status != 0 {
-            anyhow::bail!(
+            anyhow::bail!(harness_core::tr!(
                 "PATH nicht geschrieben: {}",
+                "PATH not written: {}",
                 std::io::Error::from_raw_os_error(status as i32)
-            );
+            ));
         }
         let environment = wide("Environment");
         let mut result = 0usize;
@@ -583,7 +687,10 @@ mod sys {
         None
     }
     pub fn set_user_path(_value: &str) -> anyhow::Result<()> {
-        anyhow::bail!("nur unter Windows")
+        anyhow::bail!(harness_core::lang::tr(
+            "nur unter Windows",
+            "only on Windows"
+        ))
     }
 }
 

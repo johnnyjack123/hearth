@@ -13,8 +13,10 @@ use harness_core::app_file;
 use harness_core::apps::{self, Install, Inventory, ReadyApp};
 use harness_core::config::{AppConfig, AppSource, AppTemplate, ConfigDir, Project};
 use harness_core::gateway;
+use harness_core::lang::{self, Lang, tr};
 use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
+use harness_core::tr;
 use harness_core::tunnel::{
     AppInfo, AppsReport, PendingFile, ProjectApps, RemoteProject, truncate,
 };
@@ -24,67 +26,121 @@ use crate::app_request::{self, FileRequest};
 use crate::progress::{Progress, Terminal, step};
 use crate::{login, project};
 
-/// Subcommands of `harness app`.
+/// Subcommands of `harness app`. The help texts follow the user's language
+/// (harness_core::lang), so they are attributes rather than doc comments.
 #[derive(Subcommand)]
 pub enum AppCommand {
-    /// Zeigt den Katalog und welche Apps das Projekt hat (Standard)
+    #[command(about = tr(
+        "Zeigt den Katalog und welche Apps das Projekt hat (Standard)",
+        "Shows the catalog and which apps the project has (default)"
+    ))]
     List,
-    /// Schaltet Apps im Projekt ein; der nächste Start installiert, was fehlt
+    #[command(about = tr(
+        "Schaltet Apps im Projekt ein; der nächste Start installiert, was fehlt",
+        "Switches apps on in the project; the next start installs what is missing"
+    ))]
     On {
-        /// Namen aus `harness app list`
-        #[arg(required = true)]
+        #[arg(required = true, help = tr(
+            "Namen aus `harness app list`",
+            "Names from `harness app list`"
+        ))]
         names: Vec<String>,
     },
-    /// Schaltet Apps im Projekt aus
+    #[command(about = tr(
+        "Schaltet Apps im Projekt aus",
+        "Switches apps off in the project"
+    ))]
     Off {
-        /// Namen aus `harness app list`
-        #[arg(required = true)]
+        #[arg(required = true, help = tr(
+            "Namen aus `harness app list`",
+            "Names from `harness app list`"
+        ))]
         names: Vec<String>,
     },
-    /// Installiert jetzt, was dem Projekt fehlt (Standard: alle eingeschalteten Apps)
+    #[command(about = tr(
+        "Installiert jetzt, was dem Projekt fehlt (Standard: alle eingeschalteten Apps)",
+        "Installs now what the project lacks (default: all apps switched on)"
+    ))]
     Install {
-        /// Nur diese Apps (müssen nicht eingeschaltet sein)
+        #[arg(help = tr(
+            "Nur diese Apps (müssen nicht eingeschaltet sein)",
+            "Only these apps (need not be switched on)"
+        ))]
         names: Vec<String>,
     },
-    /// Installiert Apps neu, in der aktuellen Version (Standard: alle eingeschalteten)
+    #[command(about = tr(
+        "Installiert Apps neu, in der aktuellen Version (Standard: alle eingeschalteten)",
+        "Installs apps again, in the current version (default: all switched on)"
+    ))]
     Update {
-        /// Nur diese Apps
+        #[arg(help = tr("Nur diese Apps", "Only these apps"))]
         names: Vec<String>,
     },
-    /// Löscht Apps aus der VM (Platz); Projekte, die sie eingeschaltet haben, installieren beim nächsten Start neu
+    #[command(about = tr(
+        "Löscht Apps aus der VM (Platz); Projekte, die sie eingeschaltet haben, installieren beim nächsten Start neu",
+        "Deletes apps from the VM (space); projects that have them switched on install them again on the next start"
+    ))]
     Remove {
-        /// Namen aus `harness app list`
-        #[arg(required = true)]
+        #[arg(required = true, help = tr(
+            "Namen aus `harness app list`",
+            "Names from `harness app list`"
+        ))]
         names: Vec<String>,
     },
-    /// Macht eine Linux-Programmdatei dieses Rechners zur App (Programm, AppImage, .deb oder Archiv)
+    #[command(about = tr(
+        "Macht eine Linux-Programmdatei dieses Rechners zur App (Programm, AppImage, .deb oder Archiv)",
+        "Makes a Linux program file of this computer an app (program, AppImage, .deb or archive)"
+    ))]
     Add {
-        /// Die Datei
+        #[arg(help = tr("Die Datei", "The file"))]
         path: PathBuf,
-        /// Kurzname der App (Standard: aus dem Dateinamen)
-        #[arg(long)]
+        #[arg(long, help = tr(
+            "Kurzname der App (Standard: aus dem Dateinamen)",
+            "Short name of the app (default: from the file name)"
+        ))]
         name: Option<String>,
-        /// Name für Menschen (Standard: der Dateiname)
-        #[arg(long)]
+        #[arg(long, help = tr(
+            "Name für Menschen (Standard: der Dateiname)",
+            "Name for people (default: the file name)"
+        ))]
         title: Option<String>,
     },
-    /// Gibt eine Programmdatei frei, die der Browser angefragt hat
+    #[command(about = tr(
+        "Gibt eine Programmdatei frei, die der Browser angefragt hat",
+        "Approves a program file the browser asked for"
+    ))]
     Approve {
-        /// Die ID aus dem Browser oder `harness app list`
+        #[arg(help = tr(
+            "Die ID aus dem Browser oder `harness app list`",
+            "The ID from the browser or `harness app list`"
+        ))]
         id: String,
-        /// Ohne Rückfrage (das Tray-Symbol hat schon gefragt)
-        #[arg(long)]
+        #[arg(long, help = tr(
+            "Ohne Rückfrage (das Tray-Symbol hat schon gefragt)",
+            "Without asking (the tray icon has asked already)"
+        ))]
         yes: bool,
     },
-    /// Lehnt eine angefragte Programmdatei ab
+    #[command(about = tr(
+        "Lehnt eine angefragte Programmdatei ab",
+        "Refuses a program file the browser asked for"
+    ))]
     Deny {
-        /// Die ID aus dem Browser oder `harness app list`
+        #[arg(help = tr(
+            "Die ID aus dem Browser oder `harness app list`",
+            "The ID from the browser or `harness app list`"
+        ))]
         id: String,
     },
-    /// Vergisst Apps aus Programmdateien (Rezept und Kopie) und schaltet sie in allen Projekten aus
+    #[command(about = tr(
+        "Vergisst Apps aus Programmdateien (Rezept und Kopie) und schaltet sie in allen Projekten aus",
+        "Forgets apps from program files (recipe and copy) and switches them off in all projects"
+    ))]
     Forget {
-        /// Namen aus `harness app list`
-        #[arg(required = true)]
+        #[arg(required = true, help = tr(
+            "Namen aus `harness app list`",
+            "Names from `harness app list`"
+        ))]
         names: Vec<String>,
     },
 }
@@ -170,19 +226,28 @@ pub(crate) fn report(
 }
 
 /// Whether `name` may become the app of a program file: free, or already
-/// one of a program file (a new file replaces it).
-fn file_app_name_free(config: &ConfigDir, name: &str) -> Result<(), String> {
+/// one of a program file (a new file replaces it). Says why not in `lang`:
+/// the browser reads German, the terminal the user's language.
+fn file_app_name_free(config: &ConfigDir, name: &str, lang: Lang) -> Result<(), String> {
     match config.app(name) {
         Ok(app) if app.file.is_some() => Ok(()),
-        Ok(app) => Err(format!(
-            "Den Namen {name} hat schon {} ({}); bitte einen anderen wählen.",
-            app.title,
-            match app.source {
-                AppSource::Builtin => "Katalog",
-                AppSource::Local => "Rezept auf diesem Rechner",
-                AppSource::Server => "eigenes Programm aus dem Browser",
-            }
-        )),
+        Ok(app) => {
+            let source = match app.source {
+                AppSource::Builtin => lang.pick("Katalog", "catalog"),
+                AppSource::Local => {
+                    lang.pick("Rezept auf diesem Rechner", "recipe on this computer")
+                }
+                AppSource::Server => lang.pick(
+                    "eigenes Programm aus dem Browser",
+                    "custom program from the browser",
+                ),
+            };
+            Err(tr!(in lang;
+                "Den Namen {name} hat schon {} ({source}); bitte einen anderen wählen.",
+                "The name {name} is taken by {} ({source}); please pick another one.",
+                app.title
+            ))
+        }
         Err(Error::AppUnknown(_)) => Ok(()),
         Err(error) => Err(error.to_string()),
     }
@@ -191,7 +256,8 @@ fn file_app_name_free(config: &ConfigDir, name: &str) -> Result<(), String> {
 /// A program file the browser asks for: checked here (only absolute paths
 /// to Linux program files, free names), then stored as a request for the
 /// user to approve on this computer. Returns whether it waits, what to tell
-/// the user (German) and the request's id.
+/// the user (German, the browser translates on its own) and the request's
+/// id.
 pub(crate) fn request_from_browser(
     config: &ConfigDir,
     path: &str,
@@ -203,7 +269,7 @@ pub(crate) fn request_from_browser(
         if title.is_empty() || title.chars().count() > 60 {
             return Err("Der Name muss 1 bis 60 Zeichen lang sein.".to_owned());
         }
-        file_app_name_free(config, name)?;
+        file_app_name_free(config, name, Lang::De)?;
         let file = Path::new(path);
         if path.contains('\0') || !file.is_absolute() {
             return Err(format!(
@@ -252,9 +318,10 @@ fn switch_off_everywhere(
 }
 
 fn show_file(path: &Path, info: app_file::FileInfo) {
-    println!("  Datei: {}", path.display());
+    println!("  {}{}", tr("Datei: ", "File:  "), path.display());
     println!(
-        "  Art:   {}, {:.1} MB",
+        "  {}{}, {:.1} MB",
+        tr("Art:   ", "Kind:  "),
         info.kind.label(),
         info.size as f64 / 1024.0 / 1024.0
     );
@@ -268,85 +335,144 @@ fn add(
 ) -> anyhow::Result<bool> {
     let name = name.unwrap_or_else(|| app_file::suggested_name(path));
     let title = title.unwrap_or_else(|| name.clone());
-    if let Err(error) = file_app_name_free(config, &name) {
+    if let Err(error) = file_app_name_free(config, &name, lang::current()) {
         bail!(error);
     }
     let app = app_file::add(config, &name, &title, path)?;
     println!(
-        "{} ist jetzt die App {} (Kopie in {}).",
-        app.title,
-        app.name,
-        config.app_files_dir().join(&app.name).display()
+        "{}",
+        tr!(
+            "{} ist jetzt die App {} (Kopie in {}).",
+            "{} is now the app {} (copy in {}).",
+            app.title,
+            app.name,
+            config.app_files_dir().join(&app.name).display()
+        )
     );
     println!(
-        "Einschalten mit `harness app on {}` oder im Browser; der nächste Start installiert sie.",
-        app.name
+        "{}",
+        tr!(
+            "Einschalten mit `harness app on {}` oder im Browser; der nächste Start installiert sie.",
+            "Switch it on with `harness app on {}` or in the browser; the next start installs it.",
+            app.name
+        )
     );
     Ok(true)
 }
 
 fn approve(config: &ConfigDir, id: &str, yes: bool) -> anyhow::Result<bool> {
     let Some(request) = app_request::load(config, id) else {
-        bail!("Keine wartende Programmdatei mit der ID {id} (harness app list zeigt alle).");
+        bail!(tr!(
+            "Keine wartende Programmdatei mit der ID {id} (harness app list zeigt alle).",
+            "No waiting program file with the ID {id} (harness app list shows all)."
+        ));
     };
     let path = PathBuf::from(&request.path);
     println!(
-        "Der Browser möchte diese Datei als App {} („{}“) in die VM geben:",
-        request.name, request.title
+        "{}",
+        tr!(
+            "Der Browser möchte diese Datei als App {} („{}“) in die VM geben:",
+            "The browser wants to put this file into the VM as app {} (“{}”):",
+            request.name,
+            request.title
+        )
     );
     let info = app_file::inspect(&path).map_err(anyhow::Error::msg)?;
     show_file(&path, info);
     println!(
-        "Agents in Projekten, die die App einschalten, können die Datei lesen und ausführen. \
-         Nur freigeben, wenn du sie selbst angefragt hast."
+        "{}",
+        tr(
+            "Agents in Projekten, die die App einschalten, können die Datei lesen und ausführen. \
+             Nur freigeben, wenn du sie selbst angefragt hast.",
+            "Agents in projects that switch the app on can read and run the file. Only approve \
+             it if you asked for it yourself.",
+        )
     );
     if !yes {
         if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
-            bail!("Die Freigabe braucht ein Terminal, in dem du bestätigst.");
+            bail!(tr(
+                "Die Freigabe braucht ein Terminal, in dem du bestätigst.",
+                "The approval needs a terminal in which you confirm."
+            ));
         }
-        if !project::confirm("Freigeben?", false)? {
+        if !project::confirm(tr("Freigeben?", "Approve?"), false)? {
             app_request::remove(config, &request.id);
-            println!("Abgelehnt.");
+            println!("{}", tr("Abgelehnt.", "Refused."));
             return Ok(false);
         }
     }
-    file_app_name_free(config, &request.name).map_err(anyhow::Error::msg)?;
+    file_app_name_free(config, &request.name, lang::current()).map_err(anyhow::Error::msg)?;
     let app = app_file::add(config, &request.name, &request.title, &path)?;
     app_request::remove(config, &request.id);
     println!(
-        "Freigegeben: {} ist die App {}. Einschalten im Browser oder mit `harness app on {}`.",
-        app.title, app.name, app.name
+        "{}",
+        tr!(
+            "Freigegeben: {} ist die App {}. Einschalten im Browser oder mit `harness app on {}`.",
+            "Approved: {} is the app {}. Switch it on in the browser or with `harness app on {}`.",
+            app.title,
+            app.name,
+            app.name
+        )
     );
     Ok(true)
 }
 
 fn deny(config: &ConfigDir, id: &str) -> anyhow::Result<bool> {
     let Some(request) = app_request::load(config, id) else {
-        bail!("Keine wartende Programmdatei mit der ID {id}.");
+        bail!(tr!(
+            "Keine wartende Programmdatei mit der ID {id}.",
+            "No waiting program file with the ID {id}."
+        ));
     };
     app_request::remove(config, &request.id);
-    println!("Abgelehnt: {} ({}).", request.title, request.path);
+    println!(
+        "{}",
+        tr!(
+            "Abgelehnt: {} ({}).",
+            "Refused: {} ({}).",
+            request.title,
+            request.path
+        )
+    );
     Ok(true)
 }
 
 fn forget(config: &ConfigDir, names: &[String]) -> anyhow::Result<bool> {
     for name in names {
         app_file::forget(config, name)?;
-        println!("{name}: Rezept und Kopie gelöscht.");
+        println!(
+            "{}",
+            tr!(
+                "{name}: Rezept und Kopie gelöscht.",
+                "{name}: recipe and copy deleted."
+            )
+        );
     }
     for (project, off) in switch_off_everywhere(config, names)? {
-        println!("{project}: ausgeschaltet: {}", off.join(", "));
+        println!(
+            "{}",
+            tr!(
+                "{project}: ausgeschaltet: {}",
+                "{project}: switched off: {}",
+                off.join(", ")
+            )
+        );
     }
     println!(
-        "Was schon in der VM installiert ist, löscht `harness app remove {}`.",
-        names.join(" ")
+        "{}",
+        tr!(
+            "Was schon in der VM installiert ist, löscht `harness app remove {}`.",
+            "What is installed in the VM already is deleted by `harness app remove {}`.",
+            names.join(" ")
+        )
     );
     Ok(true)
 }
 
 /// Switches a project's apps as the browser asks: only for a project the
 /// computer offers to web chats, only apps it knows. Returns whether it
-/// worked and what to tell the user (German).
+/// worked and what to tell the user (German, the browser translates on its
+/// own).
 pub(crate) fn apply_from_browser(
     config: &ConfigDir,
     offered: &[RemoteProject],
@@ -399,7 +525,8 @@ pub(crate) fn apply_from_browser(
 /// Takes over the account's templates as the server sent them: the ones
 /// this harness can read become the new copy, and templates that are gone
 /// are switched off in every project, whose next start would fail on an
-/// unknown app otherwise. Returns what changed (German), `None` if nothing.
+/// unknown app otherwise. Returns what changed, for the service's log;
+/// `None` if nothing.
 pub(crate) fn apply_templates(
     config: &ConfigDir,
     raw: Vec<serde_json::Value>,
@@ -414,10 +541,15 @@ pub(crate) fn apply_templates(
         return Ok(None);
     }
     config.save_templates(&templates)?;
-    let mut message = format!("Eigene Programme vom Server: {}", templates.len());
+    let mut message = tr!(
+        "Eigene Programme vom Server: {}",
+        "Custom programs from the server: {}",
+        templates.len()
+    );
     if templates.len() < offered {
-        message.push_str(&format!(
+        message.push_str(&tr!(
             " ({} kann dieses harness nicht lesen, bitte aktualisieren)",
+            " ({} this harness cannot read, please update)",
             offered - templates.len()
         ));
     }
@@ -427,7 +559,11 @@ pub(crate) fn apply_templates(
         .filter(|name| matches!(config.app(name), Err(Error::AppUnknown(_))))
         .collect();
     for (project, off) in switch_off_everywhere(config, &gone)? {
-        message.push_str(&format!("; in {project} ausgeschaltet: {}", off.join(", ")));
+        message.push_str(&tr!(
+            "; in {project} ausgeschaltet: {}",
+            "; switched off in {project}: {}",
+            off.join(", ")
+        ));
     }
     Ok(Some(message))
 }
@@ -444,19 +580,35 @@ fn remove(machine: &str, names: &[String]) -> anyhow::Result<bool> {
             .filter(|install| install.app == *name)
             .collect();
         if installs.is_empty() {
-            println!("{name}: nicht installiert.");
+            println!(
+                "{}",
+                tr!("{name}: nicht installiert.", "{name}: not installed.")
+            );
             continue;
         }
         for install in installs {
             match apps::remove(&provider, install) {
-                Ok(()) => println!("{name} {}: gelöscht.", install.version),
+                Ok(()) => println!(
+                    "{}",
+                    tr!(
+                        "{name} {}: gelöscht.",
+                        "{name} {}: deleted.",
+                        install.version
+                    )
+                ),
                 Err(error) => {
                     all_gone = false;
                     println!(
-                        "{name} {}: bleibt, weil eine Instanz sie noch einhängt (auch gestoppte). \
-                         Erst in den Projekten ausschalten (`harness app off {name}`) und sie \
-                         einmal starten. {error}",
-                        install.version
+                        "{}",
+                        tr!(
+                            "{name} {}: bleibt, weil eine Instanz sie noch einhängt (auch \
+                             gestoppte). Erst in den Projekten ausschalten (`harness app off \
+                             {name}`) und sie einmal starten. {error}",
+                            "{name} {}: stays, because an instance still mounts it (stopped \
+                             ones too). First switch it off in the projects (`harness app off \
+                             {name}`) and start them once. {error}",
+                            install.version
+                        )
                     );
                 }
             }
@@ -522,7 +674,11 @@ fn install_one(
     step(
         progress,
         &format!("app-{}", app.name),
-        &format!("{} installieren (einmalig, für alle Projekte)", app.title),
+        &tr!(in progress.lang();
+            "{} installieren (einmalig, für alle Projekte)",
+            "Installing {} (once, for all projects)",
+            app.title
+        ),
         || {
             // The recipe's output follows on the next lines.
             println!();
@@ -547,28 +703,37 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
         .transpose()?;
 
     match &project {
-        Some(project) => println!("Apps für Projekt {}:", project.name),
-        None => println!("App-Katalog (kein Projekt in diesem Ordner):"),
+        Some(project) => println!(
+            "{}",
+            tr!("Apps für Projekt {}:", "Apps for project {}:", project.name)
+        ),
+        None => println!(
+            "{}",
+            tr(
+                "App-Katalog (kein Projekt in diesem Ordner):",
+                "App catalog (no project in this folder):",
+            )
+        ),
     }
     let mut outdated = false;
     for app in &catalog {
         let state = match &project {
-            Some(project) if project.apps.contains(&app.name) => "an".to_owned(),
+            Some(project) if project.apps.contains(&app.name) => tr("an", "on").to_owned(),
             Some(_) if active.iter().any(|a| a.name == app.name) => {
                 let by: Vec<&str> = active
                     .iter()
                     .filter(|a| a.requires.contains(&app.name))
                     .map(|a| a.title.as_str())
                     .collect();
-                format!("an (für {})", by.join(", "))
+                tr!("an (für {})", "on (for {})", by.join(", "))
             }
-            Some(_) => "aus".to_owned(),
+            Some(_) => tr("aus", "off").to_owned(),
             None => String::new(),
         };
         let origin = match app.source {
             AppSource::Builtin => "",
-            AppSource::Local => "(eigene Datei)",
-            AppSource::Server => "(aus dem Browser)",
+            AppSource::Local => tr("(eigene Datei)", "(own file)"),
+            AppSource::Server => tr("(aus dem Browser)", "(from the browser)"),
         };
         let about = format!(
             "{} {origin}",
@@ -595,20 +760,40 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
         );
     }
     match &inventory {
-        None => {
-            println!(
-                "(Die VM läuft nicht; installierte Versionen zeigt die Liste, wenn sie läuft.)"
+        None => println!(
+            "{}",
+            tr(
+                "(Die VM läuft nicht; installierte Versionen zeigt die Liste, wenn sie läuft.)",
+                "(The VM is not running; the list shows installed versions when it runs.)",
             )
-        }
-        Some(_) => println!("(Versionen: installiert in der VM, – nicht installiert)"),
+        ),
+        Some(_) => println!(
+            "{}",
+            tr(
+                "(Versionen: installiert in der VM, – nicht installiert)",
+                "(Versions: installed in the VM, – not installed)",
+            )
+        ),
     }
     if outdated {
-        println!("* Das Rezept ist seither neuer; `harness app update <name>` installiert neu.");
+        println!(
+            "{}",
+            tr(
+                "* Das Rezept ist seither neuer; `harness app update <name>` installiert neu.",
+                "* The recipe is newer since; `harness app update <name>` installs it again.",
+            )
+        );
     }
     let pending = app_request::list(config);
     if !pending.is_empty() {
         println!();
-        println!("Vom Browser angefragt, wartet auf Freigabe:");
+        println!(
+            "{}",
+            tr(
+                "Vom Browser angefragt, wartet auf Freigabe:",
+                "Asked for by the browser, waiting for approval:",
+            )
+        );
         for request in pending {
             println!(
                 "  {}  {} ({}, {})  →  harness app approve {}",
@@ -619,8 +804,13 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
     if project.is_some() {
         println!();
         println!(
-            "Einschalten mit `harness app on <name>`; der nächste Start (harness, Web-Chat) \
-             installiert, was fehlt, einmal für alle Projekte."
+            "{}",
+            tr(
+                "Einschalten mit `harness app on <name>`; der nächste Start (harness, Web-Chat) \
+                 installiert, was fehlt, einmal für alle Projekte.",
+                "Switch on with `harness app on <name>`; the next start (harness, web chat) \
+                 installs what is missing, once for all projects.",
+            )
         );
     }
     Ok(true)
@@ -647,13 +837,17 @@ fn switch(
     let active = config.project_apps(&project)?;
     let titles: Vec<&str> = active.iter().map(|app| app.title.as_str()).collect();
     println!(
-        "Projekt {}: {}",
-        project.name,
-        if titles.is_empty() {
-            "keine Apps".to_owned()
-        } else {
-            titles.join(", ")
-        }
+        "{}",
+        tr!(
+            "Projekt {}: {}",
+            "Project {}: {}",
+            project.name,
+            if titles.is_empty() {
+                tr("keine Apps", "no apps").to_owned()
+            } else {
+                titles.join(", ")
+            }
+        )
     );
     if !on {
         for name in names {
@@ -663,13 +857,26 @@ fn switch(
                     .filter(|other| other.requires.contains(name))
                     .map(|other| other.title.as_str())
                     .collect();
-                println!("{} bleibt, weil {} es braucht.", app.title, by.join(", "));
+                println!(
+                    "{}",
+                    tr!(
+                        "{} bleibt, weil {} es braucht.",
+                        "{} stays, because {} needs it.",
+                        app.title,
+                        by.join(", ")
+                    )
+                );
             }
         }
     }
     println!(
-        "Gilt ab dem nächsten Start der Instanz (harness, harness shell, Web-Chat); eine \
-         laufende wird dabei neu angelegt, Arbeitskopie und Home bleiben."
+        "{}",
+        tr(
+            "Gilt ab dem nächsten Start der Instanz (harness, harness shell, Web-Chat); eine \
+             laufende wird dabei neu angelegt, Arbeitskopie und Home bleiben.",
+            "Applies from the instance's next start (harness, harness shell, web chat); a \
+             running one is created anew then, working copy and home stay.",
+        )
     );
     Ok(true)
 }
@@ -688,10 +895,11 @@ fn install(
         config.resolve_apps(names)?
     };
     if wanted.is_empty() {
-        bail!(
+        bail!(tr!(
             "Projekt {} hat keine Apps eingeschaltet (`harness app on <name>`)",
+            "Project {} has no apps switched on (`harness app on <name>`)",
             project.name
-        );
+        ));
     }
     let progress = Terminal::default();
     let provider = crate::vm::provider_with(machine, &progress)?;
@@ -709,12 +917,28 @@ fn install(
         let asked = names.is_empty() || names.contains(&app.name);
         let install = match inventory.latest(&app.name) {
             Some(install) if !(again && asked) => {
-                println!("{}: {} ist schon installiert.", app.title, install.version);
+                println!(
+                    "{}",
+                    tr!(
+                        "{}: {} ist schon installiert.",
+                        "{}: {} is installed already.",
+                        app.title,
+                        install.version
+                    )
+                );
                 install.clone()
             }
             _ => {
                 let install = install_one(config, &provider, &project, &app, &ready, &progress)?;
-                println!("{}: {} installiert.", app.title, install.version);
+                println!(
+                    "{}",
+                    tr!(
+                        "{}: {} installiert.",
+                        "{}: {} installed.",
+                        app.title,
+                        install.version
+                    )
+                );
                 install
             }
         };

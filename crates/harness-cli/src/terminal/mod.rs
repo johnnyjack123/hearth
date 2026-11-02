@@ -45,8 +45,13 @@ pub fn attach(
         match session::run(provider, spec, approvals) {
             Ok(result) => return result,
             Err(session::NotStarted(reason)) => println!(
-                "Terminal direkt verbunden ({reason}). Rückfragen beantwortest du mit \
-                 `harness net watch`."
+                "{}",
+                harness_core::tr!(
+                    "Terminal direkt verbunden ({reason}). Rückfragen beantwortest du mit \
+                     `harness net watch`.",
+                    "Terminal connected directly ({reason}). Answer questions with \
+                     `harness net watch`."
+                )
             ),
         }
     }

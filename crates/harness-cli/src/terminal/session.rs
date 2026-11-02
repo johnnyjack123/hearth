@@ -14,11 +14,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use harness_core::Provider;
 use harness_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
 use harness_core::podman::PodmanProvider;
 use harness_core::provider::ExecSpec;
 use harness_core::pty::{PtyProcess, Size};
+use harness_core::{Provider, tr};
 
 use super::Approvals;
 use super::console::RawConsole;
@@ -125,7 +125,11 @@ pub fn run(
             Ok(watch) => Some(watch),
             Err(error) => {
                 println!(
-                    "Rückfragen des Gateways gehen hier nicht ({error}); nutze `harness net watch`."
+                    "{}",
+                    tr!(
+                        "Rückfragen des Gateways gehen hier nicht ({error}); nutze `harness net watch`.",
+                        "The gateway's questions do not work here ({error}); use `harness net watch`."
+                    )
                 );
                 None
             }
@@ -384,13 +388,17 @@ impl Session<'_> {
         };
         let more = match self.queue.len() {
             0 | 1 => String::new(),
-            n => format!(" ({} weitere warten)", n - 1),
+            n => tr!(" ({} weitere warten)", " ({} more waiting)", n - 1),
         };
-        let text = format!(
+        let text = tr!(
             "\x1b[0m\x1b[H\x1b[2J\r\n  \x1b[1mharness · Rückfrage des Gateways\x1b[0m{more}\r\n\r\n  \
              Ein Programm in der Sandbox möchte {}:{} erreichen.\r\n  \
              \x1b[2m{}\x1b[0m\r\n\r\n  {}\r\n\r\n  \
              Bis du antwortest, wartet die Anfrage, höchstens 2 Minuten. Esc lehnt ab.\r\n",
+            "\x1b[0m\x1b[H\x1b[2J\r\n  \x1b[1mharness · Question from the gateway\x1b[0m{more}\r\n\r\n  \
+             A program in the sandbox wants to reach {}:{}.\r\n  \
+             \x1b[2m{}\x1b[0m\r\n\r\n  {}\r\n\r\n  \
+             Until you answer, the request waits, at most 2 minutes. Esc refuses.\r\n",
             question.host,
             question.port,
             net::WHO_ASKS,

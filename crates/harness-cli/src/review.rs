@@ -8,10 +8,12 @@ use std::io::IsTerminal as _;
 
 use anyhow::bail;
 use harness_core::config::ConfigDir;
+use harness_core::lang::{self, Lang, tr};
 use harness_core::osv;
 use harness_core::review::{Finding, Severity, dependencies, review};
 use harness_core::server::{DiffFile, MAX_ASSESSED_CHARS, MAX_ASSESSED_FILES};
 use harness_core::sync::{HostRepo, Incoming, sanitize};
+use harness_core::tr;
 
 use crate::project;
 
@@ -31,9 +33,9 @@ pub struct Checked {
     pub findings: Vec<Finding>,
     /// Files the merge would change.
     pub files: usize,
-    /// Which checks ran, in German, e.g. "feste Regeln".
+    /// Which checks ran, e.g. "feste Regeln".
     pub checks: Vec<&'static str>,
-    /// Checks that could not run, and why (German).
+    /// Checks that could not run, and why.
     pub notes: Vec<String>,
 }
 
@@ -46,18 +48,20 @@ impl Checked {
 
 fn label(severity: Severity) -> &'static str {
     match severity {
-        Severity::High => "✗ hoch   ",
-        Severity::Medium => "! mittel ",
-        Severity::Low => "· niedrig",
+        Severity::High => tr("✗ hoch   ", "✗ high   "),
+        Severity::Medium => tr("! mittel ", "! medium "),
+        Severity::Low => tr("· niedrig", "· low    "),
     }
 }
 
 /// Checks what merging `branch` would bring in. `None` if the branch brings
-/// nothing in.
+/// nothing in. Checks and notes are in `lang`: a chat's takeover report
+/// stays German, the terminal follows the user's language.
 pub fn inspect(
     config: &ConfigDir,
     repo: &HostRepo,
     branch: &str,
+    lang: Lang,
 ) -> anyhow::Result<Option<Checked>> {
     if !repo.branch_exists(branch)? {
         return Ok(None);
@@ -69,7 +73,7 @@ pub fn inspect(
     let mut checked = Checked {
         findings: review(&incoming),
         files: incoming.files.len(),
-        checks: vec!["feste Regeln"],
+        checks: vec![lang.pick("feste Regeln", "fixed rules")],
         notes: Vec::new(),
     };
     let settings = config.global()?.review;
@@ -81,13 +85,14 @@ pub fn inspect(
                 checked.checks.push("OSV");
             }
             // The rules still stand; only the lookup is missing.
-            Err(error) => checked
-                .notes
-                .push(format!("OSV-Abgleich übersprungen: {error}")),
+            Err(error) => checked.notes.push(tr!(in lang;
+                "OSV-Abgleich übersprungen: {error}",
+                "OSV lookup skipped: {error}"
+            )),
         }
     }
     if settings.jev {
-        jev(config, &incoming, &mut checked);
+        jev(config, &incoming, &mut checked, lang);
     }
     checked
         .findings
@@ -140,17 +145,24 @@ fn added_parts(lines: &[(u32, String)]) -> (Vec<String>, bool) {
 }
 
 /// Why Jev gave no scores, for the report.
-fn reason_note(reason: Option<&str>) -> String {
+fn reason_note(reason: Option<&str>, lang: Lang) -> String {
     match reason {
-        Some("disabled") => {
+        Some("disabled") => lang.pick(
             "Jev übersprungen: für diesen Rechner in der Web-App abgeschaltet \
-             (Einstellungen → Geräte)."
-        }
-        Some("no_helpers") => {
+             (Einstellungen → Geräte).",
+            "Jev skipped: switched off for this computer in the web app \
+             (Settings → Devices).",
+        ),
+        Some("no_helpers") => lang.pick(
             "Jev übersprungen: kein OpenRouter-Zugang im Konto (oder Hilfsmodelle vom Admin \
-             abgeschaltet)."
-        }
-        _ => "Jev hat nicht geantwortet; die übrigen Prüfungen gelten.",
+             abgeschaltet).",
+            "Jev skipped: no OpenRouter access in the account (or helper models switched off \
+             by the admin).",
+        ),
+        _ => lang.pick(
+            "Jev hat nicht geantwortet; die übrigen Prüfungen gelten.",
+            "Jev did not answer; the other checks apply.",
+        ),
     }
     .to_owned()
 }
@@ -160,7 +172,7 @@ fn reason_note(reason: Option<&str>) -> String {
 /// checks stand alone and a note says so. Long files go in parts and many
 /// files in several requests; a danger found in any part counts for its
 /// file. What exceeds the limits is named, so nobody takes it as checked.
-fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
+fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked, lang: Lang) {
     let mut parts: Vec<(String, DiffFile)> = Vec::new();
     let mut cut_files: Vec<String> = Vec::new();
     for file in incoming
@@ -203,13 +215,20 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
     let (client, token) = match crate::login::paired(config) {
         Ok(Some(paired)) => paired,
         Ok(None) => {
-            checked
-                .notes
-                .push("Jev übersprungen: Rechner nicht gekoppelt (`harness login`).".to_owned());
+            checked.notes.push(
+                lang.pick(
+                    "Jev übersprungen: Rechner nicht gekoppelt (`harness login`).",
+                    "Jev skipped: computer not paired (`harness login`).",
+                )
+                .to_owned(),
+            );
             return;
         }
         Err(error) => {
-            checked.notes.push(format!("Jev übersprungen: {error:#}"));
+            checked.notes.push(tr!(in lang;
+                "Jev übersprungen: {error:#}",
+                "Jev skipped: {error:#}"
+            ));
             return;
         }
     };
@@ -224,7 +243,10 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
             Ok(assessment) => assessment,
             Err(error) => {
                 if requests == 0 {
-                    checked.notes.push(format!("Jev übersprungen: {error}"));
+                    checked.notes.push(tr!(in lang;
+                        "Jev übersprungen: {error}",
+                        "Jev skipped: {error}"
+                    ));
                     return;
                 }
                 unanswered += batch.len();
@@ -237,7 +259,7 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
             if requests == 1 {
                 checked
                     .notes
-                    .push(reason_note(assessment.reason.as_deref()));
+                    .push(reason_note(assessment.reason.as_deref(), lang));
                 return;
             }
             unanswered += batch.len();
@@ -258,17 +280,23 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
     if !cut_files.is_empty() || left_out + unanswered > 0 {
         let mut gaps = Vec::new();
         if !cut_files.is_empty() {
-            gaps.push(format!(
+            gaps.push(tr!(in lang;
                 "von {} nur die ersten {} Zeichen",
+                "only the first {1} characters of {0}",
                 cut_files.join(", "),
                 PART_CHARS * MAX_PARTS_PER_FILE
             ));
         }
         if left_out + unanswered > 0 {
-            gaps.push(format!("{} Teil(e) gar nicht", left_out + unanswered));
+            gaps.push(tr!(in lang;
+                "{} Teil(e) gar nicht",
+                "{} part(s) not at all",
+                left_out + unanswered
+            ));
         }
-        checked.notes.push(format!(
+        checked.notes.push(tr!(in lang;
             "Jev hat nicht alles gelesen: {}. Dafür gelten nur die festen Regeln und OSV.",
+            "Jev did not read everything: {}. For that, only the fixed rules and OSV apply.",
             gaps.join(", ")
         ));
     }
@@ -278,9 +306,9 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
         let danger = *danger;
         let percent = (danger.clamp(0.0, 1.0) * 100.0).round();
         let severity = if danger >= JEV_HIGH {
-            Some((Severity::High, "gefährlich"))
+            Some((Severity::High, lang.pick("gefährlich", "dangerous")))
         } else if danger >= JEV_MEDIUM {
-            Some((Severity::Medium, "verdächtig"))
+            Some((Severity::Medium, lang.pick("verdächtig", "suspicious")))
         } else {
             None
         };
@@ -290,7 +318,10 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
                 rule: "jev",
                 path: path.clone(),
                 line: None,
-                message: format!("Jev hält diese Änderung für {word} ({percent} %)"),
+                message: tr!(in lang;
+                    "Jev hält diese Änderung für {word} ({percent} %)",
+                    "Jev considers this change {word} ({percent} %)"
+                ),
                 excerpt: None,
             });
         }
@@ -301,15 +332,16 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
     // Jev's scores stay visible even when none is a finding.
     if let Some((danger, path)) = worst {
         let cost = cost
-            .map(|c| format!(", {:.3} Cent", c * 100.0))
+            .map(|c| tr!(in lang; ", {:.3} Cent", ", {:.3} cents", c * 100.0))
             .unwrap_or_default();
         let asked = if requests > 1 {
-            format!(", {requests} Anfragen")
+            tr!(in lang; ", {requests} Anfragen", ", {requests} requests")
         } else {
             String::new()
         };
-        checked.notes.push(format!(
+        checked.notes.push(tr!(in lang;
             "Jev: höchste Gefahr {} % in {path} ({} Datei(en){asked}{cost}).",
+            "Jev: highest danger {} % in {path} ({} file(s){asked}{cost}).",
             (danger.clamp(0.0, 1.0) * 100.0).round(),
             dangers.len()
         ));
@@ -319,23 +351,33 @@ fn jev(config: &ConfigDir, incoming: &Incoming, checked: &mut Checked) {
 /// Checks what merging `branch` would bring in and prints the findings.
 /// `None` if the branch brings nothing in.
 pub fn check(config: &ConfigDir, repo: &HostRepo, branch: &str) -> anyhow::Result<Option<Checked>> {
-    let Some(checked) = inspect(config, repo, branch)? else {
+    let Some(checked) = inspect(config, repo, branch, lang::current())? else {
         return Ok(None);
     };
     for note in &checked.notes {
         println!("{note}");
     }
     println!(
-        "Prüfung von {branch}: {} Datei(en) geändert, {} Fund(e) ({})",
-        checked.files,
-        checked.findings.len(),
-        checked.checks.join(", ")
+        "{}",
+        tr!(
+            "Prüfung von {branch}: {} Datei(en) geändert, {} Fund(e) ({})",
+            "Check of {branch}: {} file(s) changed, {} finding(s) ({})",
+            checked.files,
+            checked.findings.len(),
+            checked.checks.join(", ")
+        )
     );
     print_findings(&checked.findings);
     if checked.findings.is_empty() {
-        println!("  Keine Auffälligkeiten. Das ersetzt keinen Blick in den Diff:");
+        println!(
+            "{}",
+            tr(
+                "  Keine Auffälligkeiten. Das ersetzt keinen Blick in den Diff:",
+                "  Nothing stands out. That does not replace a look at the diff:",
+            )
+        );
     } else {
-        println!("  Alles ansehen:");
+        println!("{}", tr("  Alles ansehen:", "  See everything:"));
     }
     println!("  git diff HEAD...{branch}");
     Ok(Some(checked))
@@ -367,7 +409,13 @@ pub fn run(config: &ConfigDir) -> anyhow::Result<bool> {
     let branch = project.name.agent_branch();
     match check(config, &repo, &branch)? {
         None => {
-            println!("Nichts zu prüfen: {branch} bringt nichts Neues (erst `harness sync`?).");
+            println!(
+                "{}",
+                tr!(
+                    "Nichts zu prüfen: {branch} bringt nichts Neues (erst `harness sync`?).",
+                    "Nothing to check: {branch} brings nothing new (`harness sync` first?)."
+                )
+            );
             Ok(true)
         }
         Some(checked) => Ok(!checked.has_high()),
@@ -392,14 +440,27 @@ pub fn approve(
     }
     let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     if !interactive {
-        bail!(
-            "Schwere Funde; nicht übernommen. Nach eigener Prüfung: harness merge --ignore-findings"
-        );
+        bail!(tr(
+            "Schwere Funde; nicht übernommen. Nach eigener Prüfung: harness merge --ignore-findings",
+            "Severe findings; not taken over. After checking yourself: harness merge --ignore-findings"
+        ));
     }
-    if project::confirm("Schwere Funde. Trotzdem übernehmen?", false)? {
+    if project::confirm(
+        tr(
+            "Schwere Funde. Trotzdem übernehmen?",
+            "Severe findings. Take over anyway?",
+        ),
+        false,
+    )? {
         Ok(true)
     } else {
-        println!("Nicht übernommen. Der Branch {branch} bleibt, dein Arbeitsbaum ist unverändert.");
+        println!(
+            "{}",
+            tr!(
+                "Nicht übernommen. Der Branch {branch} bleibt, dein Arbeitsbaum ist unverändert.",
+                "Not taken over. The branch {branch} stays, your working tree is unchanged."
+            )
+        );
         Ok(false)
     }
 }

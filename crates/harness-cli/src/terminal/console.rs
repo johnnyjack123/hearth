@@ -29,7 +29,10 @@ fn std_handle(which: u32) -> io::Result<HANDLE> {
     // SAFETY: GetStdHandle has no preconditions.
     let handle = unsafe { GetStdHandle(which) };
     if handle.is_null() || handle == INVALID_HANDLE_VALUE {
-        return Err(io::Error::other("keine Konsole"));
+        return Err(io::Error::other(harness_core::lang::tr(
+            "keine Konsole",
+            "no console",
+        )));
     }
     Ok(handle)
 }

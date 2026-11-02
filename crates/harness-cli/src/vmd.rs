@@ -29,33 +29,51 @@ use clap::Subcommand;
 use harness_core::apps::{self, Inventory};
 use harness_core::config::ConfigDir;
 use harness_core::image::BUILD_ONLY_IMAGES;
+use harness_core::lang::{self, tr};
 use harness_core::podman::find_podman;
 use harness_core::project::ProjectName;
 use harness_core::provider::{ImageInfo, Provider as _};
 use harness_core::rescue::{self, Unsaved};
+use harness_core::tr;
 use harness_core::vmd::{self, Request, Response, SERVICE_NAME, VmState};
 
+// Help texts follow the user's language (harness_core::lang), so they are
+// attributes rather than doc comments.
 #[derive(Subcommand)]
 pub enum VmdCommand {
-    /// Zeigt, ob der Dienst läuft und in welchem Zustand die VM ist (Standard)
+    #[command(about = tr(
+        "Zeigt, ob der Dienst läuft und in welchem Zustand die VM ist (Standard)",
+        "Shows whether the service runs and what state the VM is in (default)"
+    ))]
     Status,
-    /// Startet die VM über den Dienst
+    #[command(about = tr("Startet die VM über den Dienst", "Starts the VM through the service"))]
     Start,
-    /// Stoppt die VM über den Dienst
+    #[command(about = tr("Stoppt die VM über den Dienst", "Stops the VM through the service"))]
     Stop,
-    /// Startet die VM neu, z. B. wenn SSH nicht mehr antwortet
+    #[command(about = tr(
+        "Startet die VM neu, z. B. wenn SSH nicht mehr antwortet",
+        "Restarts the VM, e.g. when SSH no longer answers"
+    ))]
     Restart,
-    /// Räumt die VM auf (alte Image-Stände, Bau-Images, Daten gelöschter Projekte) und verkleinert ihre Festplatte
+    #[command(about = tr(
+        "Räumt die VM auf (alte Image-Stände, Bau-Images, Daten gelöschter Projekte) und verkleinert ihre Festplatte",
+        "Cleans up the VM (old image versions, build images, data of removed projects) and shrinks its disk"
+    ))]
     Clean {
-        /// Ohne Nachfrage
-        #[arg(long)]
+        #[arg(long, help = tr("Ohne Nachfrage", "Without asking"))]
         yes: bool,
     },
-    /// Richtet den Dienst ein (fragt einmal nach Administratorrechten)
+    #[command(about = tr(
+        "Richtet den Dienst ein (fragt einmal nach Administratorrechten)",
+        "Sets the service up (asks once for administrator rights)"
+    ))]
     Install,
-    /// Entfernt den Dienst wieder (fragt einmal nach Administratorrechten)
+    #[command(about = tr(
+        "Entfernt den Dienst wieder (fragt einmal nach Administratorrechten)",
+        "Removes the service again (asks once for administrator rights)"
+    ))]
     Uninstall,
-    /// Wird von `install` mit Administratorrechten aufgerufen
+    // Called by `install` with administrator rights.
     #[command(hide = true)]
     InstallElevated {
         #[arg(long)]
@@ -68,17 +86,19 @@ pub enum VmdCommand {
         profile: PathBuf,
         #[arg(long)]
         log: PathBuf,
-        /// Legt die Machine erst an: CPUs, Arbeitsspeicher (MiB), Platte (GiB)
-        #[arg(long, num_args = 3, value_names = ["CPUS", "MIB", "GIB"])]
+        #[arg(long, num_args = 3, value_names = ["CPUS", "MIB", "GIB"], help = tr(
+            "Legt die Machine erst an: CPUs, Arbeitsspeicher (MiB), Platte (GiB)",
+            "Creates the machine first: CPUs, memory (MiB), disk (GiB)"
+        ))]
         create: Option<Vec<u32>>,
     },
-    /// Wird von `harness setup` mit Administratorrechten aufgerufen
+    // Called by `harness setup` with administrator rights.
     #[command(hide = true)]
     HypervElevated {
         #[arg(long)]
         log: PathBuf,
     },
-    /// Wird von `uninstall` mit Administratorrechten aufgerufen
+    // Called by `uninstall` with administrator rights.
     #[command(hide = true)]
     UninstallElevated {
         #[arg(long)]
@@ -95,9 +115,12 @@ pub fn run(config: &ConfigDir, machine: &str, command: Option<VmdCommand>) -> an
     match command.unwrap_or(VmdCommand::Status) {
         VmdCommand::Clean { yes } => clean(config, machine, yes),
         VmdCommand::Status => status(),
-        VmdCommand::Start => ask(Request::Start, "Starte die VM …"),
-        VmdCommand::Stop => ask(Request::Stop, "Stoppe die VM …"),
-        VmdCommand::Restart => ask(Request::Restart, "Starte die VM neu …"),
+        VmdCommand::Start => ask(Request::Start, tr("Starte die VM …", "Starting the VM …")),
+        VmdCommand::Stop => ask(Request::Stop, tr("Stoppe die VM …", "Stopping the VM …")),
+        VmdCommand::Restart => ask(
+            Request::Restart,
+            tr("Starte die VM neu …", "Restarting the VM …"),
+        ),
         VmdCommand::Install => install(machine, None),
         VmdCommand::Uninstall => uninstall(machine),
         VmdCommand::InstallElevated {
@@ -125,17 +148,26 @@ pub fn run(config: &ConfigDir, machine: &str, command: Option<VmdCommand>) -> an
 
 fn describe(state: VmState) -> &'static str {
     match state {
-        VmState::Running => "läuft",
-        VmState::Unresponsive => "läuft, antwortet aber nicht (harness vmd restart)",
-        VmState::Stopped => "gestoppt",
-        VmState::Unknown => "unbekannt",
+        VmState::Running => tr("läuft", "running"),
+        VmState::Unresponsive => tr(
+            "läuft, antwortet aber nicht (harness vmd restart)",
+            "running, but not answering (harness vmd restart)",
+        ),
+        VmState::Stopped => tr("gestoppt", "stopped"),
+        VmState::Unknown => tr("unbekannt", "unknown"),
     }
 }
 
 fn status() -> anyhow::Result<bool> {
     match vmd::request(Request::Status) {
         Ok(answer) => {
-            println!("Dienst {SERVICE_NAME}: läuft");
+            println!(
+                "{}",
+                tr!(
+                    "Dienst {SERVICE_NAME}: läuft",
+                    "Service {SERVICE_NAME}: running"
+                )
+            );
             println!("VM: {}", describe(answer.state));
             Ok(true)
         }
@@ -186,8 +218,13 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
     // projects; the user's would all look removed.
     let mut gone: Vec<String> = if std::env::var_os("HARNESS_HOME").is_some() {
         println!(
-            "Mit HARNESS_HOME kennt harness nur die Projekte dieser Konfiguration; Daten von \
-             Projekten fasst clean deshalb nicht an."
+            "{}",
+            tr(
+                "Mit HARNESS_HOME kennt harness nur die Projekte dieser Konfiguration; Daten von \
+                 Projekten fasst clean deshalb nicht an.",
+                "With HARNESS_HOME, harness only knows the projects of this configuration, so \
+                 clean leaves project data alone."
+            )
         );
         Vec::new()
     } else {
@@ -214,32 +251,57 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             Ok(Some(work)) if work.any() => unsaved.push((project, work)),
             Ok(_) => {}
             Err(error) => {
-                println!("{name}: nicht prüfbar, ob noch Arbeit des Agents fehlt ({error}).");
+                println!(
+                    "{}",
+                    tr!(
+                        "{name}: nicht prüfbar, ob noch Arbeit des Agents fehlt ({error}).",
+                        "{name}: cannot check whether work of the agent is still missing ({error})."
+                    )
+                );
                 unchecked.push(name.clone());
             }
         }
     }
     gone.retain(|name| !unchecked.contains(name));
 
-    println!("Aufräumen in der VM:");
-    println!("- {unnamed} alte Image-Stände und Zwischenstufen von Builds");
+    println!("{}", tr("Aufräumen in der VM:", "Cleaning up in the VM:"));
+    println!(
+        "{}",
+        tr!(
+            "- {unnamed} alte Image-Stände und Zwischenstufen von Builds",
+            "- {unnamed} old image versions and intermediate build stages"
+        )
+    );
     if !builders.is_empty() {
         let size: u64 = builders.iter().map(|image| image.size).sum();
+        let gigabytes = format!("{:.1}", size as f64 / 1e9);
+        let gigabytes = if lang::german() {
+            gigabytes.replace('.', ",")
+        } else {
+            gigabytes
+        };
+        let tags = builders
+            .iter()
+            .flat_map(|image| image.tags.first())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
         println!(
-            "- Images, die nur zum Bauen dienen ({} GB; ein späterer Bau lädt sie neu): {}",
-            format!("{:.1}", size as f64 / 1e9).replace('.', ","),
-            builders
-                .iter()
-                .flat_map(|image| image.tags.first())
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
+            "{}",
+            tr!(
+                "- Images, die nur zum Bauen dienen ({gigabytes} GB; ein späterer Bau lädt sie neu): {tags}",
+                "- Images only used for building ({gigabytes} GB; a later build downloads them again): {tags}"
+            )
         );
     }
     if !gone.is_empty() {
         println!(
-            "- Container und Daten gelöschter Projekte: {}",
-            gone.join(", ")
+            "{}",
+            tr!(
+                "- Container und Daten gelöschter Projekte: {}",
+                "- Containers and data of removed projects: {}",
+                gone.join(", ")
+            )
         );
     }
     if !old_apps.is_empty() || !inventory.leftovers.is_empty() {
@@ -248,39 +310,61 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             .map(|install| format!("{} {}", install.app, install.version))
             .collect();
         if !inventory.leftovers.is_empty() {
-            names.push(format!(
+            names.push(tr!(
                 "{} abgebrochene Installation(en)",
+                "{} aborted installation(s)",
                 inventory.leftovers.len()
             ));
         }
         println!(
-            "- Ältere Stände von Apps, soweit keine Instanz sie noch nutzt: {}",
-            names.join(", ")
+            "{}",
+            tr!(
+                "- Ältere Stände von Apps, soweit keine Instanz sie noch nutzt: {}",
+                "- Older versions of apps, as far as no instance still uses them: {}",
+                names.join(", ")
+            )
         );
     }
     let rescued_dir = config.root().join("gesichert");
     for (project, work) in &unsaved {
         println!(
-            "  Achtung, {project} enthält Arbeit des Agents, die nie auf deinem Rechner ankam: {} \
-             Commit(s), {} nicht committete Datei(en). Sie wird vorher als Git-Bundle nach {} \
-             gesichert.",
-            work.commits,
-            work.changes,
-            rescued_dir.display()
+            "{}",
+            tr!(
+                "  Achtung, {project} enthält Arbeit des Agents, die nie auf deinem Rechner ankam: \
+                 {} Commit(s), {} nicht committete Datei(en). Sie wird vorher als Git-Bundle nach \
+                 {} gesichert.",
+                "  Attention, {project} holds work of the agent that never reached your computer: \
+                 {} commit(s), {} uncommitted file(s). It is saved as a Git bundle to {} first.",
+                work.commits,
+                work.changes,
+                rescued_dir.display()
+            )
         );
     }
-    println!("Danach gibt der VM-Dienst den Platz an Windows zurück; die VM ist dabei kurz aus.");
+    println!(
+        "{}",
+        tr(
+            "Danach gibt der VM-Dienst den Platz an Windows zurück; die VM ist dabei kurz aus.",
+            "Then the VM service gives the space back to Windows; the VM is off for a moment."
+        )
+    );
     if !yes {
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-            bail!("Ohne Terminal nur mit --yes");
+            bail!(tr(
+                "Ohne Terminal nur mit --yes",
+                "Without a terminal only with --yes"
+            ));
         }
-        if !crate::project::confirm("Aufräumen?", true)? {
-            println!("Abgebrochen.");
+        if !crate::project::confirm(tr("Aufräumen?", "Clean up?"), true)? {
+            println!("{}", tr("Abgebrochen.", "Cancelled."));
             return Ok(false);
         }
         if !unsaved.is_empty()
             && !crate::project::confirm(
-                "Die Arbeit oben sichern? Nein lässt diese Projekte in der VM, wie sie sind.",
+                tr(
+                    "Die Arbeit oben sichern? Nein lässt diese Projekte in der VM, wie sie sind.",
+                    "Save the work above? No leaves these projects in the VM as they are.",
+                ),
                 true,
             )?
         {
@@ -299,14 +383,22 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             .and_then(|()| Ok(rescue::save(&provider, project, &target)?));
         match saved {
             Ok(()) => println!(
-                "{project}: gesichert in {}. Holen in einem Repository: git fetch \"{}\" \
-                 \"refs/heads/*:refs/remotes/gesichert/*\"",
-                target.display(),
-                target.display()
+                "{}",
+                tr!(
+                    "{project}: gesichert in {0}. Holen in einem Repository: git fetch \"{0}\" \
+                     \"refs/heads/*:refs/remotes/gesichert/*\"",
+                    "{project}: saved in {0}. To fetch it into a repository: git fetch \"{0}\" \
+                     \"refs/heads/*:refs/remotes/gesichert/*\"",
+                    target.display()
+                )
             ),
             Err(error) => {
                 println!(
-                    "{project}: Sichern gescheitert ({error:#}); die Daten bleiben in der VM."
+                    "{}",
+                    tr!(
+                        "{project}: Sichern gescheitert ({error:#}); die Daten bleiben in der VM.",
+                        "{project}: saving failed ({error:#}); the data stays in the VM."
+                    )
                 );
                 gone.retain(|name| name != project.as_str());
             }
@@ -315,12 +407,27 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
     provider.prune_images()?;
     for image in builders {
         if let Err(error) = provider.remove_image(&image.id) {
-            println!("{} bleibt: {error}", image.tags.join(", "));
+            println!(
+                "{}",
+                tr!(
+                    "{} bleibt: {error}",
+                    "{} stays: {error}",
+                    image.tags.join(", ")
+                )
+            );
         }
     }
     for install in old_apps {
         if let Err(error) = apps::remove(&provider, install) {
-            println!("{} {} bleibt: {error}", install.app, install.version);
+            println!(
+                "{}",
+                tr!(
+                    "{} {} bleibt: {error}",
+                    "{} {} stays: {error}",
+                    install.app,
+                    install.version
+                )
+            );
         }
     }
     for volume in &inventory.leftovers {
@@ -341,11 +448,21 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             println!("{name}: {error}");
         }
     }
-    println!("Gebe den Platz an Windows zurück (kann einige Minuten dauern) …");
+    println!(
+        "{}",
+        tr(
+            "Gebe den Platz an Windows zurück (kann einige Minuten dauern) …",
+            "Giving the space back to Windows (can take a few minutes) …"
+        )
+    );
     match provider.trim() {
         Ok(trimmed) => println!("{trimmed}"),
         Err(error) => println!(
-            "fstrim in der VM gescheitert ({error}); verkleinert wird nur, was schon frei war."
+            "{}",
+            tr!(
+                "fstrim in der VM gescheitert ({error}); verkleinert wird nur, was schon frei war.",
+                "fstrim in the VM failed ({error}); only what was already free gets shrunk."
+            )
         ),
     }
     match vmd::request(Request::Compact) {
@@ -355,8 +472,14 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
         }
         Err(error) => {
             println!(
-                "Der VM-Dienst kann die Festplatte nicht verkleinern ({error}). Ältere Dienste kennen \
-                 das noch nicht: `harness vmd install` aktualisiert ihn (Administratorrechte)."
+                "{}",
+                tr!(
+                    "Der VM-Dienst kann die Festplatte nicht verkleinern ({error}). Ältere Dienste \
+                     kennen das noch nicht: `harness vmd install` aktualisiert ihn \
+                     (Administratorrechte).",
+                    "The VM service cannot shrink the disk ({error}). Older services do not know \
+                     this yet: `harness vmd install` updates it (administrator rights)."
+                )
             );
             Ok(false)
         }
@@ -377,13 +500,14 @@ fn ask(request: Request, doing: &str) -> anyhow::Result<bool> {
 // Unelevated half: collect what the admin half needs, then ask Windows.
 
 fn service_exe_next_to_harness() -> anyhow::Result<PathBuf> {
-    let exe = std::env::current_exe().context("Pfad von harness.exe")?;
+    let exe = std::env::current_exe().context(tr("Pfad von harness.exe", "Path of harness.exe"))?;
     let service = exe.with_file_name("harness-vmd.exe");
     if !service.is_file() {
-        bail!(
+        bail!(tr!(
             "{} fehlt; sie wird mit harness.exe gebaut (cargo build)",
+            "{} is missing; it is built with harness.exe (cargo build)",
             service.display()
-        );
+        ));
     }
     Ok(service)
 }
@@ -418,14 +542,29 @@ pub fn install(machine: &str, create: Option<MachineSize>) -> anyhow::Result<boo
     service_exe_next_to_harness()?;
     let profile = harness_core::paths::home_dir()?;
     let log = log_file("install");
-    println!("Richte den VM-Dienst ein. Windows fragt dafür einmal nach Administratorrechten.");
+    println!(
+        "{}",
+        tr(
+            "Richte den VM-Dienst ein. Windows fragt dafür einmal nach Administratorrechten.",
+            "Setting up the VM service. Windows asks once for administrator rights."
+        )
+    );
     if create.is_some() {
         println!(
-            "Zuerst entsteht die VM {machine}; podman lädt dafür ihr Betriebssystem (etwa 1 GB)."
+            "{}",
+            tr!(
+                "Zuerst entsteht die VM {machine}; podman lädt dafür ihr Betriebssystem (etwa 1 GB).",
+                "First the VM {machine} is created; podman downloads its operating system for it \
+                 (about 1 GB)."
+            )
         );
     } else {
         println!(
-            "Die VM {machine} wird dabei gestoppt und vom Dienst übernommen (Images und Volumes bleiben)."
+            "{}",
+            tr!(
+                "Die VM {machine} wird dabei gestoppt und vom Dienst übernommen (Images und Volumes bleiben).",
+                "The VM {machine} is stopped and taken over by the service (images and volumes stay)."
+            )
         );
     }
     let mut args: Vec<String> = vec![
@@ -452,7 +591,13 @@ pub fn install(machine: &str, create: Option<MachineSize>) -> anyhow::Result<boo
     }
     let code = run_elevated(&args, &log)?;
     if code != 0 {
-        println!("Einrichtung fehlgeschlagen (Exit-Code {code}).");
+        println!(
+            "{}",
+            tr!(
+                "Einrichtung fehlgeschlagen (Exit-Code {code}).",
+                "Setup failed (exit code {code})."
+            )
+        );
         return Ok(false);
     }
     println!();
@@ -462,7 +607,13 @@ pub fn install(machine: &str, create: Option<MachineSize>) -> anyhow::Result<boo
 /// Switches Hyper-V on (UAC); Windows needs a restart afterwards.
 pub fn enable_hyperv() -> anyhow::Result<bool> {
     let log = log_file("hyperv");
-    println!("Schalte Hyper-V ein. Windows fragt dafür einmal nach Administratorrechten.");
+    println!(
+        "{}",
+        tr(
+            "Schalte Hyper-V ein. Windows fragt dafür einmal nach Administratorrechten.",
+            "Switching Hyper-V on. Windows asks once for administrator rights."
+        )
+    );
     let args: Vec<String> = vec![
         "vmd".into(),
         "hyperv-elevated".into(),
@@ -475,7 +626,13 @@ pub fn enable_hyperv() -> anyhow::Result<bool> {
 fn uninstall(machine: &str) -> anyhow::Result<bool> {
     let profile = harness_core::paths::home_dir()?;
     let log = log_file("uninstall");
-    println!("Entferne den VM-Dienst. Windows fragt dafür einmal nach Administratorrechten.");
+    println!(
+        "{}",
+        tr(
+            "Entferne den VM-Dienst. Windows fragt dafür einmal nach Administratorrechten.",
+            "Removing the VM service. Windows asks once for administrator rights."
+        )
+    );
     let args: Vec<String> = vec![
         "vmd".into(),
         "uninstall-elevated".into(),
@@ -545,12 +702,21 @@ fn run_elevated(args: &[String], log: &Path) -> anyhow::Result<u32> {
     if unsafe { ShellExecuteExW(&mut info) } == 0 {
         let error = std::io::Error::last_os_error();
         if error.raw_os_error() == Some(ERROR_CANCELLED as i32) {
-            bail!("Abgebrochen: Die Administratorrechte wurden nicht erteilt");
+            bail!(tr(
+                "Abgebrochen: Die Administratorrechte wurden nicht erteilt",
+                "Cancelled: the administrator rights were not granted"
+            ));
         }
-        bail!("Start mit Administratorrechten fehlgeschlagen: {error}");
+        bail!(tr!(
+            "Start mit Administratorrechten fehlgeschlagen: {error}",
+            "Start with administrator rights failed: {error}"
+        ));
     }
     if info.hProcess.is_null() {
-        bail!("Kein Prozess für die Einrichtung erhalten");
+        bail!(tr(
+            "Kein Prozess für die Einrichtung erhalten",
+            "Got no process for the setup"
+        ));
     }
     // SAFETY: SEE_MASK_NOCLOSEPROCESS hands us the process handle.
     let process = unsafe { OwnedHandle::from_raw_handle(info.hProcess) };
@@ -571,7 +737,10 @@ fn run_elevated(args: &[String], log: &Path) -> anyhow::Result<u32> {
 
 #[cfg(not(windows))]
 fn run_elevated(_args: &[String], _log: &Path) -> anyhow::Result<u32> {
-    bail!("Den VM-Dienst gibt es nur unter Windows")
+    bail!(tr(
+        "Den VM-Dienst gibt es nur unter Windows",
+        "The VM service exists only on Windows"
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -591,10 +760,14 @@ impl Log {
 
 fn elevated(log: &Path, body: impl FnOnce(&mut Log) -> anyhow::Result<()>) -> anyhow::Result<bool> {
     let mut log = Log {
-        file: fs::File::create(log).with_context(|| format!("{} anlegen", log.display()))?,
+        file: fs::File::create(log)
+            .with_context(|| tr!("{} anlegen", "Creating {}", log.display()))?,
     };
     if !is_elevated() {
-        log.line("✗ läuft ohne Administratorrechte");
+        log.line(tr(
+            "✗ läuft ohne Administratorrechte",
+            "✗ runs without administrator rights",
+        ));
         return Ok(false);
     }
     match body(&mut log) {
@@ -641,9 +814,12 @@ fn is_elevated() -> bool {
 
 /// Runs a program, logs its output and fails on a non-zero exit.
 fn step(log: &mut Log, what: &str, command: &mut Command) -> anyhow::Result<String> {
-    let output = command
-        .output()
-        .with_context(|| format!("{what}: Programm nicht gestartet"))?;
+    let output = command.output().with_context(|| {
+        tr!(
+            "{what}: Programm nicht gestartet",
+            "{what}: program not started"
+        )
+    })?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -702,7 +878,10 @@ fn stop_service(log: &mut Log) {
         while service_state().is_some_and(|s| !s.contains("STOPPED")) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(300));
         }
-        log.line("✓ laufenden Dienst gestoppt");
+        log.line(tr(
+            "✓ laufenden Dienst gestoppt",
+            "✓ running service stopped",
+        ));
     }
 }
 
@@ -722,30 +901,37 @@ fn install_elevated(
          user_sid = \"{sid}\"\n",
         podman.display()
     );
-    harness_core::provider::validate_resource_name("Machine-Name", machine)?;
+    harness_core::provider::validate_resource_name(tr("Machine-Name", "machine name"), machine)?;
     if !vmd::is_user_sid(sid) {
-        bail!("{sid} ist keine Nutzer-SID");
+        bail!(tr!("{sid} ist keine Nutzer-SID", "{sid} is not a user SID"));
     }
     if !vmd::below_program_files(podman) || podman.display().to_string().contains('\'') {
-        bail!(
+        bail!(tr!(
             "{} liegt nicht unter Program Files; der Dienst führt als SYSTEM nur aus, was nur \
              Administratoren ändern können",
+            "{} is not below Program Files; as SYSTEM, the service only runs what only \
+             administrators can change",
             podman.display()
-        );
+        ));
     }
     let source = service_exe_next_to_harness()?;
     let user_json = user_machine_json(profile, machine);
     let service_json = vmd::machine_json(machine);
     if !service_json.is_file() && !user_json.is_file() {
         let Some(size) = create else {
-            bail!("Machine {machine} nicht gefunden: {}", user_json.display());
+            bail!(tr!(
+                "Machine {machine} nicht gefunden: {}",
+                "Machine {machine} not found: {}",
+                user_json.display()
+            ));
         };
         create_machine(log, podman, machine, size)?;
         if !user_json.is_file() {
-            bail!(
+            bail!(tr!(
                 "podman hat die Machine angelegt, aber {} fehlt",
+                "podman created the machine, but {} is missing",
                 user_json.display()
-            );
+            ));
         }
     }
 
@@ -756,36 +942,46 @@ fn install_elevated(
             .env("CONTAINERS_MACHINE_PROVIDER", "hyperv")
             .output()
             .context("podman machine stop")?;
-        log.line(&format!(
+        log.line(&tr!(
             "✓ VM gestoppt ({})",
+            "✓ VM stopped ({})",
             String::from_utf8_lossy(&output.stdout).trim()
         ));
     }
 
     // 2. Lock the data directory down: owner and ACL.
-    let root = vmd::service_dir()
-        .parent()
-        .map(Path::to_owned)
-        .context("Dienstordner ohne Elternordner")?;
+    let root = vmd::service_dir().parent().map(Path::to_owned).context(tr(
+        "Dienstordner ohne Elternordner",
+        "Service folder without a parent folder",
+    ))?;
     fs::create_dir_all(vmd::service_dir())?;
     let icacls = system32("icacls.exe");
     step(
         log,
-        "Besitzer des Datenordners: Administratoren",
+        tr(
+            "Besitzer des Datenordners: Administratoren",
+            "Owner of the data folder: administrators",
+        ),
         Command::new(&icacls)
             .arg(&root)
             .args(["/setowner", "*S-1-5-32-544", "/T", "/C", "/Q"]),
     )?;
     step(
         log,
-        "Rechte im Datenordner zurückgesetzt",
+        tr(
+            "Rechte im Datenordner zurückgesetzt",
+            "Permissions in the data folder reset",
+        ),
         Command::new(&icacls)
             .arg(&root)
             .args(["/reset", "/T", "/C", "/Q"]),
     )?;
     step(
         log,
-        "Datenordner nur für Administratoren beschreibbar",
+        tr(
+            "Datenordner nur für Administratoren beschreibbar",
+            "Data folder writable for administrators only",
+        ),
         Command::new(&icacls).arg(&root).args([
             "/inheritance:r",
             "/grant:r",
@@ -804,23 +1000,34 @@ fn install_elevated(
         vmd::service_dir().join("containers.conf"),
         "# podman des VM-Dienstes; nur Administratoren dürfen sie ändern.\n[machine]\nprovider = \"hyperv\"\n",
     )?;
-    log.line("✓ vmd.toml und containers.conf geschrieben");
+    log.line(tr(
+        "✓ vmd.toml und containers.conf geschrieben",
+        "✓ vmd.toml and containers.conf written",
+    ));
 
     // 3. The service binary below Program Files.
     stop_service(log);
     fs::create_dir_all(program_dir())?;
     let target = program_dir().join("harness-vmd.exe");
-    fs::copy(&source, &target)
-        .with_context(|| format!("{} nach {} kopieren", source.display(), target.display()))?;
+    fs::copy(&source, &target).with_context(|| {
+        tr!(
+            "{} nach {} kopieren",
+            "Copying {} to {}",
+            source.display(),
+            target.display()
+        )
+    })?;
     log.line(&format!("✓ {}", target.display()));
 
     // 4. Take the machine over, without host folder shares.
     if !service_json.is_file() {
         let text = fs::read_to_string(&user_json)?;
         let mut json: serde_json::Value = serde_json::from_str(&text)
-            .with_context(|| format!("{} lesen", user_json.display()))?;
+            .with_context(|| tr!("{} lesen", "Reading {}", user_json.display()))?;
         json["Mounts"] = serde_json::Value::Array(Vec::new());
-        let dir = service_json.parent().context("Machine-Ordner")?;
+        let dir = service_json
+            .parent()
+            .context(tr("Machine-Ordner", "Machine folder"))?;
         fs::create_dir_all(dir)?;
         fs::write(&service_json, serde_json::to_string_pretty(&json)?)?;
         let ignition = user_json.with_extension("ign");
@@ -831,12 +1038,16 @@ fn install_elevated(
             &user_json,
             user_json.with_extension(format!("json.{MOVED}")),
         )?;
-        log.line(&format!(
+        log.line(&tr!(
             "✓ Machine {machine} übernommen, ohne Freigaben ({})",
+            "✓ Machine {machine} taken over, without folder shares ({})",
             service_json.display()
         ));
     } else {
-        log.line("✓ Machine gehört dem Dienst schon");
+        log.line(tr(
+            "✓ Machine gehört dem Dienst schon",
+            "✓ Machine already belongs to the service",
+        ));
     }
 
     // 5. Register (or update) and start the service.
@@ -845,7 +1056,7 @@ fn install_elevated(
     if service_state().is_some() {
         step(
             log,
-            "Dienst aktualisiert",
+            tr("Dienst aktualisiert", "Service updated"),
             Command::new(&sc).args([
                 "config",
                 SERVICE_NAME,
@@ -858,7 +1069,7 @@ fn install_elevated(
     } else {
         step(
             log,
-            "Dienst angelegt",
+            tr("Dienst angelegt", "Service created"),
             Command::new(&sc).args([
                 "create",
                 SERVICE_NAME,
@@ -875,7 +1086,10 @@ fn install_elevated(
         .args([
             "description",
             SERVICE_NAME,
-            "Startet und stoppt die VM von llm-harness für einen Nutzer.",
+            tr(
+                "Startet und stoppt die VM von llm-harness für einen Nutzer.",
+                "Starts and stops the VM of llm-harness for one user.",
+            ),
         ])
         .output();
     let _ = Command::new(&sc)
@@ -890,7 +1104,7 @@ fn install_elevated(
         .output();
     step(
         log,
-        "Dienst gestartet",
+        tr("Dienst gestartet", "Service started"),
         Command::new(&sc).args(["start", SERVICE_NAME]),
     )?;
 
@@ -898,17 +1112,22 @@ fn install_elevated(
     let deadline = Instant::now() + Duration::from_secs(15);
     while !vmd::available() {
         if Instant::now() > deadline {
-            bail!(
+            bail!(tr!(
                 "Der Dienst antwortet nicht; Details in {}",
+                "The service does not answer; details in {}",
                 vmd::service_dir().join("vmd.log").display()
-            );
+            ));
         }
         std::thread::sleep(Duration::from_millis(300));
     }
-    log.line("… VM wird gestartet");
+    log.line(tr("… VM wird gestartet", "… starting the VM"));
     let answer = vmd::request(Request::Start)?;
     if !answer.ok {
-        bail!("VM-Start über den Dienst: {}", answer.message);
+        bail!(tr!(
+            "VM-Start über den Dienst: {}",
+            "VM start through the service: {}",
+            answer.message
+        ));
     }
     log.line(&format!("✓ {}", answer.message));
     Ok(())
@@ -923,9 +1142,12 @@ fn create_machine(
     machine: &str,
     size: MachineSize,
 ) -> anyhow::Result<()> {
-    log.line(&format!(
+    log.line(&tr!(
         "… lege die VM {machine} an ({} CPUs, bis {} MiB RAM, {} GiB Platte); das dauert ein paar Minuten",
-        size.cpus, size.memory, size.disk
+        "… creating the VM {machine} ({} CPUs, up to {} MiB RAM, {} GiB disk); this takes a few minutes",
+        size.cpus,
+        size.memory,
+        size.disk
     ));
     let mut child = Command::new(podman)
         .args([
@@ -943,7 +1165,10 @@ fn create_machine(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .context("podman machine init: Programm nicht gestartet")?;
+        .context(tr(
+            "podman machine init: Programm nicht gestartet",
+            "podman machine init: program not started",
+        ))?;
     let stderr = child.stderr.take();
     let errors = std::thread::spawn(move || {
         let mut text = String::new();
@@ -965,14 +1190,17 @@ fn create_machine(
     if !status.success() {
         bail!("podman machine init: {}", errors.trim());
     }
-    log.line(&format!("✓ VM {machine} angelegt"));
+    log.line(&tr!("✓ VM {machine} angelegt", "✓ VM {machine} created"));
     Ok(())
 }
 
 /// Switches the Hyper-V feature on; DISM exits with 3010 when Windows
 /// needs a restart for it, which is the usual case.
 fn enable_hyperv_elevated(log: &mut Log) -> anyhow::Result<()> {
-    log.line("… schalte Hyper-V ein (DISM), das dauert eine Weile");
+    log.line(tr(
+        "… schalte Hyper-V ein (DISM), das dauert eine Weile",
+        "… switching Hyper-V on (DISM), this takes a while",
+    ));
     let output = Command::new(system32("dism.exe"))
         .args([
             "/Online",
@@ -982,26 +1210,33 @@ fn enable_hyperv_elevated(log: &mut Log) -> anyhow::Result<()> {
             "/NoRestart",
         ])
         .output()
-        .context("dism.exe: Programm nicht gestartet")?;
+        .context(tr(
+            "dism.exe: Programm nicht gestartet",
+            "dism.exe: program not started",
+        ))?;
     match output.status.code() {
-        Some(0) => log.line("✓ Hyper-V eingeschaltet"),
-        Some(3010) => log.line("✓ Hyper-V eingeschaltet; Windows muss neu starten"),
-        code => bail!(
+        Some(0) => log.line(tr("✓ Hyper-V eingeschaltet", "✓ Hyper-V switched on")),
+        Some(3010) => log.line(tr(
+            "✓ Hyper-V eingeschaltet; Windows muss neu starten",
+            "✓ Hyper-V switched on; Windows has to restart",
+        )),
+        code => bail!(tr!(
             "DISM endete mit {:?}: {}",
+            "DISM ended with {:?}: {}",
             code,
             String::from_utf8_lossy(&output.stdout).trim()
-        ),
+        )),
     }
     Ok(())
 }
 
 fn uninstall_elevated(log: &mut Log, machine: &str, profile: &Path) -> anyhow::Result<()> {
-    harness_core::provider::validate_resource_name("Machine-Name", machine)?;
+    harness_core::provider::validate_resource_name(tr("Machine-Name", "machine name"), machine)?;
     stop_service(log);
     if service_state().is_some() {
         step(
             log,
-            "Dienst entfernt",
+            tr("Dienst entfernt", "Service removed"),
             Command::new(system32("sc.exe")).args(["delete", SERVICE_NAME]),
         )?;
     }
@@ -1009,7 +1244,10 @@ fn uninstall_elevated(log: &mut Log, machine: &str, profile: &Path) -> anyhow::R
     let moved = user_json.with_extension(format!("json.{MOVED}"));
     if moved.is_file() {
         fs::rename(&moved, &user_json)?;
-        log.line(&format!("✓ Machine {machine} gehört wieder dir"));
+        log.line(&tr!(
+            "✓ Machine {machine} gehört wieder dir",
+            "✓ Machine {machine} is yours again"
+        ));
     }
     let service_json = vmd::machine_json(machine);
     let _ = fs::remove_file(service_json.with_extension("ign"));
@@ -1017,7 +1255,10 @@ fn uninstall_elevated(log: &mut Log, machine: &str, profile: &Path) -> anyhow::R
         fs::remove_file(&service_json)?;
     }
     let _ = fs::remove_file(program_dir().join("harness-vmd.exe"));
-    log.line("✓ Die VM startest du jetzt wieder selbst (Admin-PowerShell: podman machine start)");
+    log.line(tr(
+        "✓ Die VM startest du jetzt wieder selbst (Admin-PowerShell: podman machine start)",
+        "✓ From now on you start the VM yourself again (admin PowerShell: podman machine start)",
+    ));
     Ok(())
 }
 
