@@ -4,6 +4,8 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
+use harness_core::lang::tr;
+use harness_core::tr;
 use harness_core::vmd::SERVICE_NAME;
 use windows_sys::Win32::Foundation::{ERROR_CALL_NOT_IMPLEMENTED, NO_ERROR};
 use windows_sys::Win32::System::Services::{
@@ -65,7 +67,7 @@ unsafe extern "system" fn control(
             // The VM is left alone: Hyper-V shuts it down with the host
             // (AutomaticStopAction), and a service restart must not stop
             // the user's work.
-            log::line("Dienst wird beendet");
+            log::line(tr("Dienst wird beendet", "Service is ending"));
             report(SERVICE_STOPPED, NO_ERROR);
             std::process::exit(0);
         }
@@ -86,9 +88,15 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
     report(SERVICE_START_PENDING, NO_ERROR);
     report(SERVICE_RUNNING, NO_ERROR);
     let body = BODY.get().copied();
-    let result = body.map_or(Err("kein Dienstprogramm".to_owned()), |body| body());
+    let result = body.map_or(
+        Err(tr("kein Dienstprogramm", "no service program").to_owned()),
+        |body| body(),
+    );
     if let Err(error) = result {
-        log::line(&format!("Dienst beendet sich mit Fehler: {error}"));
+        log::line(&tr!(
+            "Dienst beendet sich mit Fehler: {error}",
+            "Service ends with an error: {error}"
+        ));
         // ERROR_SERVICE_SPECIFIC_ERROR would need a code; 1 is enough for
         // the service manager's restart policy.
         report(SERVICE_STOPPED, 1);
@@ -113,8 +121,9 @@ pub fn run(body: fn() -> Result<(), String>) -> Result<(), String> {
     // SAFETY: a NULL-terminated table whose strings outlive the call, which
     // returns when the service stops.
     if unsafe { StartServiceCtrlDispatcherW(table.as_ptr()) } == 0 {
-        return Err(format!(
+        return Err(tr!(
             "nicht als Dienst gestartet ({}). Zum Testen: harness-vmd console",
+            "not started as a service ({}). For testing: harness-vmd console",
             std::io::Error::last_os_error()
         ));
     }

@@ -7,11 +7,16 @@
 //! in a terminal) is moved aside, which Windows allows, and keeps running
 //! from there; the next start takes the new one.
 
+#[macro_use]
+mod lang;
+
 use std::fs;
 use std::io::{BufRead as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+use lang::tr;
 
 /// The programs, embedded by `build.rs`; empty outside release builds.
 const PROGRAMS: [(&str, &[u8]); 3] = [
@@ -100,45 +105,82 @@ fn install_into(dir: &Path, programs: &[(&str, &[u8])]) -> Result<(), String> {
         let _ = Command::new(&harness).args(["daemon", "stop"]).status();
         let service = [harness.clone(), dir.join("harnessd.exe")];
         if service.iter().any(|program| in_use(program)) {
-            println!("Warte, bis der Hintergrunddienst beendet ist …");
+            println!(
+                "{}",
+                tr(
+                    "Warte, bis der Hintergrunddienst beendet ist …",
+                    "Waiting for the background service to end …"
+                )
+            );
             if !wait_until_free(&service, STOP_WAIT) {
                 println!(
-                    "harness läuft noch (etwa `harness run` in einem Terminal). Es läuft mit der \
-                     alten Version weiter, jeder neue Start nimmt die neue."
+                    "{}",
+                    tr(
+                        "harness läuft noch (etwa `harness run` in einem Terminal). Es läuft mit \
+                         der alten Version weiter, jeder neue Start nimmt die neue.",
+                        "harness is still running (e.g. `harness run` in a terminal). It keeps \
+                         running with the old version, every new start uses the new one."
+                    )
                 );
             }
         }
     }
-    fs::create_dir_all(dir).map_err(|e| format!("{} anlegen: {e}", dir.display()))?;
+    fs::create_dir_all(dir)
+        .map_err(|e| tr!("{} anlegen: {e}", "Creating {}: {e}", dir.display()))?;
     remove_old(dir);
     for (name, bytes) in programs {
-        replace(&dir.join(name), bytes)
-            .map_err(|e| format!("{name} lässt sich nicht ersetzen ({e})."))?;
+        replace(&dir.join(name), bytes).map_err(|e| {
+            tr!(
+                "{name} lässt sich nicht ersetzen ({e}).",
+                "{name} cannot be replaced ({e})."
+            )
+        })?;
     }
     Ok(())
 }
 
 fn install(dir: &Path) -> Result<(), String> {
     if PROGRAMS.iter().any(|(_, bytes)| bytes.is_empty()) {
-        return Err(
+        return Err(tr(
             "Dieser Build enthält keine Programme; das Einrichtungsprogramm kommt aus dem \
-             Release (GitHub, Workflow „Windows“)."
-                .to_owned(),
-        );
+             Release (GitHub, Workflow „Windows“).",
+            "This build contains no programs; the setup program comes from the release \
+             (GitHub, workflow “Windows”).",
+        )
+        .to_owned());
     }
     install_into(dir, &PROGRAMS)
 }
 
 fn wait_for_enter() {
-    print!("\nFenster mit Enter schließen. ");
+    print!(
+        "{}",
+        tr(
+            "\nFenster mit Enter schließen. ",
+            "\nPress Enter to close the window. "
+        )
+    );
     let _ = std::io::stdout().flush();
     let _ = std::io::stdin().lock().lines().next();
 }
 
 fn main() {
-    println!("LLM Harness {} – Einrichtung\n", env!("CARGO_PKG_VERSION"));
+    println!(
+        "{}",
+        tr!(
+            "LLM Harness {} – Einrichtung\n",
+            "LLM Harness {} – setup\n",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
     let Some(dir) = target_dir() else {
-        println!("LOCALAPPDATA ist nicht gesetzt; wohin installieren?");
+        println!(
+            "{}",
+            tr(
+                "LOCALAPPDATA ist nicht gesetzt; wohin installieren?",
+                "LOCALAPPDATA is not set; where to install?"
+            )
+        );
         wait_for_enter();
         std::process::exit(1);
     };
@@ -147,13 +189,21 @@ fn main() {
         wait_for_enter();
         std::process::exit(1);
     }
-    println!("✓ Programme in {}\n", dir.display());
+    println!(
+        "{}",
+        tr!("✓ Programme in {}\n", "✓ Programs in {}\n", dir.display())
+    );
     let status = Command::new(dir.join("harness.exe")).arg("setup").status();
     let ok = status.is_ok_and(|s| s.success());
     if !ok {
         println!(
-            "\nNoch nicht alles eingerichtet. Nach dem Beheben (etwa einem Neustart) dieses \
-             Programm oder `harness setup` erneut starten."
+            "{}",
+            tr(
+                "\nNoch nicht alles eingerichtet. Nach dem Beheben (etwa einem Neustart) dieses \
+                 Programm oder `harness setup` erneut starten.",
+                "\nNot everything is set up yet. After fixing it (e.g. with a restart), start \
+                 this program or `harness setup` again."
+            )
         );
     }
     wait_for_enter();
