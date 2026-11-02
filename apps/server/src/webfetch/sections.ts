@@ -378,7 +378,14 @@ export interface SectionRequest {
   maxChars: number;
 }
 
-function outlineOf(sections: Section[]): OutlineGroup[] {
+/**
+ * The outline of a page or document: consecutive sections under one
+ * heading as one line, at most a few hundred lines.
+ *
+ * @param sections - The sections, see {@link splitSections}.
+ * @returns The outline.
+ */
+export function outlineOf(sections: Section[]): OutlineGroup[] {
   const groups: OutlineGroup[] = [];
   for (const section of sections) {
     const last = groups.at(-1);

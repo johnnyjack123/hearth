@@ -22,6 +22,7 @@ import { ChecklistUpdate, PROGRESS_TOOL, readChecklist } from './agent-checklist
 import { MessageFiles } from './attachments.tsx';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { CalculatorCall } from './calculator-call.tsx';
+import { DocumentRead } from './document-read.tsx';
 import { MemoryCall, memoryCallView } from './memory-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
@@ -183,6 +184,9 @@ function AssistantMessage({
         }
         if (part.type === `tool-${REMEMBER_TOOL}` || part.type === `tool-${FORGET_TOOL}`) {
           return <MemoryCall key={part.toolCallId} {...memoryCallView(part.type.slice('tool-'.length), part, streaming)} />;
+        }
+        if (part.type === 'tool-read_document') {
+          return <DocumentRead key={part.toolCallId} part={part} streaming={streaming} />;
         }
         if (part.type === `tool-${CALCULATOR_TOOL}`) {
           return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} />;

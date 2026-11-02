@@ -12,7 +12,7 @@ export interface DocumentConverter {
 }
 
 /** A large PDF takes markitdown a while on a Raspberry Pi. */
-const CONVERT_TIMEOUT_MS = 120_000;
+const CONVERT_TIMEOUT_MS = 300_000;
 
 /**
  * The converter of apps/markitdown, reached over HTTP. Its answer is text

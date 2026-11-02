@@ -5,10 +5,11 @@ export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
 
 /**
- * Characters of a document's text the model reads at most; the rest is cut
- * with a note. About 25 000 tokens, so one long PDF does not fill a chat.
+ * Characters of a document's text the server keeps; the rest is cut with a
+ * note. Long documents reach the model as start and outline, and it reads
+ * the parts it needs, so this only bounds the database and the agent's copy.
  */
-export const MAX_FILE_TEXT_CHARS = 100_000;
+export const MAX_FILE_TEXT_CHARS = 500_000;
 
 /**
  * What an attached file is to the model: an image it looks at, a document

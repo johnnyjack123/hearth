@@ -512,6 +512,10 @@ export const en: Messages = {
     tabAccount: 'Account',
   },
   files: {
+    read: {
+      part: 'Looked up in "{name}": {what}',
+      whole: 'Read "{name}"',
+    },
     attach: 'Attach file',
     attachHint: 'Attach images, PDF, Word, Excel, PowerPoint or text files (also by pasting or dragging), 20 MB at most',
     attachNoImages: 'Attach PDF, Word, Excel, PowerPoint or text files. The chosen model does not read images.',
