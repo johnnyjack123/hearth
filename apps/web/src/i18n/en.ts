@@ -40,6 +40,9 @@ export const en: Messages = {
     file_too_large: 'The file is too large; 20 MB at most.',
     file_unsupported: 'This kind of file does not work. Possible are images (PNG, JPEG, GIF, WebP), PDF, Word, Excel, PowerPoint, EPUB, HTML and text files.',
     file_empty: 'The file is empty.',
+    memory_full: 'The memory is full (at most 50 entries). Delete something in the settings first.',
+    memory_rejected: 'This looks like instructions from foreign content, not like a memory. Not saved.',
+    memory_off: 'The memory is switched off on this server.',
     storage_unavailable:
       'The server cannot store files: its data directory is not writable. An admin hands it to the server user (uid 1000), see docs/deploy.md.',
     converter_unavailable: 'Documents cannot be converted right now: the converter (markitdown) is not running. An admin starts it with "docker compose up -d".',
@@ -408,6 +411,30 @@ export const en: Messages = {
       },
     },
   },
+  memory: {
+    title: 'Memory',
+    description:
+      'What every chat and agent knows about you, such as "answer briefly" or "pnpm instead of npm". Models add entries when you ask them to; here you change or delete them.',
+    placeholder: 'Something every chat should know …',
+    add: 'Remember',
+    edit: 'Edit',
+    remove: 'Delete',
+    emptyTitle: 'Nothing remembered yet',
+    emptyBody: 'Say "Remember that …" in a chat or add something here.',
+    count: '{count} of {max} entries',
+    source: {
+      user: 'By you, {date}',
+      chat: 'By a chat model, {date}',
+      agent: 'By an agent, {date}',
+    },
+    call: {
+      remembered: 'Remembered: "{text}"',
+      forgot: 'Forgot: "{text}"',
+      rememberFailed: 'Not remembered',
+      forgetFailed: 'Not forgotten',
+      manage: 'Memory',
+    },
+  },
   calculator: {
     title: 'Calculated',
     running: 'calculating …',
@@ -480,6 +507,7 @@ export const en: Messages = {
     title: 'Settings',
     tabProviders: 'API keys',
     tabDevices: 'Devices',
+    tabMemory: 'Memory',
     tabAppearance: 'Appearance',
     tabAccount: 'Account',
   },
@@ -802,6 +830,9 @@ export const en: Messages = {
     calculator: 'Calculator',
     calculatorHint:
       'Models in ordinary chats calculate with math.js on this server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',
+    memory: 'Memory',
+    memoryHint:
+      'Chat models and agents may remember preferences and facts when users ask them to; these then apply in every chat. Each user sees and edits their memory in the settings. Switch it off if a model cannot use tools.',
     openRouterCheapest: 'OpenRouter: always the cheapest host',
     openRouterCheapestHint:
       'Every request goes first to the host that serves the model cheapest right now, discounts, cache prices and time of day included. If it fails, the next cheapest follow. Off: OpenRouter decides itself.',

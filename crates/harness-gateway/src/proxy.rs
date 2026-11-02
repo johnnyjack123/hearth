@@ -8,7 +8,8 @@ use std::time::Duration;
 use crate::gateway::{Gateway, Verdict};
 use crate::http::{self, HeadError, RequestHead, Target};
 use crate::llm::{
-    CREDENTIAL_HEADERS, LLM_HOST, URL_HEADER, WEB_FETCH_PATH, WEB_SEARCH_PATH, web_fetch_target,
+    CREDENTIAL_HEADERS, LLM_HOST, MEMORY_PATH, URL_HEADER, WEB_FETCH_PATH, WEB_SEARCH_PATH,
+    web_fetch_target,
 };
 use crate::pattern::Host;
 use crate::policy::Reason;
@@ -225,7 +226,7 @@ fn forward_llm(
     };
     // Paths below `/_` belong to harness, not to a credential.
     let is_web_fetch = path == WEB_FETCH_PATH;
-    if path.starts_with("/_") && !is_web_fetch && path != WEB_SEARCH_PATH {
+    if path.starts_with("/_") && !is_web_fetch && path != WEB_SEARCH_PATH && path != MEMORY_PATH {
         let _ = http::write_response(&mut &*client, 404, &[], "Unbekannter Pfad.\n");
         return;
     }

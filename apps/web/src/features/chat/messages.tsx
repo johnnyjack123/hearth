@@ -1,4 +1,12 @@
-import { type ApprovalDecision, CALCULATOR_TOOL, type Compaction, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import {
+  type ApprovalDecision,
+  CALCULATOR_TOOL,
+  type Compaction,
+  FORGET_TOOL,
+  REMEMBER_TOOL,
+  WEB_FETCH_TOOL,
+  WEB_SEARCH_TOOL,
+} from '@harness/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useMemo, useState } from 'react';
@@ -14,6 +22,7 @@ import { ChecklistUpdate, PROGRESS_TOOL, readChecklist } from './agent-checklist
 import { MessageFiles } from './attachments.tsx';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { CalculatorCall } from './calculator-call.tsx';
+import { MemoryCall, memoryCallView } from './memory-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
 import { formatRate, outputRate, UsageDetails } from './usage-details.tsx';
@@ -158,6 +167,9 @@ function AssistantMessage({
             return <ChecklistUpdate key={part.toolCallId} items={items} live={streaming} />;
           }
         }
+        if (part.type === 'dynamic-tool' && (part.toolName === REMEMBER_TOOL || part.toolName === FORGET_TOOL)) {
+          return <MemoryCall key={part.toolCallId} {...memoryCallView(part.toolName, part, streaming)} />;
+        }
         if (part.type === 'dynamic-tool') {
           return <ToolCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />;
         }
@@ -165,6 +177,9 @@ function AssistantMessage({
           return (
             <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />
           );
+        }
+        if (part.type === `tool-${REMEMBER_TOOL}` || part.type === `tool-${FORGET_TOOL}`) {
+          return <MemoryCall key={part.toolCallId} {...memoryCallView(part.type.slice('tool-'.length), part, streaming)} />;
         }
         if (part.type === `tool-${CALCULATOR_TOOL}`) {
           return <CalculatorCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} />;

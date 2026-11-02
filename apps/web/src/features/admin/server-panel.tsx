@@ -101,6 +101,18 @@ export function ServerPanel() {
               />
               <Separator />
               <SettingRow
+                label={t('admin.memory')}
+                description={t('admin.memoryHint')}
+                control={
+                  <Switch
+                    aria-label={t('admin.memory')}
+                    checked={settings.data.memory}
+                    onCheckedChange={(checked) => update.mutate({ memory: checked })}
+                  />
+                }
+              />
+              <Separator />
+              <SettingRow
                 label={t('admin.openRouterCheapest')}
                 description={t('admin.openRouterCheapestHint')}
                 control={

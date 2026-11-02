@@ -1,4 +1,4 @@
-import { type DeviceCredential, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
+import { type DeviceCredential, memoryRef, memoryTextSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
@@ -12,8 +12,16 @@ import { WebFetchError } from '../webfetch/errors.ts';
 import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts';
 import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers.ts';
 import { runSearch, searchModelText } from '../websearch/tool.ts';
+import { memoryText } from '../memory/tool.ts';
 import { cheapestProvider, meterBill } from '../openrouter.ts';
+import { addMemory, removeMemory } from '../services/memories.ts';
 import { assertEndpointAllowed } from './providers.ts';
+
+/** What an agent's memory tools send (`pi/memory.ts`). */
+const memoryRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('remember'), text: memoryTextSchema }).strict(),
+  z.object({ action: z.literal('forget'), id: z.string().trim().min(1).max(64) }).strict(),
+]);
 
 /** What an agent sends to search: the same as the web chat's tool. */
 const searchRequestSchema = z
@@ -174,6 +182,33 @@ export function llmRoutes(deps: AppDeps) {
       } catch (error) {
         if (error instanceof WebSearchError) {
           return c.json({ error: error.message }, 422);
+        }
+        throw error;
+      }
+    })
+    // The memory tools of agents, under the proxy path like `_web/search`;
+    // the memories belong to the device's owner.
+    .post('/proxy/_memory', async (c) => {
+      if (!(await getServerSettings(db)).memory) {
+        return c.json({ error: '[memory_off] The memory is switched off on the harness server.' }, 403);
+      }
+      const input = memoryRequestSchema.parse(await c.req.json());
+      const owner = c.get('owner').id;
+      try {
+        if (input.action === 'remember') {
+          const memory = await addMemory(db, owner, { text: input.text, source: 'agent' });
+          const output = { ref: memoryRef(memory.id), text: memory.text };
+          return c.json({ ...output, modelText: memoryText('Remembered', output) });
+        }
+        const memory = await removeMemory(db, owner, input.id);
+        if (!memory) {
+          return c.json({ error: `There is no memory [${input.id}].` }, 404);
+        }
+        const output = { ref: memoryRef(memory.id), text: memory.text };
+        return c.json({ ...output, modelText: memoryText('Forgot', output) });
+      } catch (error) {
+        if (error instanceof HttpError) {
+          return c.json({ error: error.message }, error.status);
         }
         throw error;
       }

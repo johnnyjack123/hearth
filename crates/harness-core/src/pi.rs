@@ -26,6 +26,9 @@ pub enum Extension {
     /// The tool `progress`, a checklist the web chat shows live, see
     /// `pi/progress.ts`. Only for web chats.
     Progress,
+    /// The tools `remember` and `forget` for the user's memories on the
+    /// server, see `pi/memory.ts`. Needs a paired computer.
+    Memory,
 }
 
 impl Extension {
@@ -34,6 +37,7 @@ impl Extension {
             Extension::Guard => "guard",
             Extension::Web => "web",
             Extension::Progress => "progress",
+            Extension::Memory => "memory",
         }
     }
 
@@ -43,6 +47,7 @@ impl Extension {
             Extension::Guard => include_str!("../pi/guard.ts"),
             Extension::Web => include_str!("../pi/web.ts"),
             Extension::Progress => include_str!("../pi/progress.ts"),
+            Extension::Memory => include_str!("../pi/memory.ts"),
         }
     }
 
@@ -514,6 +519,11 @@ mod tests {
             Extension::Progress
                 .path()
                 .starts_with("/opt/harness-tools/harness/pi-progress-")
+        );
+        assert!(
+            Extension::Memory
+                .path()
+                .starts_with("/opt/harness-tools/harness/pi-memory-")
         );
     }
 

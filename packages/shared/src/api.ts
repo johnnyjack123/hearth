@@ -27,6 +27,9 @@ export type ApiErrorCode =
   | 'file_empty'
   | 'converter_unavailable'
   | 'storage_unavailable'
+  | 'memory_full'
+  | 'memory_rejected'
+  | 'memory_off'
   | 'convert_failed'
   | 'no_text'
   | 'internal';
@@ -83,6 +86,8 @@ export interface ServerSettings {
   openRouterCheapest: boolean;
   /** With {@link openRouterCheapest}: skip hosts that run a model in 4 bits (fp4, int4), which may answer worse. */
   openRouterNoFourBit: boolean;
+  /** The memory: chat models and agents may store what the user wants every chat to know. */
+  memory: boolean;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -164,6 +169,7 @@ export const updateServerSettingsSchema = z
     calculator: z.boolean(),
     openRouterCheapest: z.boolean(),
     openRouterNoFourBit: z.boolean(),
+    memory: z.boolean(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,
@@ -297,6 +303,11 @@ export interface MessageMetadata {
   effort?: EffortLevel;
   /** Date (YYYY-MM-DD) a user message of an ordinary chat was sent on, for the notes. */
   date?: string;
+  /**
+   * Fingerprint of the user's memories when a user message was sent; the
+   * model gets them again only when it changes (empty string: none).
+   */
+  memoryHash?: string;
   /**
    * Note of LLM Harness the model reads in front of a user message, such as
    * the date or a change of research mode; stored, so it never changes.

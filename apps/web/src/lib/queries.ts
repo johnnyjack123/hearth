@@ -13,6 +13,7 @@ export const queryKeys = {
   models: ['models'] as const,
   devices: ['devices'] as const,
   appTemplates: ['app-templates'] as const,
+  memories: ['memories'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,
@@ -98,6 +99,15 @@ export function useDevices(live = false) {
     queryFn: api.devices.list,
     refetchInterval: live ? DEVICE_REFRESH_MS : false,
   });
+}
+
+/**
+ * The user's memories.
+ *
+ * @returns The query result.
+ */
+export function useMemories() {
+  return useQuery({ queryKey: queryKeys.memories, queryFn: api.memories.list });
 }
 
 /**

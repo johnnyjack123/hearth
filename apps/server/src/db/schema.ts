@@ -105,6 +105,21 @@ export interface DevicePairingTable {
 }
 
 /**
+ * Row of `memory`: something a user wants every chat and agent to know.
+ */
+export interface MemoryTable {
+  id: string;
+  userId: string;
+  text: string;
+  /** `user`, `chat` or `agent`. */
+  source: string;
+  /** The chat a model stored it in, if any. */
+  conversationId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
  * Row of `chatLink`: a conversation whose replies come from an agent in a
  * project on one of the user's devices.
  */
@@ -188,4 +203,5 @@ export interface DB {
   deviceProject: DeviceProjectTable;
   appTemplate: AppTemplateTable;
   file: FileTable;
+  memory: MemoryTable;
 }

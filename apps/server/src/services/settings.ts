@@ -29,6 +29,7 @@ const DEFAULTS: ServerSettings = {
   // they are often the cheapest; admins can leave them out.
   openRouterCheapest: true,
   openRouterNoFourBit: false,
+  memory: true,
   search: {
     provider: 'off',
     searxngUrl: null,

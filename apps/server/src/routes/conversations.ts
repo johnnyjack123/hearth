@@ -52,6 +52,7 @@ import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
 import { agentCallCost, agentModelInfo, callUsage, catalogProvider, pricesAt, withHelpers } from '../pricing.ts';
 import { withProviderOrder } from '../openrouter.ts';
+import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
 import { agentCompaction, type AgentPricer, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
@@ -62,6 +63,21 @@ import { assertEndpointAllowed } from './providers.ts';
 const TAKEOVER_TIMEOUT_MS = 5 * 60_000;
 /** Longest an agent may take to summarize its context (it may start the VM first). */
 const COMPACT_TIMEOUT_MS = 10 * 60_000;
+/**
+ * An agent's history with the user's memories in front, for an agent session
+ * that starts anew while the chat already told it the memories.
+ *
+ * @param history - Earlier messages as text, if any.
+ * @param memory - The memories now; null when the message carries them.
+ * @returns The history to send.
+ */
+function withMemory(history: string | null, memory: { block: string } | null): string | null {
+  if (!history || !memory?.block) {
+    return history;
+  }
+  return `${memory.block}\n\n${history}`;
+}
+
 /** pi's thinking level out of the box, for a linked chat without one. */
 const AGENT_DEFAULT_THINKING: EffortLevel = 'medium';
 
@@ -450,10 +466,17 @@ export function conversationRoutes(deps: AppDeps) {
       const search = await loadSearchBackend(db, secretBox, searchEndpoints);
       const research = search !== null && body.research === true;
       const date = localDate(new Date());
-      // Linked chats talk to an agent with its own prompt and get no notes.
-      const note = link ? null : chatNote(previous, { date, research: search ? research : null });
+      const settings = await getServerSettings(db);
+      // The memories go along whenever they changed since the chat's last
+      // message; the hash is stored, so the prompt stays the same otherwise.
+      const memory = settings.memory ? memoryContext(await listMemories(db, user.id)) : null;
+      const lastMemoryHash = previous.findLast((message) => message.role === 'user' && message.metadata?.memoryHash !== undefined)?.metadata
+        ?.memoryHash;
+      const memoryUpdate = memory ? memoryNote(lastMemoryHash, memory) : null;
+      // Linked chats talk to an agent with its own prompt and get no other notes.
+      const note = link ? null : [chatNote(previous, { date, research: search ? research : null }), memoryUpdate].filter(Boolean).join('\n') || null;
       // Decided once and stored, so later requests condense at the same place.
-      const condensed = !link && shouldCondense(previous, (await getServerSettings(db)).condense);
+      const condensed = !link && shouldCondense(previous, settings.condense);
       const stored: ChatMessage = {
         ...userMessage,
         metadata: {
@@ -462,6 +485,7 @@ export function conversationRoutes(deps: AppDeps) {
           ...(research ? { research } : {}),
           ...(body.effort ? { effort: body.effort } : {}),
           ...(note ? { note } : {}),
+          ...(memory ? { memoryHash: memory.hash } : {}),
           ...(condensed ? { condensed } : {}),
         },
       };
@@ -489,13 +513,16 @@ export function conversationRoutes(deps: AppDeps) {
           project: link.project,
           harness: link.harness,
           conversation: { id: conversation.id, title: conversation.title },
-          // The agent learns about research mode with the message; the
-          // server lets its searches through only while this reply runs.
-          text: research ? `${AGENT_RESEARCH_NOTE}\n\n${text}` : text,
+          // The agent learns about research mode and changed memories with
+          // the message; the server lets its searches through only while
+          // this reply runs.
+          text: [research ? AGENT_RESEARCH_NOTE : null, memoryUpdate, text].filter(Boolean).join('\n\n'),
           // pi's levels are the chat's. pi keeps a level for the whole
           // session, so the chat's "default" has to be named, too.
           thinking: body.effort ?? AGENT_DEFAULT_THINKING,
-          history: transcript(previous),
+          // An agent whose session starts anew (lost with the VM) reads the
+          // history instead, with the memories in front.
+          history: withMemory(transcript(previous), memoryUpdate ? null : memory),
           model: { credentialId: row.id, modelId: body.modelId, ...(Object.keys(info).length > 0 ? { info } : {}) },
           autosync: link.autosync,
           // The device fetches them and puts them where the agent can read them.
@@ -515,7 +542,6 @@ export function conversationRoutes(deps: AppDeps) {
         });
       }
 
-      const settings = await getServerSettings(db);
       const pricing = await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId);
       // The window the last reply reported, else the catalog's.
       const contextWindow =
@@ -547,6 +573,7 @@ export function conversationRoutes(deps: AppDeps) {
         ),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
         files,
+        memory: settings.memory ? { userId: user.id } : null,
       });
     })
     // Summarizes the chat now, on the user's request: everything but the

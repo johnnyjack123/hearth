@@ -246,6 +246,11 @@ pub(crate) fn ready_harness(
             Ok(path) => command.extend(["-e".to_owned(), path]),
             Err(error) => println!("pi: web_fetch nicht geladen: {error}"),
         }
+        // The memories live on the server as well.
+        match pi::Extension::Memory.ensure(&prepared.provider, &prepared.project) {
+            Ok(path) => command.extend(["-e".to_owned(), path]),
+            Err(error) => println!("pi: Gedächtnis nicht geladen: {error}"),
+        }
     }
     if web_chat && harness.llm == Some(LlmWiring::Pi) {
         match pi::Extension::Progress.ensure(&prepared.provider, &prepared.project) {

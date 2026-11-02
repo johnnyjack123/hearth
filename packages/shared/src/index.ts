@@ -1,4 +1,5 @@
 export * from './calculator.ts';
+export * from './memory.ts';
 export * from './agent.ts';
 export * from './app-templates.ts';
 export * from './api.ts';
