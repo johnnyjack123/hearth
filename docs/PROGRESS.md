@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-02 abends · Gedächtnis, OCR, lange Dokumente, Speichergrenze je Instanz, Recherche ohne Rückfrage für Agents; davor Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
+_Last updated: 2026-11-02 abends · Release v0.1.14: Gedächtnis, OCR, lange Dokumente, Speichergrenze je Instanz, Recherche ohne Rückfrage für Agents, englische Texte in CLI und Setup; davor Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
 
 ## Where we are
 
@@ -97,8 +97,10 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - Fortschrittsliste auch in normalen Chats (Werkzeug `progress`, Admin-Schalter).
    - Lange Dokumente (über 16 000 Zeichen) als Anfang plus Gliederung, Nachlesen mit `read_document`; gespeichert bis 500 000 Zeichen. OCR für gescannte PDFs im markitdown-Container (poppler + tesseract deu/eng, erste 30 Seiten; Selbsttest in CI auf amd64 und arm64 grün).
    - Recherche für Agents: Treffer einer laufenden Recherche laden ohne Rückfrage (Gateway fragt den Server über `/_web/known`).
-   - Englische Texte für CLI, Setup und Tray: in Arbeit (Hilfsagent in eigenem Worktree).
-   **Als Nächstes:** Test des Nutzers mit v0.1.13 (neuer VM-Dienst über `harness setup`), dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats). Offen aus dem 1.11.: Speichergrenze für Instanzen, damit ein Prozess im Container nicht die ganze VM in den Swap treibt.
+   - Englische Texte für CLI, `harness setup`, Einrichtungsprogramm, Tray und VM-Dienst (Branch `feat/english-cli`): Deutsch, wenn Windows Deutsch zeigt, sonst Englisch; `HARNESS_LANG=de|en` erzwingt eine Sprache (`harness-core/src/lang.rs`, `tr`/`tr!`). Was in den Web-Chat geht, bleibt Deutsch (die Web-App übersetzt selbst). Tests und Smoke-Skripte laufen auf Deutsch (Feature `test-german`).
+   - Geprüft: Server 226/226, Rust-Tests und clippy, Browser-E2E 18/18 (vor den langen Dokumenten), Smoke-Test 109 grün mit echtem pi (Gedächtnis, Recherche-Treffer ohne Rückfrage, unbekanntes Modell), Selbsttest von markitdown mit OCR in CI. Die englischen Texte: Rust-Tests, deutsche Hilfe aller Befehle unverändert, `harness --help` und `doctor` in beiden Sprachen angesehen; der Smoke-Test danach lief nicht, weil die VM mangels freiem RAM (1,3 GB) nicht startete (32778).
+   - Release v0.1.14.
+   **Als Nächstes:** Test des Nutzers mit v0.1.14 (`harness setup` aktualisiert den VM-Dienst per UAC, erst dann gilt der größere Startspeicher) und `docker compose pull` auf dem Pi (Gedächtnis, OCR im neuen markitdown-Image).
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
