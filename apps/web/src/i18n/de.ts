@@ -38,6 +38,8 @@ export const de = {
     file_too_large: 'Die Datei ist zu groß, höchstens 20 MB gehen.',
     file_unsupported: 'Diese Art Datei geht nicht. Möglich sind Bilder (PNG, JPEG, GIF, WebP), PDF, Word, Excel, PowerPoint, EPUB, HTML und Textdateien.',
     file_empty: 'Die Datei ist leer.',
+    storage_unavailable:
+      'Der Server kann keine Dateien speichern: Sein Datenordner ist nicht beschreibbar. Ein Admin gibt ihn dem Server-Nutzer (uid 1000), siehe docs/deploy.md.',
     converter_unavailable: 'Dokumente umwandeln geht gerade nicht: Der Umwandler (markitdown) läuft nicht. Ein Admin startet ihn mit „docker compose up -d“.',
     convert_failed: 'Das Dokument ließ sich nicht lesen: {detail}',
     no_text: 'In dem Dokument steht kein lesbarer Text. Gescannte PDFs ohne Texterkennung gehen nicht; als Bild klappt es mit einem Modell, das Bilder versteht.',

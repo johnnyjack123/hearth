@@ -1,6 +1,12 @@
 import type { ChatFile, ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import type { Kysely } from 'kysely';
+import type { DB } from '../src/db/schema.ts';
 import { cleanFileName, detectFile } from '../src/files/detect.ts';
+import { FileStore } from '../src/files/store.ts';
 import { HttpError } from '../src/http/errors.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { createScriptedLlm, createTestServer, ORIGIN, readChunks, type TestServer } from './helpers.ts';
@@ -30,6 +36,19 @@ describe('detectFile', () => {
     expect(cleanFileName('a\u{202E}fdp.exe')).toBe('afdp.exe');
     expect(cleanFileName('')).toBe('Datei');
     expect(cleanFileName(`${'x'.repeat(300)}.pdf`)).toHaveLength(200);
+  });
+});
+
+describe('FileStore', () => {
+  it('lets the server start without a writable data directory and says so on upload', async () => {
+    // A file where the directory should be: it cannot be created.
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-files-'));
+    writeFileSync(path.join(dataDir, 'files'), 'in the way');
+    const store = new FileStore({} as Kysely<DB>, dataDir);
+    const upload = { userId: 'u1', name: 'a.txt', mediaType: 'text/plain', kind: 'text' as const, text: 'a', truncated: false };
+    const failure = await store.save(upload, new Uint8Array([97])).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(HttpError);
+    expect(failure).toMatchObject({ status: 503, code: 'storage_unavailable' });
   });
 });
 

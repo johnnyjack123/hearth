@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatFile, ChatFileKind } from '@harness/shared';
 import type { Kysely, Selectable } from 'kysely';
@@ -54,7 +54,14 @@ export class FileStore {
     dataDir: string,
   ) {
     this.#dir = path.join(dataDir, 'files');
-    mkdirSync(this.#dir, { recursive: true });
+    // A data directory the server cannot write must not keep it from
+    // starting (2.11.: Docker had created the bind mount as root, and with
+    // Postgres nothing had written there before); uploads say why instead.
+    try {
+      mkdirSync(this.#dir, { recursive: true });
+    } catch (error) {
+      console.warn(`[files] ${this.#dir} cannot be created, uploads will fail: ${(error as Error).message}`);
+    }
   }
 
   #path(id: string): string {
@@ -88,7 +95,18 @@ export class FileStore {
       createdAt: Date.now(),
     };
     // The bytes first: a row without them would break every later request.
-    await writeFile(this.#path(row.id), bytes);
+    const unwritable = () => new HttpError(503, 'storage_unavailable', `The server cannot write to ${this.#dir}`);
+    try {
+      await mkdir(this.#dir, { recursive: true });
+    } catch {
+      throw unwritable();
+    }
+    try {
+      await writeFile(this.#path(row.id), bytes);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      throw code === 'EACCES' || code === 'EPERM' || code === 'EROFS' ? unwritable() : error;
+    }
     await this.db.insertInto('file').values(row).execute();
     void this.sweep();
     return describeFile(row);
