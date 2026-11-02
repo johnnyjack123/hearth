@@ -1,4 +1,4 @@
-import type { DynamicToolUIPart } from 'ai';
+import type { DynamicToolUIPart, ToolUIPart } from 'ai';
 import { Check, ChevronRight, Circle, CircleDot, ListChecks } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
@@ -59,9 +59,11 @@ export function currentChecklist(messages: ChatMessage[]): ChecklistItem[] | nul
     if (message?.role !== 'assistant') {
       continue;
     }
+    // An agent's list is a dynamic tool, the chat model's its own tool.
     const part = message.parts.findLast(
-      (candidate): candidate is DynamicToolUIPart =>
-        candidate.type === 'dynamic-tool' && candidate.toolName === PROGRESS_TOOL && candidate.state !== 'output-error',
+      (candidate): candidate is DynamicToolUIPart | ToolUIPart =>
+        ((candidate.type === 'dynamic-tool' && candidate.toolName === PROGRESS_TOOL) || candidate.type === `tool-${PROGRESS_TOOL}`) &&
+        candidate.state !== 'output-error',
     );
     const items = part ? readChecklist(part.input) : null;
     if (items) {

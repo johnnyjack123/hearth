@@ -574,6 +574,20 @@ try {
     }
   });
 
+  await step('the chat model shows its plan as a progress list', async () => {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await page.type('textarea', 'Plane: Suchen; Lesen; Antworten');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
+    await waitForText('Ich arbeite die Liste ab.', 15_000);
+    await waitForText('Fortschritt: 1 von 3', 5_000);
+    // The list above the message box, as with agents.
+    await page.waitForSelector('section[aria-label="Fortschritt"]', { timeout: 5_000 });
+    await waitForText('1/3', 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await shot('52-chat-progress');
+  });
+
   await step('images and documents in an ordinary chat', async () => {
     // A real picture (the screenshot just taken) and a document the
     // stand-in converter turns into Markdown.

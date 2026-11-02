@@ -544,7 +544,7 @@ describe('research mode', () => {
       }
     });
 
-    expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'web_search', 'calculate', 'remember', 'forget']);
+    expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'web_search', 'calculate', 'remember', 'forget', 'progress']);
     // Date and research mode come as a note in front of the message, not in the system prompt.
     expect(llm.calls[0]?.system).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\. Research mode is on\.\]/);
@@ -825,7 +825,7 @@ describe('research mode', () => {
     script = [{ tool: 'web_search', input: { query: 'x' } }];
     const conversationId = await newConversation();
     const chunks = await readChunks(await chat(conversationId, 'Suche', true));
-    expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'calculate', 'remember', 'forget']);
+    expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'calculate', 'remember', 'forget', 'progress']);
     expect(llm.calls[0]?.system).not.toContain('research mode');
     // The note gives the date only; there is no research mode to announce.
     expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\.\]/);

@@ -280,7 +280,7 @@ export const en: Messages = {
       pending: 'open',
       show: 'Show list',
       hide: 'Hide list',
-      hint: 'The agent keeps this list itself and checks off what it has done.',
+      hint: 'The model keeps this list itself and checks off what it has done.',
     },
     progressFailed: 'Failed',
     showDetails: 'Show details',
@@ -833,6 +833,9 @@ export const en: Messages = {
     memory: 'Memory',
     memoryHint:
       'Chat models and agents may remember preferences and facts when users ask them to; these then apply in every chat. Each user sees and edits their memory in the settings. Switch it off if a model cannot use tools.',
+    progress: 'Progress list',
+    progressHint:
+      'For tasks with several steps the model shows its plan in ordinary chats as a list above the message box and checks off what is done. Switch it off if a model cannot use tools.',
     openRouterCheapest: 'OpenRouter: always the cheapest host',
     openRouterCheapestHint:
       'Every request goes first to the host that serves the model cheapest right now, discounts, cache prices and time of day included. If it fails, the next cheapest follow. Off: OpenRouter decides itself.',

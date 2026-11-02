@@ -88,6 +88,8 @@ export interface ServerSettings {
   openRouterNoFourBit: boolean;
   /** The memory: chat models and agents may store what the user wants every chat to know. */
   memory: boolean;
+  /** The progress list in ordinary chats: the model shows its plan for tasks with several steps. */
+  progress: boolean;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -170,6 +172,7 @@ export const updateServerSettingsSchema = z
     openRouterCheapest: z.boolean(),
     openRouterNoFourBit: z.boolean(),
     memory: z.boolean(),
+    progress: z.boolean(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,

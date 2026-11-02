@@ -101,8 +101,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const busy = status === 'submitted' || status === 'streaming';
   const { link } = conversation;
   const online = useLinkOnline(link);
-  // The agent's plan, as it checks it off.
-  const checklist = link ? currentChecklist(messages) : null;
+  // The plan of the agent or the chat model, as it checks it off.
+  const checklist = currentChecklist(messages);
 
   function setResearch(on: boolean) {
     setChatResearch(on);
