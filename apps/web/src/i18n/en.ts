@@ -158,6 +158,7 @@ export const en: Messages = {
     addProvider: 'Add API key',
     selectModel: 'Select model',
     searchModels: 'Search models …',
+    recentModels: 'Recently used',
     noModels: 'No models found',
     modelsLoading: 'Loading models …',
     modelsError: 'Could not load models from “{label}”',

@@ -76,7 +76,7 @@ function ChatSkeleton() {
 
 function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessage> }) {
   const t = useT();
-  const { selection, select, models, images } = useModelSelection(conversation);
+  const { selection, select, models, images, recent } = useModelSelection(conversation);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
   // Each chat keeps its own switch; the one used last is the default for
   // new chats.
@@ -195,7 +195,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             }
             toolbar={
               <>
-                <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} />
+                <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
                 <EnvironmentButton conversation={conversation} online={online} workspace={latestWorkspace(messages)} />
                 {/* Agents in an environment search through the server as well. */}
                 {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}

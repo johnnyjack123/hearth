@@ -156,6 +156,7 @@ export const de = {
     addProvider: 'API-Key hinzufügen',
     selectModel: 'Modell wählen',
     searchModels: 'Modell suchen …',
+    recentModels: 'Zuletzt genutzt',
     noModels: 'Keine Modelle gefunden',
     modelsLoading: 'Modelle werden geladen …',
     modelsError: 'Modelle von „{label}“ konnten nicht geladen werden',
