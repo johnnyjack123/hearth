@@ -40,6 +40,7 @@ import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { withFileContents } from '../files/model.ts';
+import { attachedFileIds, createReadDocumentTool, DocumentError, isLongDocument, READ_DOCUMENT_TOOL } from '../files/read.ts';
 import type { FileStore } from '../files/store.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
@@ -238,6 +239,7 @@ const CALCULATOR_PART = `tool-${CALCULATOR_TOOL}`;
 const REMEMBER_PART = `tool-${REMEMBER_TOOL}`;
 const FORGET_PART = `tool-${FORGET_TOOL}`;
 const PROGRESS_PART = `tool-${PROGRESS_TOOL}`;
+const READ_DOCUMENT_PART = `tool-${READ_DOCUMENT_TOOL}`;
 
 /**
  * Models guess at arithmetic; the calculator does not. Part of the system
@@ -263,6 +265,10 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
   if (part.type === CALCULATOR_PART) {
     const outcome = error ?? (output ? calculatorText(output as unknown as CalculatorOutput) : '');
     return `[Earlier, calculate${outcome ? `: ${shorten(outcome)}` : ''}]`;
+  }
+  if (part.type === READ_DOCUMENT_PART) {
+    const outcome = error ?? String((output as { text?: unknown } | undefined)?.text ?? '');
+    return `[Earlier, read_document${outcome ? `: ${shorten(outcome)}` : ''}]`;
   }
   if (part.type === PROGRESS_PART) {
     return `[Earlier, progress${output ? `: ${progressText(output as unknown as ProgressOutput)}` : ''}]`;
@@ -404,7 +410,13 @@ export async function assignTitle(
 export function describeStreamError(error: unknown): string {
   // Tool errors become the tool's result for the model and the error text in
   // the chat; a web fetch error carries its own code and explanation.
-  if (error instanceof WebFetchError || error instanceof WebSearchError || error instanceof CalculatorError || error instanceof MemoryError) {
+  if (
+    error instanceof WebFetchError ||
+    error instanceof WebSearchError ||
+    error instanceof CalculatorError ||
+    error instanceof MemoryError ||
+    error instanceof DocumentError
+  ) {
     return error.message;
   }
   if (InvalidToolInputError.isInstance(error) || NoSuchToolError.isInstance(error)) {
@@ -534,6 +546,8 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   // Shared by both tools in research mode: search hits and page links
   // become free to load.
   const known = search && research ? KnownUrls.fromMessages(messages) : null;
+  const fileIds = attachedFileIds(messages);
+  const longDocuments = fileIds.length > 0 && (await options.files.rows(fileIds)).some(isLongDocument);
   // The tool list depends on the server's settings only, never on research
   // mode: a changed list would void the provider's prompt cache.
   const tools = {
@@ -555,10 +569,13 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(options.calculator ? { [CALCULATOR_TOOL]: createCalculatorTool(options.calculator) } : {}),
     ...(options.memory ? createMemoryTools(db, options.memory.userId, conversationId) : {}),
     ...(options.progress ? { [PROGRESS_TOOL]: createProgressTool() } : {}),
+    // Only in chats with a long document: the tool list changes once, when
+    // the first one is attached.
+    ...(longDocuments ? { [READ_DOCUMENT_TOOL]: createReadDocumentTool(options.files, fileIds, helpers, abortSignal) } : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set(
-    [WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL, PROGRESS_TOOL].filter((name) => !(name in tools)),
+    [WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL, PROGRESS_TOOL, READ_DOCUMENT_TOOL].filter((name) => !(name in tools)),
   );
   const instructions = [
     INSTRUCTIONS,

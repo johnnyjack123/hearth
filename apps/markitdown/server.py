@@ -16,6 +16,8 @@ API:
   POST /convert                    body: the file, header X-File-Name (URL-encoded)
        -> 200 {"markdown": "...", "truncated": false}
        -> 413 too large, 415 unsupported type, 422 not convertible, 504 timeout
+
+Scanned PDFs are read with OCR (tesseract), see convert.py.
 """
 
 import http.server
@@ -33,7 +35,8 @@ PORT = int(os.environ.get("PORT", "8080"))
 MAX_BYTES = 20 * 1024 * 1024
 # Markdown returned at most; the server keeps far less for the model.
 MAX_OUTPUT = 8 * 1024 * 1024
-TIMEOUT_SECONDS = 90
+# Scanned PDFs take the longest: a few seconds per page for OCR.
+TIMEOUT_SECONDS = 240
 # Two conversions at a time; a third waits, so memory stays bounded.
 SLOTS = threading.BoundedSemaphore(2)
 SUFFIXES = {

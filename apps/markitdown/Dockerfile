@@ -11,6 +11,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# OCR for scanned PDFs (convert.py): poppler renders the pages, tesseract
+# reads them in German and English.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-deu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Only the converters for local files; the extras for audio, YouTube and
 # Azure call web services and stay out.
 RUN pip install "markitdown[pdf,docx,pptx,xlsx,xls]==0.1.9"

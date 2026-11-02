@@ -512,6 +512,10 @@ export const de = {
     tabAccount: 'Konto',
   },
   files: {
+    read: {
+      part: 'Im Dokument „{name}“ nachgesehen: {what}',
+      whole: 'Dokument „{name}“ gelesen',
+    },
     attach: 'Datei anhängen',
     attachHint: 'Bilder, PDF, Word, Excel, PowerPoint oder Textdateien anhängen (auch per Einfügen oder Hineinziehen), höchstens 20 MB',
     attachNoImages: 'PDF, Word, Excel, PowerPoint oder Textdateien anhängen. Bilder versteht das gewählte Modell nicht.',
