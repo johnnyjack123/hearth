@@ -305,6 +305,7 @@ impl Tray {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
         let window = self.hwnd as usize;
+        let language = self.language;
         // Copying a large file takes a while; the icon stays responsive.
         std::thread::spawn(move || {
             let answer = match command.output() {
@@ -321,7 +322,13 @@ impl Tray {
                     .to_owned();
                     (output.status.success(), text)
                 }
-                Err(error) => (false, format!("harness nicht gestartet: {error}")),
+                Err(error) => (
+                    false,
+                    format!(
+                        "{} {error}",
+                        language.t("harness nicht gestartet:", "harness not started:")
+                    ),
+                ),
             };
             FILE_ANSWERS
                 .lock()
@@ -531,13 +538,10 @@ pub fn run(harness: &Path, root: &Path) {
         supervise(harness, root, &quit, &pid);
         return;
     }
-    // SAFETY: system metrics and the UI language.
-    let (size, german) = unsafe {
-        (
-            GetSystemMetrics(SM_CXSMICON),
-            GetUserDefaultUILanguage() & 0x3ff == 0x07,
-        )
-    };
+    // SAFETY: a system metric without preconditions.
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
+    // SAFETY: reads the user's UI language; German is primary language 0x07.
+    let language = Language::current(|| unsafe { GetUserDefaultUILanguage() } & 0x3ff == 0x07);
     let look = |fill, dot| icon::create(size, Look { fill, dot });
     let tray = Tray {
         hwnd,
@@ -546,7 +550,7 @@ pub fn run(harness: &Path, root: &Path) {
         suffix,
         pid: Arc::clone(&pid),
         quit: Arc::clone(&quit),
-        language: Language { german },
+        language,
         icons: [
             look(BRAND, None),
             look(GREY, None),

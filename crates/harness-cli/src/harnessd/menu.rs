@@ -178,7 +178,38 @@ pub struct Language {
 }
 
 impl Language {
-    fn t<'a>(self, de: &'a str, en: &'a str) -> &'a str {
+    /// The language of this process: `HARNESS_LANG` if it names one,
+    /// German in tests, otherwise German exactly when `windows_german`
+    /// says so. The same rule as `harness_core::lang`, which harnessd does
+    /// not link.
+    pub fn current(windows_german: impl FnOnce() -> bool) -> Language {
+        Language::select(std::env::var("HARNESS_LANG").ok().as_deref(), || {
+            cfg!(test) || windows_german()
+        })
+    }
+
+    /// The language `value` names (`de`, `en`, also `de-AT` and the like,
+    /// in any case), else German exactly when `fallback` says so.
+    fn select(value: Option<&str>, fallback: impl FnOnce() -> bool) -> Language {
+        let primary = value
+            .map(|v| {
+                v.trim()
+                    .split(['-', '_'])
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            })
+            .unwrap_or_default();
+        let german = match primary.as_str() {
+            "de" => true,
+            "en" => false,
+            _ => fallback(),
+        };
+        Language { german }
+    }
+
+    /// `de` in German, `en` otherwise.
+    pub fn t<'a>(self, de: &'a str, en: &'a str) -> &'a str {
         if self.german { de } else { en }
     }
 
@@ -428,6 +459,22 @@ mod tests {
                 Entry::Separator => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn harness_lang_overrides_windows() {
+        assert!(!Language::select(Some("en"), || true).german);
+        assert!(!Language::select(Some("EN-us"), || true).german);
+        assert!(Language::select(Some("de"), || false).german);
+        assert!(Language::select(Some(" de_AT "), || false).german);
+        // Nothing or something unknown: Windows decides.
+        assert!(!Language::select(None, || false).german);
+        assert!(Language::select(None, || true).german);
+        assert!(!Language::select(Some("fr"), || false).german);
+        // Tests read German unless HARNESS_LANG says otherwise.
+        let set = std::env::var("HARNESS_LANG").ok();
+        let expected = Language::select(set.as_deref(), || true).german;
+        assert_eq!(Language::current(|| false).german, expected);
     }
 
     #[test]
