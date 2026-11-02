@@ -39,7 +39,7 @@ Aktualisieren: `docker compose pull && docker compose up -d`. Die Daten liegen n
 Postgres statt SQLite: `POSTGRES_PASSWORD`, `DATABASE_URL` und `COMPOSE_PROFILES=postgres` in der `.env` setzen. Ohne `COMPOSE_PROFILES` braucht jeder Aufruf `docker compose --profile postgres …`. Der Server startet beim ersten Mal eventuell ein- bis zweimal neu, bis Postgres bereit ist.
 
 - **`Invalid URL` beim Start:** Das Passwort in `DATABASE_URL` enthält `/`, `+`, `=`, `#` oder `?`. Diese Zeichen kodieren (`/` → `%2F`, `+` → `%2B`, `=` → `%3D`). Die Alternative ist ein Passwort nur aus Buchstaben und Ziffern, dann aber den Ordner `postgres` leeren, weil Postgres das alte Passwort behält.
-- **`EACCES` auf `/data`:** Der Ordner `data` gehört root. Abhilfe: `sudo chown 1000:1000 data`.
+- **`EACCES` auf `/data`** (etwa `mkdir '/data/files'`): Der Ordner `data` gehört root, weil Docker ihn beim ersten Start selbst angelegt hat. Mit Postgres fiel das bis v0.1.11 nicht auf, erst die Dateiablage schreibt dort. Abhilfe: `sudo chown 1000:1000 data`. Ist der Ordner leer, geht es auch ohne sudo: `docker compose stop server && rmdir data && mkdir data && docker compose up -d server`. Seit v0.1.14 startet der Server trotzdem, nur Uploads melden den Fehler.
 - **`getaddrinfo ENOTFOUND postgres`:** Der Postgres-Container läuft nicht, meist fehlt `COMPOSE_PROFILES=postgres` in der `.env`. Ohne das Profil legt Compose auch den Ordner `postgres` nicht an.
 - **Anmelden klappt nicht, obwohl die Seite lädt:** `PUBLIC_URL` muss genau die Adresse sein, die im Browser steht, mit dem Port aus `HARNESS_PORT`.
 

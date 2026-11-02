@@ -40,6 +40,8 @@ export const en: Messages = {
     file_too_large: 'The file is too large; 20 MB at most.',
     file_unsupported: 'This kind of file does not work. Possible are images (PNG, JPEG, GIF, WebP), PDF, Word, Excel, PowerPoint, EPUB, HTML and text files.',
     file_empty: 'The file is empty.',
+    storage_unavailable:
+      'The server cannot store files: its data directory is not writable. An admin hands it to the server user (uid 1000), see docs/deploy.md.',
     converter_unavailable: 'Documents cannot be converted right now: the converter (markitdown) is not running. An admin starts it with "docker compose up -d".',
     convert_failed: 'The document could not be read: {detail}',
     no_text: 'The document has no readable text. Scanned PDFs without text recognition do not work; as an image it works with a model that reads images.',

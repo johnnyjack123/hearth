@@ -26,6 +26,7 @@ export type ApiErrorCode =
   | 'file_unsupported'
   | 'file_empty'
   | 'converter_unavailable'
+  | 'storage_unavailable'
   | 'convert_failed'
   | 'no_text'
   | 'internal';

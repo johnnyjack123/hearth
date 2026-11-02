@@ -505,6 +505,7 @@ VM-Befehle für den Nutzer: nach `harness vmd install` einfach `harness vmd star
 
 - Zugang: `ssh raspberrypi`, Compose-Ordner `/srv/hearth` (`COMPOSE_PROFILES=postgres,search` in der `.env`, die Claude Code nicht lesen soll; nur diese Zeile per `grep`). Container `llm-harness-server`, Datenbank `llm-harness-db`.
 - **`docker compose pull` allein ersetzt den laufenden Container nicht.** Danach `docker compose up -d --no-deps server`, sonst läuft das alte Image weiter (am 23.10. lief deshalb noch der Stand vom 20.10., ohne Jev und Abschnitte). Prüfen mit `docker inspect llm-harness-server --format "{{.Image}}"` gegen `docker image inspect ghcr.io/johnnyjack123/llm-harness-server:latest`.
+- **`./data` gehörte root** (von Docker beim ersten Start angelegt). Mit Postgres schrieb der Server dort bis v0.1.11 nichts; die Dateiablage brach dann den Start mit `EACCES … mkdir '/data/files'` ab (2.11., behoben durch Neuanlegen des leeren Ordners als uid 1000). Seitdem startet der Server auch ohne beschreibbaren Datenordner, Uploads antworten 503 `storage_unavailable`.
 - Geänderte SearXNG-Konfiguration (inline in der Compose-Datei) braucht `docker compose up -d --force-recreate searxng`. Vor Änderungen an der Compose-Datei eine Sicherung daneben legen (`docker-compose.yml.bak-<datum>`).
 
 ### Hintergrunddienst (`harness-cli/src/daemon.rs`, `harnessd.rs`, `connect.rs`)
