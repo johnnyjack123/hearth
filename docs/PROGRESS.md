@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-02 · Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
+_Last updated: 2026-11-02 abends · Gedächtnis, OCR, lange Dokumente, Speichergrenze je Instanz, Recherche ohne Rückfrage für Agents; davor Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
 
 ## Where we are
 
@@ -90,6 +90,14 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - **Kontext-Füllstand** stimmt (an pis Sitzungsdaten nachgerechnet: DeepSeek behält die Denk-Token im Verlauf); falsch war nur das Fenster im Chat mit dem falschen Modell.
    - Geprüft: Server 218/218, Rust-Tests und clippy, Browser-E2E 16/16 (Bild 37 mit Denktiefe), Smoke-Test 104 grün (unbekanntes Modell lernt pi nach Neustart, Kosten wie abgerechnet), echtes pi nimmt ein zusätzliches Modell beim eingebauten Anbieter `openrouter` an (Wegwerf-Container ohne Netz). Nicht geprüft: echtes OpenRouter mit `provider.order`, der neue VM-Dienst mit größerem Startspeicher beim Nutzer.
    ✅ **2.11., Rückmeldung des Nutzers** (Branch `feat/recent-models`, Release v0.1.13): Windows behält beim VM-Start 1 GB statt 512 MB; Flex-Endpunkte (z. B. `deepinfra/fp8/flex`) fallen aus der OpenRouter-Reihenfolge; die Modellauswahl zeigt oben „Zuletzt genutzt“ (fünf Modelle aus den letzten Chats). Richtigstellung: DeepSeek V4.1 Flash liest Bilder (models.dev und OpenRouter), nur V4 Pro nicht. Geprüft: Tests, Browser-E2E 16/16 (Bild 07b).
+   ✅ **2.11. abends, Punkte 2–4 der Liste** (Branches `fix/data-dir`, `feat/instance-memory`, `feat/memory`, `feat/chat-progress`, `feat/long-documents`, `feat/agent-research`):
+   - Server auf dem Pi startete nicht (`EACCES … mkdir '/data/files'`): `./data` gehörte root (von Docker angelegt), mit Postgres schrieb vorher nie etwas hinein. Leeren Ordner als uid 1000 neu angelegt; der Server startet seitdem auch ohne beschreibbaren Datenordner.
+   - Speichergrenze je Instanz: Speicher der VM minus 384 MB (in der VM des Nutzers getestet: nur der Prozess im Container wird beendet, SSH bleibt da).
+   - Gedächtnis für Chats und Agents (Einstellungen → Gedächtnis, `remember`/`forget`, pi-Erweiterung `memory.ts`, Gateway-Pfad `/_memory`, Admin-Schalter).
+   - Fortschrittsliste auch in normalen Chats (Werkzeug `progress`, Admin-Schalter).
+   - Lange Dokumente (über 16 000 Zeichen) als Anfang plus Gliederung, Nachlesen mit `read_document`; gespeichert bis 500 000 Zeichen. OCR für gescannte PDFs im markitdown-Container (poppler + tesseract deu/eng, erste 30 Seiten; Selbsttest in CI auf amd64 und arm64 grün).
+   - Recherche für Agents: Treffer einer laufenden Recherche laden ohne Rückfrage (Gateway fragt den Server über `/_web/known`).
+   - Englische Texte für CLI, Setup und Tray: in Arbeit (Hilfsagent in eigenem Worktree).
    **Als Nächstes:** Test des Nutzers mit v0.1.13 (neuer VM-Dienst über `harness setup`), dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats). Offen aus dem 1.11.: Speichergrenze für Instanzen, damit ein Prozess im Container nicht die ganze VM in den Swap treibt.
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.

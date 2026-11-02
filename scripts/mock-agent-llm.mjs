@@ -3,7 +3,9 @@
 // call with MOCK_COMMAND, a request with one gets the answer "fertig". A
 // user message that starts with "!" names the command itself, one that
 // starts with "?" a URL for `web_fetch` instead, "?search <terms>" calls
-// `web_search`, and "#plan a; b; c" calls `progress` with those steps, the
+// `web_search`, "?read <terms>" searches and then reads the hit on
+// example.org, "@remember <text>" calls `remember`, and "#plan a; b; c"
+// calls `progress` with those steps, the
 // first one done and the second active. A request without tools (pi
 // summarizing its history) gets a
 // summary. It also answers like SearXNG (`/search?format=json`).
@@ -43,7 +45,14 @@ http
     req.on('end', () => {
       if (req.method === 'GET' && req.url.startsWith('/search?')) {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ results: [{ title: 'Kaffee rösten', url: 'https://example.com/roesten', content: 'Bei etwa 200 °C' }] }));
+        res.end(
+          JSON.stringify({
+            results: [
+              { title: 'Kaffee rösten', url: 'https://example.com/roesten', content: 'Bei etwa 200 °C' },
+              { title: 'Beispiel', url: 'https://example.org/', content: 'Eine Beispielseite' },
+            ],
+          }),
+        );
         return;
       }
       if (req.method === 'GET' && req.url.endsWith('/models')) {
@@ -59,8 +68,18 @@ http
       // Answer once the newest message is a tool result; a new user message
       // starts the next tool call.
       const answered = messages.at(-1)?.role === 'tool';
+      // A search, then reading the hit on example.org, then the answer.
+      const lastUser = messages.findLastIndex((message) => message.role === 'user');
+      const results = messages.slice(lastUser).filter((message) => message.role === 'tool').length;
+      const reading = /(?:^|\n)\?read (.+)$/.exec(lastUserText(messages).trim())?.[1];
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      if (!request.tools?.length) {
+      if (request.tools?.length && reading && results < 2) {
+        const [name, input] = results === 0 ? ['web_search', { query: reading }] : ['web_fetch', { url: 'https://example.org/' }];
+        const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name, arguments: '' } };
+        res.write(chunk({ role: 'assistant', tool_calls: [call] }));
+        res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(input) } }] }));
+        res.write(chunk({}, 'tool_calls'));
+      } else if (!request.tools?.length) {
         res.write(chunk({ role: 'assistant', content: '## Ziel\nMock-Projekt\n\n## Stand\nagent.txt angelegt.' }));
         res.write(chunk({}, 'stop'));
       } else if (answered) {
@@ -72,8 +91,11 @@ http
         const url = /(?:^|\n)\?(\S+)$/.exec(text)?.[1];
         const wanted = /(?:^|\n)!(.+)$/s.exec(text)?.[1];
         const plan = /(?:^|\n)#plan (.+)$/.exec(text)?.[1];
+        const memory = /(?:^|\n)@remember (.+)$/.exec(text)?.[1];
         const steps = plan?.split(';').map((step, index) => ({ text: step.trim(), state: index === 0 ? 'done' : index === 1 ? 'active' : 'pending' }));
-        const [name, input] = steps
+        const [name, input] = memory
+          ? ['remember', { text: memory }]
+          : steps
           ? ['progress', { items: steps }]
           : query
             ? ['web_search', { query }]
