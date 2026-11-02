@@ -105,8 +105,13 @@ const EMBED_BATCH = 32;
  */
 const SHORTER_VECTORS = /^(qwen\/qwen3-embedding|openai\/text-embedding-3)/;
 
-/** Reads a vector sent as JSON numbers or as base64 of little-endian float32. */
-function vectorOf(value: unknown): Float32Array | null {
+/**
+ * Reads a vector sent as JSON numbers or as base64 of little-endian float32.
+ *
+ * @param value - The embedding as the API (or `fileVectors`) has it.
+ * @returns The vector, or null if it is none.
+ */
+export function vectorOf(value: unknown): Float32Array | null {
   if (typeof value === 'string') {
     const bytes = Buffer.from(value, 'base64');
     if (bytes.length === 0 || bytes.length % 4 !== 0) {

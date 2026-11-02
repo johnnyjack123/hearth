@@ -305,6 +305,19 @@ pub(crate) fn ready_harness(
             ),
         }
     }
+    // Files are attached in the web chat; their text lives on the server.
+    if web_chat && models.is_some() {
+        match pi::Extension::Documents.ensure(&prepared.provider, &prepared.project) {
+            Ok(path) => command.extend(["-e".to_owned(), path]),
+            Err(error) => println!(
+                "{}",
+                tr!(
+                    "pi: read_document nicht geladen: {error}",
+                    "pi: read_document not loaded: {error}"
+                )
+            ),
+        }
+    }
     if web_chat && harness.llm == Some(LlmWiring::Pi) {
         match pi::Extension::Progress.ensure(&prepared.provider, &prepared.project) {
             Ok(path) => command.extend(["-e".to_owned(), path]),

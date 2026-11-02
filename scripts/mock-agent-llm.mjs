@@ -4,7 +4,8 @@
 // user message that starts with "!" names the command itself, one that
 // starts with "?" a URL for `web_fetch` instead, "?search <terms>" calls
 // `web_search`, "?read <terms>" searches and then reads the hit on
-// example.org, "@remember <text>" calls `remember`, and "#plan a; b; c"
+// example.org, "@remember <text>" calls `remember`, "%doc <id> <focus>"
+// calls `read_document`, and "#plan a; b; c"
 // calls `progress` with those steps, the
 // first one done and the second active. A request without tools (pi
 // summarizing its history) gets a
@@ -92,9 +93,12 @@ http
         const wanted = /(?:^|\n)!(.+)$/s.exec(text)?.[1];
         const plan = /(?:^|\n)#plan (.+)$/.exec(text)?.[1];
         const memory = /(?:^|\n)@remember (.+)$/.exec(text)?.[1];
+        const document = /(?:^|\n)%doc (\S+) (.+)$/.exec(text);
         const steps = plan?.split(';').map((step, index) => ({ text: step.trim(), state: index === 0 ? 'done' : index === 1 ? 'active' : 'pending' }));
         const [name, input] = memory
           ? ['remember', { text: memory }]
+          : document
+          ? ['read_document', { file: document[1], focus: document[2] }]
           : steps
           ? ['progress', { items: steps }]
           : query

@@ -30,6 +30,10 @@ pub enum Extension {
     /// The tools `remember` and `forget` for the user's memories on the
     /// server, see `pi/memory.ts`. Needs a paired computer.
     Memory,
+    /// The tool `read_document`, a search in the documents attached in the
+    /// web chat, see `pi/documents.ts`. Only for web chats, needs a paired
+    /// computer.
+    Documents,
 }
 
 impl Extension {
@@ -39,6 +43,7 @@ impl Extension {
             Extension::Web => "web",
             Extension::Progress => "progress",
             Extension::Memory => "memory",
+            Extension::Documents => "documents",
         }
     }
 
@@ -49,6 +54,7 @@ impl Extension {
             Extension::Web => include_str!("../pi/web.ts"),
             Extension::Progress => include_str!("../pi/progress.ts"),
             Extension::Memory => include_str!("../pi/memory.ts"),
+            Extension::Documents => include_str!("../pi/documents.ts"),
         }
     }
 
@@ -529,6 +535,11 @@ mod tests {
             Extension::Memory
                 .path()
                 .starts_with("/opt/harness-tools/harness/pi-memory-")
+        );
+        assert!(
+            Extension::Documents
+                .path()
+                .starts_with("/opt/harness-tools/harness/pi-documents-")
         );
     }
 

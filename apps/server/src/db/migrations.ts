@@ -254,6 +254,21 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('memory').execute();
     },
   },
+  '0012_file_vectors': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('fileVectors')
+        .addColumn('fileId', 'text', (col) => col.primaryKey().references('file.id').onDelete('cascade'))
+        .addColumn('model', 'text', (col) => col.notNull())
+        .addColumn('hash', 'text', (col) => col.notNull())
+        .addColumn('vectors', 'text', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('fileVectors').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

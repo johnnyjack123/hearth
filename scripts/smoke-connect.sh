@@ -369,6 +369,10 @@ curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6c.json" "$UR
 check "Datei in ~/uploads der Instanz" grep -q 'Bohnen kaufen' "$WORK/m6c.log"
 check "Hinweis an den Agent mit dem Pfad" grep -q 'saved outside the project' "$WORK/mock-requests.log"
 check "Datei nicht im Projekt" bash -c "! '$PM' exec 'harness-$NAME' test -e /workspace/notiz.txt"
+check "Hinweis nennt read_document" grep -q "search it with read_document, file " "$WORK/mock-requests.log"
+say_in_chat m6h "%doc ${FILE: -8} Was steht auf der Liste?"
+check "Werkzeug read_document in pi geladen" grep -q '"toolName":"read_document"' "$WORK/m6h.log"
+check "Dokument vom Server gelesen" grep -q 'From ' "$WORK/m6h.log"
 
 echo "== Modell, das pi nicht kennt, und abgerechnete Kosten"
 # The mock lists only mock-model; pi learns the other one from models.json.

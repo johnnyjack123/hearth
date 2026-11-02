@@ -490,6 +490,18 @@ export class DeviceHub {
   }
 
   /**
+   * The chats whose replies run on a device. Agents read the documents of
+   * those chats (`_documents`); like searches, their requests carry the
+   * device token and no session.
+   *
+   * @param deviceId - Device id.
+   * @returns Conversation ids.
+   */
+  runningSessions(deviceId: string): string[] {
+    return [...this.#runs].filter(([, active]) => active.deviceId === deviceId).map(([session]) => session);
+  }
+
+  /**
    * Notes the pages a search of a device's research reply found.
    *
    * @param deviceId - Device id.
