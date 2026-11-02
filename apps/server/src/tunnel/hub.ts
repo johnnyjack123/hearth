@@ -26,6 +26,7 @@ import {
 } from '@harness/shared';
 import { HttpError } from '../http/errors.ts';
 import { AgentBills } from '../openrouter.ts';
+import { KnownUrls } from '../websearch/known-urls.ts';
 
 /**
  * The part of a WebSocket the hub needs; `ws` sockets satisfy it, and tests
@@ -214,8 +215,11 @@ interface Connection {
 interface ActiveRun {
   deviceId: string;
   run: AgentRun;
-  /** The user's question while the reply runs in research mode. */
-  research?: { question: string };
+  /**
+   * The user's question while the reply runs in research mode, and the
+   * pages its searches found: those load without asking the user.
+   */
+  research?: { question: string; found: KnownUrls };
 }
 
 /**
@@ -447,7 +451,7 @@ export class DeviceHub {
     const run = this.#start(deviceId, prompt);
     const active = this.#runs.get(prompt.session);
     if (active && research) {
-      active.research = research;
+      active.research = { ...research, found: new KnownUrls() };
     }
     return run;
   }
@@ -483,6 +487,45 @@ export class DeviceHub {
       }
     }
     return null;
+  }
+
+  /**
+   * Notes the pages a search of a device's research reply found.
+   *
+   * @param deviceId - Device id.
+   * @param urls - The hits.
+   */
+  researchFound(deviceId: string, urls: string[]): void {
+    for (const active of this.#runs.values()) {
+      if (active.deviceId === deviceId && active.research) {
+        for (const url of urls) {
+          active.research.found.add(url);
+        }
+      }
+    }
+  }
+
+  /**
+   * Whether a page is a hit of a research reply running on a device. The
+   * gateway asks before it would ask the user: in research mode found pages
+   * load without a question, as in the web chat. Exact URLs only (and their
+   * harmless variants, see {@link KnownUrls}), never whole hosts.
+   *
+   * @param deviceId - Device id.
+   * @param url - The page.
+   * @returns True if a search of such a reply found it.
+   */
+  researchKnows(deviceId: string, url: string): boolean {
+    const parsed = URL.parse(url);
+    if (!parsed) {
+      return false;
+    }
+    for (const active of this.#runs.values()) {
+      if (active.deviceId === deviceId && active.research?.found.has(parsed)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
