@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-01 · Release v0.1.12: VM-Abstürze (Chromium, ARM-VM wächst nicht), richtige Kosten bei DeepSeek und OpenRouter, Modellwahl erreicht pi, günstigster OpenRouter-Anbieter, Denktiefe im neuen Umgebungs-Chat_
+_Last updated: 2026-11-02 · Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
 
 ## Where we are
 
@@ -89,7 +89,8 @@ Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash
    - **Denktiefe:** Im neuen Chat mit Umgebung fehlte der Regler, und die erste Nachricht ging ohne Stufe (pi: Mittel). Jetzt immer sichtbar und mitgeschickt.
    - **Kontext-Füllstand** stimmt (an pis Sitzungsdaten nachgerechnet: DeepSeek behält die Denk-Token im Verlauf); falsch war nur das Fenster im Chat mit dem falschen Modell.
    - Geprüft: Server 218/218, Rust-Tests und clippy, Browser-E2E 16/16 (Bild 37 mit Denktiefe), Smoke-Test 104 grün (unbekanntes Modell lernt pi nach Neustart, Kosten wie abgerechnet), echtes pi nimmt ein zusätzliches Modell beim eingebauten Anbieter `openrouter` an (Wegwerf-Container ohne Netz). Nicht geprüft: echtes OpenRouter mit `provider.order`, der neue VM-Dienst mit größerem Startspeicher beim Nutzer.
-   **Als Nächstes:** Test des Nutzers mit v0.1.12 (neuer VM-Dienst über `harness setup`), dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats). Offen aus dem 1.11.: Speichergrenze für Instanzen, damit ein Prozess im Container nicht die ganze VM in den Swap treibt.
+   ✅ **2.11., Rückmeldung des Nutzers** (Branch `feat/recent-models`, Release v0.1.13): Windows behält beim VM-Start 1 GB statt 512 MB; Flex-Endpunkte (z. B. `deepinfra/fp8/flex`) fallen aus der OpenRouter-Reihenfolge; die Modellauswahl zeigt oben „Zuletzt genutzt“ (fünf Modelle aus den letzten Chats). Richtigstellung: DeepSeek V4.1 Flash liest Bilder (models.dev und OpenRouter), nur V4 Pro nicht. Geprüft: Tests, Browser-E2E 16/16 (Bild 07b).
+   **Als Nächstes:** Test des Nutzers mit v0.1.13 (neuer VM-Dienst über `harness setup`), dann nach seiner Wahl (Gedächtnis, Eindampfen langer Dokumente, OCR, Fortschrittsliste auch für normale Chats). Offen aus dem 1.11.: Speichergrenze für Instanzen, damit ein Prozess im Container nicht die ganze VM in den Swap treibt.
    4. Gateway fertig gebaut ausliefern.
    Danach (Empfehlung an den Nutzer): Gedächtnis und Dateien im Chat.
    Klein: beim Ersetzen eines Instanz- oder Gateway-Containers das alte Image entfernen, wenn es sonst niemand nutzt (CLAUDE.md, „Platz der VM“).
