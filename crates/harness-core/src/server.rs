@@ -19,7 +19,8 @@ use ureq::Agent;
 use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
 use crate::config::ServerConfig;
-use crate::{Error, Result};
+use crate::lang::tr;
+use crate::{Error, Result, tr};
 
 /// Name of the credential store entries ("service" in keyring terms).
 const KEYRING_SERVICE: &str = "llm-harness";
@@ -217,8 +218,9 @@ impl ServerCa {
     /// DER form (what Windows exports as `.cer`).
     pub fn load(path: &Path) -> Result<ServerCa> {
         let invalid = |message: String| {
-            Error::Server(format!(
+            Error::Server(tr!(
                 "CA-Datei {} (server.ca): {message}",
+                "CA file {} (server.ca): {message}",
                 path.display()
             ))
         };
@@ -227,7 +229,13 @@ impl ServerCa {
             .and_then(|file| file.take(MAX_CA_FILE + 1).read_to_end(&mut bytes))
             .map_err(|e| invalid(e.to_string()))?;
         if bytes.len() as u64 > MAX_CA_FILE {
-            return Err(invalid("zu groß für ein Wurzelzertifikat".to_owned()));
+            return Err(invalid(
+                tr(
+                    "zu groß für ein Wurzelzertifikat",
+                    "too large for a root certificate",
+                )
+                .to_owned(),
+            ));
         }
         // One DER structure spanning the whole file is never PEM text.
         let der = vec![bytes];
@@ -235,7 +243,7 @@ impl ServerCa {
             der
         } else {
             let text = String::from_utf8(der.into_iter().next().unwrap_or_default())
-                .map_err(|_| invalid("weder PEM noch DER".to_owned()))?;
+                .map_err(|_| invalid(tr("weder PEM noch DER", "neither PEM nor DER").to_owned()))?;
             pem::certificates(&text).map_err(invalid)?
         };
         Ok(ServerCa {
@@ -375,7 +383,10 @@ impl ServerClient {
         // The id goes into the path; the server makes them, but checked anyway.
         let valid = id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
         if !valid {
-            return Err(Error::Server(format!("unerwartete Datei-ID {id:?}")));
+            return Err(Error::Server(tr!(
+                "unerwartete Datei-ID {id:?}",
+                "unexpected file ID {id:?}"
+            )));
         }
         let suffix = if text { "/text" } else { "" };
         let response = self
@@ -389,7 +400,12 @@ impl ServerClient {
                 .with_config()
                 .limit(MAX_DEVICE_FILE_BYTES)
                 .read_to_vec()
-                .map_err(|e| Error::Server(format!("Datei vom Server unvollständig: {e}"))),
+                .map_err(|e| {
+                    Error::Server(tr!(
+                        "Datei vom Server unvollständig: {e}",
+                        "file from the server incomplete: {e}"
+                    ))
+                }),
             other => self.read::<serde_json::Value>(other).map(|_| Vec::new()),
         }
     }
@@ -411,14 +427,22 @@ impl ServerClient {
         &self,
         response: std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
     ) -> Result<T> {
-        let mut response =
-            response.map_err(|e| Error::Server(format!("{} nicht erreichbar: {e}", self.url)))?;
+        let mut response = response.map_err(|e| {
+            Error::Server(tr!(
+                "{} nicht erreichbar: {e}",
+                "{} unreachable: {e}",
+                self.url
+            ))
+        })?;
         let status = response.status();
         if status.is_success() {
-            return response
-                .body_mut()
-                .read_json::<T>()
-                .map_err(|e| Error::Server(format!("unerwartete Antwort von {}: {e}", self.url)));
+            return response.body_mut().read_json::<T>().map_err(|e| {
+                Error::Server(tr!(
+                    "unerwartete Antwort von {}: {e}",
+                    "unexpected answer from {}: {e}",
+                    self.url
+                ))
+            });
         }
         let detail = response
             .body_mut()
@@ -427,10 +451,18 @@ impl ServerClient {
             .unwrap_or_else(|_| status.to_string());
         Err(if status.as_u16() == 401 {
             Error::Server(
-                "Gerät nicht (mehr) angemeldet. `harness login` koppelt es neu".to_owned(),
+                tr(
+                    "Gerät nicht (mehr) angemeldet. `harness login` koppelt es neu",
+                    "Device not signed in (any more). `harness login` pairs it again",
+                )
+                .to_owned(),
             )
         } else {
-            Error::Server(format!("{} antwortet mit {status}: {detail}", self.url))
+            Error::Server(tr!(
+                "{} antwortet mit {status}: {detail}",
+                "{} answers with {status}: {detail}",
+                self.url
+            ))
         })
     }
 }
@@ -450,8 +482,9 @@ fn normalize_url(url: &str) -> Result<String> {
     if valid {
         Ok(trimmed.to_owned())
     } else {
-        Err(Error::Server(format!(
-            "ungültige Server-Adresse {url:?}, erwartet z. B. http://localhost:8080"
+        Err(Error::Server(tr!(
+            "ungültige Server-Adresse {url:?}, erwartet z. B. http://localhost:8080",
+            "invalid server address {url:?}, expected e.g. http://localhost:8080"
         )))
     }
 }
@@ -485,7 +518,10 @@ fn entry(server_url: &str) -> Result<keyring::Entry> {
 }
 
 fn credential_error(error: keyring::Error) -> Error {
-    Error::Server(format!("Anmeldeinformationsspeicher: {error}"))
+    Error::Server(tr!(
+        "Anmeldeinformationsspeicher: {error}",
+        "Credential Manager: {error}"
+    ))
 }
 
 /// Where a gateway sends `llm.harness` requests for `server_url`.
@@ -516,17 +552,22 @@ pub fn llm_upstream(
     let loopback = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
     let host = match (loopback, host_address) {
         (true, _) if scheme == "https" => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Einen Server auf diesem Rechner erreicht das Gateway nur per http:// \
                  (http://localhost:{}), nicht per https://",
+                "The gateway reaches a server on this computer only by http:// \
+                 (http://localhost:{}), not by https://",
                 port.unwrap_or("8080")
             )));
         }
         (true, Some(address)) => address,
         (true, None) => {
             return Err(Error::Unsupported(
-                "Der Server läuft auf diesem Rechner, aber der Provider kennt keine Host-Adresse"
-                    .to_owned(),
+                tr(
+                    "Der Server läuft auf diesem Rechner, aber der Provider kennt keine Host-Adresse",
+                    "The server runs on this computer, but the provider does not know a host address",
+                )
+                .to_owned(),
             ));
         }
         (false, _) => host,

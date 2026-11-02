@@ -9,6 +9,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::MANAGED_LABEL;
+use crate::lang::tr;
 use crate::provider::{
     ContainerSpec, ExecSpec, GatewaySpec, ImageBuild, Labels, MountSource, NetworkSpec, VolumeSpec,
     validate_container_path, validate_env_key, validate_image_ref, validate_label, validate_memory,
@@ -25,7 +26,7 @@ pub(crate) const AGENT_ID: &str = "1000";
 pub(crate) const STOP_TIMEOUT: &str = "10";
 
 pub(crate) fn volume_create(spec: &VolumeSpec) -> Result<Vec<String>> {
-    validate_resource_name("Volume", &spec.name)?;
+    validate_resource_name(tr("Volume", "volume"), &spec.name)?;
     let mut args = vec!["volume".to_owned(), "create".to_owned()];
     push_labels(&mut args, &spec.labels)?;
     args.push(spec.name.clone());
@@ -33,7 +34,7 @@ pub(crate) fn volume_create(spec: &VolumeSpec) -> Result<Vec<String>> {
 }
 
 pub(crate) fn network_create(spec: &NetworkSpec) -> Result<Vec<String>> {
-    validate_resource_name("Netz", &spec.name)?;
+    validate_resource_name(tr("Netz", "network"), &spec.name)?;
     let mut args = vec!["network".to_owned(), "create".to_owned()];
     if spec.internal {
         args.push("--internal".to_owned());
@@ -45,8 +46,8 @@ pub(crate) fn network_create(spec: &NetworkSpec) -> Result<Vec<String>> {
 
 /// `podman create` for an instance. The hardening block is unconditional.
 pub(crate) fn container_create(spec: &ContainerSpec) -> Result<Vec<String>> {
-    validate_resource_name("Containername", &spec.name)?;
-    validate_resource_name("Netz", &spec.network)?;
+    validate_resource_name(tr("Containername", "container name"), &spec.name)?;
+    validate_resource_name(tr("Netz", "network"), &spec.network)?;
     validate_image_ref(&spec.image)?;
 
     let mut args: Vec<String> = ["create", "--name", &spec.name, "--hostname", &spec.name]
@@ -84,22 +85,22 @@ pub(crate) fn container_create(spec: &ContainerSpec) -> Result<Vec<String>> {
     if let Some(cpus) = spec.resources.cpus {
         if !(cpus.is_finite() && cpus > 0.0) {
             return Err(Error::invalid(
-                "CPU-Limit",
+                tr("CPU-Limit", "CPU limit"),
                 &cpus.to_string(),
-                "muss größer als 0 sein",
+                tr("muss größer als 0 sein", "must be greater than 0"),
             ));
         }
         args.extend(["--cpus".to_owned(), cpus.to_string()]);
     }
     if let Some(workdir) = &spec.workdir {
-        validate_container_path("Arbeitsverzeichnis", workdir)?;
+        validate_container_path(tr("Arbeitsverzeichnis", "working directory"), workdir)?;
         args.extend(["--workdir".to_owned(), workdir.clone()]);
     }
     for mount in &spec.mounts {
-        validate_container_path("Mount-Ziel", &mount.target)?;
+        validate_container_path(tr("Mount-Ziel", "mount target"), &mount.target)?;
         let source = match &mount.source {
             MountSource::Volume(name) => {
-                validate_resource_name("Volume", name)?;
+                validate_resource_name(tr("Volume", "volume"), name)?;
                 format!("type=volume,source={name}")
             }
         };
@@ -128,16 +129,19 @@ const GATEWAY_MEMORY: &str = "128m";
 /// `podman create` for a project's gateway. Like [`container_create`], the
 /// hardening is unconditional; there are no mounts at all.
 pub(crate) fn gateway_create(spec: &GatewaySpec) -> Result<Vec<String>> {
-    validate_resource_name("Containername", &spec.name)?;
-    validate_resource_name("Netz", &spec.internal_network)?;
-    validate_resource_name("Netz", &spec.egress_network)?;
-    validate_resource_name("Netzwerk-Alias", &spec.alias)?;
+    validate_resource_name(tr("Containername", "container name"), &spec.name)?;
+    validate_resource_name(tr("Netz", "network"), &spec.internal_network)?;
+    validate_resource_name(tr("Netz", "network"), &spec.egress_network)?;
+    validate_resource_name(tr("Netzwerk-Alias", "network alias"), &spec.alias)?;
     validate_image_ref(&spec.image)?;
     if spec.internal_network == spec.egress_network {
         return Err(Error::invalid(
-            "Netz",
+            tr("Netz", "network"),
             &spec.egress_network,
-            "internes und äußeres Netz müssen verschieden sein",
+            tr(
+                "internes und äußeres Netz müssen verschieden sein",
+                "internal and outer network must differ",
+            ),
         ));
     }
 
@@ -177,9 +181,13 @@ pub(crate) fn gateway_create(spec: &GatewaySpec) -> Result<Vec<String>> {
 }
 
 pub(crate) fn exec(spec: &ExecSpec) -> Result<Vec<String>> {
-    validate_resource_name("Containername", &spec.container)?;
+    validate_resource_name(tr("Containername", "container name"), &spec.container)?;
     if spec.command.is_empty() {
-        return Err(Error::invalid("Befehl", "", "darf nicht leer sein"));
+        return Err(Error::invalid(
+            tr("Befehl", "command"),
+            "",
+            tr("darf nicht leer sein", "must not be empty"),
+        ));
     }
     let mut args = vec!["exec".to_owned()];
     if spec.interactive {
@@ -189,7 +197,7 @@ pub(crate) fn exec(spec: &ExecSpec) -> Result<Vec<String>> {
         args.push("--tty".to_owned());
     }
     if let Some(workdir) = &spec.workdir {
-        validate_container_path("Arbeitsverzeichnis", workdir)?;
+        validate_container_path(tr("Arbeitsverzeichnis", "working directory"), workdir)?;
         args.extend(["--workdir".to_owned(), workdir.clone()]);
     }
     push_env(&mut args, &spec.env)?;
@@ -203,13 +211,16 @@ pub(crate) fn exec(spec: &ExecSpec) -> Result<Vec<String>> {
 /// `podman cp` of a host file into a container. The container path is
 /// resolved inside the container's root, so it cannot point at the VM.
 pub(crate) fn copy_into(container: &str, host_file: &Path, path: &str) -> Result<Vec<OsString>> {
-    validate_resource_name("Containername", container)?;
-    validate_container_path("Zielpfad", path)?;
+    validate_resource_name(tr("Containername", "container name"), container)?;
+    validate_container_path(tr("Zielpfad", "target path"), path)?;
     if path.contains(':') {
         return Err(Error::invalid(
-            "Zielpfad",
+            tr("Zielpfad", "target path"),
             path,
-            "darf keinen Doppelpunkt enthalten",
+            tr(
+                "darf keinen Doppelpunkt enthalten",
+                "must not contain a colon",
+            ),
         ));
     }
     Ok(vec![
@@ -223,7 +234,7 @@ pub(crate) fn copy_into(container: &str, host_file: &Path, path: &str) -> Result
 /// symlinks and other file types, and pins PATH because the agent owns
 /// `~/.local/bin`.
 pub(crate) fn copy_out(container: &str, path: &str) -> Result<Vec<String>> {
-    validate_container_path("Quellpfad", path)?;
+    validate_container_path(tr("Quellpfad", "source path"), path)?;
     let script = r#"export PATH=/usr/bin:/bin
 [ -f "$1" ] && [ ! -L "$1" ] || { echo "keine reguläre Datei: $1" >&2; exit 3; }
 exec cat -- "$1""#;
@@ -250,9 +261,9 @@ pub(crate) fn build(spec: &ImageBuild) -> Result<Vec<OsString>> {
         validate_env_key(key)?;
         if value.chars().any(char::is_control) {
             return Err(Error::invalid(
-                "Build-Argument",
+                tr("Build-Argument", "build argument"),
                 value,
-                "enthält Steuerzeichen",
+                tr("enthält Steuerzeichen", "contains control characters"),
             ));
         }
         args.push("--build-arg".into());
@@ -289,9 +300,12 @@ fn push_env(
         validate_env_key(key)?;
         if value.contains('\0') {
             return Err(Error::invalid(
-                "Umgebungsvariable",
+                tr("Umgebungsvariable", "environment variable"),
                 key,
-                "Wert enthält ein NUL-Zeichen",
+                tr(
+                    "Wert enthält ein NUL-Zeichen",
+                    "value contains a NUL character",
+                ),
             ));
         }
         args.extend(["--env".to_owned(), format!("{key}={value}")]);

@@ -19,9 +19,10 @@ mod host;
 pub use bundle::BundleHeader;
 pub use host::{HostRepo, ImportOutcome, Incoming, IncomingFile, MergeOutcome, find_git};
 
+use crate::lang::tr;
 use crate::project::ProjectName;
 use crate::provider::{ExecSpec, Provider};
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 /// The agent's clone inside the container.
 pub const WORKSPACE: &str = "/workspace";
@@ -364,7 +365,11 @@ pub fn pull_from_workspace(
         }
     }
     Err(Error::Sync(
-        "Auch das vollständige Bundle des Containers passt nicht zum Host-Repository".to_owned(),
+        tr(
+            "Auch das vollständige Bundle des Containers passt nicht zum Host-Repository",
+            "Even the container's full bundle does not fit the host repository",
+        )
+        .to_owned(),
     ))
 }
 
@@ -372,7 +377,12 @@ fn temp_dir() -> Result<tempfile::TempDir> {
     tempfile::Builder::new()
         .prefix("harness-sync-")
         .tempdir()
-        .map_err(|e| Error::io("Temporären Ordner anlegen".to_owned(), e))
+        .map_err(|e| {
+            Error::io(
+                tr("Temporären Ordner anlegen", "creating a temporary folder"),
+                e,
+            )
+        })
 }
 
 fn run_script(
@@ -401,8 +411,9 @@ fn run_script(
         ..ExecSpec::default()
     })?;
     if output.code != 0 {
-        return Err(Error::Sync(format!(
+        return Err(Error::Sync(tr!(
             "Git im Container ist fehlgeschlagen (Exit-Code {}): {}",
+            "Git in the container failed (exit code {}): {}",
             output.code,
             sanitize(output.stderr.trim())
         )));
@@ -420,8 +431,9 @@ fn value<'a>(output: &'a str, key: &str) -> Option<&'a str> {
 }
 
 fn unexpected_output(output: &str) -> Error {
-    Error::Sync(format!(
+    Error::Sync(tr!(
         "Unerwartete Ausgabe aus dem Container: {}",
+        "Unexpected output from the container: {}",
         sanitize(output.trim())
     ))
 }

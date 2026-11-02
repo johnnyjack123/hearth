@@ -11,9 +11,10 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value, json};
 
 use crate::gateway::LLM_HOST;
+use crate::lang::tr;
 use crate::provider::{ExecOutput, ExecSpec, Provider};
 use crate::server::DeviceCredential;
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 /// An extension harness loads into pi with `-e`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,15 +253,18 @@ pub fn models_json(credentials: &[DeviceCredential], extra: &[ExtraModel]) -> Pi
         let openai_style = matches!(credential.kind.as_str(), "ollama" | "openai-compatible");
         let models = credential.models.as_deref().unwrap_or_default();
         if !openai_style {
-            skipped.push(format!(
+            skipped.push(tr!(
                 "„{}“ ({}): wird für pi noch nicht über den Server angebunden",
-                credential.label, credential.kind
+                "“{}” ({}): not yet connected for pi through the server",
+                credential.label,
+                credential.kind
             ));
             continue;
         }
         if models.is_empty() {
-            skipped.push(format!(
+            skipped.push(tr!(
                 "„{}“: der Server konnte keine Modelle abfragen",
+                "“{}”: the server could not fetch any models",
                 credential.label
             ));
             continue;
@@ -385,8 +389,9 @@ fn run_script(
 }
 
 fn failed(action: &str, output: &ExecOutput) -> Error {
-    Error::Unsupported(format!(
+    Error::Unsupported(tr!(
         "{MODELS_FILE} {action} fehlgeschlagen: {}",
+        "{action} {MODELS_FILE} failed: {}",
         crate::sync::sanitize(output.stderr.trim())
     ))
 }
@@ -407,7 +412,7 @@ pub fn read_models(provider: &dyn Provider, container: &str) -> Result<Existing>
             _ => Existing::Invalid,
         },
         3 => Existing::Missing,
-        _ => return Err(failed("lesen", &output)),
+        _ => return Err(failed(tr("lesen", "reading"), &output)),
     })
 }
 
@@ -433,7 +438,7 @@ mv -f "$1.partial" "$1""#;
     if output.code == 0 {
         Ok(())
     } else {
-        Err(failed("schreiben", &output))
+        Err(failed(tr("schreiben", "writing"), &output))
     }
 }
 
@@ -468,7 +473,7 @@ pub fn unwire(provider: &dyn Provider, container: &str) -> Result<bool> {
             if output.code == 0 {
                 Ok(true)
             } else {
-                Err(failed("löschen", &output))
+                Err(failed(tr("löschen", "deleting"), &output))
             }
         }
     }

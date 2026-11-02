@@ -4,6 +4,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::lang::tr;
 use crate::{Error, Result};
 
 /// Validated project name: `[a-z0-9]` followed by `[a-z0-9-]`, at most
@@ -21,22 +22,27 @@ impl ProjectName {
 
     /// Validates a name.
     pub fn new(name: &str) -> Result<Self> {
-        let invalid = |reason| Error::invalid("Projektname", name, reason);
+        let invalid = |reason| Error::invalid(tr("Projektname", "project name"), name, reason);
         if name.is_empty() || name.len() > Self::MAX_LEN {
-            return Err(invalid("muss 1 bis 40 Zeichen lang sein"));
+            return Err(invalid(tr(
+                "muss 1 bis 40 Zeichen lang sein",
+                "must be 1 to 40 characters long",
+            )));
         }
         if !name.starts_with(|c: char| c.is_ascii_lowercase() || c.is_ascii_digit()) {
-            return Err(invalid(
+            return Err(invalid(tr(
                 "muss mit einem Kleinbuchstaben oder einer Ziffer beginnen",
-            ));
+                "must start with a lowercase letter or a digit",
+            )));
         }
         if !name
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         {
-            return Err(invalid(
+            return Err(invalid(tr(
                 "darf nur Kleinbuchstaben, Ziffern und '-' enthalten",
-            ));
+                "may only contain lowercase letters, digits and '-'",
+            )));
         }
         Ok(ProjectName(name.to_owned()))
     }

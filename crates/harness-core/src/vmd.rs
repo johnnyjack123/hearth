@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, Result};
+use crate::lang::tr;
+use crate::{Error, Result, tr};
 
 /// Name of the Windows service.
 pub const SERVICE_NAME: &str = "llm-harness-vmd";
@@ -50,7 +51,8 @@ pub enum Request {
 }
 
 /// The service's message for a line it cannot read, e.g. a request newer
-/// than the service.
+/// than the service. Always German: the CLI recognizes services before
+/// 0.1.5 by exactly this text.
 pub const UNKNOWN_REQUEST: &str = "unverständliche Anfrage";
 
 /// State of the machine as the service sees it.
@@ -74,7 +76,8 @@ pub struct Response {
     pub ok: bool,
     /// State after the request.
     pub state: VmState,
-    /// What happened, or why it failed (German, shown to the user).
+    /// What happened, or why it failed (in the service's language, shown to
+    /// the user).
     #[serde(default)]
     pub message: String,
 }
@@ -128,18 +131,23 @@ pub fn ssh_answers(port: u16, timeout: Duration) -> bool {
 pub fn request(request: Request) -> Result<Response> {
     let mut pipe = open_pipe()?;
     let mut line = serde_json::to_string(&request)
-        .map_err(|e| Error::Vmd(format!("Anfrage kodieren: {e}")))?;
+        .map_err(|e| Error::Vmd(tr!("Anfrage kodieren: {e}", "encoding the request: {e}")))?;
     line.push('\n');
     pipe.write_all(line.as_bytes())
         .and_then(|()| pipe.flush())
-        .map_err(|e| Error::Vmd(format!("Anfrage senden: {e}")))?;
+        .map_err(|e| Error::Vmd(tr!("Anfrage senden: {e}", "sending the request: {e}")))?;
     let mut answer = String::new();
     BufReader::new(pipe)
         .take(64 * 1024)
         .read_line(&mut answer)
-        .map_err(|e| Error::Vmd(format!("Antwort lesen: {e}")))?;
-    serde_json::from_str(answer.trim())
-        .map_err(|e| Error::Vmd(format!("unverständliche Antwort ({e}): {}", answer.trim())))
+        .map_err(|e| Error::Vmd(tr!("Antwort lesen: {e}", "reading the answer: {e}")))?;
+    serde_json::from_str(answer.trim()).map_err(|e| {
+        Error::Vmd(tr!(
+            "unverständliche Antwort ({e}): {}",
+            "answer not understood ({e}): {}",
+            answer.trim()
+        ))
+    })
 }
 
 /// Whether the service is installed and listening.
@@ -164,10 +172,19 @@ fn open_pipe() -> Result<std::fs::File> {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Err(Error::Vmd(
-                    "nicht installiert (einmalig: harness vmd install)".to_owned(),
+                    tr(
+                        "nicht installiert (einmalig: harness vmd install)",
+                        "not installed (once: harness vmd install)",
+                    )
+                    .to_owned(),
                 ));
             }
-            Err(e) => return Err(Error::Vmd(format!("keine Verbindung: {e}"))),
+            Err(e) => {
+                return Err(Error::Vmd(tr!(
+                    "keine Verbindung: {e}",
+                    "no connection: {e}"
+                )));
+            }
         }
     }
 }
@@ -208,7 +225,10 @@ pub fn current_user_sid() -> Result<String> {
     let mut token: HANDLE = std::ptr::null_mut();
     // SAFETY: pseudo handle of this process and a valid out pointer.
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
-        return Err(failed("Prozess-Token öffnen"));
+        return Err(failed(tr(
+            "Prozess-Token öffnen",
+            "opening the process token",
+        )));
     }
     let mut buffer = vec![0u64; 64];
     let mut needed = 0u32;
@@ -225,14 +245,17 @@ pub fn current_user_sid() -> Result<String> {
     // SAFETY: opened above.
     unsafe { CloseHandle(token) };
     if ok == 0 {
-        return Err(failed("Nutzer des Tokens lesen"));
+        return Err(failed(tr(
+            "Nutzer des Tokens lesen",
+            "reading the token's user",
+        )));
     }
     // SAFETY: GetTokenInformation filled a TOKEN_USER at the buffer's start.
     let sid = unsafe { (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid };
     let mut text: windows_sys::core::PWSTR = std::ptr::null_mut();
     // SAFETY: valid SID; the string is allocated by Windows.
     if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
-        return Err(failed("SID umwandeln"));
+        return Err(failed(tr("SID umwandeln", "converting the SID")));
     }
     // SAFETY: NUL-terminated string from ConvertSidToStringSidW.
     let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();

@@ -13,7 +13,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::{Error, Result, paths};
+use crate::lang::tr;
+use crate::{Error, Result, paths, tr};
 
 /// Longest label read from a marker; it is only shown in the log.
 const MAX_LABEL: usize = 100;
@@ -27,8 +28,9 @@ pub fn dir(machine: &str) -> Result<PathBuf> {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
         && !machine.starts_with('.');
     if !valid {
-        return Err(Error::Unsupported(format!(
-            "Ungültiger Machine-Name für Belegt-Marker: {machine:?}"
+        return Err(Error::Unsupported(tr!(
+            "Ungültiger Machine-Name für Belegt-Marker: {machine:?}",
+            "Invalid machine name for an in-use marker: {machine:?}"
         )));
     }
     Ok(paths::local_data_dir()?.join("busy").join(machine))
@@ -51,7 +53,8 @@ impl Marker {
 
     /// [`Marker::acquire`] in an explicit directory (tests).
     pub fn acquire_in(dir: &Path, label: &str) -> Result<Marker> {
-        fs::create_dir_all(dir).map_err(|e| Error::io("Belegt-Ordner anlegen", e))?;
+        fs::create_dir_all(dir)
+            .map_err(|e| Error::io(tr("Belegt-Ordner anlegen", "Creating the in-use folder"), e))?;
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -67,7 +70,7 @@ impl Marker {
         }
         let mut file = options
             .open(&path)
-            .map_err(|e| Error::io("Belegt-Marker anlegen", e))?;
+            .map_err(|e| Error::io(tr("Belegt-Marker anlegen", "Creating the in-use marker"), e))?;
         let _ = file.write_all(label.as_bytes());
         let _ = file.flush();
         Ok(Marker {

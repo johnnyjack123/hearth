@@ -28,10 +28,11 @@ pub use model::{
 use model::{Validate, validate_app_name, validate_harness_name};
 pub use template::{AppKind, AppTemplate, MAX_PACKAGE_LEN, MAX_PACKAGES, MAX_SCRIPT};
 
+use crate::lang::tr;
 use crate::paths::{canonical, home_dir, is_within, same_path};
 use crate::project::ProjectName;
 use crate::provider::Resources;
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 const CONFIG_TEMPLATE: &str = include_str!("../../defaults/config.toml");
 const PROJECT_TEMPLATE: &str = include_str!("../../defaults/project.toml");
@@ -189,9 +190,13 @@ impl ConfigDir {
     /// Replaces the copy of the account's app templates.
     pub fn save_templates(&self, templates: &[AppTemplate]) -> Result<()> {
         fs::create_dir_all(&self.root)
-            .map_err(|e| Error::io(format!("{} anlegen", self.root.display()), e))?;
-        let text = serde_json::to_string_pretty(templates)
-            .map_err(|e| Error::Unsupported(format!("Vorlagen nicht speicherbar: {e}")))?;
+            .map_err(|e| Error::io(tr!("{} anlegen", "Creating {}", self.root.display()), e))?;
+        let text = serde_json::to_string_pretty(templates).map_err(|e| {
+            Error::Unsupported(tr!(
+                "Vorlagen nicht speicherbar: {e}",
+                "Templates cannot be saved: {e}"
+            ))
+        })?;
         write_atomic(&self.templates_file(), &text, true)
     }
 
@@ -200,7 +205,7 @@ impl ConfigDir {
     pub fn init(&self) -> Result<Vec<PathBuf>> {
         for dir in [self.projects_dir(), self.harnesses_dir()] {
             fs::create_dir_all(&dir)
-                .map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
+                .map_err(|e| Error::io(tr!("{} anlegen", "Creating {}", dir.display()), e))?;
         }
         let mut written = Vec::new();
         let file = self.config_file();
@@ -225,12 +230,12 @@ impl ConfigDir {
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(Error::io(format!("{} lesen", dir.display()), e)),
+            Err(e) => return Err(Error::io(tr!("{} lesen", "Reading {}", dir.display()), e)),
         };
         let mut names = Vec::new();
         for entry in entries {
             let path = entry
-                .map_err(|e| Error::io(format!("{} lesen", dir.display()), e))?
+                .map_err(|e| Error::io(tr!("{} lesen", "Reading {}", dir.display()), e))?
                 .path();
             if path.extension().is_none_or(|ext| ext != "toml") {
                 continue;
@@ -241,7 +246,10 @@ impl ConfigDir {
                 .unwrap_or_default();
             let name = ProjectName::new(&stem).map_err(|e| Error::ConfigInvalid {
                 path: path.clone(),
-                message: format!("Dateiname ist kein gültiger Projektname: {e}"),
+                message: tr!(
+                    "Dateiname ist kein gültiger Projektname: {e}",
+                    "File name is not a valid project name: {e}"
+                ),
             })?;
             names.push(name);
         }
@@ -284,8 +292,9 @@ impl ConfigDir {
                 continue;
             }
             if let Some(first) = &found {
-                return Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(tr!(
                     "{} gehört zu zwei Projekten: {} und {}",
+                    "{} belongs to two projects: {} and {}",
                     repo_root.display(),
                     first.name,
                     name
@@ -316,15 +325,17 @@ impl ConfigDir {
     ) -> Result<Project> {
         let path = canonical(repo_root)?;
         if !path.join(".git").exists() {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "{} ist kein Git-Repository (kein .git gefunden)",
+                "{} is not a Git repository (no .git found)",
                 path.display()
             )));
         }
         self.check_separate_from(&path)?;
         if let Some(existing) = self.find_project(&path)? {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "{} ist bereits Projekt {}",
+                "{} is project {} already",
                 path.display(),
                 existing.name
             )));
@@ -332,8 +343,9 @@ impl ConfigDir {
         let global = self.global()?;
         let name = match name {
             Some(name) if self.project_file(name).exists() => {
-                return Err(Error::Unsupported(format!(
-                    "Ein Projekt {name} gibt es schon; bitte einen anderen Namen wählen"
+                return Err(Error::Unsupported(tr!(
+                    "Ein Projekt {name} gibt es schon; bitte einen anderen Namen wählen",
+                    "A project {name} exists already; please choose another name"
                 )));
             }
             Some(name) => name.clone(),
@@ -343,7 +355,10 @@ impl ConfigDir {
                     .chain((2..100).map(|n| base.with_suffix(n)))
                     .find(|name| !self.project_file(name).exists())
                     .ok_or_else(|| {
-                        Error::Unsupported(format!("Kein freier Projektname für {base} gefunden"))
+                        Error::Unsupported(tr!(
+                            "Kein freier Projektname für {base} gefunden",
+                            "No free project name found for {base}"
+                        ))
                     })?
             }
         };
@@ -356,8 +371,12 @@ impl ConfigDir {
         doc["network"]["preset"] = toml_edit::value(global.defaults.network.as_str());
         let file = self.project_file(&name);
         let config: ProjectConfig = parse(&file, &doc.to_string())?;
-        fs::create_dir_all(self.projects_dir())
-            .map_err(|e| Error::io(format!("{} anlegen", self.projects_dir().display()), e))?;
+        fs::create_dir_all(self.projects_dir()).map_err(|e| {
+            Error::io(
+                tr!("{} anlegen", "Creating {}", self.projects_dir().display()),
+                e,
+            )
+        })?;
         write_atomic(&file, &doc.to_string(), false)?;
         self.resolve(&name, config, &global)
     }
@@ -368,7 +387,8 @@ impl ConfigDir {
         if !file.exists() {
             return Err(Error::ProjectUnknown(name.to_string()));
         }
-        fs::remove_file(&file).map_err(|e| Error::io(format!("{} löschen", file.display()), e))
+        fs::remove_file(&file)
+            .map_err(|e| Error::io(tr!("{} löschen", "Deleting {}", file.display()), e))
     }
 
     /// Changes a project file in place, keeping comments and formatting. The
@@ -454,9 +474,12 @@ impl ConfigDir {
     pub fn remember_remote_chat(&self, name: &ProjectName, chat: &str) -> Result<()> {
         if !valid_chat_id(chat) {
             return Err(Error::invalid(
-                "Chat-ID",
+                tr("Chat-ID", "chat ID"),
                 chat,
-                "nur Buchstaben, Ziffern und '-'",
+                tr(
+                    "nur Buchstaben, Ziffern und '-'",
+                    "only letters, digits and '-'",
+                ),
             ));
         }
         if self
@@ -476,7 +499,8 @@ impl ConfigDir {
             }
             let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
                 path: file.clone(),
-                message: "remote.chats ist keine Liste".to_owned(),
+                message: tr("remote.chats ist keine Liste", "remote.chats is not a list")
+                    .to_owned(),
             })?;
             array.push(chat);
             Ok(())
@@ -510,7 +534,10 @@ impl ConfigDir {
             }
             let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
                 path: file.clone(),
-                message: format!("network.{key} ist keine Liste"),
+                message: tr!(
+                    "network.{key} ist keine Liste",
+                    "network.{key} is not a list"
+                ),
             })?;
             array.push(pattern.to_string());
             Ok(())
@@ -537,8 +564,9 @@ impl ConfigDir {
         if harness.name != name {
             return Err(Error::ConfigInvalid {
                 path: file,
-                message: format!(
+                message: tr!(
                     "name = {:?} passt nicht zum Dateinamen {name}.toml",
+                    "name = {:?} does not match the file name {name}.toml",
                     harness.name
                 ),
             });
@@ -567,7 +595,7 @@ impl ConfigDir {
                         .ok_or_else(|| Error::AppUnknown(name.to_owned()))?;
                     return template.to_app().map_err(|message| Error::ConfigInvalid {
                         path: self.templates_file(),
-                        message: format!("Vorlage {name}: {message}"),
+                        message: tr!("Vorlage {name}: {message}", "Template {name}: {message}"),
                     });
                 }
             },
@@ -580,8 +608,9 @@ impl ConfigDir {
         if app.name != name {
             return Err(Error::ConfigInvalid {
                 path: file,
-                message: format!(
+                message: tr!(
                     "name = {:?} passt nicht zum Dateinamen {name}.toml",
+                    "name = {:?} does not match the file name {name}.toml",
                     app.name
                 ),
             });
@@ -610,7 +639,7 @@ impl ConfigDir {
             Ok(entries) => {
                 for entry in entries {
                     let path = entry
-                        .map_err(|e| Error::io(format!("{} lesen", dir.display()), e))?
+                        .map_err(|e| Error::io(tr!("{} lesen", "Reading {}", dir.display()), e))?
                         .path();
                     if path.extension().is_some_and(|ext| ext == "toml")
                         && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
@@ -621,7 +650,7 @@ impl ConfigDir {
                 }
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::io(format!("{} lesen", dir.display()), e)),
+            Err(e) => return Err(Error::io(tr!("{} lesen", "Reading {}", dir.display()), e)),
         }
         own.sort();
         names.extend(own);
@@ -662,8 +691,9 @@ impl ConfigDir {
             return Ok(());
         }
         if chain.iter().any(|link| link == name) {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Apps verlangen sich gegenseitig: {} → {name}",
+                "Apps require each other: {} → {name}",
                 chain.join(" → ")
             )));
         }
@@ -698,7 +728,8 @@ impl ConfigDir {
             }
             let array = item.as_array_mut().ok_or_else(|| Error::ConfigInvalid {
                 path: file.clone(),
-                message: "apps.enabled ist keine Liste".to_owned(),
+                message: tr("apps.enabled ist keine Liste", "apps.enabled is not a list")
+                    .to_owned(),
             })?;
             array.retain(|value| !off.iter().any(|app| value.as_str() == Some(app)));
             for app in on {
@@ -713,9 +744,11 @@ impl ConfigDir {
     /// Refuses a project that contains this folder or lies inside it.
     fn check_separate_from(&self, project_path: &Path) -> Result<()> {
         if is_within(&self.root, project_path) || is_within(project_path, &self.root) {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "{} überschneidet sich mit dem Konfigurationsordner {}. Ein Agent könnte sonst \
                  über seine Commits die eigenen Regeln ändern",
+                "{} overlaps with the configuration folder {}. An agent could otherwise change \
+                 its own rules through its commits",
                 project_path.display(),
                 self.root.display()
             )));
@@ -768,7 +801,7 @@ fn read_optional(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::io(format!("{} lesen", path.display()), e)),
+        Err(e) => Err(Error::io(tr!("{} lesen", "Reading {}", path.display()), e)),
     }
 }
 
@@ -787,8 +820,9 @@ fn parse<T: DeserializeOwned + Validate>(path: &Path, text: &str) -> Result<T> {
 /// two processes create the same project).
 fn write_atomic(path: &Path, text: &str, replace: bool) -> Result<()> {
     if !replace && path.exists() {
-        return Err(Error::Unsupported(format!(
+        return Err(Error::Unsupported(tr!(
             "{} existiert bereits",
+            "{} exists already",
             path.display()
         )));
     }
@@ -796,12 +830,16 @@ fn write_atomic(path: &Path, text: &str, replace: bool) -> Result<()> {
     partial.push(".partial");
     let partial = PathBuf::from(partial);
     fs::write(&partial, text)
-        .map_err(|e| Error::io(format!("{} schreiben", partial.display()), e))?;
-    fs::rename(&partial, path).map_err(|e| Error::io(format!("{} schreiben", path.display()), e))
+        .map_err(|e| Error::io(tr!("{} schreiben", "Writing {}", partial.display()), e))?;
+    fs::rename(&partial, path)
+        .map_err(|e| Error::io(tr!("{} schreiben", "Writing {}", path.display()), e))
 }
 
 fn template_error(name: &str, error: toml_edit::TomlError) -> Error {
-    Error::Unsupported(format!("Eingebaute Vorlage {name} ist ungültig: {error}"))
+    Error::Unsupported(tr!(
+        "Eingebaute Vorlage {name} ist ungültig: {error}",
+        "Built-in template {name} is invalid: {error}"
+    ))
 }
 
 #[cfg(test)]

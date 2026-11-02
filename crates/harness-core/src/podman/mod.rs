@@ -24,13 +24,14 @@ use serde::Deserialize;
 
 pub use machine::{DEFAULT_MACHINE, MachineConfig, MachineMount};
 
+use crate::lang::tr;
 use crate::paths::{find_on_path, local_data_dir};
 use crate::provider::{
     ContainerInfo, ContainerSpec, ContainerStatus, ExecOutput, ExecSpec, GatewaySpec, HostInfo,
     ImageBuild, ImageInfo, Labels, NetworkSpec, Provider, VolumeInfo, VolumeSpec,
     validate_image_ref, validate_resource_name,
 };
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 const SSH_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -65,10 +66,11 @@ impl PodmanProvider {
     /// re-initialised machine gets a new port and therefore a fresh
     /// `known_hosts` instead of a host key mismatch.
     pub fn new(machine: MachineConfig, podman: PathBuf, state_dir: &Path) -> Result<Self> {
-        validate_resource_name("Machine-Name", &machine.name)?;
+        validate_resource_name(tr("Machine-Name", "machine name"), &machine.name)?;
         if machine.rootful {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Machine {} läuft rootful. Die Harness braucht rootless Podman",
+                "Machine {} runs rootful. The harness needs rootless Podman",
                 machine.name
             )));
         }
@@ -133,25 +135,26 @@ impl PodmanProvider {
         if keys.is_empty() {
             return Err(Error::UnexpectedOutput {
                 action: format!("{} (ssh-keyscan)", keyscan.display()),
-                detail: "kein Host-Key erhalten".to_owned(),
+                detail: tr("kein Host-Key erhalten", "no host key received").to_owned(),
             });
         }
         let dir = file.parent().unwrap_or(&self.home);
-        fs::create_dir_all(dir).map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
+        fs::create_dir_all(dir).map_err(|e| Error::io(creating(dir), e))?;
         // Write-then-rename so a concurrent harness process never sees a
         // half-written file.
         let partial = file.with_extension("partial");
-        fs::write(&partial, keys)
-            .map_err(|e| Error::io(format!("{} schreiben", partial.display()), e))?;
-        fs::rename(&partial, &file)
-            .map_err(|e| Error::io(format!("{} schreiben", file.display()), e))
+        fs::write(&partial, keys).map_err(|e| Error::io(writing(&partial), e))?;
+        fs::rename(&partial, &file).map_err(|e| Error::io(writing(&file), e))
     }
 
     /// TRIM inside the VM (`sudo fstrim -av` as the machine's user): tells
     /// the disk which blocks deleted files left free, so the VM service can
     /// shrink the disk file afterwards.
     pub fn trim(&self) -> Result<String> {
-        self.vm_shell("sudo fstrim -av", "fstrim in der VM")
+        self.vm_shell(
+            "sudo fstrim -av",
+            tr("fstrim in der VM", "fstrim in the VM"),
+        )
     }
 
     /// Compressed swap in RAM (zram) for the VM, set up once and kept by
@@ -163,7 +166,10 @@ impl PodmanProvider {
     /// brings zram-generator, only its configuration is missing. Returns
     /// whether it set the swap up now.
     pub fn ensure_swap(&self) -> Result<bool> {
-        let output = self.vm_shell(SWAP_SCRIPT, "Swap in der VM einrichten")?;
+        let output = self.vm_shell(
+            SWAP_SCRIPT,
+            tr("Swap in der VM einrichten", "setting up swap in the VM"),
+        )?;
         Ok(output.lines().any(|line| line == "swap=new"))
     }
 
@@ -176,8 +182,7 @@ impl PodmanProvider {
         self.ensure_known_hosts()?;
         let config = self.home.join(".ssh").join("config-empty");
         if !config.is_file() {
-            fs::write(&config, "")
-                .map_err(|e| Error::io(format!("{} schreiben", config.display()), e))?;
+            fs::write(&config, "").map_err(|e| Error::io(writing(&config), e))?;
         }
         let ssh = find_openssh("ssh");
         let output = Command::new(&ssh)
@@ -287,7 +292,7 @@ impl PodmanProvider {
             .map(|n| Some(n.internal))
             .ok_or_else(|| Error::UnexpectedOutput {
                 action: "network inspect".to_owned(),
-                detail: "leere Antwort".to_owned(),
+                detail: tr("leere Antwort", "empty answer").to_owned(),
             })
     }
 }
@@ -337,7 +342,11 @@ impl Provider for PodmanProvider {
 
     fn remove_image(&self, id: &str) -> Result<()> {
         if id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(Error::invalid("Image-ID", id, "nur Hex-Ziffern erlaubt"));
+            return Err(Error::invalid(
+                tr("Image-ID", "image ID"),
+                id,
+                tr("nur Hex-Ziffern erlaubt", "only hex digits allowed"),
+            ));
         }
         self.run("rmi", &["rmi", id]).map(drop)
     }
@@ -362,8 +371,9 @@ impl Provider for PodmanProvider {
 
     fn build_image(&self, build: &ImageBuild) -> Result<()> {
         if !build.context.join("Containerfile").is_file() {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Kein Containerfile in {}",
+                "No Containerfile in {}",
                 build.context.display()
             )));
         }
@@ -389,7 +399,7 @@ impl Provider for PodmanProvider {
     }
 
     fn remove_volume(&self, name: &str) -> Result<()> {
-        validate_resource_name("Volume", name)?;
+        validate_resource_name(tr("Volume", "volume"), name)?;
         if self.exists("volume exists", &["volume", "exists", name])? {
             self.run("volume rm", &["volume", "rm", name])?;
         }
@@ -405,15 +415,16 @@ impl Provider for PodmanProvider {
             }
             Some(internal) if internal == network.internal => Ok(()),
             Some(_) if network.internal => Err(Error::NetworkNotInternal(network.name.clone())),
-            Some(_) => Err(Error::Unsupported(format!(
+            Some(_) => Err(Error::Unsupported(tr!(
                 "Netz {} existiert bereits als internes Netz",
+                "Network {} already exists as an internal network",
                 network.name
             ))),
         }
     }
 
     fn remove_network(&self, name: &str) -> Result<()> {
-        validate_resource_name("Netz", name)?;
+        validate_resource_name(tr("Netz", "network"), name)?;
         if self.exists("network exists", &["network", "exists", name])? {
             self.run("network rm", &["network", "rm", name])?;
         }
@@ -421,7 +432,7 @@ impl Provider for PodmanProvider {
     }
 
     fn container(&self, name: &str) -> Result<Option<ContainerInfo>> {
-        validate_resource_name("Containername", name)?;
+        validate_resource_name(tr("Containername", "container name"), name)?;
         // The name filter is a regex; the exact comparison below makes the
         // `.` in names harmless.
         let filter = format!("name=^{name}$");
@@ -463,8 +474,9 @@ impl Provider for PodmanProvider {
             Some(true) => {}
             Some(false) => return Err(Error::NetworkNotInternal(spec.network.clone())),
             None => {
-                return Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(tr!(
                     "Netz {} existiert nicht",
+                    "Network {} does not exist",
                     spec.network
                 )));
             }
@@ -475,7 +487,12 @@ impl Provider for PodmanProvider {
 
     fn create_gateway(&self, spec: &GatewaySpec) -> Result<()> {
         let args = args::gateway_create(spec)?;
-        let missing = |name: &str| Error::Unsupported(format!("Netz {name} existiert nicht"));
+        let missing = |name: &str| {
+            Error::Unsupported(tr!(
+                "Netz {name} existiert nicht",
+                "Network {name} does not exist"
+            ))
+        };
         match self.network_internal(&spec.internal_network)? {
             Some(true) => {}
             Some(false) => return Err(Error::NetworkNotInternal(spec.internal_network.clone())),
@@ -484,8 +501,9 @@ impl Provider for PodmanProvider {
         match self.network_internal(&spec.egress_network)? {
             Some(false) => {}
             Some(true) => {
-                return Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(tr!(
                     "Netz {} ist intern, das Gateway käme darüber nicht nach außen",
+                    "Network {} is internal, the gateway could not get out through it",
                     spec.egress_network
                 )));
             }
@@ -496,13 +514,13 @@ impl Provider for PodmanProvider {
     }
 
     fn start_container(&self, name: &str) -> Result<()> {
-        validate_resource_name("Containername", name)?;
+        validate_resource_name(tr("Containername", "container name"), name)?;
         self.run("start", &["start", name])?;
         Ok(())
     }
 
     fn stop_container(&self, name: &str) -> Result<()> {
-        validate_resource_name("Containername", name)?;
+        validate_resource_name(tr("Containername", "container name"), name)?;
         self.run(
             "stop",
             &["stop", "--ignore", "--time", args::STOP_TIMEOUT, name],
@@ -511,7 +529,7 @@ impl Provider for PodmanProvider {
     }
 
     fn remove_container(&self, name: &str) -> Result<()> {
-        validate_resource_name("Containername", name)?;
+        validate_resource_name(tr("Containername", "container name"), name)?;
         self.run(
             "rm",
             &[
@@ -542,7 +560,11 @@ impl Provider for PodmanProvider {
     fn exec_output(&self, exec: &ExecSpec) -> Result<ExecOutput> {
         if exec.tty || exec.interactive {
             return Err(Error::Unsupported(
-                "exec_output unterstützt weder TTY noch stdin".to_owned(),
+                tr(
+                    "exec_output unterstützt weder TTY noch stdin",
+                    "exec_output supports neither TTY nor stdin",
+                )
+                .to_owned(),
             ));
         }
         let output = self.output(&args::exec(exec)?)?;
@@ -556,7 +578,11 @@ impl Provider for PodmanProvider {
     fn exec_piped(&self, exec: &ExecSpec) -> Result<Child> {
         if exec.tty {
             return Err(Error::Unsupported(
-                "exec_piped unterstützt kein TTY".to_owned(),
+                tr(
+                    "exec_piped unterstützt kein TTY",
+                    "exec_piped does not support a TTY",
+                )
+                .to_owned(),
             ));
         }
         let spec = ExecSpec {
@@ -579,7 +605,13 @@ impl Provider for PodmanProvider {
         if output.status.success() {
             Ok(())
         } else {
-            Err(command_error("Datei in den Container kopieren", &output))
+            Err(command_error(
+                tr(
+                    "Datei in den Container kopieren",
+                    "copying a file into the container",
+                ),
+                &output,
+            ))
         }
     }
 
@@ -601,7 +633,9 @@ impl Provider for PodmanProvider {
         })?;
         let (Some(stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
             let _ = child.kill();
-            return Err(Error::Unsupported("keine Ausgabe von podman".to_owned()));
+            return Err(Error::Unsupported(
+                tr("keine Ausgabe von podman", "no output from podman").to_owned(),
+            ));
         };
         // Read on its own thread: a full stderr pipe would stall the copy.
         let errors = std::thread::spawn(move || {
@@ -610,13 +644,12 @@ impl Provider for PodmanProvider {
             text
         });
         let written = File::create(host_file)
-            .map_err(|e| Error::io(format!("{} anlegen", host_file.display()), e))
+            .map_err(|e| Error::io(creating(host_file), e))
             .and_then(|file| {
                 let mut out = BufWriter::new(file);
                 let copied = io::copy(&mut stdout.take(max_bytes + 1), &mut out)
-                    .map_err(|e| Error::io(format!("{} schreiben", host_file.display()), e))?;
-                out.flush()
-                    .map_err(|e| Error::io(format!("{} schreiben", host_file.display()), e))?;
+                    .map_err(|e| Error::io(writing(host_file), e))?;
+                out.flush().map_err(|e| Error::io(writing(host_file), e))?;
                 Ok(copied)
             });
         let too_large = written.as_ref().is_ok_and(|&n| n > max_bytes);
@@ -630,13 +663,17 @@ impl Provider for PodmanProvider {
         let stderr = errors.join().unwrap_or_default();
         written?;
         if too_large {
-            return Err(Error::Unsupported(format!(
-                "{path} in {container} ist größer als {max_bytes} Bytes"
+            return Err(Error::Unsupported(tr!(
+                "{path} in {container} ist größer als {max_bytes} Bytes",
+                "{path} in {container} is larger than {max_bytes} bytes"
             )));
         }
         if !status.success() {
             return Err(Error::Command {
-                action: format!("{path} aus {container} kopieren"),
+                action: tr!(
+                    "{path} aus {container} kopieren",
+                    "copying {path} out of {container}"
+                ),
                 code: status.code(),
                 stderr: crate::sync::sanitize(stderr.trim()),
             });
@@ -676,8 +713,11 @@ pub fn find_podman() -> Result<PathBuf> {
         return Ok(path);
     }
     Err(Error::Unsupported(
-        "podman nicht gefunden (PATH, %ProgramFiles%\\RedHat\\Podman). Pfad über HARNESS_PODMAN setzen"
-            .to_owned(),
+        tr(
+            "podman nicht gefunden (PATH, %ProgramFiles%\\RedHat\\Podman). Pfad über HARNESS_PODMAN setzen",
+            "podman not found (PATH, %ProgramFiles%\\RedHat\\Podman). Set its path in HARNESS_PODMAN",
+        )
+        .to_owned(),
     ))
 }
 
@@ -703,6 +743,16 @@ fn find_openssh(program: &str) -> PathBuf {
         }
     }
     find_on_path(&exe).unwrap_or_else(|| PathBuf::from(exe))
+}
+
+/// What failed when a file or folder could not be created.
+fn creating(path: &Path) -> String {
+    tr!("{} anlegen", "creating {}", path.display())
+}
+
+/// What failed when a file could not be written.
+fn writing(path: &Path) -> String {
+    tr!("{} schreiben", "writing {}", path.display())
 }
 
 fn command_error(action: &str, output: &Output) -> Error {

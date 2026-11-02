@@ -12,8 +12,10 @@ pub use harness_gateway::DomainPattern;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::lang::tr;
 use crate::podman::DEFAULT_MACHINE;
 use crate::provider::{validate_container_path, validate_env_key, validate_memory};
+use crate::tr;
 
 /// Harness used when neither the command line nor the project names one.
 pub const DEFAULT_HARNESS: &str = "pi";
@@ -64,21 +66,24 @@ impl Default for GlobalConfig {
 
 impl Validate for GlobalConfig {
     fn validate(&self) -> Result<(), String> {
-        crate::provider::validate_resource_name("Machine-Name", &self.machine)
+        crate::provider::validate_resource_name(tr("Machine-Name", "machine name"), &self.machine)
             .map_err(|e| e.to_string())?;
         if let Some(url) = &self.server.url
             && !(url.starts_with("http://") || url.starts_with("https://"))
         {
-            return Err(format!(
-                "server.url muss mit http:// oder https:// beginnen, nicht {url:?}"
+            return Err(tr!(
+                "server.url muss mit http:// oder https:// beginnen, nicht {url:?}",
+                "server.url must start with http:// or https://, not {url:?}"
             ));
         }
         if let Some(ca) = &self.server.ca
             && !ca.is_absolute()
         {
-            return Err(format!(
+            return Err(tr!(
                 "server.ca muss ein absoluter Pfad sein, z. B. 'C:\\Users\\name\\caddy-root.crt', \
                  nicht {:?}",
+                "server.ca must be an absolute path, e.g. 'C:\\Users\\name\\caddy-root.crt', \
+                 not {:?}",
                 ca.display().to_string()
             ));
         }
@@ -242,8 +247,9 @@ pub fn valid_chat_id(id: &str) -> bool {
 impl Validate for ProjectConfig {
     fn validate(&self) -> Result<(), String> {
         if !self.path.is_absolute() {
-            return Err(format!(
+            return Err(tr!(
                 "path muss ein absoluter Pfad sein: {}",
+                "path must be an absolute path: {}",
                 self.path.display()
             ));
         }
@@ -251,7 +257,10 @@ impl Validate for ProjectConfig {
             validate_harness_name(harness)?;
         }
         if let Some(bad) = self.remote.chats.iter().find(|id| !valid_chat_id(id)) {
-            return Err(format!("remote.chats: ungültige Chat-ID {bad:?}"));
+            return Err(tr!(
+                "remote.chats: ungültige Chat-ID {bad:?}",
+                "remote.chats: invalid chat ID {bad:?}"
+            ));
         }
         for app in &self.apps.enabled {
             validate_app_name(app).map_err(|e| format!("apps.enabled: {e}"))?;
@@ -347,8 +356,9 @@ impl FromStr for NetworkPreset {
         .into_iter()
         .find(|p| p.as_str() == text)
         .ok_or_else(|| {
-            format!(
-                "unbekannte Voreinstellung {text:?}, erwartet off, development, open oder custom"
+            tr!(
+                "unbekannte Voreinstellung {text:?}, erwartet off, development, open oder custom",
+                "unknown preset {text:?}, expected off, development, open or custom"
             )
         })
     }
@@ -389,7 +399,10 @@ impl Validate for ResourcesConfig {
         if let Some(cpus) = self.cpus
             && !(cpus.is_finite() && cpus > 0.0)
         {
-            return Err(format!("cpus muss größer als 0 sein, nicht {cpus}"));
+            return Err(tr!(
+                "cpus muss größer als 0 sein, nicht {cpus}",
+                "cpus must be greater than 0, not {cpus}"
+            ));
         }
         if let Some(memory) = &self.memory {
             validate_memory(memory).map_err(|e| e.to_string())?;
@@ -465,22 +478,25 @@ impl Validate for HarnessConfig {
     fn validate(&self) -> Result<(), String> {
         validate_harness_name(&self.name)?;
         if self.install.trim().is_empty() {
-            return Err("install darf nicht leer sein".to_owned());
+            return Err(tr("install darf nicht leer sein", "install must not be empty").to_owned());
         }
         if self.command.first().is_none_or(|c| c.trim().is_empty()) {
-            return Err("command darf nicht leer sein".to_owned());
+            return Err(tr("command darf nicht leer sein", "command must not be empty").to_owned());
         }
         if self.persist.len() > 1 {
-            return Err(
-                "persist darf nur einen Pfad enthalten (ein Volume pro Harness)".to_owned(),
-            );
+            return Err(tr(
+                "persist darf nur einen Pfad enthalten (ein Volume pro Harness)",
+                "persist may only contain one path (one volume per harness)",
+            )
+            .to_owned());
         }
         for path in &self.persist {
             let expanded = expand_home(path);
             validate_container_path("persist", &expanded).map_err(|e| e.to_string())?;
             if expanded == AGENT_HOME || expanded == "/" {
-                return Err(format!(
-                    "persist darf nicht das ganze Home-Verzeichnis sein: {path}"
+                return Err(tr!(
+                    "persist darf nicht das ganze Home-Verzeichnis sein: {path}",
+                    "persist must not be the whole home directory: {path}"
                 ));
             }
         }
@@ -490,7 +506,11 @@ impl Validate for HarnessConfig {
         if let Some(adapter) = &self.adapter
             && adapter.command.is_empty()
         {
-            return Err("adapter.command darf nicht leer sein".to_owned());
+            return Err(tr(
+                "adapter.command darf nicht leer sein",
+                "adapter.command must not be empty",
+            )
+            .to_owned());
         }
         Ok(())
     }
@@ -616,23 +636,32 @@ impl Validate for AppConfig {
     fn validate(&self) -> Result<(), String> {
         validate_app_name(&self.name)?;
         if self.title.trim().is_empty() || self.title.chars().count() > 60 {
-            return Err("title muss 1 bis 60 Zeichen lang sein".to_owned());
+            return Err(tr(
+                "title muss 1 bis 60 Zeichen lang sein",
+                "title must be 1 to 60 characters long",
+            )
+            .to_owned());
         }
         if self.install.trim().is_empty() {
-            return Err("install darf nicht leer sein".to_owned());
+            return Err(tr("install darf nicht leer sein", "install must not be empty").to_owned());
         }
         if let Some(file) = &self.file
             && !valid_file_name(&file.name)
         {
-            return Err(format!(
+            return Err(tr!(
                 "file.name: {:?} ist kein einfacher Dateiname",
+                "file.name: {:?} is not a plain file name",
                 file.name
             ));
         }
         for required in &self.requires {
             validate_app_name(required).map_err(|e| format!("requires: {e}"))?;
             if *required == self.name {
-                return Err("requires darf die App nicht selbst enthalten".to_owned());
+                return Err(tr(
+                    "requires darf die App nicht selbst enthalten",
+                    "requires must not contain the app itself",
+                )
+                .to_owned());
             }
         }
         for dir in &self.path {
@@ -645,20 +674,25 @@ impl Validate for AppConfig {
                     .split('/')
                     .any(|part| part.is_empty() || part == "..");
             if !valid {
-                return Err(format!(
-                    "path: {dir:?} muss ein Ordner unter der App (z. B. \"bin\") oder unter ~/ sein"
+                return Err(tr!(
+                    "path: {dir:?} muss ein Ordner unter der App (z. B. \"bin\") oder unter ~/ sein",
+                    "path: {dir:?} must be a folder below the app (e.g. \"bin\") or below ~/"
                 ));
             }
         }
         for (key, value) in &self.env {
             validate_env_key(key).map_err(|e| e.to_string())?;
             if RESERVED_ENV.contains(&key.as_str()) {
-                return Err(format!(
-                    "env: {key} setzt harness selbst (für den PATH gibt es path)"
+                return Err(tr!(
+                    "env: {key} setzt harness selbst (für den PATH gibt es path)",
+                    "env: harness sets {key} itself (for the PATH there is path)"
                 ));
             }
             if value.contains(['\n', '\0']) {
-                return Err(format!("env: {key} enthält einen Zeilenumbruch"));
+                return Err(tr!(
+                    "env: {key} enthält einen Zeilenumbruch",
+                    "env: {key} contains a line break"
+                ));
             }
         }
         Ok(())
@@ -669,7 +703,10 @@ impl Validate for AppConfig {
 /// rules as harness names.
 pub(crate) fn validate_app_name(name: &str) -> Result<(), String> {
     validate_harness_name(name).map_err(|_| {
-        format!("ungültiger App-Name {name:?}: 1 bis 30 Zeichen, Kleinbuchstaben, Ziffern und '-'")
+        tr!(
+            "ungültiger App-Name {name:?}: 1 bis 30 Zeichen, Kleinbuchstaben, Ziffern und '-'",
+            "invalid app name {name:?}: 1 to 30 characters, lowercase letters, digits and '-'"
+        )
     })
 }
 
@@ -705,8 +742,9 @@ pub(crate) fn validate_harness_name(name: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "ungültiger Harness-Name {name:?}: 1 bis 30 Zeichen, Kleinbuchstaben, Ziffern und '-'"
+        Err(tr!(
+            "ungültiger Harness-Name {name:?}: 1 bis 30 Zeichen, Kleinbuchstaben, Ziffern und '-'",
+            "invalid harness name {name:?}: 1 to 30 characters, lowercase letters, digits and '-'"
         ))
     }
 }

@@ -12,13 +12,14 @@ use crate::apps::{self, ReadyApp};
 use crate::config::{AGENT_HOME, HarnessConfig, Project};
 use crate::gateway::{self, GatewayControl, Mode, Scope};
 use crate::image::{BASE_IMAGE, CONTEXT_HASH_LABEL, ImageStatus, fingerprint};
+use crate::lang::tr;
 use crate::project::ProjectName;
 use crate::provider::{
     ContainerSpec, ContainerStatus, ExecSpec, Labels, Mount, MountSource, Provider, Resources,
     VolumeSpec,
 };
 use crate::sync::WORKSPACE;
-use crate::{Error, PROJECT_LABEL, Result};
+use crate::{Error, PROJECT_LABEL, Result, tr};
 
 /// Volume with the installed harnesses, shared by all projects.
 pub const TOOLS_VOLUME: &str = "harness-tools";
@@ -170,14 +171,16 @@ pub fn ensure_running(
     match BASE_IMAGE.status(provider)? {
         ImageStatus::Current => {}
         ImageStatus::Missing => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Base-Image {} fehlt → harness image build",
+                "Base image {} is missing → harness image build",
                 BASE_IMAGE.tag
             )));
         }
         ImageStatus::Outdated => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "Base-Image {} ist veraltet → harness image build base",
+                "Base image {} is outdated → harness image build base",
                 BASE_IMAGE.tag
             )));
         }
@@ -306,8 +309,9 @@ pub fn install_harness(
     })?;
     match code {
         0 => Ok(()),
-        code => Err(Error::Unsupported(format!(
+        code => Err(Error::Unsupported(tr!(
             "Installation von {} fehlgeschlagen (Exit-Code {code})",
+            "Installing {} failed (exit code {code})",
             harness.name
         ))),
     }
@@ -387,9 +391,12 @@ pub fn write_tool_file(
         .is_some_and(|rest| rest.starts_with('/') && !rest.split('/').any(|p| p == ".."));
     if !inside {
         return Err(Error::invalid(
-            "Pfad im Tools-Volume",
+            tr("Pfad im Tools-Volume", "path in the tools volume"),
             path,
-            "muss unter /opt/harness-tools liegen",
+            tr(
+                "muss unter /opt/harness-tools liegen",
+                "must be below /opt/harness-tools",
+            ),
         ));
     }
     let script = r#"set -e
@@ -413,8 +420,9 @@ mv -f "$1.partial" "$1""#;
     if output.code == 0 {
         Ok(())
     } else {
-        Err(Error::Unsupported(format!(
+        Err(Error::Unsupported(tr!(
             "{path} schreiben: {}",
+            "writing {path}: {}",
             crate::sync::sanitize(output.stderr.trim())
         )))
     }

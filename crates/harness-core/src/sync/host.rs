@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use super::bundle::BundleHeader;
+use crate::lang::tr;
 use crate::paths::{find_on_path, local_data_dir};
-use crate::{Error, Result};
+use crate::{Error, Result, tr};
 
 /// A git repository on the host.
 #[derive(Debug, Clone)]
@@ -200,15 +201,16 @@ impl HostRepo {
         let git = find_git()?;
         let no_hooks = local_data_dir()?.join("git-no-hooks");
         fs::create_dir_all(&no_hooks)
-            .map_err(|e| Error::io(format!("{} anlegen", no_hooks.display()), e))?;
+            .map_err(|e| Error::io(tr!("{} anlegen", "creating {}", no_hooks.display()), e))?;
         let repo = HostRepo {
             path: path.to_owned(),
             git,
             no_hooks,
         };
         if !repo.output(&["rev-parse", "--git-dir"])?.status.success() {
-            return Err(Error::Sync(format!(
+            return Err(Error::Sync(tr!(
                 "{} ist kein Git-Repository",
+                "{} is not a Git repository",
                 path.display()
             )));
         }
@@ -224,8 +226,9 @@ impl HostRepo {
     /// container. Remote-tracking refs and the stash stay on the host.
     pub fn export_bundle(&self, target: &Path) -> Result<()> {
         if self.rev_parse("HEAD")?.is_none() {
-            return Err(Error::Sync(format!(
+            return Err(Error::Sync(tr!(
                 "{} hat noch keine Commits. Der Agent braucht mindestens einen Commit als Ausgangspunkt",
+                "{} has no commits yet. The agent needs at least one commit to start from",
                 self.path.display()
             )));
         }
@@ -257,7 +260,12 @@ impl HostRepo {
         }
         let new = header
             .branch(branch)
-            .ok_or_else(|| Error::Sync(format!("Das Bundle enthält den Branch {branch} nicht")))?
+            .ok_or_else(|| {
+                Error::Sync(tr!(
+                    "Das Bundle enthält den Branch {branch} nicht",
+                    "The bundle does not contain the branch {branch}"
+                ))
+            })?
             .to_owned();
         let reference = format!("refs/heads/{branch}");
         let old = self.rev_parse(&reference)?;
@@ -265,8 +273,9 @@ impl HostRepo {
             return Ok(ImportOutcome::Unchanged);
         }
         if self.checked_out(&reference)? {
-            return Err(Error::Sync(format!(
-                "{branch} ist auf dem Host ausgecheckt. Bitte erst auf einen anderen Branch wechseln"
+            return Err(Error::Sync(tr!(
+                "{branch} ist auf dem Host ausgecheckt. Bitte erst auf einen anderen Branch wechseln",
+                "{branch} is checked out on the host. Please switch to another branch first"
             )));
         }
 
@@ -287,9 +296,11 @@ impl HostRepo {
             && !force
             && !self.is_ancestor(old, &new)?
         {
-            return Err(Error::Sync(format!(
+            return Err(Error::Sync(tr!(
                 "{branch} wurde im Container umgeschrieben (kein Fast-Forward von {} auf {}). \
                  `harness sync --force` übernimmt den Stand des Containers",
+                "{branch} was rewritten in the container (no fast-forward from {} to {}). \
+                 `harness sync --force` takes over the container's state",
                 short(old),
                 short(&new)
             )));
@@ -329,26 +340,33 @@ impl HostRepo {
             )
             .map_err(|_| {
                 Error::Sync(
-                    "HEAD ist kein Branch (detached). Bitte einen Branch auschecken".to_owned(),
+                    tr(
+                        "HEAD ist kein Branch (detached). Bitte einen Branch auschecken",
+                        "HEAD is not a branch (detached). Please check out a branch",
+                    )
+                    .to_owned(),
                 )
             })?
             .trim()
             .to_owned();
         if current == branch {
-            return Err(Error::Sync(format!(
-                "{branch} ist selbst ausgecheckt. Bitte den Ziel-Branch auschecken"
+            return Err(Error::Sync(tr!(
+                "{branch} ist selbst ausgecheckt. Bitte den Ziel-Branch auschecken",
+                "{branch} itself is checked out. Please check out the target branch"
             )));
         }
         let reference = format!("refs/heads/{branch}");
         if self.rev_parse(&reference)?.is_none() {
-            return Err(Error::Sync(format!(
-                "{branch} existiert noch nicht. Erst `harness sync` ausführen"
+            return Err(Error::Sync(tr!(
+                "{branch} existiert noch nicht. Erst `harness sync` ausführen",
+                "{branch} does not exist yet. Run `harness sync` first"
             )));
         }
         for pending in ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"] {
             if self.rev_parse(pending)?.is_some() {
-                return Err(Error::Sync(format!(
-                    "Im Repository läuft noch eine Operation ({pending}). Bitte erst abschließen"
+                return Err(Error::Sync(tr!(
+                    "Im Repository läuft noch eine Operation ({pending}). Bitte erst abschließen",
+                    "An operation is still in progress in the repository ({pending}). Please finish it first"
                 )));
             }
         }
@@ -356,15 +374,21 @@ impl HostRepo {
             let path = self.run("rev-parse", &["rev-parse", "--git-path", dir])?;
             if self.path.join(path.trim()).exists() {
                 return Err(Error::Sync(
-                    "Im Repository läuft noch ein Rebase. Bitte erst abschließen".to_owned(),
+                    tr(
+                        "Im Repository läuft noch ein Rebase. Bitte erst abschließen",
+                        "A rebase is still in progress in the repository. Please finish it first",
+                    )
+                    .to_owned(),
                 ));
             }
         }
         let dirty = self.run("status", &["status", "--porcelain", "--untracked-files=no"])?;
         if !dirty.trim().is_empty() {
-            return Err(Error::Sync(format!(
+            return Err(Error::Sync(tr!(
                 "Uncommittete Änderungen an {} Datei(en). Bitte erst committen oder stashen, \
                  die Harness fasst sie nicht an",
+                "Uncommitted changes to {} file(s). Please commit or stash them first, \
+                 the harness does not touch them",
                 dirty.lines().count()
             )));
         }
@@ -450,8 +474,9 @@ impl HostRepo {
     pub fn set_branch(&self, branch: &str, new: &str, expected: &str) -> Result<()> {
         let reference = format!("refs/heads/{branch}");
         if self.checked_out(&reference)? {
-            return Err(Error::Sync(format!(
-                "{branch} ist auf dem Host ausgecheckt und bleibt deshalb, wie er ist"
+            return Err(Error::Sync(tr!(
+                "{branch} ist auf dem Host ausgecheckt und bleibt deshalb, wie er ist",
+                "{branch} is checked out on the host and therefore stays as it is"
             )));
         }
         self.run(
@@ -582,9 +607,12 @@ impl HostRepo {
         let mut args = vec!["rev-list", "--count"];
         args.extend_from_slice(revs);
         let text = self.run("rev-list", &args)?;
-        text.trim()
-            .parse()
-            .map_err(|_| Error::Sync(format!("Unerwartete Ausgabe von git rev-list: {text}")))
+        text.trim().parse().map_err(|_| {
+            Error::Sync(tr!(
+                "Unerwartete Ausgabe von git rev-list: {text}",
+                "Unexpected output of git rev-list: {text}"
+            ))
+        })
     }
 
     fn checked_out(&self, reference: &str) -> Result<bool> {
@@ -613,7 +641,13 @@ pub fn find_git() -> Result<PathBuf> {
     }
     let exe = if cfg!(windows) { "git.exe" } else { "git" };
     find_on_path(exe).ok_or_else(|| {
-        Error::Unsupported("git nicht gefunden. Pfad über HARNESS_GIT setzen".to_owned())
+        Error::Unsupported(
+            tr(
+                "git nicht gefunden. Pfad über HARNESS_GIT setzen",
+                "git not found. Set its path in HARNESS_GIT",
+            )
+            .to_owned(),
+        )
     })
 }
 

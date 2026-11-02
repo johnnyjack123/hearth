@@ -4,7 +4,8 @@ use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use crate::{Error, Result};
+use crate::lang::tr;
+use crate::{Error, Result, tr};
 
 /// Directory for machine-local state that is not configuration: the isolated
 /// podman home and build contexts.
@@ -26,7 +27,15 @@ pub fn home_dir() -> Result<PathBuf> {
     env::var_os("USERPROFILE")
         .or_else(|| env::var_os("HOME"))
         .map(PathBuf::from)
-        .ok_or_else(|| Error::Unsupported("Weder USERPROFILE noch HOME ist gesetzt".to_owned()))
+        .ok_or_else(|| {
+            Error::Unsupported(
+                tr(
+                    "Weder USERPROFILE noch HOME ist gesetzt",
+                    "Neither USERPROFILE nor HOME is set",
+                )
+                .to_owned(),
+            )
+        })
 }
 
 /// First `exe` found in a `PATH` directory.
@@ -39,8 +48,8 @@ pub fn find_on_path(exe: &str) -> Option<PathBuf> {
 /// Absolute, symlink-free form of an existing path, without the `\\?\`
 /// prefix Windows adds, so it can be shown to users and stored in config.
 pub fn canonical(path: &Path) -> Result<PathBuf> {
-    let resolved =
-        fs::canonicalize(path).map_err(|e| Error::io(format!("{} auflösen", path.display()), e))?;
+    let resolved = fs::canonicalize(path)
+        .map_err(|e| Error::io(tr!("{} auflösen", "Resolving {}", path.display()), e))?;
     Ok(strip_verbatim(resolved))
 }
 

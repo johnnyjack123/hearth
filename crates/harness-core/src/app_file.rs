@@ -13,7 +13,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{AppConfig, ConfigDir, valid_file_name};
-use crate::{Error, Result};
+use crate::lang::tr;
+use crate::{Error, Result, tr};
 
 /// Largest file taken; an AppImage of a big program has a few hundred MB.
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -34,15 +35,16 @@ pub enum FileKind {
 }
 
 impl FileKind {
-    /// For people, e.g. in the question before approving.
+    /// For people, e.g. in the question before approving; in the language
+    /// of this computer, which the tray and the browser show as it is.
     pub fn label(self) -> String {
         let arch = vm_architecture();
         match self {
-            FileKind::Program => format!("Linux-Programm ({arch})"),
+            FileKind::Program => tr!("Linux-Programm ({arch})", "Linux program ({arch})"),
             FileKind::AppImage => format!("AppImage ({arch})"),
-            FileKind::Deb => "Debian-Paket".to_owned(),
-            FileKind::Tar => "Archiv (tar)".to_owned(),
-            FileKind::Zip => "Archiv (zip)".to_owned(),
+            FileKind::Deb => tr("Debian-Paket", "Debian package").to_owned(),
+            FileKind::Tar => tr("Archiv (tar)", "Archive (tar)").to_owned(),
+            FileKind::Zip => tr("Archiv (zip)", "Archive (zip)").to_owned(),
         }
     }
 }
@@ -70,18 +72,22 @@ fn elf_machine(machine: u16) -> Option<&'static str> {
     }
 }
 
-/// Reads what `path` is from its first bytes. Fails with a German message
-/// for anything that is not a Linux program file for the VM.
+/// Reads what `path` is from its first bytes. Fails with a message for
+/// people for anything that is not a Linux program file for the VM.
 pub fn inspect(path: &Path) -> std::result::Result<FileInfo, String> {
-    let metadata =
-        fs::metadata(path).map_err(|e| format!("{} nicht lesbar: {e}", path.display()))?;
+    let metadata = fs::metadata(path).map_err(|e| unreadable(path, &e))?;
     if !metadata.is_file() {
-        return Err(format!("{} ist keine Datei", path.display()));
+        return Err(tr!(
+            "{} ist keine Datei",
+            "{} is not a file",
+            path.display()
+        ));
     }
     let size = metadata.len();
     if size > MAX_FILE_BYTES {
-        return Err(format!(
+        return Err(tr!(
             "{} ist zu groß ({} MB, höchstens {} MB)",
+            "{} is too large ({} MB, at most {} MB)",
             path.display(),
             size / 1024 / 1024,
             MAX_FILE_BYTES / 1024 / 1024
@@ -90,22 +96,36 @@ pub fn inspect(path: &Path) -> std::result::Result<FileInfo, String> {
     let mut head = [0u8; 64];
     let read = fs::File::open(path)
         .and_then(|mut file| file.read(&mut head))
-        .map_err(|e| format!("{} nicht lesbar: {e}", path.display()))?;
+        .map_err(|e| unreadable(path, &e))?;
     let kind = kind_of(&head[..read])?;
     Ok(FileInfo { kind, size })
+}
+
+fn unreadable(path: &Path, error: &std::io::Error) -> String {
+    tr!(
+        "{} nicht lesbar: {error}",
+        "{} cannot be read: {error}",
+        path.display()
+    )
 }
 
 fn kind_of(head: &[u8]) -> std::result::Result<FileKind, String> {
     if head.starts_with(b"\x7fELF") {
         // 64 bit, little endian: what both architectures use.
         if head.len() < 20 || head[4] != 2 || head[5] != 1 {
-            return Err("ELF-Datei, aber kein 64-Bit-Programm".to_owned());
+            return Err(tr(
+                "ELF-Datei, aber kein 64-Bit-Programm",
+                "ELF file, but not a 64-bit program",
+            )
+            .to_owned());
         }
         let machine = u16::from_le_bytes([head[18], head[19]]);
-        let built_for = elf_machine(machine).unwrap_or("eine andere Architektur");
+        let built_for =
+            elf_machine(machine).unwrap_or(tr("eine andere Architektur", "another architecture"));
         if built_for != vm_architecture() {
-            return Err(format!(
+            return Err(tr!(
                 "Das Programm ist für {built_for} gebaut, die VM läuft auf {}",
+                "The program is built for {built_for}, the VM runs on {}",
                 vm_architecture()
             ));
         }
@@ -125,11 +145,13 @@ fn kind_of(head: &[u8]) -> std::result::Result<FileKind, String> {
     if head.starts_with(b"PK\x03\x04") {
         return Ok(FileKind::Zip);
     }
-    Err(
+    Err(tr(
         "Keine Linux-Programmdatei: erwartet wird ein Programm (ELF), eine AppImage, ein \
-         .deb oder ein Archiv (.tar.gz, .tar.xz, .zip)"
-            .to_owned(),
+         .deb oder ein Archiv (.tar.gz, .tar.xz, .zip)",
+        "Not a Linux program file: expected a program (ELF), an AppImage, a .deb or an \
+         archive (.tar.gz, .tar.xz, .zip)",
     )
+    .to_owned())
 }
 
 /// The file name the copy gets: the original's, with everything but plain
@@ -198,8 +220,9 @@ pub fn add(config: &ConfigDir, name: &str, title: &str, path: &Path) -> Result<A
     let info = inspect(path).map_err(Error::Unsupported)?;
     match config.app(name) {
         Ok(existing) if existing.file.is_none() => {
-            return Err(Error::Unsupported(format!(
+            return Err(Error::Unsupported(tr!(
                 "{name} gibt es schon ({}); bitte einen anderen Namen wählen",
+                "{name} exists already ({}); please choose another name",
                 existing.title
             )));
         }
@@ -234,7 +257,11 @@ pub fn add(config: &ConfigDir, name: &str, title: &str, path: &Path) -> Result<A
         plain = name,
         name = quoted(name),
         title = quoted(title),
-        description = quoted(&format!("Datei vom Rechner: {}", info.kind.label())),
+        description = quoted(&tr!(
+            "Datei vom Rechner: {}",
+            "File from this computer: {}",
+            info.kind.label()
+        )),
         install = install_script(info.kind, name, approved, info.size),
         file = quoted(&file_name),
     );
@@ -247,23 +274,30 @@ pub fn add(config: &ConfigDir, name: &str, title: &str, path: &Path) -> Result<A
     let partial = config.app_files_dir().join(format!("{name}.partial"));
     let _ = fs::remove_dir_all(&partial);
     fs::create_dir_all(&partial)
-        .map_err(|e| Error::io(format!("{} anlegen", partial.display()), e))?;
+        .map_err(|e| Error::io(tr!("{} anlegen", "Creating {}", partial.display()), e))?;
     fs::copy(path, partial.join(&file_name))
-        .map_err(|e| Error::io(format!("{} kopieren", path.display()), e))?;
+        .map_err(|e| Error::io(tr!("{} kopieren", "Copying {}", path.display()), e))?;
     // The copy must still be what was checked; whatever wrote the original
     // in between does not get through.
     if inspect(&partial.join(&file_name)).map(|copied| copied.kind) != Ok(info.kind) {
         let _ = fs::remove_dir_all(&partial);
         return Err(invalid(
-            "Die Datei hat sich beim Kopieren geändert".to_owned(),
+            tr(
+                "Die Datei hat sich beim Kopieren geändert",
+                "The file changed while it was being copied",
+            )
+            .to_owned(),
         ));
     }
     let _ = fs::remove_dir_all(&dir);
-    fs::rename(&partial, &dir).map_err(|e| Error::io(format!("{} anlegen", dir.display()), e))?;
+    fs::rename(&partial, &dir)
+        .map_err(|e| Error::io(tr!("{} anlegen", "Creating {}", dir.display()), e))?;
     let apps = config.apps_dir();
-    fs::create_dir_all(&apps).map_err(|e| Error::io(format!("{} anlegen", apps.display()), e))?;
+    fs::create_dir_all(&apps)
+        .map_err(|e| Error::io(tr!("{} anlegen", "Creating {}", apps.display()), e))?;
     let file = apps.join(format!("{name}.toml"));
-    fs::write(&file, &recipe).map_err(|e| Error::io(format!("{} schreiben", file.display()), e))?;
+    fs::write(&file, &recipe)
+        .map_err(|e| Error::io(tr!("{} schreiben", "Writing {}", file.display()), e))?;
     if let Some(program) = &mut app.file {
         program.host = dir.join(&program.name);
     }
@@ -275,14 +309,17 @@ pub fn add(config: &ConfigDir, name: &str, title: &str, path: &Path) -> Result<A
 pub fn forget(config: &ConfigDir, name: &str) -> Result<()> {
     let app = config.app(name)?;
     if app.file.is_none() {
-        return Err(Error::Unsupported(format!(
+        return Err(Error::Unsupported(tr!(
             "{name} ist kein Programm aus einer Datei; Katalog-Apps schaltet man aus, \
              eigene Rezepte löscht man selbst in {}",
+            "{name} is not a program from a file; switch catalog apps off instead, and \
+             delete your own recipes yourself in {}",
             config.apps_dir().display()
         )));
     }
     let file = config.apps_dir().join(format!("{name}.toml"));
-    fs::remove_file(&file).map_err(|e| Error::io(format!("{} löschen", file.display()), e))?;
+    fs::remove_file(&file)
+        .map_err(|e| Error::io(tr!("{} löschen", "Deleting {}", file.display()), e))?;
     let _ = fs::remove_dir_all(config.app_files_dir().join(name));
     Ok(())
 }
