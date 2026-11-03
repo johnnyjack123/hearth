@@ -1,4 +1,4 @@
-import type { MessageMetadata, ModelCallUsage } from '@harness/shared';
+import type { MessageMetadata, ModelCallUsage, TokenRates } from '@harness/shared';
 import type { ReactNode } from 'react';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
@@ -67,6 +67,29 @@ function Cell({ children, head, start }: { children: ReactNode; head?: boolean; 
 type Purpose = NonNullable<ModelCallUsage['purpose']>;
 
 /**
+ * The prices the calls of a reply ran at, one row per host and price: a
+ * reply usually has one, a switch of host or DeepSeek's evening prices make
+ * more.
+ *
+ * @param calls - The reply's model calls.
+ * @returns The rows with the numbers (from 1) of their calls.
+ */
+export function priceRows(calls: ModelCallUsage[]): { host: string | null; rates: TokenRates; calls: number[] }[] {
+  const rows = new Map<string, { host: string | null; rates: TokenRates; calls: number[] }>();
+  calls.forEach((call, index) => {
+    if (!call.rates) {
+      return;
+    }
+    const host = call.billed && call.host ? call.host : null;
+    const key = JSON.stringify([host, call.rates.input, call.rates.cacheRead, call.rates.cacheWrite, call.rates.output]);
+    const row = rows.get(key) ?? { host, rates: call.rates, calls: [] };
+    row.calls.push(index + 1);
+    rows.set(key, row);
+  });
+  return [...rows.values()];
+}
+
+/**
  * The helper calls of a reply (Jev, embeddings, the title), summed per
  * model and purpose.
  *
@@ -113,6 +136,17 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
   const result = (call: ModelCallUsage) => (call.tools.length > 0 ? call.tools.join(', ') : agent ? '–' : t('chat.usageDetails.answer'));
   const timed = calls.some((call) => call.ms !== undefined);
   const hosted = calls.some((call) => call.host !== undefined);
+  const prices = priceRows(calls);
+  const ratesText = (row: { host: string | null; rates: TokenRates; calls: number[] }) => {
+    const values = {
+      host: row.host ?? '',
+      input: formatDollars(locale, row.rates.input),
+      cacheRead: formatDollars(locale, row.rates.cacheRead ?? row.rates.input),
+      output: formatDollars(locale, row.rates.output),
+    };
+    const text = t(row.host ? 'chat.usageDetails.ratesHost' : 'chat.usageDetails.ratesCatalog', values);
+    return prices.length > 1 ? `${text} ${t('chat.usageDetails.ratesCalls', { list: row.calls.join(', ') })}` : text;
+  };
   const rate = (rows: ModelCallUsage[]) => {
     const value = outputRate(rows);
     return value === null ? '–' : formatRate(locale, value);
@@ -242,7 +276,10 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
         ) : null}
         {input > 0 ? <p>{t('chat.usageDetails.cacheShare', { percent: Math.round((cached / input) * 100) })}</p> : null}
         {usage.billed ? <p>{t('chat.usageDetails.billed')}</p> : null}
-        {usage.rates ? (
+        {prices.length > 0 ? (
+          prices.map((row) => <p key={row.calls.join(',')}>{ratesText(row)}</p>)
+        ) : usage.rates ? (
+          // Replies stored before 3.11.2026 have the prices for the whole reply only.
           <p>
             {t('chat.usageDetails.rates', {
               input: formatDollars(locale, usage.rates.input),

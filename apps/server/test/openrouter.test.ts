@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentBills,
   cheapestProvider,
+  hostRates,
   meterBill,
   OpenRouterRouting,
   rankEndpoints,
@@ -120,6 +121,58 @@ describe('cheapest OpenRouter host', () => {
       providerOptions: { openrouter: { reasoning: { effort: 'high' }, provider: { order: ['a'], allow_fallbacks: true } } },
     });
     expect(withProviderOrder({ reasoning: 'low' }, null)).toEqual({ reasoning: 'low' });
+  });
+});
+
+describe('prices of the host that ran a call', () => {
+  // DeepInfra with a regular and a flex endpoint, DeepSeek with night prices.
+  const LIST = {
+    data: {
+      endpoints: [
+        {
+          tag: 'deepinfra/fp8/flex',
+          provider_name: 'DeepInfra',
+          service_tier: 'flex',
+          pricing: { prompt: '0.0000000784', completion: '0.0000002352', input_cache_read: '0.000000002352' },
+        },
+        {
+          tag: 'deepinfra/fp8',
+          provider_name: 'DeepInfra',
+          pricing: { prompt: '0.00000016', completion: '0.00000048', input_cache_read: '0.0000000048' },
+        },
+        {
+          tag: 'deepinfra/bf16',
+          provider_name: 'DeepInfra',
+          pricing: { prompt: '0.0000003', completion: '0.0000009' },
+        },
+        ...ENDPOINTS.data.endpoints.filter((entry) => entry.tag === 'deepseek').map((entry) => ({ ...entry, provider_name: 'DeepSeek' })),
+      ],
+    },
+  };
+
+  it('takes the host’s cheapest regular endpoint, per million tokens, at the time of the call', () => {
+    // Flex is left out, as in the routing; of the two others the cheaper counts.
+    expect(hostRates(LIST, 'DeepInfra', SATURDAY)).toEqual({ input: 0.16, output: 0.48, cacheRead: 0.0048 });
+    expect(hostRates(LIST, 'DeepSeek', SATURDAY)).toEqual({ input: 0.15, output: 0.6, cacheRead: 0.003 });
+    expect(hostRates(LIST, 'DeepSeek', MONDAY_PEAK)).toEqual({ input: 0.3, output: 1.2, cacheRead: 0.006 });
+    expect(hostRates(LIST, 'Chutes', SATURDAY)).toBeNull();
+    expect(hostRates(null, 'DeepInfra', SATURDAY)).toBeNull();
+  });
+
+  it('come from the list loaded for the model, and with the bill into the call', async () => {
+    const routing = new OpenRouterRouting(async () => LIST, () => SATURDAY.getTime());
+    expect(routing.rates('deepseek/deepseek-v4.1-flash', 'DeepInfra', SATURDAY)).toBeNull();
+    await routing.preload('deepseek/deepseek-v4.1-flash');
+    const rates = (host: string) => routing.rates('deepseek/deepseek-v4.1-flash', host, SATURDAY);
+    expect(rates('DeepInfra')).toEqual({ input: 0.16, output: 0.48, cacheRead: 0.0048 });
+
+    const call = { input: 100_000, cacheRead: 99_000, output: 1_000 };
+    expect(agentCallCost(call, 'openrouter', null, { total: 0.0009, host: 'DeepInfra' }, rates)).toEqual({
+      cost: { total: 0.0009 },
+      billed: true,
+      host: 'DeepInfra',
+      rates: { input: 0.16, output: 0.48, cacheRead: 0.0048 },
+    });
   });
 });
 

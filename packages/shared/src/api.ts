@@ -357,7 +357,7 @@ export interface MessageMetadata {
      */
     calls?: ModelCallUsage[];
     /** Prices the cost was computed with, US dollars per million tokens. */
-    rates?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+    rates?: TokenRates;
     /**
      * True when {@link cost} is what the provider billed (OpenRouter reports
      * it with every answer), not an estimate from catalog prices.
@@ -369,6 +369,18 @@ export interface MessageMetadata {
      */
     helpers?: ModelCallUsage[];
   };
+}
+
+/** Prices of a model, US dollars per million tokens. */
+export interface TokenRates {
+  /** Input not read from the cache. */
+  input: number;
+  /** Output, reasoning included. */
+  output: number;
+  /** Input read from the cache, if the provider prices it apart. */
+  cacheRead?: number;
+  /** Input written to the cache, if the provider prices it apart. */
+  cacheWrite?: number;
 }
 
 /**
@@ -401,6 +413,12 @@ export interface ModelCallUsage {
   billed?: boolean;
   /** Who ran the call, when OpenRouter says: the host it routed to, e.g. `DeepInfra`. */
   host?: string;
+  /**
+   * The prices of the call, US dollars per million tokens: the host's list
+   * price at OpenRouter at the time of a billed call, else the catalog's at
+   * the time of the call (DeepSeek's night prices included).
+   */
+  rates?: TokenRates;
   /**
    * Milliseconds the model wrote, from its first token to the end of the
    * call; with {@link output} the speed in tokens per second. Missing for

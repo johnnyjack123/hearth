@@ -76,9 +76,15 @@ describe('billed cost', () => {
     const catalog = { input: 0.024, output: 0.096 };
     const estimated = callUsage(step, catalog, []);
     expect(estimated.billed).toBeUndefined();
+    // Each call keeps the prices it ran at: the catalog's for an estimate…
+    expect(estimated.rates).toEqual(catalog);
     const billed = callUsage(step, catalog, [], { total: 0.000224, input: 0.00014, output: 0.000084, host: 'DeepInfra' });
     expect(billed).toMatchObject({ billed: true, host: 'DeepInfra', cost: { total: 0.000224, input: 0.00014, output: 0.000084 } });
     expect(billed.cost).not.toHaveProperty('host');
+    // …and the host's list price for a billed call, never the catalog's.
+    expect(billed.rates).toBeUndefined();
+    const listed = callUsage(step, catalog, [], { total: 0.000224, host: 'DeepInfra' }, (host) => (host === 'DeepInfra' ? { input: 0.14, output: 0.28 } : null));
+    expect(listed.rates).toEqual({ input: 0.14, output: 0.28 });
 
     const usage = usageMetadata(step, step, catalog, [billed, billed]);
     expect(usage.cost).toBeCloseTo(0.000448, 9);

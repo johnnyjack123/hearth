@@ -50,7 +50,7 @@ import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
 import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
-import { agentCallCost, agentModelInfo, callUsage, catalogProvider, pricesAt, withHelpers } from '../pricing.ts';
+import { agentCallCost, agentModelInfo, callUsage, catalogProvider, type HostRates, pricesAt, withHelpers } from '../pricing.ts';
 import { withProviderOrder } from '../openrouter.ts';
 import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
 import { loadHelpers } from '../helpers/load.ts';
@@ -219,13 +219,25 @@ export function conversationRoutes(deps: AppDeps) {
   async function agentPricer(deviceId: string, chat: CredentialRow, modelId: string): Promise<AgentPricer> {
     const provider = catalogProvider(chat.kind, chat.baseUrl);
     const entry = await deps.pricing.entry(chat.kind, chat.baseUrl, modelId);
+    const rates = await hostRatesFor(chat, modelId);
     return (call) =>
       agentCallCost(
         call,
         provider,
         entry && provider && provider !== 'free' ? pricesAt(provider, entry, new Date()) : entry,
         hub.bills.take(deviceId, call.input, call.output),
+        rates,
       );
+  }
+
+  /** The list prices of OpenRouter's hosts for a model, loaded now so billed calls find them. */
+  async function hostRatesFor(chat: CredentialRow, modelId: string): Promise<HostRates | undefined> {
+    const routing = deps.openRouter;
+    if (chat.kind !== 'openrouter' || !routing) {
+      return undefined;
+    }
+    await routing.preload(modelId);
+    return (host) => routing.rates(modelId, host, new Date());
   }
 
   async function agentAssessor(userId: string, chat: CredentialRow, signal: AbortSignal) {
@@ -572,6 +584,7 @@ export function conversationRoutes(deps: AppDeps) {
             : null,
         ),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
+        hostRates: await hostRatesFor(row, body.modelId),
         files,
         memory: settings.memory ? { userId: user.id } : null,
         progress: settings.progress,

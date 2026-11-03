@@ -38,7 +38,7 @@ import { compactionRange, latestCompaction, summarize, withCompaction } from '..
 import { condenseHistory } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
-import { addUsage, type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
+import { addUsage, type BilledCost, billedCost, callUsage, type HostRates, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { withFileContents } from '../files/model.ts';
 import { attachedFileIds, createReadDocumentTool, DocumentError, isLongDocument, READ_DOCUMENT_TOOL } from '../files/read.ts';
 import { documentVectors } from '../files/vectors.ts';
@@ -476,6 +476,8 @@ export interface StreamChatOptions {
   compaction?: { keepRecentTokens: number } | null;
   /** Where the chat's uploads are; their contents replace the references for the model. */
   files: FileStore;
+  /** The list prices of the host OpenRouter ran a billed call on. */
+  hostRates?: HostRates;
   /** Whose memories the model may change; null when an admin switched the memory off. */
   memory?: { userId: string } | null;
   /** The progress list for tasks with several steps; off when an admin switched it off. */
@@ -652,7 +654,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     try {
       const written = await summarize(model, previous, range, 'auto', abortSignal);
       streamWriter.write({ type: 'data-compaction', id, data: written.compaction });
-      compactCalls.push({ ...callUsage(written.usage, pricing, [], written.billed), model: modelId, purpose: 'compact' });
+      compactCalls.push({ ...callUsage(written.usage, pricing, [], written.billed, options.hostRates), model: modelId, purpose: 'compact' });
       const { through, summary } = written.compaction;
       return through && summary ? { through, summary } : null;
     } catch (error) {
@@ -717,7 +719,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               lastStep = part.usage;
               running = addUsage(running, part.usage);
               const ms = Date.now() - (firstToken ?? stepStarted);
-              calls.push({ ...callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata)), ...(ms > 0 ? { ms } : {}) });
+              calls.push({ ...callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata), options.hostRates), ...(ms > 0 ? { ms } : {}) });
               stepTools = [];
               // Cost and context after every model call: a long reply with
               // tools shows them as it goes, and one that breaks off keeps them.
@@ -748,7 +750,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       // The title of a new chat is usually done by now; a late one is left out.
       const title = options.title ? await Promise.race([options.title, new Promise<null>((resolve) => setTimeout(resolve, TITLE_WAIT_MS, null))]) : null;
       if (title && metadata.usage) {
-        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title.usage, pricing, [], title.billed), model: modelId, purpose: 'title' }]);
+        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title.usage, pricing, [], title.billed, options.hostRates), model: modelId, purpose: 'title' }]);
       }
       await saveMessage(db, conversationId, { ...responseMessage, metadata });
       await updateConversation(db, conversationId, {});
