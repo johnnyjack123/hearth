@@ -15,7 +15,7 @@ type Chunk = InferUIMessageChunk<ChatMessage>;
  * Prices one model call of an agent (see `agentCallCost`); without one,
  * pi's own figure counts.
  */
-export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost' | 'billed'>;
+export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost' | 'billed' | 'host'>;
 
 /**
  * The cost fields of a call as pi reports it, through `price` if given.
@@ -24,7 +24,7 @@ export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost'
  * @param price - The server's pricing, if any.
  * @returns `cost` and `billed` for the call's entry.
  */
-function priceCall(call: AgentCallTokens, price: AgentPricer | undefined): Pick<ModelCallUsage, 'cost' | 'billed'> {
+function priceCall(call: AgentCallTokens, price: AgentPricer | undefined): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
   if (price) {
     return price(call);
   }

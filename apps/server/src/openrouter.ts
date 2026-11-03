@@ -276,9 +276,10 @@ export interface BilledUsage {
  * Reads the bill from an answer's `usage`.
  *
  * @param usage - The `usage` object of a chunk or answer.
+ * @param host - The answer's `provider`: the host OpenRouter routed to.
  * @returns The bill, or null if the answer has no cost.
  */
-export function billedUsage(usage: unknown): BilledUsage | null {
+export function billedUsage(usage: unknown, host?: unknown): BilledUsage | null {
   const raw = (usage ?? {}) as {
     cost?: unknown;
     prompt_tokens?: unknown;
@@ -293,8 +294,9 @@ export function billedUsage(usage: unknown): BilledUsage | null {
   }
   const input = price(raw.cost_details?.upstream_inference_prompt_cost);
   const output = price(raw.cost_details?.upstream_inference_completions_cost);
+  const named = typeof host === 'string' && host ? host.slice(0, 100) : undefined;
   return {
-    cost: { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) },
+    cost: { total, ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}), ...(named ? { host: named } : {}) },
     promptTokens,
     completionTokens,
   };
@@ -323,7 +325,8 @@ export function meterBill(body: ReadableStream<Uint8Array>, stream: boolean, onB
       return;
     }
     try {
-      bill = billedUsage((JSON.parse(line.slice(5)) as { usage?: unknown }).usage) ?? bill;
+      const chunk = JSON.parse(line.slice(5)) as { usage?: unknown; provider?: unknown };
+      bill = billedUsage(chunk.usage, chunk.provider) ?? bill;
     } catch {
       // Not JSON (`[DONE]`, a broken line): nothing to read.
     }
@@ -350,7 +353,8 @@ export function meterBill(body: ReadableStream<Uint8Array>, stream: boolean, onB
           readLine(pending.trimEnd());
         } else if (pending.length <= MAX_JSON_CHARS) {
           try {
-            bill = billedUsage((JSON.parse(pending) as { usage?: unknown }).usage);
+            const answer = JSON.parse(pending) as { usage?: unknown; provider?: unknown };
+            bill = billedUsage(answer.usage, answer.provider);
           } catch {
             // An error page or no JSON at all.
           }

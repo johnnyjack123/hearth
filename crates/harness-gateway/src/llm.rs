@@ -38,13 +38,17 @@ pub const WEB_SEARCH_PATH: &str = "/_web/search";
 
 /// Path below the server's prefix where the gateway itself asks whether a
 /// page is a hit of a research reply running on this computer. Agents
-/// cannot use it: only [`WEB_FETCH_PATH`], [`WEB_SEARCH_PATH`] and
-/// [`MEMORY_PATH`] pass from them.
+/// cannot use it: only [`WEB_FETCH_PATH`], [`WEB_SEARCH_PATH`],
+/// [`MEMORY_PATH`] and [`DOCUMENTS_PATH`] pass from them.
 pub const KNOWN_PATH: &str = "/_web/known";
 
 /// Path of the memory tools below `llm.harness`. Like a search it names no
 /// target: the server keeps the memories of the computer's owner.
 pub const MEMORY_PATH: &str = "/_memory";
+
+/// Path of `read_document` below `llm.harness`. It names no target either:
+/// the server reads the documents of the chats running on this computer.
+pub const DOCUMENTS_PATH: &str = "/_documents";
 
 /// Header with the URL an agent wants `web_fetch` to load.
 pub const URL_HEADER: &str = "x-harness-url";

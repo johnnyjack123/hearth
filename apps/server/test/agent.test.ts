@@ -1046,6 +1046,41 @@ data: [DONE]
     expect(refused.status).toBe(404);
   });
 
+  it('lets the agent read the documents of the chats running on its device', async () => {
+    const { deviceId, userId, token } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.hello();
+    const conversation = await newConversation();
+    await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
+    const file = await uploadNote();
+    const read = (as: string, body: unknown) =>
+      server.request('POST', '/api/llm/proxy/_documents', { body, headers: { ...CLI, authorization: `Bearer ${as}` } });
+
+    let prompted: () => void = () => undefined;
+    const prompt = new Promise<void>((resolve) => {
+      prompted = resolve;
+    });
+    device.onPrompt = () => prompted();
+    const reply = chatWithFile(conversation.id, file);
+    await prompt;
+    // While the reply runs: by the short id, as the device lists it, or by name.
+    const found = await read(token, { file: file.id.slice(-8) });
+    expect(found.status).toBe(200);
+    expect(((await found.json()) as { text: string }).text).toBe('From "notiz.txt":\nBohnen kaufen');
+    expect((await read(token, { file: 'notiz.txt', grep: 'Bohnen' })).status).toBe(200);
+    // Another computer of the account has no reply of that chat.
+    const other = await pair();
+    const elsewhere = await read(other.token, { file: file.id.slice(-8) });
+    expect(elsewhere.status).toBe(404);
+    expect(((await elsewhere.json()) as { error: string }).error).toBe(`No document "${file.id.slice(-8)}" in this chat.`);
+    expect((await read(token, { file: 'x', unknown: true })).status).toBe(400);
+
+    device.emit(conversation.id, { type: 'done', aborted: false });
+    await (await reply).text();
+    // After the reply, neither.
+    expect((await read(token, { file: file.id.slice(-8) })).status).toBe(404);
+  });
+
   it('refuses files for a device too old for them, before storing the message', async () => {
     const { deviceId, userId } = await pair();
     const device = connect(server.hub, deviceId, userId);

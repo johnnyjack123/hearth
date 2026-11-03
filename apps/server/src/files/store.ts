@@ -134,6 +134,17 @@ export class FileStore {
   }
 
   /**
+   * @param userId - Whose files.
+   * @param conversationIds - Chats.
+   * @returns The files of those chats that belong to `userId`.
+   */
+  async ofConversations(userId: string, conversationIds: string[]): Promise<FileRow[]> {
+    return conversationIds.length === 0
+      ? []
+      : this.db.selectFrom('file').selectAll().where('userId', '=', userId).where('conversationId', 'in', conversationIds).execute();
+  }
+
+  /**
    * @param id - File id.
    * @returns The stored bytes.
    */

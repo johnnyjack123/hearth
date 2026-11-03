@@ -185,6 +185,7 @@ export const en: Messages = {
     backHome: 'Start a new chat',
     usage: '{input} → {output} tokens',
     rate: '{rate} tokens/s',
+    via: 'via {hosts}',
     rateAverage: 'Wrote {rate} tokens/s on average (from the first token on)',
     tokenTotals: 'Total: {input} input ({cached} from the cache), {output} output ({reasoning} reasoning)',
     usageDetails: {
@@ -203,6 +204,7 @@ export const en: Messages = {
       output: 'Output',
       reasoning: 'reasoning',
       rate: 'tokens/s',
+      host: 'Host',
       cost: 'Cost',
       sum: 'Sum',
       totalWithHelpers: 'Total: {total} ({main} chat model + {helpers} helper calls)',

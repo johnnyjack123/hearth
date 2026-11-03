@@ -328,7 +328,12 @@ export function chooseSections(sections: Section[], scores: number[], maxChars: 
 export const SHORT_PAGE_CHARS = 6_000;
 /** Text of the sections chosen for a focus, ~2,000 tokens. */
 const FOCUS_BUDGET_CHARS = 8_000;
-/** Most sections sent to the embedding model; long pages send their best by keywords. */
+/**
+ * Most sections of a web page sent to the embedding model; long pages send
+ * their best by keywords. A page is embedded anew with every call, so this
+ * bounds the time (~2 s) and cost of one call. Documents keep their vectors
+ * ({@link KeptVectors}) and have no such bound.
+ */
 const MAX_EMBEDDED_SECTIONS = 200;
 /** Longest outline; on very long pages the rest is left out. */
 const MAX_OUTLINE_GROUPS = 80;
@@ -337,7 +342,25 @@ const MAX_OUTLINE_GROUPS = 80;
  * Qwen3-Embedding expects an instruction in front of queries, not in front
  * of documents; other embedding models take it as part of the query.
  */
-const QUERY_INSTRUCTION = 'Instruct: Given a question, retrieve the passages of a web page that answer it\nQuery: ';
+const queryInstruction = (source: string) => `Instruct: Given a question, retrieve the passages of ${source} that answer it\nQuery: `;
+
+/**
+ * Vectors of a text's sections kept between calls, as long documents have
+ * them: gets what the embedding model reads of each section (see
+ * {@link embeddingInput}) and returns one vector per section, null where one
+ * is missing, or null if there are none.
+ */
+export type KeptVectors = (inputs: string[], helpers: Helpers, signal: AbortSignal | undefined) => Promise<(Float32Array | null)[] | null>;
+
+/**
+ * What the embedding model reads of a section: its heading and its text.
+ *
+ * @param section - The section.
+ * @returns The text to embed.
+ */
+export function embeddingInput(section: Section): string {
+  return section.heading ? `${section.heading}\n\n${section.text}` : section.text;
+}
 
 /** Consecutive sections under the same heading, as one line of the outline. */
 export interface OutlineGroup {
@@ -423,6 +446,7 @@ async function scoresFor(
   sections: Section[],
   focus: string,
   helpers: Helpers | null,
+  kept: KeptVectors | undefined,
   signal: AbortSignal | undefined,
 ): Promise<{ scores: number[]; ranking: 'keywords' | 'meaning' }> {
   const skip = ASKS_FOR_SOURCES.test(focus) ? () => false : (section: Section) => BACK_MATTER.test(section.heading.trim());
@@ -431,26 +455,38 @@ async function scoresFor(
   if (!helpers) {
     return { scores: fuseRankings([keywords]), ranking: 'keywords' };
   }
-  const candidates = sections
-    .map((section, index) => ({ section, index, score: keywords[index] ?? 0 }))
-    .filter(({ section }) => !skip(section))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, MAX_EMBEDDED_SECTIONS);
-  const vectors = await embed(
-    helpers,
-    [QUERY_INSTRUCTION + focus, ...candidates.map(({ section }) => (section.heading ? `${section.heading}\n\n${section.text}` : section.text))],
-    signal,
-  );
-  const [query, ...rest] = vectors ?? [];
-  if (!query) {
+  let query: Float32Array | null | undefined;
+  // Sections without a vector (a failed batch, the rest of a long page)
+  // count by keywords only.
+  const meaning = sections.map(() => 0);
+  if (kept) {
+    // Every section, from vectors made once; only the question is new.
+    const [vectors, asked] = await Promise.all([
+      kept(sections.map(embeddingInput), helpers, signal),
+      embed(helpers, [queryInstruction('a document') + focus], signal),
+    ]);
+    query = asked?.[0];
+    sections.forEach((section, index) => {
+      const vector = vectors?.[index];
+      meaning[index] = query && vector && !skip(section) ? cosine(query, vector) : 0;
+    });
+  } else {
+    const candidates = sections
+      .map((section, index) => ({ section, index, score: keywords[index] ?? 0 }))
+      .filter(({ section }) => !skip(section))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, MAX_EMBEDDED_SECTIONS);
+    const vectors = await embed(helpers, [queryInstruction('a web page') + focus, ...candidates.map(({ section }) => embeddingInput(section))], signal);
+    const [first, ...rest] = vectors ?? [];
+    query = first;
+    candidates.forEach((candidate, place) => {
+      const vector = rest[place];
+      meaning[candidate.index] = query && vector ? cosine(query, vector) : 0;
+    });
+  }
+  if (!query || meaning.every((score) => score === 0)) {
     return { scores: fuseRankings([keywords]), ranking: 'keywords' };
   }
-  // Sections of a failed batch have no vector and count by keywords only.
-  const meaning = sections.map(() => 0);
-  candidates.forEach((candidate, place) => {
-    const vector = rest[place];
-    meaning[candidate.index] = vector ? cosine(query, vector) : 0;
-  });
   return { scores: fuseRankings([keywords, meaning]), ranking: 'meaning' };
 }
 
@@ -463,6 +499,8 @@ async function scoresFor(
  * @param request - See {@link SectionRequest}.
  * @param helpers - The user's helper models; without them keywords decide.
  * @param signal - Ends the embedding call with the chat request.
+ * @param kept - Vectors of the sections kept from earlier calls (long
+ *   documents); without them the best sections by keywords are embedded.
  * @returns The selection, or null when the page is short enough to come whole.
  */
 export async function selectSections(
@@ -470,6 +508,7 @@ export async function selectSections(
   request: SectionRequest,
   helpers: Helpers | null,
   signal?: AbortSignal,
+  kept?: KeptVectors,
 ): Promise<SectionSelection | null> {
   if (markdown.length <= SHORT_PAGE_CHARS) {
     return null;
@@ -489,7 +528,7 @@ export async function selectSections(
     }
   }
   if (chosen.length === 0) {
-    const ranked = request.focus ? await scoresFor(sections, request.focus, helpers, signal) : null;
+    const ranked = request.focus ? await scoresFor(sections, request.focus, helpers, kept, signal) : null;
     const scores = ranked?.scores ?? sections.map(() => 0);
     ranking = ranked?.ranking ?? null;
     matched = scores.some((score) => score > 0);

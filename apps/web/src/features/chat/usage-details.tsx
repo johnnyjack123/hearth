@@ -112,6 +112,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
   const dollars = (value: number | undefined) => (value === undefined ? t('chat.usageDetails.unknown') : formatDollars(locale, value));
   const result = (call: ModelCallUsage) => (call.tools.length > 0 ? call.tools.join(', ') : agent ? '–' : t('chat.usageDetails.answer'));
   const timed = calls.some((call) => call.ms !== undefined);
+  const hosted = calls.some((call) => call.host !== undefined);
   const rate = (rows: ModelCallUsage[]) => {
     const value = outputRate(rows);
     return value === null ? '–' : formatRate(locale, value);
@@ -144,6 +145,11 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               <Cell head>{t('chat.usageDetails.output')}</Cell>
               <Cell head>{t('chat.usageDetails.reasoning')}</Cell>
               {timed ? <Cell head>{t('chat.usageDetails.rate')}</Cell> : null}
+              {hosted ? (
+                <Cell head start>
+                  {t('chat.usageDetails.host')}
+                </Cell>
+              ) : null}
               <Cell head>{t('chat.usageDetails.cost')}</Cell>
             </tr>
           </thead>
@@ -159,6 +165,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
                 <Cell>{tokens.format(call.output)}</Cell>
                 <Cell>{call.reasoning === undefined ? '–' : tokens.format(call.reasoning)}</Cell>
                 {timed ? <Cell>{rate([call])}</Cell> : null}
+                {hosted ? <Cell start>{call.host ?? '–'}</Cell> : null}
                 <Cell>{dollars(call.cost?.total)}</Cell>
               </tr>
             ))}
@@ -174,6 +181,7 @@ export function UsageDetails({ usage, agent, modelId }: { usage: Usage; agent: b
               <Cell>{tokens.format(sum(calls, (call) => call.output))}</Cell>
               <Cell>{tokens.format(sum(calls, (call) => call.reasoning))}</Cell>
               {timed ? <Cell>{rate(calls)}</Cell> : null}
+              {hosted ? <Cell start>{''}</Cell> : null}
               <Cell>{dollars(mainCost)}</Cell>
             </tr>
           </tfoot>

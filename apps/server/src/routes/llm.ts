@@ -3,6 +3,9 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
+import { DocumentError, readDocument, readDocumentSchema } from '../files/read.ts';
+import { fileStore } from '../files/store.ts';
+import { documentVectors } from '../files/vectors.ts';
 import { ProviderRequestError } from '../llm.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { findCredential, listCredentialRows, resolveCredential } from '../services/credentials.ts';
@@ -218,6 +221,23 @@ export function llmRoutes(deps: AppDeps) {
       } catch (error) {
         if (error instanceof HttpError) {
           return c.json({ error: error.message }, error.status);
+        }
+        throw error;
+      }
+    })
+    // `read_document` of agents (`pi/documents.ts`): the documents of the
+    // chats whose replies run on this device right now, searched like in the
+    // web chat, with the vectors kept on the server.
+    .post('/proxy/_documents', async (c) => {
+      const request = readDocumentSchema.strict().parse(await c.req.json());
+      const owner = c.get('owner').id;
+      const rows = await fileStore(db, deps.config.dataDir).ofConversations(owner, deps.hub.runningSessions(c.get('device').id));
+      const helpers = await loadHelpers(db, secretBox, owner, null, deps.helpers);
+      try {
+        return c.json(await readDocument(rows, request, { helpers, vectors: documentVectors(db), signal: c.req.raw.signal }));
+      } catch (error) {
+        if (error instanceof DocumentError) {
+          return c.json({ error: error.message }, 404);
         }
         throw error;
       }

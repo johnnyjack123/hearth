@@ -41,6 +41,7 @@ import { type Helpers } from '../helpers/openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { withFileContents } from '../files/model.ts';
 import { attachedFileIds, createReadDocumentTool, DocumentError, isLongDocument, READ_DOCUMENT_TOOL } from '../files/read.ts';
+import { documentVectors } from '../files/vectors.ts';
 import type { FileStore } from '../files/store.ts';
 import { type ChatMessage, saveMessage, updateConversation } from '../services/conversations.ts';
 import type { FetchApprovals } from '../webfetch/approvals.ts';
@@ -571,7 +572,9 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(options.progress ? { [PROGRESS_TOOL]: createProgressTool() } : {}),
     // Only in chats with a long document: the tool list changes once, when
     // the first one is attached.
-    ...(longDocuments ? { [READ_DOCUMENT_TOOL]: createReadDocumentTool(options.files, fileIds, helpers, abortSignal) } : {}),
+    ...(longDocuments
+      ? { [READ_DOCUMENT_TOOL]: createReadDocumentTool(options.files, fileIds, { helpers, vectors: documentVectors(db), signal: abortSignal }) }
+      : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set(

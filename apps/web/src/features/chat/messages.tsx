@@ -174,6 +174,9 @@ function AssistantMessage({
         if (part.type === 'dynamic-tool' && (part.toolName === REMEMBER_TOOL || part.toolName === FORGET_TOOL)) {
           return <MemoryCall key={part.toolCallId} {...memoryCallView(part.toolName, part, streaming)} />;
         }
+        if (part.type === 'dynamic-tool' && part.toolName === 'read_document') {
+          return <DocumentRead key={part.toolCallId} part={part} streaming={streaming} />;
+        }
         if (part.type === 'dynamic-tool') {
           return <ToolCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />;
         }
@@ -403,6 +406,8 @@ function MessageActions({
   const [showUsage, setShowUsage] = useState(false);
   const usage = message.metadata?.usage;
   const rate = outputRate(usage?.calls ?? []);
+  // Where OpenRouter sent the calls; usually one host, the order keeps the cache there.
+  const hosts = [...new Set((usage?.calls ?? []).flatMap((call) => (call.host ? [call.host] : [])))];
 
   async function copy() {
     await navigator.clipboard.writeText(messageText(message));
@@ -439,6 +444,7 @@ function MessageActions({
               : null}
             {usage?.cost !== undefined ? ` · ${formatCost(locale, usage.cost)}` : null}
             {rate !== null ? ` · ${t('chat.rate', { rate: formatRate(locale, rate) })}` : null}
+            {hosts.length > 0 ? ` · ${t('chat.via', { hosts: hosts.join(', ') })}` : null}
           </span>
         ) : null}
         {usage ? (

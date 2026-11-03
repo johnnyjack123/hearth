@@ -55,12 +55,13 @@ describe('billed cost', () => {
         billed = billedCost(part.providerMetadata);
       }
     }
-    expect(billed).toEqual({ total: 0.000224, input: 0.00014, output: 0.000084 });
+    // With the host OpenRouter routed to, which every chunk names.
+    expect(billed).toEqual({ total: 0.000224, input: 0.00014, output: 0.000084, host: 'DeepInfra' });
   });
 
   it('comes with answers that are not streamed, such as the title', async () => {
     const { providerMetadata } = await generateText({ model: createLlmGateway().createModel(credential(), 'deepseek/deepseek-v4.1-flash'), prompt: 'Titel?' });
-    expect(billedCost(providerMetadata)?.total).toBe(0.000224);
+    expect(billedCost(providerMetadata)).toMatchObject({ total: 0.000224, host: 'DeepInfra' });
   });
 
   it('replaces the estimate from catalog prices, call by call and for the reply', () => {
@@ -75,8 +76,9 @@ describe('billed cost', () => {
     const catalog = { input: 0.024, output: 0.096 };
     const estimated = callUsage(step, catalog, []);
     expect(estimated.billed).toBeUndefined();
-    const billed = callUsage(step, catalog, [], { total: 0.000224, input: 0.00014, output: 0.000084 });
-    expect(billed).toMatchObject({ billed: true, cost: { total: 0.000224, input: 0.00014, output: 0.000084 } });
+    const billed = callUsage(step, catalog, [], { total: 0.000224, input: 0.00014, output: 0.000084, host: 'DeepInfra' });
+    expect(billed).toMatchObject({ billed: true, host: 'DeepInfra', cost: { total: 0.000224, input: 0.00014, output: 0.000084 } });
+    expect(billed.cost).not.toHaveProperty('host');
 
     const usage = usageMetadata(step, step, catalog, [billed, billed]);
     expect(usage.cost).toBeCloseTo(0.000448, 9);

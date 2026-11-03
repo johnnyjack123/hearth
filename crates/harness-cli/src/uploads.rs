@@ -58,6 +58,12 @@ fn unique(name: String, used: &mut HashSet<String>) -> String {
     candidate
 }
 
+/// The short name of a file the server's `read_document` takes: the end of
+/// its UUID, as `documentRef` in `apps/server/src/files/read.ts`.
+fn document_ref(id: &str) -> &str {
+    id.get(id.len().saturating_sub(8)..).unwrap_or(id)
+}
+
 fn size(bytes: u64) -> String {
     if bytes < 1024 * 1024 {
         format!("{} KB", bytes.div_ceil(1024))
@@ -103,16 +109,24 @@ pub(crate) fn place(
         fs::write(&local, &bytes).context("Datei zwischenspeichern")?;
         provider.copy_into(container, &local, &format!("{UPLOADS_DIR}/{name}"))?;
         let what = format!("{}, {}", file.media_type, size(file.size));
+        // The server keeps the text and its embeddings; `read_document`
+        // (pi/documents.ts) searches it there by this id.
+        let search = format!(
+            "; search it with read_document, file \"{}\"",
+            document_ref(&file.id)
+        );
         lines.push(match file.kind.as_str() {
             "document" => {
                 let text = client.device_file(token, &file.id, true)?;
                 let markdown = work.path().join(format!("{index}.md"));
                 fs::write(&markdown, &text).context("Text zwischenspeichern")?;
                 provider.copy_into(container, &markdown, &format!("{UPLOADS_DIR}/{name}.md"))?;
-                format!("- ~/uploads/{name} ({what}); its text as Markdown: ~/uploads/{name}.md")
+                format!(
+                    "- ~/uploads/{name} ({what}); its text as Markdown: ~/uploads/{name}.md{search}"
+                )
             }
             "image" => format!("- ~/uploads/{name} ({what}); look at it with the read tool"),
-            _ => format!("- ~/uploads/{name} ({what})"),
+            _ => format!("- ~/uploads/{name} ({what}){search}"),
         });
     }
     Ok(format!(
@@ -135,6 +149,15 @@ mod tests {
         assert_eq!(safe_name("..."), "datei");
         assert_eq!(safe_name("Größe äöü.md"), "Größe äöü.md");
         assert_eq!(safe_name(&"x".repeat(300)).chars().count(), 120);
+    }
+
+    #[test]
+    fn documents_are_named_by_the_end_of_their_id() {
+        assert_eq!(
+            document_ref("0193f0aa-1b2c-7d3e-8f40-5a6b7c8d9e0f"),
+            "7c8d9e0f"
+        );
+        assert_eq!(document_ref("kurz"), "kurz");
     }
 
     #[test]

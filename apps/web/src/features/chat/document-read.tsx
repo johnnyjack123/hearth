@@ -1,20 +1,37 @@
-import type { ToolUIPart } from 'ai';
 import { CircleAlert, FileText } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import { useT } from '@/lib/preferences.tsx';
 
+/** The document's name in what the tool returned: a chat model's output has it, an agent's text starts with it. */
+function documentName(output: unknown): string | null {
+  const { file, text } = (output ?? {}) as { file?: unknown; text?: unknown };
+  if (typeof file === 'string') {
+    return file;
+  }
+  const quoted = typeof text === 'string' ? /^From ("(?:[^"\\]|\\.)*"):/.exec(text)?.[1] : undefined;
+  if (quoted) {
+    try {
+      return JSON.parse(quoted) as string;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /**
- * One line in a reply when the model read part of a long document: which
- * document and what it looked for, so the user sees where the answer rests.
+ * One line in a reply when the model (or an agent) read part of a long
+ * document: which document and what it looked for, so the user sees where
+ * the answer rests.
  *
  * @param props - The tool part and whether the reply is still written.
  * @returns The line.
  */
-export function DocumentRead({ part, streaming }: { part: ToolUIPart; streaming: boolean }) {
+export function DocumentRead({ part, streaming }: { part: { state: string; input?: unknown; output?: unknown; errorText?: string }; streaming: boolean }) {
   const t = useT();
   const input = (part.input ?? {}) as { file?: unknown; focus?: unknown; grep?: unknown; sections?: unknown };
-  const output = part.state === 'output-available' ? (part.output as { file?: unknown } | undefined) : undefined;
-  const name = typeof output?.file === 'string' ? output.file : typeof input.file === 'string' ? input.file : '…';
+  const named = part.state === 'output-available' ? documentName(part.output) : null;
+  const name = named ?? (typeof input.file === 'string' ? input.file : '…');
   const what =
     typeof input.focus === 'string' && input.focus
       ? input.focus

@@ -189,6 +189,21 @@ export interface FileTable {
 }
 
 /**
+ * Row of `fileVectors`: the embeddings of a long document's sections, made
+ * once and kept, so a search in it embeds only the question.
+ */
+export interface FileVectorsTable {
+  fileId: string;
+  /** Embedding model the vectors come from; another model starts over. */
+  model: string;
+  /** Hash of the embedded section texts; a different split starts over. */
+  hash: string;
+  /** JSON array, one base64 float32 vector (or null, not yet embedded) per section. */
+  vectors: string;
+  updatedAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -203,5 +218,6 @@ export interface DB {
   deviceProject: DeviceProjectTable;
   appTemplate: AppTemplateTable;
   file: FileTable;
+  fileVectors: FileVectorsTable;
   memory: MemoryTable;
 }
