@@ -116,7 +116,20 @@ function toSummary(row: DeviceRow): DeviceSummary {
     idleMinutes: row.idleMinutes ?? DEFAULT_IDLE_MINUTES,
     jevReview: row.jevReview !== 0,
     apps: storedApps(row.apps),
+    harnessVersion: row.harnessVersion,
   };
+}
+
+/**
+ * Keeps the version of harness a device reported, for the hint when it or
+ * the server is older.
+ *
+ * @param db - Open database.
+ * @param deviceId - The device.
+ * @param version - Its harness version.
+ */
+export async function saveDeviceVersion(db: Kysely<DB>, deviceId: string, version: string): Promise<void> {
+  await db.updateTable('device').set({ harnessVersion: version }).where('id', '=', deviceId).execute();
 }
 
 /**

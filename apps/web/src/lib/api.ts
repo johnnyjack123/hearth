@@ -9,6 +9,7 @@ import type {
   ChatFile,
   CompactRequestBody,
   ConversationDetail,
+  CostStatus,
   ConversationSummary,
   CreateAppTemplateInput,
   CreateConversationInput,
@@ -143,6 +144,10 @@ export const api = {
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
+  },
+  costs: {
+    get: () => request<CostStatus>('GET', '/costs'),
+    setLimit: (daily: number | null) => request<CostStatus>('PUT', '/costs/limit', { daily }),
   },
   memories: {
     list: () => request<Memory[]>('GET', '/memories'),

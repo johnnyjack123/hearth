@@ -16,6 +16,17 @@
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
+## Weg zu 1.0 (Stand 3.11.2026)
+
+1. ✅ Versionen sichtbar (Server-Version im Image, harness-Version im Tunnel-Protokoll 10, Hinweise in Einstellungen → Geräte und im Tray).
+2. ✅ Kostendeckel pro Tag (Admin für alle, eigenes Limit je Nutzer, Agents und `harness run` stoppen am Limit).
+3. Backup, Wiederherstellung und Umzug des Servers dokumentieren (passt zum Umzug auf den Heimserver; `HARNESS_SECRET` gehört zur Datenbank).
+4. Funde der Sicherheitsprüfung beheben (`docs/security/review-2026-11-03.md`): zuerst H1 (pi-Konfiguration je Projekt), H2 (Merge-Prüfung gegen `.gitattributes`, neue Dateiarten wie `.claude/settings.json`), H3 (`KnownUrls` nur exakte URLs), dann M1–M8; die niedrigen Funde je nach Aufwand.
+5. Neuinstallation auf frischem Windows, auch x64 (keine Windows Sandbox).
+6. Release-Kandidat v1.0.0-rc.1, ein bis zwei Wochen Alltag nur mit Fehlerbehebungen, dann 1.0.
+
+Nach 1.0: signierte Programme und Auto-Update, Scanner für die Merge-Prüfung, Mistral für pi, gleiche Zusammenfass-Schwellen bei pi und im Web, ESLint/Prettier, kleinere Web-App, Host-Modus, Windows Home und Linux.
+
 ## Phase 1 – Reste
 
 - [x] Server-Image (`apps/server/Dockerfile`, amd64 und arm64) mit `docker-compose.yml` und `.env`; GitHub baut und testet es bei jedem Push auf `main` (17.10., `docs/deploy.md`).

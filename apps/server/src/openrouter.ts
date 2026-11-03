@@ -3,6 +3,7 @@
  * agents: each request goes to the host that is cheapest right now, and
  * what OpenRouter billed is read back from its answer.
  */
+import type { TokenRates } from '@harness/shared';
 import type { JSONValue } from 'ai';
 import type { EffortOptions } from './effort.ts';
 import type { BilledCost } from './pricing.ts';
@@ -49,6 +50,7 @@ interface RawOverride extends RawPrice {
 
 interface RawEndpoint {
   tag?: unknown;
+  provider_name?: unknown;
   service_tier?: unknown;
   status?: unknown;
   uptime_last_30m?: unknown;
@@ -127,7 +129,7 @@ export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: bool
     // Flex is a discounted tier OpenRouter only uses on request (`:floor`,
     // `service_tier`), without promises on waiting or capacity; an agent
     // waiting in a queue costs the user more time than it saves.
-    if (entry.service_tier === 'flex' || /\/flex$/i.test(entry.tag)) {
+    if (isFlex(entry)) {
       return;
     }
     if (options.noFourBit && typeof entry.quantization === 'string' && FOUR_BIT.has(entry.quantization.toLowerCase())) {
@@ -143,6 +145,54 @@ export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: bool
   // On a tie OpenRouter's own order stands.
   ranked.sort((a, b) => a.score - b.score || a.index - b.index);
   return ranked.slice(0, MAX_ORDER).map((endpoint) => endpoint.tag);
+}
+
+function isFlex(entry: RawEndpoint): boolean {
+  return entry.service_tier === 'flex' || (typeof entry.tag === 'string' && /\/flex$/i.test(entry.tag));
+}
+
+/**
+ * The list prices of the host that ran a call, as OpenRouter names it in its
+ * answer (`provider`), at the moment of the call. A host with several
+ * endpoints (quantizations) counts with its cheapest one, as the routing
+ * picks it; flex endpoints are left out like there.
+ *
+ * @param raw - OpenRouter's answer of `/models/<id>/endpoints`.
+ * @param host - The host's name, e.g. `DeepInfra`.
+ * @param at - When the call ran.
+ * @returns US dollars per million tokens, or null if the list does not know the host.
+ */
+export function hostRates(raw: unknown, host: string, at: Date): TokenRates | null {
+  const endpoints = (raw as { data?: { endpoints?: unknown } } | null)?.data?.endpoints;
+  if (!Array.isArray(endpoints)) {
+    return null;
+  }
+  let best: { prompt: number; completion: number; cacheRead?: number } | null = null;
+  let bestScore = Infinity;
+  for (const entry of endpoints as RawEndpoint[]) {
+    if (!entry || typeof entry !== 'object' || entry.provider_name !== host || isFlex(entry)) {
+      continue;
+    }
+    const prices = endpointPrices(entry, at);
+    if (!prices) {
+      continue;
+    }
+    const score = MIX.input * prices.prompt + MIX.cacheRead * (prices.cacheRead ?? prices.prompt) + MIX.output * prices.completion;
+    if (score < bestScore) {
+      best = prices;
+      bestScore = score;
+    }
+  }
+  if (!best) {
+    return null;
+  }
+  // Per token in the list, per million tokens everywhere else.
+  const million = (value: number) => Math.round(value * 1e6 * 1e9) / 1e9;
+  return {
+    input: million(best.prompt),
+    output: million(best.completion),
+    ...(best.cacheRead !== undefined ? { cacheRead: million(best.cacheRead) } : {}),
+  };
 }
 
 /** Loads OpenRouter's endpoint list of a model; tests pass a stand-in. */
@@ -191,6 +241,32 @@ export class OpenRouterRouting {
     const raw = await this.#list(modelId);
     const order = raw === null ? [] : rankEndpoints(raw, new Date(this.now()), options);
     return order.length > 0 ? order : null;
+  }
+
+  /**
+   * Loads a model's endpoint list ahead of its calls, so {@link rates} knows
+   * its hosts when the bill comes in.
+   *
+   * @param modelId - OpenRouter's model id.
+   */
+  async preload(modelId: string): Promise<void> {
+    if (ROUTABLE_MODEL.test(modelId)) {
+      await this.#list(modelId);
+    }
+  }
+
+  /**
+   * The list prices of the host that ran a call, from the list loaded for
+   * the model (see {@link preload}).
+   *
+   * @param modelId - OpenRouter's model id.
+   * @param host - The host's name as OpenRouter's answer gives it.
+   * @param at - When the call ran.
+   * @returns US dollars per million tokens, or null if unknown.
+   */
+  rates(modelId: string, host: string, at: Date): TokenRates | null {
+    const raw = this.#lists.get(modelId)?.raw;
+    return raw === undefined ? null : hostRates(raw, host, at);
   }
 
   async #list(modelId: string): Promise<unknown> {

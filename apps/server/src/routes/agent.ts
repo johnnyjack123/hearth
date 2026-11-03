@@ -15,7 +15,7 @@ type Chunk = InferUIMessageChunk<ChatMessage>;
  * Prices one model call of an agent (see `agentCallCost`); without one,
  * pi's own figure counts.
  */
-export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost' | 'billed' | 'host'>;
+export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost' | 'billed' | 'host' | 'rates'>;
 
 /**
  * The cost fields of a call as pi reports it, through `price` if given.
@@ -24,7 +24,7 @@ export type AgentPricer = (call: AgentCallTokens) => Pick<ModelCallUsage, 'cost'
  * @param price - The server's pricing, if any.
  * @returns `cost` and `billed` for the call's entry.
  */
-function priceCall(call: AgentCallTokens, price: AgentPricer | undefined): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
+function priceCall(call: AgentCallTokens, price: AgentPricer | undefined): Pick<ModelCallUsage, 'cost' | 'billed' | 'host' | 'rates'> {
   if (price) {
     return price(call);
   }
@@ -385,6 +385,11 @@ export interface StreamAgentOptions {
   assess?: { assessor: Assessor; helpers: Helpers } | null;
   /** Prices the agent's model calls; pi's own figures without it. */
   price?: AgentPricer;
+  /**
+   * Hears the reply's cost after each model call, and when it is stored:
+   * the daily cost limit counts a running reply, too.
+   */
+  costs?: { report: (dollars: number) => void; end: () => void };
 }
 
 /**
@@ -440,7 +445,11 @@ export function streamAgent(options: StreamAgentOptions): Response {
         // agent killed, the device gone) keeps what it used. Likewise how
         // long each tool ran.
         if (event.type === 'usage' || event.type === 'compaction' || event.type === 'tool.end') {
-          writer.write({ type: 'message-metadata', messageMetadata: current() });
+          const now = current();
+          writer.write({ type: 'message-metadata', messageMetadata: now });
+          if (now.usage?.cost !== undefined) {
+            options.costs?.report(now.usage.cost);
+          }
         }
       }
       for (const chunk of mapper.closeOpenTools()) {
@@ -456,10 +465,15 @@ export function streamAgent(options: StreamAgentOptions): Response {
       if (responseMessage.parts.length === 0) {
         return;
       }
-      await saveMessage(db, conversationId, {
-        ...responseMessage,
-        metadata: { ...metadata, ...responseMessage.metadata },
-      });
+      try {
+        await saveMessage(db, conversationId, {
+          ...responseMessage,
+          metadata: { ...metadata, ...responseMessage.metadata },
+        });
+      } finally {
+        // Stored, its cost counts in `costDay`; or lost, and then not at all.
+        options.costs?.end();
+      }
       await updateConversation(db, conversationId, {});
     },
   });

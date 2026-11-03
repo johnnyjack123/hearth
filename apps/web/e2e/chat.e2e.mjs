@@ -255,8 +255,10 @@ try {
 
     // Thresholds for condensing long chats.
     await page.$eval(text('Lange Chats eindampfen'), (element) => element.scrollIntoView({ block: 'center' }));
-    await page.click('input[inputmode="decimal"]', { count: 3 });
-    await page.type('input[inputmode="decimal"]', '4');
+    // The hours are the last amount on the page; the daily cost limit comes first.
+    const hours = (await page.$$('input[inputmode="decimal"]')).at(-1);
+    await hours.click({ count: 3 });
+    await hours.type('4');
     await page.click(text('Schwellen speichern'));
     await page.waitForFunction(
       async () => (await (await fetch('/api/admin/settings')).json()).condense?.afterIdleHours === 4,
@@ -574,6 +576,22 @@ try {
     }
   });
 
+  await step('costs and versions in the settings', async () => {
+    // What chats cost today and the own daily limit, under Account.
+    await page.goto(`${BASE}/settings?tab=account`, { waitUntil: 'networkidle0' });
+    await waitForText('Kein Tageslimit.');
+    const limit = await page.waitForSelector('input[inputmode=decimal]', { timeout: 5_000 });
+    await limit.type('2,50');
+    await limit.evaluate((input) => input.form.querySelector('button[type=submit]').click());
+    await waitForText('noch 2,50');
+    await shot('53-costs');
+    // The server's version for admins; `dev` from the sources.
+    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle0' });
+    await page.click('[role=tab]::-p-text(Server)');
+    await waitForText('Server-Version dev');
+    await waitForText('Tageslimit je Nutzer in US-$');
+  });
+
   await step('the chat model shows its plan as a progress list', async () => {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.type('textarea', 'Plane: Suchen; Lesen; Antworten');
@@ -732,7 +750,10 @@ try {
       received.push(message);
       if (message.type === 'welcome') {
         // Protocol 2: VM activity, idle time and stopping from the browser.
-        device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }] }));
+        // From protocol 10 on with the version of harness, as `harness connect` sends it.
+        device.send(
+          JSON.stringify({ type: 'hello', version: message.version, projects: [{ name: 'demo', harnesses: ['pi'] }], harness: '0.0.1' }),
+        );
         sendStatus('stopped');
         sendApps(['c']);
       }
@@ -1153,6 +1174,8 @@ try {
       await page.goto(`${BASE}/settings?tab=devices`, { waitUntil: 'networkidle0' });
       await waitForText('VM läuft');
       await waitForText('Automatisch stoppen nach 1 h');
+      // The version the device said at its hello.
+      await waitForText('harness 0.0.1');
       await shot('35-devices-vm-light');
       // Every project's programs, folded until asked for.
       await waitForText('Programme je Projekt');

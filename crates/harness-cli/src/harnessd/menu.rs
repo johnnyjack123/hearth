@@ -149,6 +149,16 @@ impl View {
         self.str("server").filter(|s| s.starts_with("http"))
     }
 
+    /// harness's version (the service's, else this tray's) and the
+    /// server's, once it said.
+    fn versions(&self) -> (String, Option<String>) {
+        let harness = self
+            .str("version")
+            .unwrap_or(env!("CARGO_PKG_VERSION"))
+            .to_owned();
+        (harness, self.str("serverVersion").map(str::to_owned))
+    }
+
     /// Open gateway questions: chat, id, host.
     fn questions(&self) -> Vec<(String, u64, String)> {
         self.status
@@ -286,11 +296,48 @@ impl Language {
         )
     }
 
+    /// Both versions, and which side to update when they differ: copying
+    /// the command for an older server, the setup program for an older
+    /// harness.
+    pub fn versions(self, view: &View) -> (String, Option<Action>) {
+        let (harness, server) = view.versions();
+        let Some(server) = server else {
+            return (format!("harness {harness}"), None);
+        };
+        match version_order(&server, &harness) {
+            Some(std::cmp::Ordering::Less) => (
+                if self.german {
+                    format!(
+                        "Server {server} älter als harness {harness} – Befehl zum Aktualisieren kopieren"
+                    )
+                } else {
+                    format!("Server {server} older than harness {harness} – copy update command")
+                },
+                Some(Action::Copy(SERVER_UPDATE.to_owned())),
+            ),
+            Some(std::cmp::Ordering::Greater) => (
+                if self.german {
+                    format!(
+                        "harness {harness} älter als der Server {server} – neues Einrichtungsprogramm ausführen"
+                    )
+                } else {
+                    format!(
+                        "harness {harness} older than the server {server} – run the new setup program"
+                    )
+                },
+                None,
+            ),
+            _ => (format!("harness {harness} · Server {server}"), None),
+        }
+    }
+
     /// The menu for `view`; `log` is the service's log file.
     pub fn menu(self, view: &View, log: &Path, now: u64) -> Vec<Entry> {
+        let (versions, update) = self.versions(view);
         let mut entries = vec![
             Entry::Item(self.connection(view), None),
             Entry::Item(self.vm(view, now), None),
+            Entry::Item(versions, update),
         ];
         let server = view.server().map(str::to_owned);
         for (session, _, host) in view.questions().into_iter().take(5) {
@@ -386,6 +433,25 @@ impl Language {
             target: server.clone(),
             file: None,
         }));
+        let (harness, server) = view.versions();
+        if let Some(server) = server
+            .filter(|server| version_order(server, &harness) == Some(std::cmp::Ordering::Less))
+        {
+            notices.push(Notice {
+                key: format!("v:{server}:{harness}"),
+                text: if self.german {
+                    format!(
+                        "Der Server ({server}) ist älter als harness ({harness}). Auf dem Server: \
+                         {SERVER_UPDATE}"
+                    )
+                } else {
+                    format!("The server ({server}) is older than harness ({harness}). On the server: {SERVER_UPDATE}")
+                },
+                warning: true,
+                target: None,
+                file: None,
+            });
+        }
         notices.extend(view.files.iter().map(|file| Notice {
             key: format!("f:{}", file.id),
             text: if self.german {
@@ -431,6 +497,24 @@ impl Language {
             )
         }
     }
+}
+
+/// What updates the server (Docker Compose, as `docs/deploy.md` sets it up).
+const SERVER_UPDATE: &str = "docker compose pull && docker compose up -d";
+
+/// Compares versions like `0.1.15` part by part; anything after `+` or `-`
+/// does not count. None if either is no version (`dev`). The same rule as
+/// in `connect.rs` and `@harness/shared`'s `compareVersions`.
+fn version_order(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    let parts = |version: &str| -> Option<Vec<u64>> {
+        let core = version.trim().trim_start_matches('v');
+        let core = core.split(['+', '-']).next().unwrap_or("");
+        core.split('.').map(|part| part.parse().ok()).collect()
+    };
+    let (left, right) = (parts(a)?, parts(b)?);
+    let length = left.len().max(right.len());
+    let pad = |list: Vec<u64>| list.into_iter().chain(std::iter::repeat(0)).take(length);
+    Some(pad(left).cmp(pad(right)))
 }
 
 #[cfg(test)]
@@ -492,15 +576,20 @@ mod tests {
             menu[1],
             ("VM läuft · stoppt im Leerlauf in 12 min".into(), None)
         );
-        assert_eq!(menu[2].1, Some(Action::Open("http://pi:8085/c/c1".into())));
+        // Before the server says its version: harness's alone.
         assert_eq!(
-            menu[3].1,
+            menu[2],
+            (format!("harness {}", env!("CARGO_PKG_VERSION")), None)
+        );
+        assert_eq!(menu[3].1, Some(Action::Open("http://pi:8085/c/c1".into())));
+        assert_eq!(
+            menu[4].1,
             Some(Action::Copy("harness merge --approve K7QF2M".into()))
         );
-        assert_eq!(menu[4].1, Some(Action::Open("http://pi:8085".into())));
-        assert_eq!(menu[5].1, Some(Action::StopVm));
-        assert_eq!(menu[6].1, Some(Action::Open("C:/h/daemon.log".into())));
-        assert_eq!(menu[7].1, Some(Action::Quit));
+        assert_eq!(menu[5].1, Some(Action::Open("http://pi:8085".into())));
+        assert_eq!(menu[6].1, Some(Action::StopVm));
+        assert_eq!(menu[7].1, Some(Action::Open("C:/h/daemon.log".into())));
+        assert_eq!(menu[8].1, Some(Action::Quit));
         let notices = DE.notices(&view);
         assert_eq!(notices.len(), 2);
         assert_eq!(notices[0].target.as_deref(), Some("http://pi:8085/c/c1"));
@@ -517,13 +606,13 @@ mod tests {
         assert_eq!(menu[0].0, "Not connected: Verbindungsaufbau");
         assert_eq!(menu[1].0, "VM off, starts when needed");
         // The VM is off: nothing to stop.
-        assert_eq!(menu[3], ("Stop VM".into(), None));
+        assert_eq!(menu[4], ("Stop VM".into(), None));
         assert!(!offline.connected() && !offline.attention());
 
         let starting = View::default();
         let menu = actions(&DE.menu(&starting, Path::new("log"), 0));
         assert_eq!(menu[0].0, "Dienst startet …");
-        assert_eq!(menu[2], ("Web-App öffnen".into(), None));
+        assert_eq!(menu[3], ("Web-App öffnen".into(), None));
         let quitting = View {
             quitting: true,
             ..View::default()
@@ -568,7 +657,7 @@ mod tests {
         assert!(view.attention());
         let menu = actions(&DE.menu(&view, Path::new("log"), 0));
         assert_eq!(
-            menu[2],
+            menu[3],
             (
                 "Programm „Mein Tool“ freigeben …".into(),
                 Some(Action::ApproveFile("H3PX7Q".into()))
@@ -579,5 +668,47 @@ mod tests {
         let question = DE.approval_question(&view.files[0]);
         assert!(question.contains("C:\\Tools\\tool.zip"), "{question}");
         assert!(question.contains("Archiv (zip), 3.0 MB"), "{question}");
+    }
+    #[test]
+    fn versions_say_which_side_to_update() {
+        use std::cmp::Ordering;
+        assert_eq!(version_order("0.1.14", "0.1.15"), Some(Ordering::Less));
+        assert_eq!(
+            version_order("0.1.15+abc1234", "0.1.15"),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(version_order("0.2", "0.1.15"), Some(Ordering::Greater));
+        assert_eq!(version_order("dev", "0.1.15"), None);
+
+        let de = Language { german: true };
+        let older = view(
+            json!({ "pid": 1, "connection": "connected", "version": "0.1.15", "serverVersion": "0.1.14" }),
+        );
+        let (label, action) = de.versions(&older);
+        assert!(
+            label.starts_with("Server 0.1.14 älter als harness 0.1.15"),
+            "{label}"
+        );
+        assert_eq!(action, Some(Action::Copy(SERVER_UPDATE.to_owned())));
+        assert!(
+            de.notices(&older)
+                .iter()
+                .any(|notice| notice.key == "v:0.1.14:0.1.15" && notice.warning)
+        );
+
+        let same = view(
+            json!({ "pid": 1, "connection": "connected", "version": "0.1.15", "serverVersion": "0.1.15" }),
+        );
+        assert_eq!(
+            de.versions(&same),
+            ("harness 0.1.15 · Server 0.1.15".to_owned(), None)
+        );
+        assert!(de.notices(&same).is_empty());
+        let newer = view(
+            json!({ "pid": 1, "connection": "connected", "version": "0.1.14", "serverVersion": "0.1.15" }),
+        );
+        assert!(de.versions(&newer).0.contains("neues Einrichtungsprogramm"));
+        let unknown = view(json!({ "pid": 1, "connection": "connected", "version": "0.1.15" }));
+        assert_eq!(de.versions(&unknown).0, "harness 0.1.15");
     }
 }

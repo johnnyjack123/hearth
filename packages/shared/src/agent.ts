@@ -29,7 +29,7 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * Version 9: prompts carry the files attached in the chat (`files`); the
  * device downloads them from the server and copies them into the instance.
  */
-export const TUNNEL_VERSION = 9;
+export const TUNNEL_VERSION = 10;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -72,6 +72,9 @@ export const VERSION_WORKSPACE = 8;
 
 /** First protocol with files in prompts. */
 export const VERSION_FILES = 9;
+
+/** First protocol with program versions: the server's in `welcome`, harness's in `hello`. */
+export const VERSION_APP_VERSION = 10;
 
 /** Ids of requests the user approves on the computer (`harness app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
@@ -362,6 +365,12 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
       type: z.literal('hello'),
       version: z.number().int(),
       projects: z.array(remoteProjectSchema).max(200),
+      // From protocol 10 on: the version of harness on the computer.
+      harness: z
+        .string()
+        .max(40)
+        .regex(/^[\w.+-]+$/)
+        .optional(),
     })
     .strict(),
   z.object({ type: z.literal('projects'), projects: z.array(remoteProjectSchema).max(200) }).strict(),
@@ -441,6 +450,8 @@ export type ServerMessage =
       type: 'welcome';
       /** Protocol version of the server. */
       version: number;
+      /** Program version of the server, e.g. `0.1.15`; older devices ignore it. */
+      server?: string;
     }
   | {
       type: 'session.prompt';
@@ -608,9 +619,11 @@ export const approvalDecisionSchema = z
 export type AgentDataParts = {
   /**
    * A message of harness or the harness itself (warnings, progress). Lines
-   * after the first are details the web app shows on demand.
+   * after the first are details the web app shows on demand. With a `code`
+   * (an `ApiErrorCode`), the web app shows its own text in the user's
+   * language instead.
    */
-  notice: { level: 'info' | 'warning' | 'error'; text: string };
+  notice: { level: 'info' | 'warning' | 'error'; text: string; code?: string };
   /**
    * A question of the project's gateway, or of the server's web fetch in an
    * ordinary chat (then with `url`); updated in place when answered.

@@ -50,8 +50,9 @@ import { DEFAULT_SEARCH_ENDPOINTS } from '../websearch/providers.ts';
 import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
-import { agentCallCost, agentModelInfo, callUsage, catalogProvider, pricesAt, withHelpers } from '../pricing.ts';
+import { agentCallCost, agentModelInfo, callUsage, catalogProvider, type HostRates, pricesAt, withHelpers } from '../pricing.ts';
 import { withProviderOrder } from '../openrouter.ts';
+import { costGuard } from '../services/costs.ts';
 import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
@@ -219,13 +220,25 @@ export function conversationRoutes(deps: AppDeps) {
   async function agentPricer(deviceId: string, chat: CredentialRow, modelId: string): Promise<AgentPricer> {
     const provider = catalogProvider(chat.kind, chat.baseUrl);
     const entry = await deps.pricing.entry(chat.kind, chat.baseUrl, modelId);
+    const rates = await hostRatesFor(chat, modelId);
     return (call) =>
       agentCallCost(
         call,
         provider,
         entry && provider && provider !== 'free' ? pricesAt(provider, entry, new Date()) : entry,
         hub.bills.take(deviceId, call.input, call.output),
+        rates,
       );
+  }
+
+  /** The list prices of OpenRouter's hosts for a model, loaded now so billed calls find them. */
+  async function hostRatesFor(chat: CredentialRow, modelId: string): Promise<HostRates | undefined> {
+    const routing = deps.openRouter;
+    if (chat.kind !== 'openrouter' || !routing) {
+      return undefined;
+    }
+    await routing.preload(modelId);
+    return (host) => routing.rates(modelId, host, new Date());
   }
 
   async function agentAssessor(userId: string, chat: CredentialRow, signal: AbortSignal) {
@@ -433,6 +446,8 @@ export function conversationRoutes(deps: AppDeps) {
         throw notFound('Credential');
       }
       await assertEndpointAllowed(db, user, row.kind, row.baseUrl);
+      // Before anything is stored: at the limit the message is refused.
+      const costs = await costGuard(db).assert(user.id);
       const credential = resolveCredential(secretBox, row);
       const parsed = await parseUserMessage(body.message);
       // The sender's own uploads only; name and type as the server stored them.
@@ -539,6 +554,10 @@ export function conversationRoutes(deps: AppDeps) {
           consumeSseStream: follow,
           assess: body.assess ? await agentAssessor(user.id, row, stop.signal) : null,
           price: await agentPricer(link.deviceId, row, body.modelId),
+          costs: {
+            report: (dollars) => costGuard(db).report(conversation.id, user.id, dollars),
+            end: () => costGuard(db).end(conversation.id),
+          },
         });
       }
 
@@ -572,6 +591,8 @@ export function conversationRoutes(deps: AppDeps) {
             : null,
         ),
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
+        hostRates: await hostRatesFor(row, body.modelId),
+        budget: costs.limit === null ? null : { left: costs.limit - costs.spent, exceeded: () => stop.abort() },
         files,
         memory: settings.memory ? { userId: user.id } : null,
         progress: settings.progress,
@@ -588,6 +609,7 @@ export function conversationRoutes(deps: AppDeps) {
       if (streams.has(conversation.id)) {
         throw new HttpError(409, 'conflict', 'A reply is still being written');
       }
+      await costGuard(db).assert(user.id);
       if (conversation.link) {
         // The agent keeps its own history: pi summarizes it on the computer.
         return c.json(await compactAgent(conversation.id, conversation.title, conversation.link));

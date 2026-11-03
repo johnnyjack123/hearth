@@ -30,6 +30,7 @@ export type ApiErrorCode =
   | 'memory_full'
   | 'memory_rejected'
   | 'memory_off'
+  | 'cost_limit'
   | 'convert_failed'
   | 'no_text'
   | 'internal';
@@ -64,6 +65,8 @@ export interface PublicSettings {
   allowCustomBaseUrls: boolean;
   /** Whether a search provider is set up, so chats can offer research mode. */
   webSearch: boolean;
+  /** The server's program version (`dev` outside a release build) and commit. */
+  version: { server: string; commit: string | null };
 }
 
 /**
@@ -90,6 +93,8 @@ export interface ServerSettings {
   memory: boolean;
   /** The progress list in ordinary chats: the model shows its plan for tasks with several steps. */
   progress: boolean;
+  /** Most a user may spend per day in US dollars, chats and agents together; null for no limit. */
+  dailyCostLimit: number | null;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -173,6 +178,7 @@ export const updateServerSettingsSchema = z
     openRouterNoFourBit: z.boolean(),
     memory: z.boolean(),
     progress: z.boolean(),
+    dailyCostLimit: z.number().positive().max(100_000).nullable(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,
@@ -182,6 +188,26 @@ export const updateServerSettingsSchema = z
 
 /** See {@link updateServerSettingsSchema}. */
 export type UpdateServerSettings = z.infer<typeof updateServerSettingsSchema>;
+
+/**
+ * What a user spent today and the limit it counts against: the lower of
+ * the admin's limit for every user and the user's own.
+ */
+export interface CostStatus {
+  /** The day, YYYY-MM-DD in the server's time zone. */
+  day: string;
+  /** US dollars spent today, replies running now included. */
+  spent: number;
+  /** The limit that applies, or null for none. */
+  limit: number | null;
+  /** The user's own limit, or null. */
+  own: number | null;
+  /** The admin's limit for every user, or null. */
+  server: number | null;
+}
+
+/** A user's own daily limit in US dollars; null removes it. */
+export const updateCostLimitSchema = z.object({ daily: z.number().positive().max(100_000).nullable() }).strict();
 
 /**
  * A stored provider credential as returned to its owner. The API key itself is
@@ -357,7 +383,7 @@ export interface MessageMetadata {
      */
     calls?: ModelCallUsage[];
     /** Prices the cost was computed with, US dollars per million tokens. */
-    rates?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+    rates?: TokenRates;
     /**
      * True when {@link cost} is what the provider billed (OpenRouter reports
      * it with every answer), not an estimate from catalog prices.
@@ -369,6 +395,18 @@ export interface MessageMetadata {
      */
     helpers?: ModelCallUsage[];
   };
+}
+
+/** Prices of a model, US dollars per million tokens. */
+export interface TokenRates {
+  /** Input not read from the cache. */
+  input: number;
+  /** Output, reasoning included. */
+  output: number;
+  /** Input read from the cache, if the provider prices it apart. */
+  cacheRead?: number;
+  /** Input written to the cache, if the provider prices it apart. */
+  cacheWrite?: number;
 }
 
 /**
@@ -401,6 +439,12 @@ export interface ModelCallUsage {
   billed?: boolean;
   /** Who ran the call, when OpenRouter says: the host it routed to, e.g. `DeepInfra`. */
   host?: string;
+  /**
+   * The prices of the call, US dollars per million tokens: the host's list
+   * price at OpenRouter at the time of a billed call, else the catalog's at
+   * the time of the call (DeepSeek's night prices included).
+   */
+  rates?: TokenRates;
   /**
    * Milliseconds the model wrote, from its first token to the end of the
    * call; with {@link output} the speed in tokens per second. Missing for

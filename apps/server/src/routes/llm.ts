@@ -17,6 +17,7 @@ import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers
 import { runSearch, searchModelText } from '../websearch/tool.ts';
 import { memoryText } from '../memory/tool.ts';
 import { cheapestProvider, meterBill } from '../openrouter.ts';
+import { costGuard } from '../services/costs.ts';
 import { addMemory, removeMemory } from '../services/memories.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
@@ -256,6 +257,18 @@ export function llmRoutes(deps: AppDeps) {
         throw notFound('LLM endpoint');
       }
       await assertEndpointAllowed(db, owner, row.kind, row.baseUrl);
+      // Model calls stop at the owner's daily cost limit, also those of
+      // `harness run`, whose cost the limit cannot see; listing models is free.
+      if (c.req.method !== 'GET') {
+        try {
+          await costGuard(db).assert(owner.id);
+        } catch (error) {
+          if (error instanceof HttpError) {
+            return c.json({ error: { type: error.code, message: error.message } }, error.status);
+          }
+          throw error;
+        }
+      }
       const credential = resolveCredential(secretBox, row);
 
       const headers = new Headers(authHeaders(protocol, credential.apiKey));

@@ -1,4 +1,4 @@
-import type { AgentModelInfo, MessageMetadata, ModelCallUsage, ProviderKind } from '@harness/shared';
+import type { AgentModelInfo, MessageMetadata, ModelCallUsage, ProviderKind, TokenRates } from '@harness/shared';
 import type { LanguageModelUsage, ProviderMetadata } from 'ai';
 
 /**
@@ -346,9 +346,10 @@ export function agentCallCost(
   provider: CatalogProvider | 'free' | null,
   pricing: ModelPricing | null,
   billed: BilledCost | null,
-): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
+  hostRates?: HostRates,
+): Pick<ModelCallUsage, 'cost' | 'billed' | 'host' | 'rates'> {
   if (billed) {
-    return billedFields(billed);
+    return billedFields(billed, hostRates);
   }
   if ((provider === 'deepseek' || provider === 'free') && pricing?.input !== undefined && pricing.output !== undefined) {
     const usage: LanguageModelUsage = {
@@ -358,8 +359,8 @@ export function agentCallCost(
       outputTokenDetails: { textTokens: undefined, reasoningTokens: undefined },
       totalTokens: call.input + call.output,
     };
-    const { cost } = callUsage(usage, pricing, []);
-    return cost ? { cost } : {};
+    const { cost, rates } = callUsage(usage, pricing, []);
+    return cost ? { cost, ...(rates ? { rates } : {}) } : {};
   }
   return call.agentCost === undefined ? {} : { cost: { total: call.agentCost } };
 }
@@ -376,15 +377,39 @@ export interface BilledCost {
   host?: string;
 }
 
+/** A host's list prices by the name OpenRouter gives it, for billed calls (`OpenRouterRouting.rates`). */
+export type HostRates = (host: string) => TokenRates | null;
+
 /**
- * A billed call's fields in `usage.calls`: the cost without the host, and the host.
+ * The prices of a catalog entry, as `usage.rates` and `calls[].rates` keep them.
+ *
+ * @param pricing - The model's prices at the time of the call.
+ * @returns US dollars per million tokens, or undefined without input and output prices.
+ */
+export function catalogRates(pricing: ModelPricing | null): TokenRates | undefined {
+  if (pricing?.input === undefined || pricing.output === undefined) {
+    return undefined;
+  }
+  return {
+    input: pricing.input,
+    output: pricing.output,
+    ...(pricing.cacheRead !== undefined ? { cacheRead: pricing.cacheRead } : {}),
+    ...(pricing.cacheWrite !== undefined ? { cacheWrite: pricing.cacheWrite } : {}),
+  };
+}
+
+/**
+ * A billed call's fields in `usage.calls`: the cost without the host, the
+ * host, and its list prices if known.
  *
  * @param billed - The bill.
- * @returns `cost`, `billed` and `host`.
+ * @param hostRates - Looks up the host's prices.
+ * @returns `cost`, `billed`, `host` and `rates`.
  */
-function billedFields(billed: BilledCost): Pick<ModelCallUsage, 'cost' | 'billed' | 'host'> {
+function billedFields(billed: BilledCost, hostRates: HostRates | undefined): Pick<ModelCallUsage, 'cost' | 'billed' | 'host' | 'rates'> {
   const { host, ...cost } = billed;
-  return { cost, billed: true, ...(host ? { host } : {}) };
+  const rates = host ? hostRates?.(host) : null;
+  return { cost, billed: true, ...(host ? { host } : {}), ...(rates ? { rates } : {}) };
 }
 
 /**
@@ -454,12 +479,7 @@ export function usageMetadata(
         cacheWrite * (pricing.cacheWrite ?? pricing.input) +
         output * pricing.output) /
       1_000_000;
-    usage.rates = {
-      input: pricing.input,
-      output: pricing.output,
-      ...(pricing.cacheRead !== undefined ? { cacheRead: pricing.cacheRead } : {}),
-      ...(pricing.cacheWrite !== undefined ? { cacheWrite: pricing.cacheWrite } : {}),
-    };
+    usage.rates = catalogRates(pricing);
   }
   const reasoning = total.outputTokenDetails.reasoningTokens;
   if (reasoning) {
@@ -526,9 +546,16 @@ export function withHelpers(usage: NonNullable<MessageMetadata['usage']>, helper
  * @param pricing - Prices of the model, if known.
  * @param tools - Tools the call asked for.
  * @param billed - What the provider billed, if it says; replaces the estimate.
+ * @param hostRates - The list prices of the host that ran a billed call.
  * @returns The call's entry in `usage.calls`.
  */
-export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null, tools: string[], billed: BilledCost | null = null): ModelCallUsage {
+export function callUsage(
+  step: LanguageModelUsage,
+  pricing: ModelPricing | null,
+  tools: string[],
+  billed: BilledCost | null = null,
+  hostRates?: HostRates,
+): ModelCallUsage {
   const input = step.inputTokens ?? 0;
   const cacheRead = step.inputTokenDetails.cacheReadTokens ?? 0;
   const cacheWrite = step.inputTokenDetails.cacheWriteTokens ?? 0;
@@ -539,7 +566,7 @@ export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null
     call.reasoning = reasoning;
   }
   if (billed) {
-    Object.assign(call, billedFields(billed));
+    Object.assign(call, billedFields(billed, hostRates));
   } else if (pricing?.input !== undefined && pricing.output !== undefined) {
     const uncached = step.inputTokenDetails.noCacheTokens ?? Math.max(0, input - cacheRead - cacheWrite);
     const cost = {
@@ -549,6 +576,7 @@ export function callUsage(step: LanguageModelUsage, pricing: ModelPricing | null
       output: (output * pricing.output) / 1_000_000,
     };
     call.cost = { total: cost.input + cost.cacheRead + cost.cacheWrite + cost.output, ...cost };
+    call.rates = catalogRates(pricing);
   }
   return call;
 }

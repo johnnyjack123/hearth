@@ -269,6 +269,35 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('fileVectors').execute();
     },
   },
+  '0013_device_versions': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').addColumn('harnessVersion', 'text').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').dropColumn('harnessVersion').execute();
+    },
+  },
+  '0014_costs': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('costDay')
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('day', 'text', (col) => col.notNull())
+        .addColumn('microdollars', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('costDay_pk', ['userId', 'day'])
+        .execute();
+      await db.schema
+        .createTable('userLimit')
+        .addColumn('userId', 'text', (col) => col.primaryKey().references('user.id').onDelete('cascade'))
+        .addColumn('dailyMicrodollars', 'bigint')
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('userLimit').execute();
+      await db.schema.dropTable('costDay').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

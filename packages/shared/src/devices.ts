@@ -39,6 +39,11 @@ export interface DeviceSummary {
    * devices that never reported any.
    */
   apps: AppsReport | null;
+  /**
+   * The version of harness on the computer at its last connection
+   * (protocol 10); null for devices that never said.
+   */
+  harnessVersion: string | null;
 }
 
 /**

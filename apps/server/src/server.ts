@@ -9,7 +9,7 @@ import type { AppDeps } from './http/context.ts';
 import { createLlmGateway } from './llm.ts';
 import { PricingCatalog } from './pricing.ts';
 import { forDevice, listAppTemplates } from './services/app-templates.ts';
-import { saveDeviceApps, saveDeviceProjects } from './services/devices.ts';
+import { saveDeviceApps, saveDeviceProjects, saveDeviceVersion } from './services/devices.ts';
 import { DeviceHub } from './tunnel/hub.ts';
 import { attachTunnel } from './tunnel/socket.ts';
 
@@ -36,6 +36,7 @@ export function createDeviceHub(db: AppDeps['database']['db']): DeviceHub {
   return new DeviceHub({
     projects: (deviceId, projects) => saveDeviceProjects(db, deviceId, projects),
     apps: (deviceId, report) => saveDeviceApps(db, deviceId, report),
+    version: (deviceId, harness) => saveDeviceVersion(db, deviceId, harness),
     templates: async (userId) => (await listAppTemplates(db, userId)).map(forDevice),
   });
 }

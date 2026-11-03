@@ -14,6 +14,7 @@ export const queryKeys = {
   devices: ['devices'] as const,
   appTemplates: ['app-templates'] as const,
   memories: ['memories'] as const,
+  costs: ['costs'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,
@@ -108,6 +109,15 @@ export function useDevices(live = false) {
  */
 export function useMemories() {
   return useQuery({ queryKey: queryKeys.memories, queryFn: api.memories.list });
+}
+
+/**
+ * What the user spent today and the daily limit.
+ *
+ * @returns The query result.
+ */
+export function useCosts() {
+  return useQuery({ queryKey: queryKeys.costs, queryFn: api.costs.get });
 }
 
 /**

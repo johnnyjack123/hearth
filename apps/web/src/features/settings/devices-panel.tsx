@@ -1,6 +1,6 @@
-import type { DeviceSummary } from '@harness/shared';
+import { compareVersions, type DeviceSummary } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Laptop, Trash2 } from 'lucide-react';
+import { CircleAlert, Laptop, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch.tsx';
 import { api, errorMessage } from '@/lib/api.ts';
 import { springs } from '@/lib/motion.ts';
 import { usePreferences } from '@/lib/preferences.tsx';
-import { queryKeys, useDevices } from '@/lib/queries.ts';
+import { queryKeys, useDevices, usePublicSettings } from '@/lib/queries.ts';
 import { DeviceApps } from '../devices/device-apps.tsx';
 import { DeviceVm } from '../devices/device-vm.tsx';
 import { Section } from '../shell/page.tsx';
@@ -59,8 +59,30 @@ export function DevicesPanel() {
   );
 }
 
+/**
+ * The hint when harness on a computer and the server are not the same
+ * version, saying which side to update.
+ *
+ * @param props - harness's and the server's version.
+ * @returns The hint, or nothing when both match or either is unknown.
+ */
+export function VersionHint({ harness, server }: { harness: string | null; server: string | undefined }) {
+  const { t } = usePreferences();
+  const order = harness && server ? compareVersions(harness, server) : null;
+  if (!order || !harness || !server) {
+    return null;
+  }
+  return (
+    <p className="flex min-w-0 items-start gap-1.5 text-xs text-destructive">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span className="break-words">{t(order < 0 ? 'devices.harnessOlder' : 'devices.serverOlder', { harness, server })}</span>
+    </p>
+  );
+}
+
 function DeviceRow({ device }: { device: DeviceSummary }) {
   const { t, locale } = usePreferences();
+  const { data: publicSettings } = usePublicSettings();
   const queryClient = useQueryClient();
   const [removing, setRemoving] = useState(false);
   const date = (epoch: number) => new Date(epoch).toLocaleDateString(locale);
@@ -109,7 +131,9 @@ function DeviceRow({ device }: { device: DeviceSummary }) {
         <span className="text-xs text-muted-foreground">
           {t('devices.paired', { date: date(device.createdAt) })} ·{' '}
           {device.lastUsedAt ? t('devices.lastUsed', { date: date(device.lastUsedAt) }) : t('devices.neverUsed')}
+          {device.harnessVersion ? ` · ${t('devices.harnessVersion', { version: device.harnessVersion })}` : null}
         </span>
+        <VersionHint harness={device.harnessVersion} server={publicSettings?.version.server} />
         <DeviceVm device={device} />
         <DeviceApps device={device} />
         <label className="flex cursor-pointer items-start gap-3 pt-2">
