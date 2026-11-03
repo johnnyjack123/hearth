@@ -182,6 +182,22 @@ function fileStep(payload) {
   return { text: `Ich sehe ${image ? 'ein Bild' : 'kein Bild'}, im Dokument steht: ${document}.` };
 }
 
+/**
+ * A long document comes as start and outline: the model looks the answer
+ * up with `read_document` and then answers from it.
+ */
+function documentStep(payload) {
+  if (!payload.tools?.some((tool) => tool.function?.name === 'read_document')) {
+    return null;
+  }
+  const last = payload.messages?.at(-1);
+  if (last?.role === 'tool' && String(last.content).includes('Die Röstung dauert 14 Minuten')) {
+    return { text: 'Laut Handbuch 14 Minuten.' };
+  }
+  const ref = last?.role === 'user' ? /read_document tool, file "([0-9a-f]{8})"/.exec(textOf(last.content))?.[1] : undefined;
+  return ref ? { call: { name: 'read_document', input: { file: ref, focus: 'Wie lange wird geröstet?' } } } : null;
+}
+
 /** The reply of a tool-using model, or null to answer as usual. */
 function webFetchStep(payload) {
   const research = researchStep(payload);
@@ -308,7 +324,13 @@ http
         }
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const step =
-          effortStep(payload) ?? calculatorStep(payload) ?? memoryStep(payload) ?? progressStep(payload) ?? fileStep(payload) ?? webFetchStep(payload);
+          effortStep(payload) ??
+          calculatorStep(payload) ??
+          memoryStep(payload) ??
+          progressStep(payload) ??
+          documentStep(payload) ??
+          fileStep(payload) ??
+          webFetchStep(payload);
         if (step?.call) {
           const call = { index: 0, id: `call_${requestCount}`, type: 'function', function: { name: step.call.name, arguments: '' } };
           res.write(chunk({ role: 'assistant', tool_calls: [call] }));

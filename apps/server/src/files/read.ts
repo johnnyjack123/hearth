@@ -141,10 +141,17 @@ export async function readDocument(rows: FileRow[], request: ReadDocumentRequest
     const names = documents.map((candidate) => `"${documentRef(candidate.id)}" (${candidate.name})`).join(', ');
     throw new DocumentError(`No document "${file}" in this chat.${names ? ` Its documents: ${names}.` : ''}`);
   }
+  // The first line says how the part was read, for the model and for the
+  // chat, which reads it back (`document-read.tsx`): an agent's tool result
+  // reaches the chat as this text only.
   const header = `From ${JSON.stringify(row.name)}:`;
   if (grep) {
     const found = grepPage(row.text, grep);
-    return { file: row.name, text: found ? `${header}\n${found.text}` : `${header} no line contains ${JSON.stringify(grep)}.` };
+    if (!found || found.lines === 0) {
+      return { file: row.name, text: `${header} no line contains ${JSON.stringify(grep)}.` };
+    }
+    const cut = found.truncated ? ', more than fit' : '';
+    return { file: row.name, text: `${header} ${found.lines} matching lines for ${JSON.stringify(grep)}${cut}\n${found.text}` };
   }
   const selection = await selectSections(
     row.text,
@@ -154,14 +161,18 @@ export async function readDocument(rows: FileRow[], request: ReadDocumentRequest
     context.vectors.of(row.id),
   );
   if (!selection) {
-    return { file: row.name, text: `${header}\n${row.text}` };
+    return { file: row.name, text: `${header} the whole document, it is short\n${row.text}` };
   }
+  const how = selection.ranking === 'meaning' ? ', chosen by meaning and keywords' : selection.ranking === 'keywords' ? ', chosen by keywords' : '';
   const note = focus && !selection.matched ? ' (nothing matched the focus; this is the start)' : '';
   return {
     file: row.name,
-    text: [`${header} sections ${selection.shown.join(', ')} of ${selection.total}${note}`, selection.text, '', ...outlineLines(selection.outline, selection.total, selection.shown)].join(
-      '\n',
-    ),
+    text: [
+      `${header} sections ${selection.shown.join(', ')} of ${selection.total}${how}${note}`,
+      selection.text,
+      '',
+      ...outlineLines(selection.outline, selection.total, selection.shown),
+    ].join('\n'),
   };
 }
 

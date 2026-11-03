@@ -619,6 +619,23 @@ try {
     await page.waitForSelector('a[download="bericht.pdf"]', { timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 300));
     await shot('49-files-in-chat');
+
+    // A long document reaches the model as start and outline; it reads the
+    // part it needs, and the line says how (sections, semantic search).
+    const handbook = path.join(OUT, 'roesthandbuch.md');
+    const chapters = Array.from({ length: 24 }, (_, index) => `## Kapitel ${index + 1}\n\n${`Allgemeiner Text über Kaffee, Kapitel ${index + 1}. `.repeat(28)}`);
+    chapters.splice(19, 0, '## Röstung\n\nDie Röstung dauert 14 Minuten bei 210 °C, danach luftdicht lagern.');
+    writeFileSync(handbook, `# Röst-Handbuch\n\n${chapters.join('\n\n')}`);
+    await (await page.$('form input[type=file]')).uploadFile(handbook);
+    await waitForText('roesthandbuch.md');
+    await page.waitForFunction(() => !document.body.innerText.includes('Wird hochgeladen'), { timeout: 15_000 });
+    await page.type('textarea', 'Wie lange wird geröstet?');
+    await page.keyboard.press('Enter');
+    await waitForText('Laut Handbuch 14 Minuten.', 15_000);
+    await waitForText('Im Dokument „roesthandbuch.md“ nachgesehen: Wie lange wird geröstet?');
+    await waitForText('Abschnitten · semantisch');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('49b-document-read');
   });
 
   await step('pair a device that then uses the LLM through the server', async () => {
