@@ -36,6 +36,12 @@ COPY --from=build /src/apps/web/dist ./web
 # The database and the generated secret live in the volume; the image runs
 # as the unprivileged `node` user of the base image.
 RUN mkdir -p /data && chown node:node /data
+# The workspace version (Cargo.toml) and commit, from the workflow; the web
+# app and paired computers compare it with harness's (`src/version.ts`).
+ARG HARNESS_VERSION=dev
+ARG HARNESS_COMMIT=
+ENV HARNESS_VERSION=${HARNESS_VERSION} \
+    HARNESS_COMMIT=${HARNESS_COMMIT}
 USER node
 VOLUME /data
 EXPOSE 8080

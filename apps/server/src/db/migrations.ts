@@ -269,6 +269,14 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('fileVectors').execute();
     },
   },
+  '0013_device_versions': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').addColumn('harnessVersion', 'text').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('device').dropColumn('harnessVersion').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

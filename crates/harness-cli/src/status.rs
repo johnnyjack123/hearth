@@ -62,6 +62,11 @@ pub struct Status {
     pub stop_at: Option<u64>,
     /// Open questions of gateways.
     pub questions: Vec<Question>,
+    /// This harness's version.
+    pub version: String,
+    /// The server's program version, once it said (protocol 10).
+    #[serde(rename = "serverVersion")]
+    pub server_version: Option<String>,
 }
 
 /// The status file and what was last written to it.
@@ -99,6 +104,8 @@ impl StatusFile {
                 terminals: 0,
                 stop_at: None,
                 questions: Vec::new(),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+                server_version: None,
             }),
             written: Mutex::new(String::new()),
         };

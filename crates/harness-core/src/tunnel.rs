@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this harness. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 9;
+pub const TUNNEL_VERSION: u32 = 10;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -50,6 +50,11 @@ pub const VERSION_WORKSPACE: u32 = 8;
 /// Version that brought files in prompts: the device downloads them from
 /// the server and copies them into the instance.
 pub const VERSION_FILES: u32 = 9;
+
+/// Version that brought program versions: the server names its own in the
+/// welcome, the device harness's in its hello, so either side can say when
+/// the other is older.
+pub const VERSION_APP_VERSION: u32 = 10;
 
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
@@ -538,6 +543,10 @@ pub enum DeviceMessage {
         version: u32,
         /// Projects offered to web chats.
         projects: Vec<RemoteProject>,
+        /// This harness's version, from [`VERSION_APP_VERSION`] on; an older
+        /// server would refuse the field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        harness: Option<String>,
     },
     /// The offered projects changed.
     #[serde(rename = "projects")]
@@ -827,6 +836,9 @@ pub enum ServerMessage {
     Welcome {
         /// The server's protocol version.
         version: u32,
+        /// The server's program version, from [`VERSION_APP_VERSION`] on.
+        #[serde(default)]
+        server: Option<String>,
     },
     /// A message of a linked chat.
     #[serde(rename = "session.prompt")]

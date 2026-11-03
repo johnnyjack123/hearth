@@ -590,6 +590,9 @@ export const de = {
     paired: 'Gekoppelt am {date}',
     lastUsed: 'zuletzt genutzt am {date}',
     neverUsed: 'noch nicht genutzt',
+    harnessVersion: 'harness {version}',
+    harnessOlder: 'harness auf diesem Rechner ({harness}) ist älter als der Server ({server}). Das neue Einrichtungsprogramm ausführen, wenn kein Agent läuft.',
+    serverOlder: 'Der Server ({server}) ist älter als harness auf diesem Rechner ({harness}). Auf dem Server: docker compose pull && docker compose up -d',
     jevReview: 'Jev prüft Änderungen vor dem Übernehmen',
     jevReviewHint:
       'Ein Hilfsmodell sucht in den Diffs des Agents nach Schadcode, bevor sie in deinen Ordner kommen (braucht einen OpenRouter-Zugang, Bruchteile eines Cents je Prüfung).',
@@ -836,6 +839,7 @@ export const de = {
     userUpdated: 'Nutzer aktualisiert',
     userRemoved: 'Konto gelöscht',
     serverDescription: 'Einstellungen, die für alle Nutzer gelten.',
+    serverVersion: 'Server-Version {version} ({commit}).',
     registration: 'Offene Registrierung',
     registrationHint: 'Jede Person mit Zugriff auf diese Adresse kann ein Konto erstellen. Wenn aus, legen nur Admins Konten an.',
     customBaseUrls: 'Eigene Endpunkte erlauben',

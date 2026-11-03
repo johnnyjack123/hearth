@@ -37,7 +37,7 @@ use harness_core::tunnel::{
     AgentEvent, ApprovalState, AppsReport, CompactionState, CompactionTrigger, Decision,
     DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, PromptFile, RemoteProject,
     ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState,
-    VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
+    VERSION_APP_VERSION, VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
 };
 use harness_core::{Provider, tr};
 use tungstenite::client::IntoClientRequest as _;
@@ -485,10 +485,28 @@ fn serve(
             return Err(error).context(tr("Verbindungsaufbau", "Setting up the connection"));
         }
     };
-    let server_version = match welcome(&mut socket)? {
-        Ok(version) => version,
+    let (server_version, server_program) = match welcome(&mut socket)? {
+        Ok(greeting) => greeting,
         Err(ended) => return Ok(ended),
     };
+    // The tray shows both versions and says which side to update.
+    shared
+        .status
+        .update(|s| s.server_version.clone_from(&server_program));
+    if let Some(server) = &server_program
+        && version_order(server, env!("CARGO_PKG_VERSION")) == Some(std::cmp::Ordering::Less)
+    {
+        let harness = env!("CARGO_PKG_VERSION");
+        say(
+            shared.mode,
+            &tr!(
+                "Der Server ({server}) ist älter als dieses harness ({harness}). Auf dem Server: \
+                 docker compose pull && docker compose up -d",
+                "The server ({server}) is older than this harness ({harness}). On the server: \
+                 docker compose pull && docker compose up -d"
+            ),
+        );
+    }
     // The lower version of both; each side only sends what it knows.
     let version = server_version.min(TUNNEL_VERSION);
     if server_version < VERSION_VM_CONTROL {
@@ -518,6 +536,7 @@ fn serve(
         &DeviceMessage::Hello {
             version,
             projects: projects.clone(),
+            harness: (version >= VERSION_APP_VERSION).then(|| env!("CARGO_PKG_VERSION").to_owned()),
         },
     )?;
     let mut reported: Option<Report> = None;
@@ -636,15 +655,30 @@ fn serve(
     result
 }
 
-/// Waits for the server's greeting: its protocol version, or how the
-/// connection ended before.
-fn welcome(socket: &mut Socket) -> anyhow::Result<Result<u32, Ended>> {
+/// Compares versions like `0.1.15` part by part; anything after `+` or `-`
+/// does not count. None if either is no version (`dev`).
+fn version_order(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    let parts = |version: &str| -> Option<Vec<u64>> {
+        let core = version.trim().trim_start_matches('v');
+        let core = core.split(['+', '-']).next().unwrap_or("");
+        core.split('.').map(|part| part.parse().ok()).collect()
+    };
+    let (left, right) = (parts(a)?, parts(b)?);
+    let length = left.len().max(right.len());
+    let pad = |list: Vec<u64>| list.into_iter().chain(std::iter::repeat(0)).take(length);
+    Some(pad(left).cmp(pad(right)))
+}
+
+/// Waits for the server's greeting: its protocol and program version, or
+/// how the connection ended before.
+fn welcome(socket: &mut Socket) -> anyhow::Result<Result<(u32, Option<String>), Ended>> {
     let deadline = Instant::now() + WELCOME_TIMEOUT;
     while Instant::now() < deadline {
         match socket.read() {
             Ok(Message::Text(text)) => {
-                if let Ok(ServerMessage::Welcome { version }) = serde_json::from_str(&text) {
-                    return Ok(Ok(version));
+                if let Ok(ServerMessage::Welcome { version, server }) = serde_json::from_str(&text)
+                {
+                    return Ok(Ok((version, server)));
                 }
             }
             Ok(Message::Close(frame)) => {

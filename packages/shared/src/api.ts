@@ -64,6 +64,8 @@ export interface PublicSettings {
   allowCustomBaseUrls: boolean;
   /** Whether a search provider is set up, so chats can offer research mode. */
   webSearch: boolean;
+  /** The server's program version (`dev` outside a release build) and commit. */
+  version: { server: string; commit: string | null };
 }
 
 /**

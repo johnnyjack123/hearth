@@ -12,7 +12,7 @@ import { SegmentedControl } from '@/components/ui/tabs.tsx';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import { api, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
-import { queryKeys } from '@/lib/queries.ts';
+import { queryKeys, usePublicSettings } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
 import { Section, SettingRow } from '../shell/page.tsx';
 
@@ -24,6 +24,7 @@ import { Section, SettingRow } from '../shell/page.tsx';
  */
 export function ServerPanel() {
   const t = useT();
+  const { data: publicSettings } = usePublicSettings();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: queryKeys.serverSettings, queryFn: api.settings.get });
   const update = useMutation({
@@ -48,7 +49,13 @@ export function ServerPanel() {
 
   return (
     <div className="flex flex-col gap-10">
-      <Section title={t('admin.tabServer')} description={t('admin.serverDescription')}>
+      <Section
+        title={t('admin.tabServer')}
+        description={`${t('admin.serverDescription')} ${t('admin.serverVersion', {
+          version: publicSettings?.version.server ?? '…',
+          commit: publicSettings?.version.commit ?? '–',
+        })}`}
+      >
         <Card>
           {settings.data ? (
             <>

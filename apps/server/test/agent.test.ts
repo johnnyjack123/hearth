@@ -6,6 +6,7 @@ import {
   type AppTemplate,
   type AppsReport,
   type ChatFile,
+  compareVersions,
   type ConversationDetail,
   DEFAULT_IDLE_MINUTES,
   type ConversationSummary,
@@ -272,7 +273,8 @@ describe('DeviceHub', () => {
   it('greets, expects a hello first and checks the protocol version', () => {
     const hub = new DeviceHub();
     const early = connect(hub, 'd1');
-    expect(early.received).toEqual([{ type: 'welcome', version: TUNNEL_VERSION }]);
+    // With the server's program version, `dev` from the sources.
+    expect(early.received).toEqual([{ type: 'welcome', version: TUNNEL_VERSION, server: 'dev' }]);
     early.say({ type: 'projects', projects: [] });
     expect(early.closedWith).toBe(4002);
     expect(hub.status('d1').online).toBe(false);
@@ -1023,6 +1025,26 @@ data: [DONE]
     });
   }
 
+  it('keeps the version of harness a device says, so either side can tell the other is older', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    device.say({ type: 'hello', version: TUNNEL_VERSION, projects: [PROJECT], harness: '0.1.14' });
+    await eventually(async () => {
+      const devices = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+      return devices[0]?.harnessVersion === '0.1.14';
+    });
+    // A version with anything but letters, digits, dots, plus and minus is no version.
+    const other = await pair();
+    const odd = connect(server.hub, other.deviceId, other.userId);
+    odd.say({ type: 'hello', version: TUNNEL_VERSION, projects: [], harness: '0.1 <b>' });
+    expect(odd.closedWith).toBe(4002);
+
+    expect(compareVersions('0.1.14', '0.1.15')).toBeLessThan(0);
+    expect(compareVersions('v0.1.15', '0.1.15+d0db4f2')).toBe(0);
+    expect(compareVersions('0.2', '0.1.15')).toBeGreaterThan(0);
+    expect(compareVersions('dev', '0.1.15')).toBeNull();
+  });
+
   it('hands the files of a linked chat to its device, and only to it', async () => {
     const { deviceId, userId, token } = await pair();
     const device = connect(server.hub, deviceId, userId);
@@ -1494,7 +1516,7 @@ data: [DONE]
         ws.once('message', (data) => resolve(JSON.parse(data.toString())));
         ws.once('error', reject);
       });
-      expect(welcome).toEqual({ type: 'welcome', version: TUNNEL_VERSION });
+      expect(welcome).toEqual({ type: 'welcome', version: TUNNEL_VERSION, server: 'dev' });
       // The idle time stored earlier comes with the greeting.
       await server.request('PATCH', `/api/devices/${deviceId}`, { cookie, body: { idleMinutes: 90 } });
       const settings = new Promise<unknown>((resolve) => ws.once('message', (data) => resolve(JSON.parse(data.toString()))));

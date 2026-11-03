@@ -77,6 +77,8 @@ describe('pricing', () => {
         cacheWrite: 0,
         output: (50 * 8) / 1_000_000,
       },
+      // The prices it ran at, for the usage details.
+      rates: { input: 2, output: 8, cacheRead: 0.5 },
     });
     // The calls add up to the reply.
     const reply = usageMetadata(step, step, pricing, [call]);
@@ -146,8 +148,10 @@ describe.each(DIALECTS)('usage in chats on %s', (kind) => {
       cost: 2 * cost,
       rates: { input: 2, output: 8 },
       // How long the model wrote depends on the machine; it is there or not.
-      calls: [expect.objectContaining({ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], cost: callCost })],
-      helpers: [{ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], model: 'mock-1', purpose: 'title', cost: callCost }],
+      calls: [expect.objectContaining({ input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], cost: callCost, rates: { input: 2, output: 8 } })],
+      helpers: [
+        { input: 5, cacheRead: 0, cacheWrite: 0, output: 7, tools: [], model: 'mock-1', purpose: 'title', cost: callCost, rates: { input: 2, output: 8 } },
+      ],
     });
   });
 });

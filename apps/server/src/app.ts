@@ -16,6 +16,7 @@ import { memoryRoutes } from './routes/memories.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
 import { OpenRouterRouting } from './openrouter.ts';
+import { SERVER_COMMIT, SERVER_VERSION } from './version.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
 const TOKEN_ROUTES = /^\/api\/(pairing|device|llm)(\/|$)/;
@@ -69,7 +70,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
     TOKEN_ROUTES.test(c.req.path) ? next() : csrfProtection(c, next),
   );
 
-  app.get('/api/health', (c) => c.json({ ok: true }));
+  app.get('/api/health', (c) => c.json({ ok: true, version: SERVER_VERSION, commit: SERVER_COMMIT }));
   app.on(['GET', 'POST'], '/api/auth/*', (c) => deps.auth.handler(c.req.raw));
   app.route('/api/settings', publicSettingsRoutes(deps));
   // Device routes bring their own auth (pairing: none, device token) and

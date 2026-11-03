@@ -8,6 +8,7 @@ import {
   updateSearchSettings,
   updateServerSettings,
 } from '../services/settings.ts';
+import { SERVER_COMMIT, SERVER_VERSION } from '../version.ts';
 import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers.ts';
 
 /**
@@ -25,6 +26,7 @@ export function publicSettingsRoutes(deps: AppDeps) {
       hasUsers: (await countUsers(db)) > 0,
       allowCustomBaseUrls: settings.allowCustomBaseUrls,
       webSearch: settings.search.provider !== 'off',
+      version: { server: SERVER_VERSION, commit: SERVER_COMMIT },
     };
     return c.json(body);
   });

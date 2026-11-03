@@ -26,6 +26,7 @@ import {
 } from '@harness/shared';
 import { HttpError } from '../http/errors.ts';
 import { AgentBills } from '../openrouter.ts';
+import { SERVER_VERSION } from '../version.ts';
 import { KnownUrls } from '../websearch/known-urls.ts';
 
 /**
@@ -76,6 +77,8 @@ export interface HubListener {
   apps?(deviceId: string, report: AppsReport): void | Promise<void>;
   /** The own programs of an account, for its devices after their hello. */
   templates?(userId: string): DeviceAppTemplate[] | Promise<DeviceAppTemplate[]>;
+  /** A device said which harness it runs (protocol 10). */
+  version?(deviceId: string, harness: string): void | Promise<void>;
 }
 
 /** Callbacks for one socket, returned by {@link DeviceHub.attach}. */
@@ -271,7 +274,7 @@ export class DeviceHub {
       templatesSent: 0,
     };
     this.#devices.set(deviceId, connection);
-    this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION });
+    this.#send(connection, { type: 'welcome', version: TUNNEL_VERSION, server: SERVER_VERSION });
 
     return {
       receive: (raw) => this.#receive(deviceId, connection, raw),
@@ -665,6 +668,11 @@ export class DeviceHub {
         connection.version = message.version;
         connection.projects = message.projects;
         this.#store(deviceId, message.projects);
+        if (message.harness) {
+          void Promise.resolve(this.listener.version?.(deviceId, message.harness)).catch((error: unknown) =>
+            console.warn('[hub] version not stored:', error instanceof Error ? error.message : error),
+          );
+        }
         if (connection.version >= VERSION_VM_CONTROL) {
           this.#send(connection, { type: 'settings', idleMinutes: connection.settings.idleMinutes });
         }

@@ -590,6 +590,9 @@ export const en: Messages = {
     paired: 'Paired on {date}',
     lastUsed: 'last used on {date}',
     neverUsed: 'not used yet',
+    harnessVersion: 'harness {version}',
+    harnessOlder: 'harness on this computer ({harness}) is older than the server ({server}). Run the new setup program while no agent is working.',
+    serverOlder: 'The server ({server}) is older than harness on this computer ({harness}). On the server: docker compose pull && docker compose up -d',
     jevReview: 'Jev checks changes before taking them over',
     jevReviewHint:
       'A helper model looks for malicious code in the agent’s diffs before they reach your folder (needs an OpenRouter key, fractions of a cent per check).',
@@ -836,6 +839,7 @@ export const en: Messages = {
     userUpdated: 'User updated',
     userRemoved: 'Account deleted',
     serverDescription: 'Settings that apply to all users.',
+    serverVersion: 'Server version {version} ({commit}).',
     registration: 'Open registration',
     registrationHint: 'Anyone who can reach this address can create an account. When off, only admins create accounts.',
     customBaseUrls: 'Allow custom endpoints',
