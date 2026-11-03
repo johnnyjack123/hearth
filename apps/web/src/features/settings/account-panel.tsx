@@ -11,6 +11,7 @@ import { useT } from '@/lib/preferences.tsx';
 import { queryKeys, useSession } from '@/lib/queries.ts';
 import { useSignOut } from '../auth/use-sign-out.ts';
 import { Section } from '../shell/page.tsx';
+import { CostLimitSection } from './cost-limit.tsx';
 
 /**
  * Profile, password and sign-out.
@@ -120,6 +121,8 @@ export function AccountPanel() {
           </form>
         </Card>
       </Section>
+
+      <CostLimitSection />
 
       <div>
         <Button variant="outline" onClick={() => void signOut()}>

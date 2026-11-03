@@ -30,6 +30,7 @@ export type ApiErrorCode =
   | 'memory_full'
   | 'memory_rejected'
   | 'memory_off'
+  | 'cost_limit'
   | 'convert_failed'
   | 'no_text'
   | 'internal';
@@ -92,6 +93,8 @@ export interface ServerSettings {
   memory: boolean;
   /** The progress list in ordinary chats: the model shows its plan for tasks with several steps. */
   progress: boolean;
+  /** Most a user may spend per day in US dollars, chats and agents together; null for no limit. */
+  dailyCostLimit: number | null;
   /** Web search for research mode. */
   search: SearchSettings;
   /** When long chats get older pages and searches only in short form. */
@@ -175,6 +178,7 @@ export const updateServerSettingsSchema = z
     openRouterNoFourBit: z.boolean(),
     memory: z.boolean(),
     progress: z.boolean(),
+    dailyCostLimit: z.number().positive().max(100_000).nullable(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,
     compact: updateCompactSettingsSchema,
@@ -184,6 +188,26 @@ export const updateServerSettingsSchema = z
 
 /** See {@link updateServerSettingsSchema}. */
 export type UpdateServerSettings = z.infer<typeof updateServerSettingsSchema>;
+
+/**
+ * What a user spent today and the limit it counts against: the lower of
+ * the admin's limit for every user and the user's own.
+ */
+export interface CostStatus {
+  /** The day, YYYY-MM-DD in the server's time zone. */
+  day: string;
+  /** US dollars spent today, replies running now included. */
+  spent: number;
+  /** The limit that applies, or null for none. */
+  limit: number | null;
+  /** The user's own limit, or null. */
+  own: number | null;
+  /** The admin's limit for every user, or null. */
+  server: number | null;
+}
+
+/** A user's own daily limit in US dollars; null removes it. */
+export const updateCostLimitSchema = z.object({ daily: z.number().positive().max(100_000).nullable() }).strict();
 
 /**
  * A stored provider credential as returned to its owner. The API key itself is

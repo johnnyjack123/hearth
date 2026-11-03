@@ -206,6 +206,26 @@ export interface FileVectorsTable {
 }
 
 /**
+ * Row of `costDay`: what a user spent on one day, in millionths of a dollar.
+ */
+export interface CostDayTable {
+  userId: string;
+  /** YYYY-MM-DD in the server's time zone. */
+  day: string;
+  microdollars: number;
+}
+
+/**
+ * Row of `userLimit`: a user's own daily cost limit.
+ */
+export interface UserLimitTable {
+  userId: string;
+  /** Millionths of a dollar, or null for none. */
+  dailyMicrodollars: number | null;
+  updatedAt: number;
+}
+
+/**
  * Kysely database schema of the tables this app queries.
  */
 export interface DB {
@@ -222,4 +242,6 @@ export interface DB {
   file: FileTable;
   fileVectors: FileVectorsTable;
   memory: MemoryTable;
+  costDay: CostDayTable;
+  userLimit: UserLimitTable;
 }

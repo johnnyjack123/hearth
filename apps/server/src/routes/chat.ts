@@ -478,6 +478,11 @@ export interface StreamChatOptions {
   files: FileStore;
   /** The list prices of the host OpenRouter ran a billed call on. */
   hostRates?: HostRates;
+  /**
+   * What is left of the user's daily cost limit when the reply starts; a
+   * reply that reaches it stops after the model call that did.
+   */
+  budget?: { left: number; exceeded: () => void } | null;
   /** Whose memories the model may change; null when an admin switched the memory off. */
   memory?: { userId: string } | null;
   /** The progress list for tasks with several steps; off when an admin switched it off. */
@@ -723,11 +728,15 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               stepTools = [];
               // Cost and context after every model call: a long reply with
               // tools shows them as it goes, and one that breaks off keeps them.
-              return {
-                ...baseMetadata,
-                usage: withHelpers(usageMetadata(running, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]),
-                ...timings(),
-              };
+              const usage = withHelpers(usageMetadata(running, lastStep, pricing, calls), [...(helpers?.usage ?? []), ...compactCalls]);
+              if (options.budget && usage.cost !== undefined && usage.cost >= options.budget.left) {
+                streamWriter.write({
+                  type: 'data-notice',
+                  data: { level: 'warning', text: 'The daily cost limit is reached; the reply stops here.', code: 'cost_limit' },
+                });
+                options.budget.exceeded();
+              }
+              return { ...baseMetadata, usage, ...timings() };
             }
             if (part.type === 'finish') {
               return {

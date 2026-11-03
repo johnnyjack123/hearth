@@ -41,6 +41,7 @@ export const de = {
     memory_full: 'Das Gedächtnis ist voll (höchstens 50 Einträge). Lösche zuerst etwas in den Einstellungen.',
     memory_rejected: 'Das sieht nach Anweisungen aus fremden Inhalten aus, nicht nach einer Erinnerung. Nicht gespeichert.',
     memory_off: 'Das Gedächtnis ist auf diesem Server ausgeschaltet.',
+    cost_limit: 'Das Tageslimit für Kosten ist erreicht. Morgen geht es weiter; das eigene Limit lässt sich unter Einstellungen → Konto ändern.',
     storage_unavailable:
       'Der Server kann keine Dateien speichern: Sein Datenordner ist nicht beschreibbar. Ein Admin gibt ihn dem Server-Nutzer (uid 1000), siehe docs/deploy.md.',
     converter_unavailable: 'Dokumente umwandeln geht gerade nicht: Der Umwandler (markitdown) läuft nicht. Ein Admin startet ihn mit „docker compose up -d“.',
@@ -801,6 +802,19 @@ export const de = {
       harmless: 'wahrscheinlich Fehlalarm',
     },
   },
+  costs: {
+    title: 'Kosten',
+    description: 'Was Chats und Agents heute gekostet haben, und dein Tageslimit. Am Limit stoppen neue Nachrichten und laufende Antworten bis zum nächsten Tag.',
+    spent: 'Heute ({day}): {spent} ausgegeben',
+    noLimit: 'Kein Tageslimit.',
+    limit: 'Tageslimit {limit}, noch {left} übrig.',
+    serverLimit: 'Der Admin hat {limit} je Nutzer festgelegt; es gilt das niedrigere Limit.',
+    own: 'Mein Tageslimit in US-$',
+    ownHint: 'Leer lassen für kein eigenes Limit. Gezählt werden Chats, Agents und Hilfsaufrufe; harness run im Terminal nicht, es stoppt aber am Limit.',
+    save: 'Speichern',
+    saved: 'Tageslimit gespeichert.',
+    invalid: 'Bitte einen Betrag über 0 eingeben, z. B. 1,50.',
+  },
   account: {
     title: 'Konto',
     profile: 'Profil',
@@ -854,6 +868,9 @@ export const de = {
     memory: 'Gedächtnis',
     memoryHint:
       'Chat-Modelle und Agents dürfen sich auf Wunsch der Nutzer Vorlieben und Fakten merken, die dann in jedem Chat gelten. Jeder Nutzer sieht und bearbeitet sein Gedächtnis in den Einstellungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    dailyCostLimit: 'Tageslimit je Nutzer in US-$',
+    dailyCostLimitHint: 'Höchstens so viel darf jeder Nutzer pro Tag ausgeben (Chats, Agents, Hilfsaufrufe). Nutzer können sich ein niedrigeres setzen. Leer für keins.',
+    dailyCostLimitNone: 'kein Limit',
     progress: 'Fortschrittsliste',
     progressHint:
       'Bei Aufgaben mit mehreren Schritten zeigt das Modell in normalen Chats seinen Plan als Liste über dem Eingabefeld und hakt ab, was erledigt ist. Ausschalten, falls ein Modell keine Werkzeuge kann.',

@@ -619,9 +619,11 @@ export const approvalDecisionSchema = z
 export type AgentDataParts = {
   /**
    * A message of harness or the harness itself (warnings, progress). Lines
-   * after the first are details the web app shows on demand.
+   * after the first are details the web app shows on demand. With a `code`
+   * (an `ApiErrorCode`), the web app shows its own text in the user's
+   * language instead.
    */
-  notice: { level: 'info' | 'warning' | 'error'; text: string };
+  notice: { level: 'info' | 'warning' | 'error'; text: string; code?: string };
   /**
    * A question of the project's gateway, or of the server's web fetch in an
    * ordinary chat (then with `url`); updated in place when answered.

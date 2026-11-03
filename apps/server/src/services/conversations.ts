@@ -3,6 +3,7 @@ import type { UIMessage } from 'ai';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { ConversationTable, DB } from '../db/schema.ts';
+import { addCost } from './costs.ts';
 
 /**
  * Message type stored and exchanged with the web app.
@@ -267,10 +268,20 @@ export async function saveMessage(db: Kysely<DB>, conversationId: string, messag
   await db.transaction().execute(async (trx) => {
     const existing = await trx
       .selectFrom('message')
-      .select('id')
+      .select(['id', 'metadata'])
       .where('id', '=', message.id)
       .where('conversationId', '=', conversationId)
       .executeTakeFirst();
+    // Today's spending grows by what this save adds: a new reply, or a
+    // stored one that a later step (Jev's assessment, a summary) made dearer.
+    const before = existing?.metadata ? ((JSON.parse(existing.metadata) as ChatMessage['metadata'])?.usage?.cost ?? 0) : 0;
+    const added = (message.metadata?.usage?.cost ?? 0) - before;
+    if (added > 0) {
+      const owner = await trx.selectFrom('conversation').select('userId').where('id', '=', conversationId).executeTakeFirst();
+      if (owner) {
+        await addCost(trx, owner.userId, added);
+      }
+    }
     if (existing) {
       await trx
         .updateTable('message')

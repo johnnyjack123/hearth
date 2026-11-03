@@ -12,6 +12,7 @@ import { conversationRoutes } from './routes/conversations.ts';
 import { deviceRoutes, deviceSelfRoutes, pairingRoutes } from './routes/devices.ts';
 import { fileRoutes } from './routes/files.ts';
 import { llmRoutes } from './routes/llm.ts';
+import { costRoutes } from './routes/costs.ts';
 import { memoryRoutes } from './routes/memories.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
@@ -89,6 +90,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   api.route('/devices', deviceRoutes(deps));
   api.route('/app-templates', appTemplateRoutes(deps));
   api.route('/memories', memoryRoutes(deps));
+  api.route('/costs', costRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
   app.route('/api', api);
 

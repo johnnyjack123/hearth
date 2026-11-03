@@ -31,6 +31,7 @@ const DEFAULTS: ServerSettings = {
   openRouterNoFourBit: false,
   memory: true,
   progress: true,
+  dailyCostLimit: null,
   search: {
     provider: 'off',
     searxngUrl: null,

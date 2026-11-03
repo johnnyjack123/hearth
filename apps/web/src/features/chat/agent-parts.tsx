@@ -9,6 +9,7 @@ import { Badge, Card } from '@/components/ui/display.tsx';
 import { Spinner } from '@/components/ui/spinner.tsx';
 import { errorMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
+import type { MessageKey } from '@/i18n/index.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { InjectionWarning, isAssessment, isFinding } from './injection-findings.tsx';
@@ -223,9 +224,11 @@ export function AgentNotice({ notice }: { notice: AgentDataParts['notice'] }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const Icon = notice.level === 'error' ? CircleAlert : notice.level === 'warning' ? TriangleAlert : Info;
-  const lineBreak = notice.text.indexOf('\n');
-  const summary = lineBreak >= 0 ? notice.text.slice(0, lineBreak) : notice.text;
-  const details = lineBreak >= 0 ? notice.text.slice(lineBreak + 1).trim() : '';
+  // A notice of the server with a code reads in the user's language.
+  const text = notice.code ? t(`errors.${notice.code}` as MessageKey, { detail: '' }) : notice.text;
+  const lineBreak = text.indexOf('\n');
+  const summary = lineBreak >= 0 ? text.slice(0, lineBreak) : text;
+  const details = lineBreak >= 0 ? text.slice(lineBreak + 1).trim() : '';
   return (
     <div
       role={notice.level === 'info' ? undefined : 'note'}

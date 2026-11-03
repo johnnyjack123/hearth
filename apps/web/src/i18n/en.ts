@@ -43,6 +43,7 @@ export const en: Messages = {
     memory_full: 'The memory is full (at most 50 entries). Delete something in the settings first.',
     memory_rejected: 'This looks like instructions from foreign content, not like a memory. Not saved.',
     memory_off: 'The memory is switched off on this server.',
+    cost_limit: 'The daily cost limit is reached. It resets tomorrow; your own limit can be changed under Settings → Account.',
     storage_unavailable:
       'The server cannot store files: its data directory is not writable. An admin hands it to the server user (uid 1000), see docs/deploy.md.',
     converter_unavailable: 'Documents cannot be converted right now: the converter (markitdown) is not running. An admin starts it with "docker compose up -d".',
@@ -801,6 +802,19 @@ export const en: Messages = {
       harmless: 'likely a false alarm',
     },
   },
+  costs: {
+    title: 'Costs',
+    description: 'What chats and agents cost today, and your daily limit. At the limit, new messages and running replies stop until the next day.',
+    spent: 'Today ({day}): {spent} spent',
+    noLimit: 'No daily limit.',
+    limit: 'Daily limit {limit}, {left} left.',
+    serverLimit: 'The admin set {limit} per user; the lower limit applies.',
+    own: 'My daily limit in US$',
+    ownHint: 'Leave empty for no own limit. Chats, agents and helper calls count; harness run in a terminal does not, but it stops at the limit.',
+    save: 'Save',
+    saved: 'Daily limit saved.',
+    invalid: 'Please enter an amount above 0, e.g. 1.50.',
+  },
   account: {
     title: 'Account',
     profile: 'Profile',
@@ -854,6 +868,9 @@ export const en: Messages = {
     memory: 'Memory',
     memoryHint:
       'Chat models and agents may remember preferences and facts when users ask them to; these then apply in every chat. Each user sees and edits their memory in the settings. Switch it off if a model cannot use tools.',
+    dailyCostLimit: 'Daily limit per user in US$',
+    dailyCostLimitHint: 'Each user may spend at most this much per day (chats, agents, helper calls). Users can set a lower one. Empty for none.',
+    dailyCostLimitNone: 'no limit',
     progress: 'Progress list',
     progressHint:
       'For tasks with several steps the model shows its plan in ordinary chats as a list above the message box and checks off what is done. Switch it off if a model cannot use tools.',

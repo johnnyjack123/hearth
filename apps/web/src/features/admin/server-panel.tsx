@@ -1,7 +1,7 @@
 import type { CompactSettings, CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, CircleCheck } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { Card, Separator, Skeleton } from '@/components/ui/display.tsx';
@@ -11,10 +11,44 @@ import { Switch } from '@/components/ui/switch.tsx';
 import { SegmentedControl } from '@/components/ui/tabs.tsx';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import { api, errorMessage } from '@/lib/api.ts';
-import { useT } from '@/lib/preferences.tsx';
+import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys, usePublicSettings } from '@/lib/queries.ts';
 import { cn } from '@/lib/utils.ts';
+import { dollarsInput, parseDollars } from '../settings/cost-limit.tsx';
 import { Section, SettingRow } from '../shell/page.tsx';
+
+/**
+ * The daily cost limit for every user: a dollar amount, empty for none.
+ *
+ * @param props - The stored limit and how to save a new one.
+ * @returns The setting's row.
+ */
+function DailyLimitRow({ current, onSave }: { current: number | null; onSave: (limit: number | null) => void }) {
+  const { t, locale } = usePreferences();
+  const [value, setValue] = useState(dollarsInput(locale, current));
+  useEffect(() => {
+    setValue(dollarsInput(locale, current));
+  }, [current, locale]);
+  function save(event: FormEvent) {
+    event.preventDefault();
+    const limit = parseDollars(value);
+    if (limit === undefined) {
+      toast.error(t('costs.invalid'));
+      return;
+    }
+    onSave(limit);
+  }
+  return (
+    <form onSubmit={save} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end">
+      <Field label={t('admin.dailyCostLimit')} hint={t('admin.dailyCostLimitHint')} className="flex-1">
+        {(control) => <Input {...control} inputMode="decimal" placeholder={t('admin.dailyCostLimitNone')} value={value} onChange={(event) => setValue(event.target.value)} />}
+      </Field>
+      <Button type="submit" variant="secondary" disabled={value.trim() === dollarsInput(locale, current)}>
+        {t('costs.save')}
+      </Button>
+    </form>
+  );
+}
 
 /**
  * Server-wide settings: registration mode, custom endpoints, web fetch and
@@ -130,6 +164,8 @@ export function ServerPanel() {
                   />
                 }
               />
+              <Separator />
+              <DailyLimitRow current={settings.data.dailyCostLimit} onSave={(dailyCostLimit) => update.mutate({ dailyCostLimit })} />
               <Separator />
               <SettingRow
                 label={t('admin.openRouterCheapest')}
