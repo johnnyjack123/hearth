@@ -1066,8 +1066,9 @@ data: [DONE]
     // While the reply runs: by the short id, as the device lists it, or by name.
     const found = await read(token, { file: file.id.slice(-8) });
     expect(found.status).toBe(200);
-    expect(((await found.json()) as { text: string }).text).toBe('From "notiz.txt":\nBohnen kaufen');
-    expect((await read(token, { file: 'notiz.txt', grep: 'Bohnen' })).status).toBe(200);
+    expect(((await found.json()) as { text: string }).text).toBe('From "notiz.txt": the whole document, it is short\nBohnen kaufen');
+    const grepped = await read(token, { file: 'notiz.txt', grep: 'Bohnen' });
+    expect(((await grepped.json()) as { text: string }).text).toMatch(/^From "notiz.txt": 1 matching lines for "Bohnen"/);
     // Another computer of the account has no reply of that chat.
     const other = await pair();
     const elsewhere = await read(other.token, { file: file.id.slice(-8) });

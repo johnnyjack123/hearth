@@ -74,6 +74,9 @@ describe('long documents', () => {
     // The focus finds the section; grep the line.
     expect(JSON.stringify(llm.calls[1]?.prompt)).toContain('Die Röstung dauert 14 Minuten bei 210 °C');
     expect(JSON.stringify(llm.calls[2]?.prompt)).toContain('Danach kühlt der Kaffee vier Minuten ab.');
+    // The first line says how: without an OpenRouter key by keywords only.
+    expect(JSON.stringify(llm.calls[1]?.prompt)).toMatch(/sections [\d, ]+ of \d+, chosen by keywords/);
+    expect(JSON.stringify(llm.calls[2]?.prompt)).toContain('1 matching lines for');
 
     // A wrong name says which documents there are.
     script = [{ tool: 'read_document', input: { file: 'nichts.pdf' } }, { text: 'Ok.' }];
@@ -131,6 +134,7 @@ describe('long documents', () => {
         { type: 'file', url: `/api/files/${file.id}`, mediaType: 'text/markdown', filename: 'bohnen.md' },
       ]);
       expect(JSON.stringify(llm.calls[1]?.prompt)).toContain('luftdicht verschlossenen Dose');
+      expect(JSON.stringify(llm.calls[1]?.prompt)).toMatch(/sections [\d, ]+ of 261, chosen by meaning and keywords/);
       // Every section once, in batches of 32, and the question on its own.
       const sections = requests.filter((input) => !input[0]?.startsWith('Instruct:')).flat();
       expect(sections).toHaveLength(261);
