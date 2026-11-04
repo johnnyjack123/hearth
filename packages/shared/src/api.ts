@@ -29,6 +29,7 @@ export type ApiErrorCode =
   | 'storage_unavailable'
   | 'memory_full'
   | 'memory_rejected'
+  | 'memory_protected'
   | 'memory_off'
   | 'cost_limit'
   | 'convert_failed'

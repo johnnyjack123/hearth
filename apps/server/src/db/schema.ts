@@ -117,6 +117,8 @@ export interface MemoryTable {
   source: string;
   /** The chat a model stored it in, if any. */
   conversationId: string | null;
+  /** 1 while a model's suggestion waits for the user, else 0. */
+  pending: number;
   createdAt: number;
   updatedAt: number;
 }

@@ -21,6 +21,17 @@ const FETCH_TIMEOUT_MS = 5_000;
 const MAX_ORDER = 8;
 
 /**
+ * A conversation goes back to the host of its last call for this long after
+ * it: that host holds the conversation in its prompt cache, any other host
+ * reads the whole context at full price. Caches of the hosts last minutes to
+ * hours; after half an hour without a call the cheapest host is worth more.
+ */
+const STICKY_MS = 30 * 60_000;
+
+/** Conversations remembered at most; the oldest go first. */
+const MAX_STICKY = 5_000;
+
+/**
  * The call prices are compared on: most input from the cache (agent chats
  * read ~99 % of it from there, 31.10.), output a few percent of the input.
  * Comparing list prices alone would favor hosts without a cache, which
@@ -111,11 +122,18 @@ export function endpointPrices(endpoint: RawEndpoint, at: Date): { prompt: numbe
  * @returns Endpoint tags for `provider.order`, at most {@link MAX_ORDER}.
  */
 export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: boolean }): string[] {
+  return rankHosts(raw, at, options)
+    .slice(0, MAX_ORDER)
+    .map((endpoint) => endpoint.tag);
+}
+
+/** All eligible endpoints from cheapest to dearest, with the host each belongs to. */
+function rankHosts(raw: unknown, at: Date, options: { noFourBit: boolean }): { tag: string; host: string | null }[] {
   const endpoints = (raw as { data?: { endpoints?: unknown } } | null)?.data?.endpoints;
   if (!Array.isArray(endpoints)) {
     return [];
   }
-  const ranked: { tag: string; score: number; index: number }[] = [];
+  const ranked: { tag: string; host: string | null; score: number; index: number }[] = [];
   endpoints.forEach((entry: RawEndpoint, index) => {
     if (!entry || typeof entry !== 'object' || typeof entry.tag !== 'string' || !entry.tag) {
       return;
@@ -140,11 +158,16 @@ export function rankEndpoints(raw: unknown, at: Date, options: { noFourBit: bool
       return;
     }
     const score = MIX.input * prices.prompt + MIX.cacheRead * (prices.cacheRead ?? prices.prompt) + MIX.output * prices.completion;
-    ranked.push({ tag: entry.tag, score, index });
+    ranked.push({ tag: entry.tag, host: typeof entry.provider_name === 'string' ? entry.provider_name : null, score, index });
   });
   // On a tie OpenRouter's own order stands.
   ranked.sort((a, b) => a.score - b.score || a.index - b.index);
-  return ranked.slice(0, MAX_ORDER).map((endpoint) => endpoint.tag);
+  return ranked;
+}
+
+/** Model ids have no spaces, so the pair cannot be mistaken for another. */
+function stickyKey(modelId: string, conversation: string): string {
+  return `${modelId} ${conversation}`;
 }
 
 function isFlex(entry: RawEndpoint): boolean {
@@ -212,11 +235,18 @@ const fetchEndpoints: EndpointFetcher = async (modelId) => {
  * Which hosts a request for a model should try first. The endpoint lists
  * are public and kept for {@link ENDPOINTS_TTL_MS}; without one, OpenRouter
  * routes as it likes and nothing breaks.
+ *
+ * A conversation stays with the host that served its last call (see
+ * {@link STICKY_MS}). Without that, a reply hopped between hosts (3.11.):
+ * dozens of hosts list nearly the same price, so the order changed whenever
+ * the list was reloaded and a host's uptime or price moved, and every call
+ * OpenRouter sent elsewhere after a failure stayed there only for that call.
  */
 export class OpenRouterRouting {
   readonly #lists = new Map<string, { loadedAt: number; raw: unknown }>();
   readonly #failed = new Map<string, number>();
   readonly #loading = new Map<string, Promise<unknown>>();
+  readonly #hosts = new Map<string, { host: string; at: number }>();
 
   /**
    * @param load - Loads an endpoint list.
@@ -228,19 +258,49 @@ export class OpenRouterRouting {
   ) {}
 
   /**
-   * The cheapest hosts for a model right now.
+   * The cheapest hosts for a model right now, the conversation's host first
+   * while it is still eligible.
    *
    * @param modelId - OpenRouter's model id.
    * @param options - See {@link rankEndpoints}.
+   * @param conversation - Names the conversation for {@link stick}; without it, cheapest first.
    * @returns Tags for `provider.order`, or null if none are known.
    */
-  async order(modelId: string, options: { noFourBit: boolean }): Promise<string[] | null> {
+  async order(modelId: string, options: { noFourBit: boolean }, conversation?: string): Promise<string[] | null> {
     if (!ROUTABLE_MODEL.test(modelId)) {
       return null;
     }
     const raw = await this.#list(modelId);
-    const order = raw === null ? [] : rankEndpoints(raw, new Date(this.now()), options);
+    const now = this.now();
+    const ranked = raw === null ? [] : rankHosts(raw, new Date(now), options);
+    const sticky = conversation === undefined ? undefined : this.#hosts.get(stickyKey(modelId, conversation));
+    const own = sticky && now - sticky.at < STICKY_MS ? ranked.findIndex((endpoint) => endpoint.host === sticky.host) : -1;
+    if (own > 0) {
+      ranked.unshift(...ranked.splice(own, 1));
+    }
+    const order = ranked.slice(0, MAX_ORDER).map((endpoint) => endpoint.tag);
     return order.length > 0 ? order : null;
+  }
+
+  /**
+   * Remembers the host that served a conversation's call, so its next calls
+   * go there first (see {@link order}).
+   *
+   * @param modelId - OpenRouter's model id.
+   * @param conversation - Names the conversation.
+   * @param host - The host as OpenRouter's answer names it (`provider`).
+   */
+  stick(modelId: string, conversation: string, host: string): void {
+    const key = stickyKey(modelId, conversation);
+    // Re-inserted, so the map's order is the order of last use.
+    this.#hosts.delete(key);
+    this.#hosts.set(key, { host, at: this.now() });
+    for (const oldest of this.#hosts.keys()) {
+      if (this.#hosts.size <= MAX_STICKY) {
+        break;
+      }
+      this.#hosts.delete(oldest);
+    }
   }
 
   /**

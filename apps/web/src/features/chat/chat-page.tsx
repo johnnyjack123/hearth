@@ -13,7 +13,7 @@ import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
 import { useConversation, usePublicSettings } from '@/lib/queries.ts';
-import { ChecklistPanel, currentChecklist } from './agent-checklist.tsx';
+import { ChecklistPanel, currentChecklist, hiddenChecklists, hideChecklist } from './agent-checklist.tsx';
 import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ContextMeter } from './context-meter.tsx';
@@ -102,7 +102,9 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const { link } = conversation;
   const online = useLinkOnline(link);
   // The plan of the agent or the chat model, as it checks it off.
-  const checklist = currentChecklist(messages);
+  const [hiddenLists, setHiddenLists] = useState(hiddenChecklists);
+  const latestList = currentChecklist(conversation.id, messages, busy);
+  const checklist = latestList && !hiddenLists.has(latestList.id) ? latestList : null;
 
   function setResearch(on: boolean) {
     setChatResearch(on);
@@ -173,7 +175,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           ) : null}
         </AnimatePresence>
         <div className="mx-auto w-full max-w-(--content-width)">
-          {checklist ? <ChecklistPanel items={checklist} live={busy} /> : null}
+          {checklist ? <ChecklistPanel items={checklist.items} live={busy} onHide={() => setHiddenLists(hideChecklist(checklist.id))} /> : null}
           <Composer
             value={draft}
             onValueChange={setDraft}

@@ -57,7 +57,7 @@ import { listMemories, memoryContext, memoryNote } from '../services/memories.ts
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
 import { agentCompaction, type AgentPricer, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
-import { assignTitle, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
+import { assignTitle, type ChatHosts, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
 
 /** A takeover waits this long for the device (VM start, sync, checks). */
@@ -567,6 +567,12 @@ export function conversationRoutes(deps: AppDeps) {
         previous.findLast((message) => message.metadata?.usage?.contextWindow)?.metadata?.usage?.contextWindow ?? pricing?.contextWindow;
       // Decided now and stored with the reply, so later requests start the same way.
       const compact = shouldCompact(previous, stored, settings.compact, contextWindow);
+      // OpenRouter: the cheapest hosts, the chat's own host first (its cache).
+      const routing = row.kind === 'openrouter' && settings.openRouterCheapest ? deps.openRouter : undefined;
+      const hosts: ChatHosts | undefined = routing && {
+        order: () => routing.order(body.modelId, { noFourBit: settings.openRouterNoFourBit }, conversation.id),
+        stick: (host) => routing.stick(body.modelId, conversation.id, host),
+      };
       return streamChat({
         db,
         conversationId: conversation.id,
@@ -584,12 +590,8 @@ export function conversationRoutes(deps: AppDeps) {
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
         assess: body.assess === true,
-        effort: withProviderOrder(
-          effortOptions(row.kind, row.baseUrl, body.effort),
-          row.kind === 'openrouter' && settings.openRouterCheapest
-            ? await deps.openRouter?.order(body.modelId, { noFourBit: settings.openRouterNoFourBit })
-            : null,
-        ),
+        effort: withProviderOrder(effortOptions(row.kind, row.baseUrl, body.effort), (await hosts?.order()) ?? null),
+        hosts,
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
         hostRates: await hostRatesFor(row, body.modelId),
         budget: costs.limit === null ? null : { left: costs.limit - costs.spent, exceeded: () => stop.abort() },

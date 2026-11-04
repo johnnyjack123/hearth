@@ -298,6 +298,18 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('costDay').execute();
     },
   },
+  // Memories models store wait for the user (security review M2).
+  '0015_memory_pending': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable('memory')
+        .addColumn('pending', 'integer', (col) => col.notNull().defaultTo(0))
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('memory').dropColumn('pending').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

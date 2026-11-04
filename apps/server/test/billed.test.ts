@@ -1,9 +1,12 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { generateText, type LanguageModelUsage, streamText } from 'ai';
+import type { ConversationSummary, ProviderCredential } from '@harness/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createLlmGateway } from '../src/llm.ts';
+import { OpenRouterRouting } from '../src/openrouter.ts';
 import { billedCost, callUsage, usageMetadata } from '../src/pricing.ts';
+import { createTestServer } from './helpers.ts';
 
 /** A stand-in for OpenRouter that bills like it: the cost comes with the usage. */
 let server: http.Server;
@@ -97,5 +100,79 @@ describe('billed cost', () => {
     // Other providers send no bill.
     expect(billedCost({ anthropic: { cacheCreationInputTokens: 0 } })).toBeNull();
     expect(billedCost(undefined)).toBeNull();
+  });
+});
+
+describe('OpenRouter hosts in an ordinary chat', () => {
+  it('follow the host the call before ran on, within a reply', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    // First a tool call that OpenRouter served from the dearer host, then the answer.
+    const standIn = http.createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk) => (body += chunk));
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        bodies.push(parsed);
+        // The title of the new chat comes without tools and is not streamed.
+        if (!parsed.stream) {
+          response.writeHead(200, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ id: 'gen-t', object: 'chat.completion', created: 0, model: 'x', choices: [{ index: 0, message: { role: 'assistant', content: 'Rechnen' }, finish_reason: 'stop' }] }));
+          return;
+        }
+        const first = bodies.filter((entry) => entry.stream).length === 1;
+        const base = { id: `gen-${bodies.length}`, object: 'chat.completion.chunk', created: 0, model: 'deepseek/deepseek-v4.1-flash', provider: 'NoCache' };
+        const delta = first
+          ? { role: 'assistant', tool_calls: [{ index: 0, id: 'call-1', type: 'function', function: { name: 'calculate', arguments: '{"expressions":["1+1"]}' } }] }
+          : { role: 'assistant', content: 'Zwei.' };
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`);
+        const usage = { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110, cost: 0.00001 };
+        response.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta: {}, finish_reason: first ? 'tool_calls' : 'stop' }], usage })}\n\n`);
+        response.end('data: [DONE]\n\n');
+      });
+    });
+    await new Promise<void>((resolve) => standIn.listen(0, '127.0.0.1', resolve));
+    const server = await createTestServer('sqlite', {
+      // The real gateway, talking to the stand-in.
+      llm: Object.assign(createLlmGateway(), { createdModels: [], listError: null }),
+      openRouter: new OpenRouterRouting(async () => ({
+        data: {
+          endpoints: [
+            { tag: 'cached/fp8', provider_name: 'Cached', pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' } },
+            { tag: 'no-cache', provider_name: 'NoCache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
+          ],
+        },
+      })),
+    });
+    try {
+      const cookie = await server.signUp('owner@example.com');
+      const credential = (await (
+        await server.request('POST', '/api/providers', { cookie, body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-0123456789abcdef' } })
+      ).json()) as ProviderCredential;
+      const port = (standIn.address() as AddressInfo).port;
+      await server.database.db
+        .updateTable('providerCredential')
+        .set({ baseUrl: `http://127.0.0.1:${port}/api/v1` })
+        .where('id', '=', credential.id)
+        .execute();
+      const { id } = (await (await server.request('POST', '/api/conversations', { cookie, body: {} })).json()) as ConversationSummary;
+      const reply = await server.request('POST', `/api/conversations/${id}/chat`, {
+        cookie,
+        body: {
+          message: { id: 'm-1', role: 'user', parts: [{ type: 'text', text: 'Was ist 1 + 1?' }] },
+          credentialId: credential.id,
+          modelId: 'deepseek/deepseek-v4.1-flash',
+        },
+      });
+      expect(await reply.text()).toContain('Zwei.');
+      const chatCalls = bodies.filter((body) => Array.isArray(body.tools));
+      expect(chatCalls).toHaveLength(2);
+      expect(chatCalls[0]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
+      // The cache of the conversation is where the first call ran.
+      expect(chatCalls[1]?.provider).toEqual({ order: ['no-cache', 'cached/fp8'], allow_fallbacks: true });
+    } finally {
+      await server.close();
+      await new Promise((resolve) => standIn.close(resolve));
+    }
   });
 });

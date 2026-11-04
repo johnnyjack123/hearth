@@ -40,6 +40,7 @@ export const de = {
     file_empty: 'Die Datei ist leer.',
     memory_full: 'Das Gedächtnis ist voll (höchstens 50 Einträge). Lösche zuerst etwas in den Einstellungen.',
     memory_rejected: 'Das sieht nach Anweisungen aus fremden Inhalten aus, nicht nach einer Erinnerung. Nicht gespeichert.',
+    memory_protected: 'Diesen Eintrag hast du selbst angelegt; nur du kannst ihn löschen.',
     memory_off: 'Das Gedächtnis ist auf diesem Server ausgeschaltet.',
     cost_limit: 'Das Tageslimit für Kosten ist erreicht. Morgen geht es weiter; das eigene Limit lässt sich unter Einstellungen → Konto ändern.',
     storage_unavailable:
@@ -285,6 +286,9 @@ export const de = {
       show: 'Liste zeigen',
       hide: 'Liste verbergen',
       hint: 'Das Modell führt diese Liste selbst und hakt ab, was es erledigt hat.',
+      stalled: 'nicht zu Ende geführt',
+      dismiss: 'Liste ausblenden',
+      dismissHint: 'Blendet die Liste aus, bis das Modell sie wieder ändert.',
     },
     progressFailed: 'Fehlgeschlagen',
     showDetails: 'Details zeigen',
@@ -419,11 +423,14 @@ export const de = {
   memory: {
     title: 'Gedächtnis',
     description:
-      'Was jeder Chat und jeder Agent über dich weiß, etwa „antworte knapp“ oder „pnpm statt npm“. Modelle legen Einträge an, wenn du sie darum bittest; hier änderst oder löschst du sie.',
+      'Was jeder Chat und jeder Agent über dich weiß, etwa „antworte knapp“ oder „pnpm statt npm“. Modelle schlagen Einträge vor, wenn du sie darum bittest; sie gelten erst, wenn du sie übernimmst. Hier änderst oder löschst du sie.',
     placeholder: 'Etwas, das jeder Chat wissen soll …',
     add: 'Merken',
     edit: 'Bearbeiten',
     remove: 'Löschen',
+    pending: 'Vorschlag, gilt erst nach „Übernehmen“',
+    confirm: 'Übernehmen',
+    discard: 'Verwerfen',
     emptyTitle: 'Noch nichts gemerkt',
     emptyBody: 'Sag in einem Chat „Merk dir, dass …“ oder trag hier etwas ein.',
     count: '{count} von {max} Einträgen',
@@ -434,6 +441,8 @@ export const de = {
     },
     call: {
       remembered: 'Gemerkt: „{text}“',
+      suggested: 'Zum Merken vorgeschlagen: „{text}“',
+      discarded: 'Nicht im Gedächtnis: „{text}“',
       forgot: 'Vergessen: „{text}“',
       rememberFailed: 'Nicht gemerkt',
       forgetFailed: 'Nicht vergessen',

@@ -1,4 +1,5 @@
 import { type DeviceCredential, memoryRef, memoryTextSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
@@ -16,6 +17,7 @@ import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts
 import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers.ts';
 import { runSearch, searchModelText } from '../websearch/tool.ts';
 import { memoryText } from '../memory/tool.ts';
+import { clientBetas, providerSideTool } from '../llm-tools.ts';
 import { cheapestProvider, meterBill } from '../openrouter.ts';
 import { costGuard } from '../services/costs.ts';
 import { addMemory, removeMemory } from '../services/memories.ts';
@@ -55,6 +57,14 @@ const ALLOWED_PATHS: Record<Protocol, RegExp> = {
   openai: /^(chat\/completions|completions|responses|embeddings|models(\/[\w.:-]+)?)$/,
   anthropic: /^v1\/(messages(\/count_tokens)?|models(\/[\w.:-]+)?)$/,
   google: /^v1beta\/models(\/[\w.-]+(:(generateContent|streamGenerateContent|countTokens))?)?$/,
+};
+
+// Model lists are read, everything else is a call: one method per path, so
+// a device cannot `DELETE` a fine-tuned model under `models/…`.
+const LIST_PATHS: Record<Protocol, RegExp> = {
+  openai: /^models(\/[\w.:-]+)?$/,
+  anthropic: /^v1\/models(\/[\w.:-]+)?$/,
+  google: /^v1beta\/models(\/[\w.-]+)?$/,
 };
 
 // Request headers a client may pass on; credentials are set by the server.
@@ -210,10 +220,10 @@ export function llmRoutes(deps: AppDeps) {
       try {
         if (input.action === 'remember') {
           const memory = await addMemory(db, owner, { text: input.text, source: 'agent' });
-          const output = { ref: memoryRef(memory.id), text: memory.text };
+          const output = { ref: memoryRef(memory.id), text: memory.text, ...(memory.pending ? { pending: true } : {}) };
           return c.json({ ...output, modelText: memoryText('Remembered', output) });
         }
-        const memory = await removeMemory(db, owner, input.id);
+        const memory = await removeMemory(db, owner, input.id, 'agent');
         if (!memory) {
           return c.json({ error: `There is no memory [${input.id}].` }, 404);
         }
@@ -256,6 +266,9 @@ export function llmRoutes(deps: AppDeps) {
       if (!ALLOWED_PATHS[protocol].test(path)) {
         throw notFound('LLM endpoint');
       }
+      if (c.req.method !== (LIST_PATHS[protocol].test(path) ? 'GET' : 'POST')) {
+        return c.json({ error: { type: 'method_not_allowed', message: `${c.req.method} is not allowed on ${path}.` } }, 405);
+      }
       await assertEndpointAllowed(db, owner, row.kind, row.baseUrl);
       // Model calls stop at the owner's daily cost limit, also those of
       // `harness run`, whose cost the limit cannot see; listing models is free.
@@ -274,23 +287,42 @@ export function llmRoutes(deps: AppDeps) {
       const headers = new Headers(authHeaders(protocol, credential.apiKey));
       for (const name of FORWARDED_REQUEST_HEADERS) {
         const value = c.req.header(name);
-        if (value) {
-          headers.set(name, value);
+        // Flags for provider-side tools are dropped with the tools below.
+        const forwarded = value && name === 'anthropic-beta' ? clientBetas(value) : value;
+        if (forwarded) {
+          headers.set(name, forwarded);
         }
       }
       const method = c.req.method;
-      const hasBody = method !== 'GET' && method !== 'HEAD';
+      const hasBody = method === 'POST';
       const target = `${proxyRoot(row.kind, row.baseUrl)}/${path}${new URL(c.req.url).search}`;
-      // Chat requests to OpenRouter go to the cheapest hosts first; that
-      // needs the body, everything else streams through as it comes.
-      const body = hasBody && row.kind === 'openrouter' && path === 'chat/completions' ? await cheapest(await c.req.text()) : null;
+      const device = c.get('device').id;
+      // Every call is read before it goes out: tools the provider runs itself
+      // would reach the network around the project's rules (see `llm-tools.ts`).
+      const text = hasBody ? await c.req.text() : null;
+      const request = text === null ? null : parseJson(text);
+      const serverTool = providerSideTool(protocol, request);
+      if (serverTool) {
+        return c.json(
+          {
+            error: {
+              type: 'tool_not_allowed',
+              message: `Tools the provider runs itself (${serverTool.slice(0, 100)}) are not available to agents: they would reach the network around the project's rules.`,
+            },
+          },
+          400,
+        );
+      }
+      // Chat requests to OpenRouter go to the cheapest hosts first.
+      const routed = text !== null && row.kind === 'openrouter' && path === 'chat/completions' ? await cheapest(text, request, device) : null;
+      const body = routed?.body ?? text;
 
       let upstream: Response;
       try {
         upstream = await fetch(target, {
           method,
           headers,
-          ...(body !== null ? { body } : hasBody ? { body: c.req.raw.body, duplex: 'half' } : {}),
+          ...(body !== null ? { body } : {}),
           redirect: 'error',
           signal: c.req.raw.signal,
         } as RequestInit);
@@ -313,38 +345,62 @@ export function llmRoutes(deps: AppDeps) {
       // for the agent's report of the call; see `agentCallCost`.
       const type = upstream.headers.get('content-type') ?? '';
       const stream = type.includes('text/event-stream');
-      const device = c.get('device').id;
       const metered =
         upstream.ok && upstream.body && protocol === 'openai' && (stream || type.includes('application/json'))
-          ? meterBill(upstream.body, stream, (bill) => deps.hub.bills.record(device, bill))
+          ? meterBill(upstream.body, stream, (bill) => {
+              deps.hub.bills.record(device, bill);
+              // The conversation's next call goes back to the host that has it cached.
+              if (routed?.conversation && bill.cost.host) {
+                deps.openRouter?.stick(routed.conversation.model, routed.conversation.key, bill.cost.host);
+              }
+            })
           : upstream.body;
       return new Response(metered, { status: upstream.status, headers: responseHeaders });
     });
 
   /**
-   * An OpenRouter chat request with the cheapest hosts first, unless the
-   * admin turned that off or the request routes itself.
+   * An OpenRouter chat request with the cheapest hosts first, the host of
+   * the conversation's last call before them, unless the admin turned that
+   * off or the request routes itself.
    */
-  async function cheapest(text: string): Promise<string> {
+  async function cheapest(text: string, request: unknown, device: string): Promise<{ body: string; conversation?: { model: string; key: string } }> {
     const settings = await getServerSettings(db);
     if (!settings.openRouterCheapest) {
-      return text;
-    }
-    let request: unknown;
-    try {
-      request = JSON.parse(text);
-    } catch {
-      return text;
+      return { body: text };
     }
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
-      return text;
+      return { body: text };
     }
     const fields = request as Record<string, unknown>;
     if (typeof fields.model !== 'string') {
-      return text;
+      return { body: text };
     }
-    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit })) ?? null;
+    const conversation = { model: fields.model, key: conversationKey(device, fields.messages) };
+    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit }, conversation.key)) ?? null;
     const provider = cheapestProvider(fields.provider, order);
-    return provider ? JSON.stringify({ ...fields, provider }) : text;
+    return { body: provider ? JSON.stringify({ ...fields, provider }) : text, conversation };
   }
+}
+
+/** The body as JSON, or null if it is none (the provider answers that). */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Names an agent's conversation by its first user message: the request
+ * carries no session, but every call of a conversation starts the same way,
+ * and two conversations rarely do.
+ *
+ * @param device - The device the agent runs on.
+ * @param messages - The request's messages.
+ * @returns The name.
+ */
+export function conversationKey(device: string, messages: unknown): string {
+  const first = Array.isArray(messages) ? messages.find((message) => (message as { role?: unknown } | null)?.role === 'user') : undefined;
+  return `${device}:${createHash('sha256').update(JSON.stringify(first ?? null)).digest('hex').slice(0, 32)}`;
 }

@@ -10,6 +10,8 @@ const DESCRIPTION =
   'For tasks with three or more steps that use tools (research, several calculations, reading several pages), ' +
   'call it at the start with all steps (the first one active), then again whenever a step is done or the plan changes. ' +
   'Send the whole list every time, at most one step active. Keep each step to a few words. ' +
+  'Before your final answer, send it once more with every finished step done and steps you dropped removed: ' +
+  'the user sees a list with open steps as unfinished work. ' +
   'Do not use it for simple questions or single steps.';
 
 /**
@@ -48,7 +50,8 @@ export interface ProgressOutput {
  * @returns The text.
  */
 export function progressText(output: ProgressOutput): string {
-  return `Shown: ${output.done}/${output.total} done.`;
+  const open = output.done < output.total ? ' Check off the rest before your final answer.' : '';
+  return `Shown: ${output.done}/${output.total} done.${open}`;
 }
 
 /**

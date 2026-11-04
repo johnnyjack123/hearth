@@ -42,7 +42,8 @@ export function MemoryPanel() {
     }
   }
 
-  const list = memories.data ?? [];
+  // Suggestions first: they wait for the user.
+  const list = [...(memories.data ?? [])].sort((a, b) => Number(b.pending) - Number(a.pending));
   const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   return (
     <Section title={t('memory.title')} description={t('memory.description')}>
@@ -136,10 +137,18 @@ function MemoryRow({ memory, date, onChanged }: { memory: Memory; date: string; 
         ) : (
           <p className="break-words text-sm text-foreground">{memory.text}</p>
         )}
-        <p className="text-xs text-muted-foreground">{t(`memory.source.${memory.source}`, { date })}</p>
+        <p className="text-xs text-muted-foreground">
+          {memory.pending ? <span className="font-medium text-foreground">{t('memory.pending')} · </span> : null}
+          {t(`memory.source.${memory.source}`, { date })}
+        </p>
       </div>
       {editing ? null : (
         <div className="flex shrink-0 gap-1">
+          {memory.pending ? (
+            <Button variant="secondary" size="sm" loading={busy} onClick={() => void run(() => api.memories.confirm(memory.id))}>
+              {t('memory.confirm')}
+            </Button>
+          ) : null}
           <Button variant="ghost" size="icon-sm" aria-label={t('memory.edit')} onClick={() => setEditing(true)}>
             <Pencil />
           </Button>
