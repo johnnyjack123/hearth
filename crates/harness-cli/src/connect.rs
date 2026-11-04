@@ -32,7 +32,7 @@ use harness_core::podman::PodmanProvider;
 use harness_core::project::ProjectName;
 use harness_core::provider::ExecSpec;
 use harness_core::server::ServerCa;
-use harness_core::sync::{WORKSPACE, sanitize};
+use harness_core::sync::{HostRepo, WORKSPACE, file_list, sanitize};
 use harness_core::tunnel::{
     AgentEvent, ApprovalState, AppsReport, CompactionState, CompactionTrigger, Decision,
     DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, PromptFile, RemoteProject,
@@ -1369,6 +1369,8 @@ struct Agent {
     reply_end: ReplyEnd,
     /// Signals from the reader that a reply ended and autosync is due.
     finished: Receiver<()>,
+    /// Uncommitted files of the project folder the chat was last told about.
+    host_changes: Vec<String>,
 }
 
 /// The reader does not pass a reply's `done` on but reports the end here;
@@ -1499,6 +1501,7 @@ fn start(
         model: None,
         thinking_level: None,
         first_prompt: true,
+        host_changes: Vec::new(),
         next_id: 0,
         approvals,
         thinking,
@@ -1773,6 +1776,38 @@ impl Agent {
         }
     }
 
+    /// Tells the chat about changes in the project folder on this computer
+    /// that nobody committed: the agent works without them, and taking its
+    /// work over refuses until they are committed. Seen 4.11.: changes left
+    /// there for months, the agent built on the last commit, and the refusal
+    /// to merge looked like the agent's fault. Said again only when the files
+    /// change, so a folder kept dirty on purpose does not fill the chat.
+    fn warn_host_changes(&mut self) {
+        let Ok(changed) = HostRepo::open(&self.project.path).and_then(|repo| repo.uncommitted())
+        else {
+            return;
+        };
+        if changed == self.host_changes {
+            return;
+        }
+        self.host_changes = changed;
+        if self.host_changes.is_empty() {
+            return;
+        }
+        self.emit.event(AgentEvent::notice(
+            NoticeLevel::Warning,
+            format!(
+                "Im Projektordner auf diesem Rechner sind {} Datei(en) geändert, aber nicht \
+                 committet.\nOrdner: {}\nDateien: {}\nDer Agent sieht nur Commits und arbeitet \
+                 ohne diese Änderungen. „Fortschritt sichern“ übernimmt seine Arbeit erst, wenn \
+                 sie dort committet oder gestasht sind.",
+                self.host_changes.len(),
+                self.project.path.display(),
+                file_list(&self.host_changes, 5),
+            ),
+        ));
+    }
+
     /// pi's response to the command `id`, if it comes within `timeout`;
     /// responses to other commands on the way are dropped.
     fn wait_for(&self, id: &str, timeout: Duration) -> Option<pi_rpc::Response> {
@@ -1791,6 +1826,7 @@ impl Agent {
         self.reply_end
             .autosync
             .store(prompt.autosync, Ordering::SeqCst);
+        self.warn_host_changes();
         if let Some(level) = &prompt.thinking
             && self.thinking_level.as_ref() != Some(level)
         {

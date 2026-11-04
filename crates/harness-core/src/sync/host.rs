@@ -222,6 +222,18 @@ impl HostRepo {
         &self.path
     }
 
+    /// Tracked files with changes nobody committed, as their paths
+    /// (sanitized for display). The agent only ever gets commits, so it works
+    /// without these, and a merge refuses to run over them.
+    pub fn uncommitted(&self) -> Result<Vec<String>> {
+        let status = self.run("status", &["status", "--porcelain", "--untracked-files=no"])?;
+        Ok(status
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| super::sanitize(line.get(3..).unwrap_or(line)))
+            .collect())
+    }
+
     /// Writes all local branches, tags and `HEAD` into a bundle for the
     /// container. Remote-tracking refs and the stash stay on the host.
     pub fn export_bundle(&self, target: &Path) -> Result<()> {
@@ -382,14 +394,20 @@ impl HostRepo {
                 ));
             }
         }
-        let dirty = self.run("status", &["status", "--porcelain", "--untracked-files=no"])?;
-        if !dirty.trim().is_empty() {
+        let dirty = self.uncommitted()?;
+        if !dirty.is_empty() {
+            // Says where: the folder on this computer, not the agent's copy,
+            // which was taken for the culprit (4.11., changes left there for months).
+            let count = dirty.len();
+            let files = file_list(&dirty, 3);
             return Err(Error::Sync(tr!(
-                "Uncommittete Änderungen an {} Datei(en). Bitte erst committen oder stashen, \
-                 die Harness fasst sie nicht an",
-                "Uncommitted changes to {} file(s). Please commit or stash them first, \
-                 the harness does not touch them",
-                dirty.lines().count()
+                "Uncommittete Änderungen an {count} Datei(en) im Projektordner auf diesem Rechner \
+                 ({path}): {files}. Bitte dort erst committen oder stashen, die Harness fasst sie \
+                 nicht an",
+                "Uncommitted changes to {count} file(s) in the project folder on this computer \
+                 ({path}): {files}. Please commit or stash them there first, the harness does not \
+                 touch them",
+                path = self.path.display()
             )));
         }
 
@@ -661,4 +679,18 @@ fn git_error(action: &str, output: &Output) -> Error {
 
 fn short(oid: &str) -> &str {
     &oid[..oid.len().min(10)]
+}
+
+/// The first `shown` paths, joined, with "…" when there are more.
+pub fn file_list(paths: &[String], shown: usize) -> String {
+    let mut list = paths
+        .iter()
+        .take(shown)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if paths.len() > shown {
+        list.push_str(", …");
+    }
+    list
 }

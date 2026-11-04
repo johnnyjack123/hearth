@@ -285,7 +285,15 @@ fn merge_never_touches_uncommitted_work() {
     s.import(false).unwrap();
 
     write(s.host_dir(), "f.txt", "unsaved user work\n");
-    assert!(matches!(s.host.merge(BRANCH), Err(Error::Sync(_))));
+    assert_eq!(s.host.uncommitted().unwrap(), vec!["f.txt".to_owned()]);
+    // The message names the folder on this computer and the file.
+    match s.host.merge(BRANCH) {
+        Err(Error::Sync(message)) => assert!(
+            message.contains("Projektordner auf diesem Rechner") && message.contains("f.txt"),
+            "{message}"
+        ),
+        other => panic!("{other:?}"),
+    }
     assert_eq!(
         fs::read_to_string(s.host_dir().join("f.txt")).unwrap(),
         "unsaved user work\n"
