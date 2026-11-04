@@ -4,10 +4,12 @@
  * model writes itself could carry parts of the chat to whoever runs the
  * host; one it found was written by a third party who never saw the chat.
  *
- * That only holds for the URL as found. Variants that add nothing count as
+ * That only holds for the URL as found. Variants that carry nothing count as
  * found too, because models tidy URLs up: http or https, with or without
- * `www.` and a trailing slash, fewer query parameters. Anything added (a
- * parameter, a longer path, another value) makes it a new URL.
+ * `www.` and a trailing slash, without tracking parameters. The query stays
+ * exactly as found otherwise, raw and in order: a model choosing which of a
+ * page's parameters to keep (or how to spell them) could spell out the chat
+ * a bit at a time (security review H3, 3.11.).
  */
 import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
 import type { ChatMessage } from '../services/conversations.ts';
@@ -35,14 +37,34 @@ function pageKey(url: URL): string {
   return `${host}${port}${url.pathname.replace(/\/+$/, '')}`;
 }
 
+/**
+ * The query's parameters as written, empty ones included: decoding would
+ * let `%41` and `A` count alike, and the choice between them carry a bit.
+ */
 function parameters(url: URL): string[] {
-  return [...url.searchParams].map(([name, value]) => `${name}=${value}`);
+  return url.search ? url.search.slice(1).split('&') : [];
+}
+
+/** Parameters that only say where a link came from; a model may leave them out. */
+const TRACKING = /^(utm_[a-z]+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|igshid|mc_cid|mc_eid|_ga|_gl|ref_src)(=|$)/i;
+
+/** Whether `wanted` is `found` with some tracking parameters left out, in the same order. */
+function sameQuery(found: string[], wanted: string[]): boolean {
+  let next = 0;
+  for (const parameter of found) {
+    if (parameter === wanted[next]) {
+      next += 1;
+    } else if (!TRACKING.test(parameter)) {
+      return false;
+    }
+  }
+  return next === wanted.length;
 }
 
 /** See the module comment. */
 export class KnownUrls {
   /** Per page key: the URLs found for it, with their query parameters. */
-  readonly #pages = new Map<string, { href: string; parameters: Set<string> }[]>();
+  readonly #pages = new Map<string, { href: string; parameters: string[] }[]>();
 
   /**
    * Remembers a URL from a search result or a page.
@@ -58,7 +80,7 @@ export class KnownUrls {
     const key = pageKey(url);
     const found = this.#pages.get(key) ?? [];
     if (!found.some((entry) => entry.href === url.href)) {
-      found.push({ href: url.href, parameters: new Set(parameters(url)) });
+      found.push({ href: url.href, parameters: parameters(url) });
       this.#pages.set(key, found);
     }
   }
@@ -85,11 +107,11 @@ export class KnownUrls {
 
   /**
    * @param url - URL the model wants to load.
-   * @returns True if it is a found URL or a variant of one that adds nothing.
+   * @returns True if it is a found URL or a variant of one that carries nothing.
    */
   has(url: URL): boolean {
     const wanted = parameters(url);
-    return (this.#pages.get(pageKey(url)) ?? []).some((entry) => wanted.every((parameter) => entry.parameters.has(parameter)));
+    return (this.#pages.get(pageKey(url)) ?? []).some((entry) => sameQuery(entry.parameters, wanted));
   }
 
   /**
@@ -105,7 +127,7 @@ export class KnownUrls {
     const wanted = parameters(url);
     const samePage = this.#pages.get(key) ?? [];
     if (samePage.length > 0) {
-      const shared = (entry: { parameters: Set<string> }) => wanted.filter((parameter) => entry.parameters.has(parameter)).length;
+      const shared = (entry: { parameters: string[] }) => wanted.filter((parameter) => entry.parameters.includes(parameter)).length;
       return samePage.reduce((best, entry) => (shared(entry) > shared(best) ? entry : best)).href;
     }
     const host = key.split('/')[0] ?? '';
