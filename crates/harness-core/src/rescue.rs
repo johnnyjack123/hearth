@@ -164,7 +164,7 @@ fn with_container<T>(
 
 fn run(provider: &dyn Provider, container: &str, script: &str, args: &[&str]) -> Result<String> {
     let mut command = vec![
-        "sh".to_owned(),
+        "/bin/sh".to_owned(),
         "-c".to_owned(),
         script.to_owned(),
         "harness-rescue".to_owned(),

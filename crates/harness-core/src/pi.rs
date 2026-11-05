@@ -385,7 +385,7 @@ fn run_script(
     script: &str,
     args: &[&str],
 ) -> Result<ExecOutput> {
-    let mut command: Vec<String> = vec!["sh".into(), "-c".into(), script.into(), "sh".into()];
+    let mut command: Vec<String> = vec!["/bin/sh".into(), "-c".into(), script.into(), "sh".into()];
     command.extend(args.iter().map(|&a| a.to_owned()));
     provider.exec_output(&ExecSpec {
         container: container.to_owned(),

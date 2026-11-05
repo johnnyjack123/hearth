@@ -221,6 +221,13 @@ fn allowed_hosts_are_tunneled_others_refused() {
     assert_eq!(refused.headers["x-harness-gateway"], "not-allowed");
     let body = refused.body();
     assert!(body.contains("harness net allow other.test"), "{body}");
+
+    // A grant for an installer, taken back once it is done.
+    let mut control = Control::open(&gateway);
+    control.send("allow other.test 900");
+    assert_echo(connect(proxy, &format!("other.test:{echo}")));
+    control.send("revoke other.test");
+    assert_eq!(connect(proxy, &format!("other.test:{echo}")).status, 403);
 }
 
 #[test]

@@ -394,7 +394,7 @@ fn run_script(
     args: &[&str],
 ) -> Result<String> {
     let mut command = vec![
-        "sh".to_owned(),
+        "/bin/sh".to_owned(),
         "-c".to_owned(),
         script.to_owned(),
         "harness-sync".to_owned(),

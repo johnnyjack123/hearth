@@ -464,7 +464,8 @@ pub fn shell(config: &ConfigDir, machine: &str, project: Option<&str>) -> anyhow
         )?,
         None => prepare(config, machine, None)?,
     };
-    let shell = vec!["bash".into(), "-l".into()];
+    // By path: `~/.local/bin`, first on the PATH, belongs to the agent.
+    let shell = vec!["/bin/bash".into(), "-l".into()];
     let code = attach(config, &prepared, shell, &BTreeMap::new(), true)?;
     Ok(code == 0)
 }

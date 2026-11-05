@@ -79,6 +79,9 @@ pub enum Request {
     },
     /// Block a domain until the gateway stops: `deny <pattern>`.
     Deny(DomainPattern),
+    /// Take back what `allow` granted for a domain: `revoke <pattern>`.
+    /// The host does this once an installer is done with its hosts.
+    Revoke(DomainPattern),
     /// Answer a pending question: `decide <id> allow <scope>` or
     /// `decide <id> deny`.
     Decide {
@@ -114,6 +117,7 @@ impl fmt::Display for Request {
             Request::Policy(policy) => write!(f, "policy {policy}"),
             Request::Allow { pattern, scope } => write!(f, "allow {pattern} {scope}"),
             Request::Deny(pattern) => write!(f, "deny {pattern}"),
+            Request::Revoke(pattern) => write!(f, "revoke {pattern}"),
             Request::Decide {
                 id,
                 allow: Some(scope),
@@ -157,6 +161,10 @@ impl FromStr for Request {
             "deny" => {
                 arity(1)?;
                 Ok(Request::Deny(words[0].parse()?))
+            }
+            "revoke" => {
+                arity(1)?;
+                Ok(Request::Revoke(words[0].parse()?))
             }
             "decide" => {
                 let id = words
@@ -513,6 +521,7 @@ mod tests {
             )),
             Request::Llm(None),
             Request::Project("bildbearbeitung".to_owned()),
+            Request::Revoke("registry.npmjs.org".parse().unwrap()),
             Request::Watch,
             Request::Status,
             Request::Ping,

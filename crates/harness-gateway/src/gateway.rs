@@ -328,6 +328,10 @@ impl Gateway {
                 state.deny(pattern);
                 Ok(Vec::new())
             }
+            Request::Revoke(pattern) => {
+                state.grants.retain(|grant| grant.pattern != pattern);
+                Ok(Vec::new())
+            }
             Request::Decide { id, allow } => state.decide(id, allow, now),
             Request::Watch => {
                 if watcher.is_none() {

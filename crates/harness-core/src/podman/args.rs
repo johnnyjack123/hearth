@@ -241,7 +241,7 @@ exec cat -- "$1""#;
     exec(&ExecSpec {
         container: container.to_owned(),
         command: vec![
-            "sh".into(),
+            "/bin/sh".into(),
             "-c".into(),
             script.into(),
             "sh".into(),

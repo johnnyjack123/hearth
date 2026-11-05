@@ -321,6 +321,11 @@ impl<'a> GatewayControl<'a> {
         .map(drop)
     }
 
+    /// Takes back what [`GatewayControl::allow`] granted for a domain.
+    pub fn revoke(&self, pattern: &DomainPattern) -> Result<()> {
+        self.send(&[Request::Revoke(pattern.clone())]).map(drop)
+    }
+
     /// Blocks a domain until the gateway stops.
     pub fn deny(&self, pattern: &DomainPattern) -> Result<()> {
         self.send(&[Request::Deny(pattern.clone())]).map(drop)

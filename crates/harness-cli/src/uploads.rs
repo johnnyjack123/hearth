@@ -85,7 +85,7 @@ pub(crate) fn place(
     let made = provider.exec_output(&ExecSpec {
         container: container.to_owned(),
         command: vec![
-            "sh".to_owned(),
+            "/bin/sh".to_owned(),
             "-c".to_owned(),
             "PATH=/usr/bin:/bin mkdir -p \"$1\"".to_owned(),
             "harness-uploads".to_owned(),
