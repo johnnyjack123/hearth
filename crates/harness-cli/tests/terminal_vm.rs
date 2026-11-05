@@ -283,6 +283,10 @@ fn shell_with_questions_in_the_same_terminal() {
         "Ein Programm in der Sandbox möchte example.net:443 erreichen",
         Duration::from_secs(30),
     );
+    // Keys in the first second are taken as typed for the program.
+    term.send("e");
+    thread::sleep(Duration::from_millis(1200));
+    assert!(term.absent_so_far("HTTP-200"));
     term.send("e");
     term.expect("HTTP-200", Duration::from_secs(30));
 
@@ -292,6 +296,7 @@ fn shell_with_questions_in_the_same_terminal() {
         "Ein Programm in der Sandbox möchte example.org:443 erreichen",
         Duration::from_secs(30),
     );
+    thread::sleep(Duration::from_millis(1200));
     term.send("\x1b");
     term.expect("DENIED-7", Duration::from_secs(30));
 
@@ -302,6 +307,7 @@ fn shell_with_questions_in_the_same_terminal() {
         "Ein Programm in der Sandbox möchte example.com:443 erreichen",
         Duration::from_secs(30),
     );
+    thread::sleep(Duration::from_millis(1200));
     term.send("e");
     // Keys typed together with the answer are not passed on.
     thread::sleep(Duration::from_secs(1));
