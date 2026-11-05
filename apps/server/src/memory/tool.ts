@@ -1,4 +1,4 @@
-import { FORGET_TOOL, MAX_MEMORY_CHARS, type MemoryToolOutput, memoryRef, REMEMBER_TOOL } from '@harness/shared';
+import { FORGET_TOOL, MAX_MEMORY_CHARS, MEMORY_PENDING_NOTE, type MemoryToolOutput, memoryRef, REMEMBER_TOOL } from '@harness/shared';
 import { tool } from 'ai';
 import type { Kysely } from 'kysely';
 import { z } from 'zod';
@@ -39,7 +39,7 @@ function failure(error: unknown): never {
  * @returns The text the model reads.
  */
 export function memoryText(verb: 'Remembered' | 'Forgot', output: MemoryToolOutput): string {
-  return `${verb} [${output.ref}]: ${output.text}`;
+  return `${verb} [${output.ref}]: ${output.text}${output.pending ? MEMORY_PENDING_NOTE : ''}`;
 }
 
 /**
@@ -58,7 +58,7 @@ export function createMemoryTools(db: Kysely<DB>, userId: string, conversationId
       inputSchema: z.object({ text: z.string().trim().min(1).max(MAX_MEMORY_CHARS).describe('What to remember, one fact') }),
       execute: async ({ text }): Promise<MemoryToolOutput> => {
         const memory = await addMemory(db, userId, { text, source: 'chat', conversationId }).catch(failure);
-        return { ref: memoryRef(memory.id), text: memory.text };
+        return { ref: memoryRef(memory.id), text: memory.text, ...(memory.pending ? { pending: true } : {}) };
       },
       toModelOutput: ({ output }) => ({ type: 'text', value: memoryText('Remembered', output) }),
     }),
@@ -66,7 +66,7 @@ export function createMemoryTools(db: Kysely<DB>, userId: string, conversationId
       description: FORGET_DESCRIPTION,
       inputSchema: z.object({ id: z.string().trim().min(1).max(64).describe('The id from the memory note') }),
       execute: async ({ id }): Promise<MemoryToolOutput> => {
-        const memory = await removeMemory(db, userId, id).catch(failure);
+        const memory = await removeMemory(db, userId, id, 'chat').catch(failure);
         if (!memory) {
           throw new MemoryError(`There is no memory [${id}].`);
         }

@@ -46,7 +46,26 @@ impl Prepared {
 /// would recreate the container under it.
 fn prepare(config: &ConfigDir, machine: &str, extra: Option<&str>) -> anyhow::Result<Prepared> {
     let project = project::resolve_or_offer(config)?;
-    prepare_project(config, machine, project, extra, &Terminal::default())
+    let prepared = prepare_project(config, machine, project, extra, &Terminal::default())?;
+    // The agent gets commits only; say so before it starts without these.
+    if let Ok(changed) = HostRepo::open(&prepared.project.path).and_then(|repo| repo.uncommitted())
+        && !changed.is_empty()
+    {
+        println!(
+            "{}",
+            tr!(
+                "  Achtung: {} uncommittete Datei(en) im Projektordner ({}). Der Agent sieht nur \
+                 Commits und arbeitet ohne sie; harness merge übernimmt erst, wenn sie committet \
+                 oder gestasht sind.",
+                "  Note: {} uncommitted file(s) in the project folder ({}). The agent only sees \
+                 commits and works without them; harness merge takes its work over once they are \
+                 committed or stashed.",
+                changed.len(),
+                sync::file_list(&changed, 5)
+            )
+        );
+    }
+    Ok(prepared)
 }
 
 /// [`prepare`] for a given project (`harness connect` gets it by name),
@@ -445,7 +464,8 @@ pub fn shell(config: &ConfigDir, machine: &str, project: Option<&str>) -> anyhow
         )?,
         None => prepare(config, machine, None)?,
     };
-    let shell = vec!["bash".into(), "-l".into()];
+    // By path: `~/.local/bin`, first on the PATH, belongs to the agent.
+    let shell = vec!["/bin/bash".into(), "-l".into()];
     let code = attach(config, &prepared, shell, &BTreeMap::new(), true)?;
     Ok(code == 0)
 }

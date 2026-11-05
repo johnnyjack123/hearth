@@ -182,7 +182,13 @@ fn status() -> anyhow::Result<bool> {
 fn orphaned(volume: &str, projects: &[String]) -> Option<String> {
     let name = volume
         .strip_prefix("harness-ws-")
-        .or_else(|| volume.strip_prefix("harness-home-"))?;
+        .or_else(|| volume.strip_prefix("harness-home-"))
+        .or_else(|| {
+            volume
+                .strip_prefix("harness-cfg-")
+                .and_then(|rest| rest.split_once('_'))
+                .map(|(project, _)| project)
+        })?;
     (!projects.iter().any(|project| project == name)).then(|| name.to_owned())
 }
 
@@ -443,7 +449,16 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             .try_for_each(|container| provider.remove_container(container))
             .and_then(|()| provider.remove_network(&project.network()))
             .and_then(|()| provider.remove_volume(&project.workspace_volume()))
-            .and_then(|()| provider.remove_volume(&project.home_volume()));
+            .and_then(|()| provider.remove_volume(&project.home_volume()))
+            .and_then(|()| {
+                provider.volumes()?.iter().try_for_each(|volume| {
+                    if volume.name.starts_with(&project.config_prefix()) {
+                        provider.remove_volume(&volume.name)
+                    } else {
+                        Ok(())
+                    }
+                })
+            });
         if let Err(error) = removed {
             println!("{name}: {error}");
         }
@@ -954,8 +969,38 @@ fn install_elevated(
         "Dienstordner ohne Elternordner",
         "Service folder without a parent folder",
     ))?;
+    // Another account may have prepared the folder (security review M8):
+    // nothing is created, changed or written while it holds links or
+    // belongs to someone else.
+    vmd::check_service_root(&root, Some(sid), true)?;
     fs::create_dir_all(vmd::service_dir())?;
     let icacls = system32("icacls.exe");
+    // The folder itself first, so nobody adds anything while the rest runs.
+    step(
+        log,
+        tr("Datenordner gesperrt", "Data folder locked"),
+        Command::new(&icacls)
+            .arg(&root)
+            .args(["/setowner", "*S-1-5-32-544", "/C", "/Q"]),
+    )?;
+    step(
+        log,
+        tr(
+            "Nur Administratoren schreiben in den Datenordner",
+            "Only administrators write into the data folder",
+        ),
+        Command::new(&icacls).arg(&root).args([
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+            &format!("*{sid}:(OI)(CI)RX"),
+            "/C",
+            "/Q",
+        ]),
+    )?;
+    // What arrived before the lock is checked before anything goes deeper.
+    vmd::check_service_root(&root, None, true)?;
     step(
         log,
         tr(
@@ -1278,7 +1323,12 @@ mod tests {
             Some("old")
         );
         assert_eq!(orphaned("harness-ws-shop", &projects), None);
-        // Shared by all projects.
+        assert_eq!(
+            orphaned("harness-cfg-old_pi", &projects).as_deref(),
+            Some("old")
+        );
+        assert_eq!(orphaned("harness-cfg-shop_pi", &projects), None);
+        // Shared by all projects (the config volume before 0.1.17 too).
         assert_eq!(orphaned("harness-tools", &projects), None);
         assert_eq!(orphaned("harness-cfg-pi", &projects), None);
     }

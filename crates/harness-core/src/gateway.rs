@@ -198,9 +198,14 @@ pub fn ensure_running(
             thread::sleep(Duration::from_millis(300));
         }
     }
-    // One call for both: the token goes through stdin anyway.
+    // One call for all: the token goes through stdin anyway. The project
+    // scopes the agent's documents, searches and research hits on the server.
     control
-        .send_private(&[Request::Policy(policy(project)), Request::Llm(llm.cloned())])
+        .send_private(&[
+            Request::Policy(policy(project)),
+            Request::Project(project.name.as_str().to_owned()),
+            Request::Llm(llm.cloned()),
+        ])
         .map(drop)
 }
 
@@ -314,6 +319,11 @@ impl<'a> GatewayControl<'a> {
             scope,
         }])
         .map(drop)
+    }
+
+    /// Takes back what [`GatewayControl::allow`] granted for a domain.
+    pub fn revoke(&self, pattern: &DomainPattern) -> Result<()> {
+        self.send(&[Request::Revoke(pattern.clone())]).map(drop)
     }
 
     /// Blocks a domain until the gateway stops.

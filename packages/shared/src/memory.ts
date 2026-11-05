@@ -28,6 +28,12 @@ export interface Memory {
   source: MemorySource;
   /** The chat it came from, if a model stored it there. */
   conversationId: string | null;
+  /**
+   * A model's suggestion the user has not confirmed yet; no chat reads it
+   * before. A hijacked model or agent could otherwise plant instructions
+   * that every later chat follows.
+   */
+  pending: boolean;
   /** Creation time, epoch milliseconds. */
   createdAt: number;
   /** Time of the last change, epoch milliseconds. */
@@ -52,7 +58,12 @@ export interface MemoryToolOutput {
   ref: string;
   /** The memory's text. */
   text: string;
+  /** Stored as a suggestion the user still has to confirm. */
+  pending?: boolean;
 }
+
+/** Ends the model's line for a suggested memory; the web app reads it back from agents' lines. */
+export const MEMORY_PENDING_NOTE = ' (a suggestion: it applies once the user confirms it in the web app)';
 
 /**
  * The short id models see and pass to {@link FORGET_TOOL}: the end of the

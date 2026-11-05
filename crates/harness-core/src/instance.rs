@@ -134,7 +134,7 @@ pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig], apps: &[ReadyApp
             && !mounts.iter().any(|m| m.target == path)
         {
             mounts.push(mount(
-                MountSource::Volume(harness.config_volume()),
+                MountSource::Volume(harness.config_volume(name)),
                 &path,
                 false,
             ));
@@ -270,7 +270,7 @@ pub fn harness_installed(
     let output = provider.exec_output(&ExecSpec {
         container: name.instance(),
         command: vec![
-            "sh".into(),
+            "/bin/sh".into(),
             "-c".into(),
             r#"command -v "$1" >/dev/null"#.into(),
             "sh".into(),
@@ -295,18 +295,25 @@ pub fn install_harness(
     let name = &project.name;
     let policy = gateway::policy(project);
     let allowed = policy.mode == Mode::Open || policy.allow.iter().any(|p| p.matches(INSTALL_HOST));
+    let control = GatewayControl::new(provider, name);
+    let pattern = INSTALL_HOST.parse().expect("valid built-in domain");
     if !allowed {
-        let pattern = INSTALL_HOST.parse().expect("valid built-in domain");
-        GatewayControl::new(provider, name).allow(&pattern, Scope::For(INSTALL_GRANT_SECS))?;
+        control.allow(&pattern, Scope::For(INSTALL_GRANT_SECS))?;
     }
 
     let code = with_installer(provider, project, |installer| {
         provider.exec(&ExecSpec {
             container: installer.to_owned(),
-            command: vec!["sh".into(), "-c".into(), harness.install.clone()],
+            command: vec!["/bin/sh".into(), "-c".into(), harness.install.clone()],
             ..ExecSpec::default()
         })
-    })?;
+    });
+    // The registry was for the installer, not for the agent behind the same
+    // gateway (security review M7).
+    if !allowed {
+        let _ = control.revoke(&pattern);
+    }
+    let code = code?;
     match code {
         0 => Ok(()),
         code => Err(Error::Unsupported(tr!(
@@ -367,7 +374,7 @@ pub fn tool_file_exists(provider: &dyn Provider, name: &ProjectName, path: &str)
     let output = provider.exec_output(&ExecSpec {
         container: name.instance(),
         command: vec![
-            "sh".into(),
+            "/bin/sh".into(),
             "-c".into(),
             r#"[ -f "$1" ]"#.into(),
             "sh".into(),
@@ -407,7 +414,7 @@ mv -f "$1.partial" "$1""#;
         provider.exec_output(&ExecSpec {
             container: installer.to_owned(),
             command: vec![
-                "sh".into(),
+                "/bin/sh".into(),
                 "-c".into(),
                 script.into(),
                 "sh".into(),
@@ -465,7 +472,7 @@ mod tests {
             described,
             "harness-ws-demo:/workspace harness-home-demo:/home/agent \
              harness-tools:/opt/harness-tools:ro \
-             harness-cfg-pi:/home/agent/.pi"
+             harness-cfg-demo_pi:/home/agent/.pi"
         );
         // The same harness twice does not mount twice.
         assert_eq!(
@@ -491,7 +498,7 @@ mod tests {
             "harness-ws-demo:/workspace harness-home-demo:/home/agent \
              harness-tools:/opt/harness-tools:ro \
              harness-app-go-6a000000:/opt/harness-apps/go:ro \
-             harness-cfg-pi:/home/agent/.pi"
+             harness-cfg-demo_pi:/home/agent/.pi"
         );
     }
 }

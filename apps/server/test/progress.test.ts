@@ -66,6 +66,6 @@ describe('progress list in ordinary chats', () => {
     script = [{ text: 'Ok.' }];
     await chat(id, 'Danke.');
     expect(llm.calls.at(-1)?.tools).not.toContain('progress');
-    expect(JSON.stringify(llm.calls.at(-1)?.prompt)).toContain('[Earlier, progress: Shown: 1/3 done.]');
+    expect(JSON.stringify(llm.calls.at(-1)?.prompt)).toContain('[Earlier, progress: Shown: 1/3 done. Check off the rest before your final answer.]');
   });
 });

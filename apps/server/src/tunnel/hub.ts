@@ -217,12 +217,19 @@ interface Connection {
 
 interface ActiveRun {
   deviceId: string;
+  /** The chat's project: an agent only reaches what belongs to its own. */
+  project: string;
   run: AgentRun;
   /**
    * The user's question while the reply runs in research mode, and the
    * pages its searches found: those load without asking the user.
    */
   research?: { question: string; found: KnownUrls };
+}
+
+/** Whether a running reply is on a device and, if named, in a project. */
+function ofScope(active: ActiveRun, deviceId: string, project: string | null): boolean {
+  return active.deviceId === deviceId && (project === null || active.project === project);
 }
 
 /**
@@ -475,17 +482,19 @@ export class DeviceHub {
   }
 
   /**
-   * Whether an agent on a device may search the web: only while one of its
-   * replies runs in research mode. Searches come through the gateway with
-   * the device token and no session, so the device as a whole counts.
+   * Whether an agent on a device may search the web: only while one of the
+   * replies of its project runs in research mode. Searches come through the
+   * gateway with the device token, the project the gateway names and no
+   * session; without a project (gateways before 0.1.17) the device counts.
    *
    * @param deviceId - Device id.
+   * @param project - The project the gateway named, or null.
    * @returns The user's question of that reply, which ranks the hits; null
    *   if no such reply runs.
    */
-  researchQuestion(deviceId: string): string | null {
+  researchQuestion(deviceId: string, project: string | null): string | null {
     for (const active of this.#runs.values()) {
-      if (active.deviceId === deviceId && active.research) {
+      if (ofScope(active, deviceId, project) && active.research) {
         return active.research.question;
       }
     }
@@ -493,26 +502,29 @@ export class DeviceHub {
   }
 
   /**
-   * The chats whose replies run on a device. Agents read the documents of
-   * those chats (`_documents`); like searches, their requests carry the
-   * device token and no session.
+   * The chats whose replies run on a device in a project. Agents read the
+   * documents of those chats (`_documents`); like searches, their requests
+   * carry no session. Scoped to the project so an agent in one project
+   * cannot read the documents of a chat in another (security review M6).
    *
    * @param deviceId - Device id.
+   * @param project - The project the gateway named, or null for the device.
    * @returns Conversation ids.
    */
-  runningSessions(deviceId: string): string[] {
-    return [...this.#runs].filter(([, active]) => active.deviceId === deviceId).map(([session]) => session);
+  runningSessions(deviceId: string, project: string | null): string[] {
+    return [...this.#runs].filter(([, active]) => ofScope(active, deviceId, project)).map(([session]) => session);
   }
 
   /**
-   * Notes the pages a search of a device's research reply found.
+   * Notes the pages a search of a research reply found.
    *
    * @param deviceId - Device id.
+   * @param project - The project the gateway named, or null for the device.
    * @param urls - The hits.
    */
-  researchFound(deviceId: string, urls: string[]): void {
+  researchFound(deviceId: string, project: string | null, urls: string[]): void {
     for (const active of this.#runs.values()) {
-      if (active.deviceId === deviceId && active.research) {
+      if (ofScope(active, deviceId, project) && active.research) {
         for (const url of urls) {
           active.research.found.add(url);
         }
@@ -527,16 +539,17 @@ export class DeviceHub {
    * harmless variants, see {@link KnownUrls}), never whole hosts.
    *
    * @param deviceId - Device id.
+   * @param project - The project the gateway named, or null for the device.
    * @param url - The page.
    * @returns True if a search of such a reply found it.
    */
-  researchKnows(deviceId: string, url: string): boolean {
+  researchKnows(deviceId: string, project: string | null, url: string): boolean {
     const parsed = URL.parse(url);
     if (!parsed) {
       return false;
     }
     for (const active of this.#runs.values()) {
-      if (active.deviceId === deviceId && active.research?.found.has(parsed)) {
+      if (ofScope(active, deviceId, project) && active.research?.found.has(parsed)) {
         return true;
       }
     }
@@ -600,7 +613,7 @@ export class DeviceHub {
       throw new HttpError(409, 'conflict', 'The agent is still answering');
     }
     const run = new AgentRun(() => this.#send(connection, { type: 'session.cancel', session: message.session }));
-    this.#runs.set(message.session, { deviceId, run });
+    this.#runs.set(message.session, { deviceId, project: message.project, run });
     this.#send(connection, message.type === 'session.prompt' ? forVersion(message, connection.version) : message);
     return run;
   }

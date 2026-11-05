@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use crate::config::APPS_DIR;
-use crate::config::{AppConfig, Project};
+use crate::config::{AppConfig, DomainPattern, Project};
 use crate::gateway::{self, GatewayControl, Mode, Scope};
 use crate::image::{BASE_IMAGE, fingerprint};
 use crate::provider::{
@@ -177,7 +177,24 @@ pub fn install(
     app: &AppConfig,
     requires: &[ReadyApp],
 ) -> Result<Install> {
-    grant_hosts(provider, project, app)?;
+    let granted = grant_hosts(provider, project, app)?;
+    let installed = install_granted(provider, project, app, requires);
+    // The hosts were for the installer: the agent shares the project's
+    // gateway and must not keep them (security review M7). A failure here
+    // leaves them until their time runs out, as before.
+    let control = GatewayControl::new(provider, &project.name);
+    for host in &granted {
+        let _ = control.revoke(host);
+    }
+    installed
+}
+
+fn install_granted(
+    provider: &dyn Provider,
+    project: &Project,
+    app: &AppConfig,
+    requires: &[ReadyApp],
+) -> Result<Install> {
     // A fresh volume every time: two installs within one second must not
     // share one, so the id moves on past any volume that exists.
     let taken: Vec<String> = provider
@@ -242,19 +259,26 @@ pub fn install(
 }
 
 /// Grants the recipe's hosts for a while unless the project allows them
-/// anyway (like the npm registry for installing a harness).
-fn grant_hosts(provider: &dyn Provider, project: &Project, app: &AppConfig) -> Result<()> {
+/// anyway (like the npm registry for installing a harness). Returns the
+/// hosts it granted, to take back once the install is done.
+fn grant_hosts(
+    provider: &dyn Provider,
+    project: &Project,
+    app: &AppConfig,
+) -> Result<Vec<DomainPattern>> {
     let policy = gateway::policy(project);
     if policy.mode == Mode::Open {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let control = GatewayControl::new(provider, &project.name);
+    let mut granted = Vec::new();
     for host in &app.hosts {
         if !policy.allow.contains(host) {
             control.allow(host, Scope::For(INSTALL_GRANT_SECS))?;
+            granted.push(host.clone());
         }
     }
-    Ok(())
+    Ok(granted)
 }
 
 /// Name of the container that installs `app`; one install per app at a time.
@@ -342,7 +366,7 @@ fn run_installer(
             provider.copy_into(&container, &file.host, target)?;
         }
         let script = format!("{LIB}\n{}\n", app.install);
-        let code = provider.exec(&exec(vec!["sh".into(), "-c".into(), script]))?;
+        let code = provider.exec(&exec(vec!["/bin/sh".into(), "-c".into(), script]))?;
         if code != 0 {
             return Err(Error::Unsupported(tr!(
                 "Installation von {} fehlgeschlagen (Exit-Code {code})",
@@ -351,7 +375,8 @@ fn run_installer(
             )));
         }
         let finish = r#"rm -rf "$WORK"; cat "$HARNESS_VERSION_FILE" 2>/dev/null || true"#;
-        let output = provider.exec_output(&exec(vec!["sh".into(), "-c".into(), finish.into()]))?;
+        let output =
+            provider.exec_output(&exec(vec!["/bin/sh".into(), "-c".into(), finish.into()]))?;
         Ok(clean_version(&output.stdout))
     });
     let removed = provider.remove_container(&container);

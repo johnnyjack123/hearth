@@ -2,7 +2,7 @@ import { memoryInputSchema } from '@harness/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { notFound } from '../http/errors.ts';
-import { addMemory, listMemories, removeMemory, updateMemory } from '../services/memories.ts';
+import { addMemory, confirmMemory, listMemories, removeMemory, updateMemory } from '../services/memories.ts';
 
 /**
  * The signed-in user's memories (`/api/memories`): what every chat and agent
@@ -24,6 +24,8 @@ export function memoryRoutes(deps: AppDeps) {
       const { text } = memoryInputSchema.parse(await c.req.json());
       return c.json(await updateMemory(db, c.get('user').id, c.req.param('id'), text));
     })
+    // A model's suggestion becomes a memory every chat reads.
+    .post('/:id/confirm', async (c) => c.json(await confirmMemory(db, c.get('user').id, c.req.param('id'))))
     .delete('/:id', async (c) => {
       if (!(await removeMemory(db, c.get('user').id, c.req.param('id')))) {
         throw notFound('Memory');

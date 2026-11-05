@@ -225,6 +225,48 @@ describe.each(DIALECTS)('devices on %s', (kind) => {
       expect(seen[0]?.headers.authorization).toBeUndefined();
     });
 
+    it('refuses tools the provider runs itself, and other methods than the path needs', async () => {
+      const anthropic = await credential({ kind: 'anthropic', label: 'Claude', baseUrl: `${providerUrl}/v1`, apiKey: 'sk-ant-real-0123456789' });
+      const openai = await credential({ kind: 'openai-compatible', label: 'Mine', baseUrl: providerUrl });
+      const google = await credential({ kind: 'google', label: 'Gemini', baseUrl: `${providerUrl}/v1beta`, apiKey: 'AIza-real-0123456789' });
+      const { token } = await pair();
+      const call = (credentialId: string, path: string, body: unknown, headers: Record<string, string> = {}) =>
+        server.request('POST', `/api/llm/proxy/${credentialId}/${path}`, { body, headers: { ...asDevice(token), ...headers } });
+      // Each of these makes the provider connect to a host of the request's choosing.
+      const refused: [string, string, unknown][] = [
+        [anthropic.id, 'v1/messages', { model: 'claude', messages: [], mcp_servers: [{ type: 'url', url: 'https://evil.example/mcp' }] }],
+        [anthropic.id, 'v1/messages', { model: 'claude', messages: [], tools: [{ type: 'web_fetch_20250910', name: 'web_fetch' }] }],
+        [openai.id, 'responses', { model: 'gpt', input: 'x', tools: [{ type: 'mcp', server_url: 'https://evil.example/mcp' }] }],
+        [openai.id, 'chat/completions', { model: 'gpt', messages: [], web_search_options: {} }],
+        [openai.id, 'chat/completions', { model: 'x/y', messages: [], plugins: [{ id: 'web' }] }],
+        [openai.id, 'chat/completions', { model: 'x/y:online', messages: [] }],
+        [google.id, 'v1beta/models/gemini:generateContent', { contents: [], tools: [{ urlContext: {} }] }],
+      ];
+      for (const [credentialId, path, body] of refused) {
+        const response = await call(credentialId, path, body);
+        expect(response.status, JSON.stringify(body)).toBe(400);
+        expect(((await response.json()) as { error: { type: string } }).error.type).toBe('tool_not_allowed');
+      }
+      expect(seen).toHaveLength(0);
+
+      // Tools the client runs pass; flags for provider-side tools are dropped.
+      const client = await call(
+        anthropic.id,
+        'v1/messages',
+        { model: 'claude', messages: [], tools: [{ name: 'bash', input_schema: {} }, { type: 'text_editor_20250728', name: 'str_replace_based_edit_tool' }] },
+        { 'anthropic-beta': 'interleaved-thinking-2025-05-14,mcp-client-2025-04-04' },
+      );
+      expect(client.status).toBe(200);
+      expect(seen[0]?.headers['anthropic-beta']).toBe('interleaved-thinking-2025-05-14');
+      expect((await call(openai.id, 'chat/completions', { model: 'gpt', messages: [], tools: [{ type: 'function', function: { name: 'f' } }] })).status).toBe(200);
+      expect((await call(google.id, 'v1beta/models/gemini:generateContent', { contents: [], tools: [{ functionDeclarations: [] }] })).status).toBe(200);
+
+      // Model lists are read with GET, calls made with POST, nothing else.
+      expect((await server.request('DELETE', `/api/llm/proxy/${openai.id}/models/ft:gpt:mine`, { headers: asDevice(token) })).status).toBe(405);
+      expect((await server.request('GET', `/api/llm/proxy/${openai.id}/chat/completions`, { headers: asDevice(token) })).status).toBe(405);
+      expect((await server.request('POST', `/api/llm/proxy/${openai.id}/models`, { body: {}, headers: asDevice(token) })).status).toBe(405);
+    });
+
     it('refuses other endpoints, foreign credentials and missing tokens', async () => {
       const mine = await credential({ kind: 'openai-compatible', label: 'Mine', baseUrl: providerUrl });
       const { token } = await pair();

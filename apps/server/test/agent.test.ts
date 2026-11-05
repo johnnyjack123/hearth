@@ -720,10 +720,11 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
         bodies.push(JSON.parse(body) as Record<string, unknown>);
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         const usage = { prompt_tokens: 1200, completion_tokens: 30, cost: 0.0004 };
-        response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'ok' } }] })}
+        // OpenRouter fell back to the dearer host for this call.
+        response.write(`data: ${JSON.stringify({ provider: 'NoCache', choices: [{ index: 0, delta: { content: 'ok' } }] })}
 
 `);
-        response.end(`data: ${JSON.stringify({ choices: [], usage })}
+        response.end(`data: ${JSON.stringify({ provider: 'NoCache', choices: [], usage })}
 
 data: [DONE]
 
@@ -737,8 +738,12 @@ data: [DONE]
         openRouter: new OpenRouterRouting(async () => ({
           data: {
             endpoints: [
-              { tag: 'no-cache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
-              { tag: 'cached/fp8', pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' } },
+              { tag: 'no-cache', provider_name: 'NoCache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
+              {
+                tag: 'cached/fp8',
+                provider_name: 'Cached',
+                pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' },
+              },
             ],
           },
         })),
@@ -763,13 +768,16 @@ data: [DONE]
       const conversation = await newConversation();
       await server.request('PUT', `/api/conversations/${conversation.id}/link`, { cookie, body: { deviceId, project: 'demo', harness: 'pi' } });
 
-      device.onPrompt = async (prompt) => {
-        // pi's call through the gateway, then its report with pi's own estimate.
-        const call = await server.request('POST', `/api/llm/proxy/${credential.id}/chat/completions`, {
-          body: { model: 'deepseek/deepseek-v4.1-flash-1017', stream: true, messages: [] },
+      const call = async (text: string) => {
+        const answer = await server.request('POST', `/api/llm/proxy/${credential.id}/chat/completions`, {
+          body: { model: 'deepseek/deepseek-v4.1-flash-1017', stream: true, messages: [{ role: 'user', content: text }] },
           headers: { ...CLI, authorization: `Bearer ${token}` },
         });
-        expect(await call.text()).toContain('[DONE]');
+        expect(await answer.text()).toContain('[DONE]');
+      };
+      device.onPrompt = async (prompt) => {
+        // pi's call through the gateway, then its report with pi's own estimate.
+        await call('Los');
         device.emit(
           prompt.session,
           { type: 'turn.start' },
@@ -790,6 +798,12 @@ data: [DONE]
 
       // The host with a cache price first, although the other lists less.
       expect(bodies[0]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
+      // The conversation's next call goes where its first one ran (the
+      // cache is there); another conversation starts at the cheapest.
+      await call('Los');
+      expect(bodies[1]?.provider).toEqual({ order: ['no-cache', 'cached/fp8'], allow_fallbacks: true });
+      await call('Etwas anderes');
+      expect(bodies[2]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
       await eventually(async () => (await load(conversation.id)).messages.length === 2);
       const usage = (await load(conversation.id)).messages[1]?.metadata?.usage;
       expect(usage).toMatchObject({ cost: 0.0004, billed: true, calls: [{ billed: true, cost: { total: 0.0004 } }] });
@@ -893,6 +907,13 @@ data: [DONE]
       expect((await known('https://kaffee.example/roesten')).status).toBe(204);
       expect((await known('https://kaffee.example/roesten/')).status).toBe(204);
       expect((await known('https://kaffee.example/anderes')).status).toBe(404);
+      // Research mode and hits belong to the chat's project: an agent of
+      // another project on the computer gets neither.
+      const elsewhere = { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': 'anderes' };
+      expect((await server.request('POST', '/api/llm/proxy/_web/search', { body: { query: 'x' }, headers: elsewhere })).status).toBe(403);
+      expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: elsewhere })).status).toBe(404);
+      const own = { ...elsewhere, 'x-harness-project': 'demo' };
+      expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: own })).status).toBe(204);
 
       device.emit(conversation.id, { type: 'done', aborted: false });
       await (await reply).text();
@@ -1097,6 +1118,16 @@ data: [DONE]
     expect(elsewhere.status).toBe(404);
     expect(((await elsewhere.json()) as { error: string }).error).toBe(`No document "${file.id.slice(-8)}" in this chat.`);
     expect((await read(token, { file: 'x', unknown: true })).status).toBe(400);
+    // The gateway names the agent's project: an agent in another project of
+    // the same computer does not reach the chat's documents.
+    const inProject = (project: string) =>
+      server.request('POST', '/api/llm/proxy/_documents', {
+        body: { file: file.id.slice(-8) },
+        headers: { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': project },
+      });
+    expect((await inProject('demo')).status).toBe(200);
+    expect((await inProject('anderes')).status).toBe(404);
+    expect((await inProject('../demo')).status).toBe(400);
 
     device.emit(conversation.id, { type: 'done', aborted: false });
     await (await reply).text();

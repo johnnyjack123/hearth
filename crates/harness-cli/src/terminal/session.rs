@@ -106,6 +106,21 @@ struct Shown {
     /// Whether harness switched to the alternate screen itself (and switches
     /// back), or drew over the agent's alternate screen (and has it redrawn).
     own_alt: bool,
+    /// When the question appeared; keys before [`ANSWER_GRACE`] has passed
+    /// were typed for the agent.
+    since: Instant,
+    /// "Always" was pressed once and waits for the second press.
+    always_armed: bool,
+}
+
+/// Keys in the first moment of a question were meant for the program the
+/// user was typing into; one of them answered the question before (security
+/// review M4, 3.11.).
+const ANSWER_GRACE: Duration = Duration::from_secs(1);
+
+/// Keys that allow a host for good: they need a second press.
+fn is_always(key: &str) -> bool {
+    matches!(key, "i" | "a")
 }
 
 /// Runs `spec` (with TTY) relayed through a pseudo console. Questions of
@@ -337,10 +352,32 @@ impl Session<'_> {
         let (Some(shown), Some(approvals)) = (&self.shown, &self.approvals) else {
             return false;
         };
+        if shown.since.elapsed() < ANSWER_GRACE {
+            return false;
+        }
         let key = match key {
             // Esc and Ctrl+C refuse.
             '\x1b' | '\x03' => "n".to_owned(),
             other => other.to_lowercase().to_string(),
+        };
+        // "Always" writes the allow list; one stray key must not do that.
+        let armed = shown.always_armed;
+        if is_always(&key) && !armed {
+            if let Some(shown) = &mut self.shown {
+                shown.always_armed = true;
+            }
+            self.draw_question();
+            return false;
+        }
+        if armed && !is_always(&key) {
+            if let Some(shown) = &mut self.shown {
+                shown.always_armed = false;
+            }
+            self.draw_question();
+            return false;
+        }
+        let Some(shown) = &self.shown else {
+            return false;
         };
         let Some(question) = self.queue.iter().find(|q| q.id == shown.id) else {
             return false;
@@ -373,6 +410,8 @@ impl Session<'_> {
         self.shown = Some(Shown {
             id: question.id,
             own_alt,
+            since: Instant::now(),
+            always_armed: false,
         });
         drop(screen);
         self.draw_question();
@@ -390,6 +429,16 @@ impl Session<'_> {
             0 | 1 => String::new(),
             n => tr!(" ({} weitere warten)", " ({} more waiting)", n - 1),
         };
+        let answers = if self.shown.as_ref().is_some_and(|s| s.always_armed) {
+            tr!(
+                "\x1b[1m{} dauerhaft erlauben? Zum Bestätigen [i] noch einmal, jede andere Taste \
+                 bricht ab.\x1b[0m",
+                "\x1b[1mAllow {} for good? Press [a] again to confirm, any other key cancels.\x1b[0m",
+                question.host
+            )
+        } else {
+            net::answers()
+        };
         let text = tr!(
             "\x1b[0m\x1b[H\x1b[2J\r\n  \x1b[1mharness · Rückfrage des Gateways\x1b[0m{more}\r\n\r\n  \
              Ein Programm in der Sandbox möchte {}:{} erreichen.\r\n  \
@@ -402,7 +451,7 @@ impl Session<'_> {
             question.host,
             question.port,
             net::WHO_ASKS,
-            net::answers(),
+            answers,
         );
         lock(self.screen).write(text.as_bytes());
     }

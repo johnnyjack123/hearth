@@ -228,15 +228,23 @@ describe('known URLs', () => {
     expect(known.has(new URL('https://example.com/a?b=1&secret=x'))).toBe(false);
     expect(known.has(new URL('https://example.com/'))).toBe(false);
 
-    // Tidied-up variants add nothing: other scheme, www, trailing slash, fewer parameters.
-    known.add('https://news.example/item?id=5&ref=feed');
-    expect(known.has(new URL('http://www.news.example/item/?id=5'))).toBe(true);
-    expect(known.has(new URL('https://news.example/item?ref=feed&id=5'))).toBe(true);
+    // Tidied-up variants carry nothing: other scheme, www, trailing slash,
+    // tracking parameters left out.
+    known.add('https://news.example/item?id=5&ref=feed&utm_source=rss');
+    expect(known.has(new URL('http://www.news.example/item/?id=5&ref=feed'))).toBe(true);
+    expect(known.has(new URL('https://news.example/item?id=5&ref=feed&utm_source=rss'))).toBe(true);
+    // Any other change to the query asks: the choice of parameters, their
+    // order or their spelling could spell out the chat.
+    expect(known.has(new URL('https://news.example/item?id=5'))).toBe(false);
+    expect(known.has(new URL('https://news.example/item?ref=feed&id=5'))).toBe(false);
+    expect(known.has(new URL('https://news.example/item?id=%35&ref=feed'))).toBe(false);
+    expect(known.has(new URL('https://news.example/item?id=5&&ref=feed'))).toBe(false);
+    expect(known.has(new URL('https://news.example/item?id=5&ref=feed&utm_source=leak'))).toBe(false);
     expect(known.has(new URL('https://news.example/item?id=6'))).toBe(false);
     expect(known.has(new URL('https://news.example/item/more'))).toBe(false);
     expect(known.has(new URL('https://news.example:8443/item?id=5'))).toBe(false);
     // The closest found URL helps the user compare.
-    expect(known.similar(new URL('https://news.example/item?id=5&leak=x'))).toBe('https://news.example/item?id=5&ref=feed');
+    expect(known.similar(new URL('https://news.example/item?id=5&leak=x'))).toBe('https://news.example/item?id=5&ref=feed&utm_source=rss');
     expect(known.similar(new URL('https://elsewhere.example/item'))).toBeNull();
   });
 

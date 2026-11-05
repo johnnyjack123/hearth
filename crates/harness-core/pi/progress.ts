@@ -19,6 +19,8 @@ const DESCRIPTION =
   "For tasks with three or more steps, call it at the start with all steps (the first one active), " +
   "then again whenever a step is done, a new one starts or the plan changes. " +
   "Send the whole list every time, at most one step active. Keep each step to a few words. " +
+  "Before your final answer, send it once more with every finished step done and steps you dropped removed: " +
+  "the user sees a list with open steps as unfinished work. " +
   "Do not use it for simple questions or single steps.";
 
 const parameters = Type.Object({
@@ -43,8 +45,9 @@ export default function progress(pi: ExtensionAPI): void {
     parameters,
     async execute(_toolCallId, params) {
       const done = params.items.filter((item) => item.state === "done").length;
+      const open = done < params.items.length ? " Check off the rest before your final answer." : "";
       // Short on purpose: the answer goes back to the model every time.
-      return { content: [{ type: "text", text: `Shown: ${done}/${params.items.length} done.` }], details: undefined };
+      return { content: [{ type: "text", text: `Shown: ${done}/${params.items.length} done.${open}` }], details: undefined };
     },
   });
 }

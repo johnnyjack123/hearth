@@ -76,6 +76,7 @@ struct State {
     next_watcher: u64,
     log: VecDeque<LogEntry>,
     llm: Option<(LlmUpstream, Connector)>,
+    project: Option<String>,
 }
 
 struct Grant {
@@ -215,6 +216,11 @@ impl Gateway {
         self.lock().llm.clone()
     }
 
+    /// The project the host named, see [`Request::Project`].
+    pub(crate) fn project(&self) -> Option<String> {
+        self.lock().project.clone()
+    }
+
     /// Records a connection attempt and tells the watchers.
     pub(crate) fn record(&self, allowed: bool, host: &Host, port: u16, reason: Reason) {
         let entry = LogEntry {
@@ -322,6 +328,10 @@ impl Gateway {
                 state.deny(pattern);
                 Ok(Vec::new())
             }
+            Request::Revoke(pattern) => {
+                state.grants.retain(|grant| grant.pattern != pattern);
+                Ok(Vec::new())
+            }
             Request::Decide { id, allow } => state.decide(id, allow, now),
             Request::Watch => {
                 if watcher.is_none() {
@@ -358,6 +368,10 @@ impl Gateway {
                     state.llm = Some((upstream, connector));
                     Vec::new()
                 })
+            }
+            Request::Project(name) => {
+                state.project = Some(name);
+                Ok(Vec::new())
             }
             Request::Ping | Request::Bye => Ok(Vec::new()),
         };

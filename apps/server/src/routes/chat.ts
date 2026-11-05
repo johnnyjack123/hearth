@@ -38,6 +38,7 @@ import { compactionRange, latestCompaction, summarize, withCompaction } from '..
 import { condenseHistory } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
+import { withProviderOrder } from '../openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type HostRates, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { withFileContents } from '../files/model.ts';
 import { attachedFileIds, createReadDocumentTool, DocumentError, isLongDocument, READ_DOCUMENT_TOOL } from '../files/read.ts';
@@ -478,6 +479,8 @@ export interface StreamChatOptions {
   files: FileStore;
   /** The list prices of the host OpenRouter ran a billed call on. */
   hostRates?: HostRates;
+  /** OpenRouter's hosts for each model call; the reply keeps to the host of the one before. */
+  hosts?: ChatHosts;
   /**
    * What is left of the user's daily cost limit when the reply starts; a
    * reply that reaches it stops after the model call that did.
@@ -487,6 +490,14 @@ export interface StreamChatOptions {
   memory?: { userId: string } | null;
   /** The progress list for tasks with several steps; off when an admin switched it off. */
   progress?: boolean;
+}
+
+/** Which OpenRouter hosts the calls of a chat go to, see `OpenRouterRouting`. */
+export interface ChatHosts {
+  /** The hosts to try, in order, for the next call. */
+  order: () => Promise<string[] | null>;
+  /** Remembers the host that served a call. */
+  stick: (host: string) => void;
 }
 
 /**
@@ -541,7 +552,7 @@ function withNotes(messages: ChatMessage[]): ChatMessage[] {
  * @returns A streaming HTTP response.
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
-  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research, helpers } = options;
+  const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research, helpers, hosts } = options;
   // What Jev ranks search hits against: the user's newest message.
   const question = (messages.at(-1)?.parts ?? [])
     .map((part) => (part.type === 'text' ? part.text : ''))
@@ -691,6 +702,14 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
         messages: await modelMessagesFor(fresh ?? latestCompaction(messages)),
         ...(hasTools ? { tools, stopWhen: isStepCount(research ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
         ...options.effort,
+        // A call OpenRouter sent elsewhere after a failure moved the cache
+        // there; the next one follows instead of going back cold.
+        ...(hosts
+          ? {
+              prepareStep: async ({ stepNumber }: { stepNumber: number }) =>
+                stepNumber === 0 ? undefined : { providerOptions: withProviderOrder({}, await hosts.order()).providerOptions },
+            }
+          : {}),
         abortSignal,
       });
       streamWriter.merge(
@@ -724,7 +743,11 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
               lastStep = part.usage;
               running = addUsage(running, part.usage);
               const ms = Date.now() - (firstToken ?? stepStarted);
-              calls.push({ ...callUsage(part.usage, pricing, stepTools, billedCost(part.providerMetadata), options.hostRates), ...(ms > 0 ? { ms } : {}) });
+              const billed = billedCost(part.providerMetadata);
+              if (billed?.host) {
+                options.hosts?.stick(billed.host);
+              }
+              calls.push({ ...callUsage(part.usage, pricing, stepTools, billed, options.hostRates), ...(ms > 0 ? { ms } : {}) });
               stepTools = [];
               // Cost and context after every model call: a long reply with
               // tools shows them as it goes, and one that breaks off keeps them.

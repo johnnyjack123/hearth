@@ -20,10 +20,9 @@
 # minutes longer (three VM starts).
 #
 # Needs the running VM, both images, `cargo build` and `pnpm install`. Uses
-# ports 8095/8096 and a temporary HARNESS_HOME; pi's shared volume
-# harness-cfg-pi gets this server's providers in models.json until the next
-# `harness run` (the logout at the end removes them). Do not run it while
-# pi is in use. KEEP_LOGS=<folder> keeps the logs.
+# ports 8095/8096 and a temporary HARNESS_HOME; pi's config lives in the
+# test project's own volume (harness-cfg-<project>_pi), so the user's pi
+# setup stays untouched. KEEP_LOGS=<folder> keeps the logs.
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 H="$REPO/target/debug/harness"

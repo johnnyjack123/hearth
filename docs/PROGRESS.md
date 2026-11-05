@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-02 abends · Release v0.1.14: Gedächtnis, OCR, lange Dokumente, Speichergrenze je Instanz, Recherche ohne Rückfrage für Agents, englische Texte in CLI und Setup; davor Release v0.1.13: Reserve 1 GB beim VM-Start, OpenRouter ohne Flex-Endpunkte, zuletzt genutzte Modelle in der Auswahl (davor v0.1.12: VM-Speicher, Kosten, Modellwahl, günstigster Anbieter)_
+_Last updated: 2026-11-05 · Release v0.1.17: alle hohen und mittleren Funde der Sicherheitsprüfung behoben (H1–H3, M1–M8), Anbieter bleibt je Chat (Prompt-Cache), Fortschrittsliste ausblendbar, Erinnerungen von Modellen als Vorschläge, Warnung bei uncommitteten Änderungen im Projektordner; davor v0.1.16: Preise je Aufruf, Versionen, Kostendeckel_
 
 ## Where we are
 
@@ -39,6 +39,8 @@ Repo auf GitHub (`origin` = `https://github.com/johnnyjack123/llm-harness.git`).
 Schnelltest vor Beginn: `cargo build && target/debug/harness doctor`, dann `bash scripts/smoke-connect.sh` (~1 min). Browser-E2E nur bei freiem Speicher (siehe Known issues).
 
 ## Next step
+
+0. **Weg zu 1.0** (ROADMAP): 1, 2 und 4 erledigt (4./5.11., v0.1.17). Als Nächstes: Backup und Umzug des Servers dokumentieren (der Nutzer zieht vom Pi auf den Heimserver um), Neuinstallation auf frischem Windows, eine zweite Sicherheitsprüfung des neuen Stands durch einen frischen Agenten, dann RC. Ungeprüft aus v0.1.17: Smoke-Tests und Gateway-Image in der VM (VM war vom Agent des Nutzers belegt), M8 mit einem zweiten Windows-Konto, M3 mit echtem Git LFS. Beim Projekt `image-3d-effekt` des Nutzers liegt in `stash@{0}` Arbeit vom August, die nie committet war (konfliktträchtig in `agents.md` und `HomeScreen.kt`).
 
 1. **Block „Umgebung im Web-Chat“ samt Tray-App** (Plan des Nutzers vom 23.10., ROADMAP.md Phase 3): Vorschlag für die Reihenfolge
    1. ✅ Zustand von Gerät und VM im Chat, VM im Browser stoppen, Leerlaufzeit einstellbar, Stopp im Leerlauf im Dienst (23.10.). Der Nutzer holt es mit `cargo build`, `harness daemon stop`, `harness daemon start`; der Server auf dem Pi braucht das neue Image (`docker compose pull`, dann `docker compose up -d --no-deps server`). Die Reihenfolge ist egal (Protokoll-Aushandlung).

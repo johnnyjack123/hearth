@@ -468,9 +468,10 @@ impl HarnessConfig {
         self.persist.iter().map(|p| expand_home(p)).collect()
     }
 
-    /// Volume holding this harness's persisted paths.
-    pub fn config_volume(&self) -> String {
-        format!("harness-cfg-{}", self.name)
+    /// Volume holding this harness's persisted paths in a project, see
+    /// [`ProjectName::config_volume`].
+    pub fn config_volume(&self, project: &crate::project::ProjectName) -> String {
+        project.config_volume(&self.name)
     }
 }
 
@@ -814,7 +815,15 @@ mod tests {
             toml::from_str(include_str!("../../defaults/harnesses/pi.toml")).unwrap();
         pi.validate().unwrap();
         assert_eq!(pi.persist_paths(), ["/home/agent/.pi"]);
-        assert_eq!(pi.config_volume(), "harness-cfg-pi");
+        let demo = crate::project::ProjectName::new("demo").unwrap();
+        assert_eq!(pi.config_volume(&demo), "harness-cfg-demo_pi");
+        // Too long for podman: hashed, still under the project's prefix.
+        let long = crate::project::ProjectName::new(&"p".repeat(40)).unwrap();
+        let hashed = long.config_volume(&"h".repeat(30));
+        assert!(
+            hashed.len() <= 63 && hashed.starts_with(&long.config_prefix()),
+            "{hashed}"
+        );
 
         let mut bad = pi.clone();
         bad.persist = vec!["~".into()];

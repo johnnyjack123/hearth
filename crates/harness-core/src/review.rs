@@ -56,16 +56,17 @@ pub fn review(incoming: &Incoming) -> Vec<Finding> {
         if file.status == 'D' {
             continue;
         }
-        check_path(file, &mut findings);
+        check_path(file, &incoming.hook_dirs, &mut findings);
         check_mode(file, &mut findings);
         if !file.binary {
             check_lines(file, &mut findings);
             check_dependencies(file, &mut findings);
         }
     }
+    // What was not checked must not be merged by itself (review H2).
     if incoming.truncated {
         findings.push(Finding {
-            severity: Severity::Medium,
+            severity: Severity::High,
             rule: "too-large",
             path: String::new(),
             line: None,
@@ -128,9 +129,35 @@ fn extension(path: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Extensions of files people and tools read as text; one that git sees as
+/// binary (a NUL byte is enough) escapes the line rules.
+const TEXT_EXTENSIONS: &[&str] = &[
+    "js", "mjs", "cjs", "ts", "mts", "cts", "jsx", "tsx", "py", "sh", "bash", "zsh", "ps1", "psm1",
+    "bat", "cmd", "json", "toml", "yml", "yaml", "md", "rs", "go", "java", "kt", "kts", "gradle",
+    "rb", "php", "lua", "pl", "xml", "html", "css", "txt", "cfg", "ini", "conf",
+];
+
+/// Files that tell AI agents on the host what to do: Claude Code, Codex,
+/// Gemini, Cursor and Copilot read them on their own.
+fn is_agent_instructions(lower: &str, name: &str) -> bool {
+    matches!(
+        name,
+        "agents.md" | "claude.md" | "gemini.md" | ".cursorrules" | ".windsurfrules"
+    ) || lower == ".github/copilot-instructions.md"
+        || [
+            ".claude/commands/",
+            ".claude/agents/",
+            ".claude/skills/",
+            ".cursor/rules/",
+        ]
+        .iter()
+        .any(|dir| lower.starts_with(dir))
+}
+
 /// Files that run code on the host without being started explicitly, or
-/// that change where code comes from.
-fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
+/// that change where code comes from. `hook_dirs` are the repository's own
+/// hook folders from its git configuration.
+fn check_path(file: &IncomingFile, hook_dirs: &[String], findings: &mut Vec<Finding>) {
     let path = file.path.as_str();
     let lower = path.to_ascii_lowercase();
     let name = file_name(&lower);
@@ -140,8 +167,9 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
         tr("geändert", "changed")
     };
     let rule = |severity, rule, message: String| finding(file, severity, rule, None, message);
-    let hook_dirs = [".husky/", ".githooks/", ".git-hooks/", ".hooks/"];
-    if hook_dirs.iter().any(|dir| lower.starts_with(dir))
+    let known_hook_dirs = [".husky/", ".githooks/", ".git-hooks/", ".hooks/"];
+    if known_hook_dirs.iter().any(|dir| lower.starts_with(dir))
+        || hook_dirs.iter().any(|dir| lower.starts_with(dir.as_str()))
         || matches!(
             name,
             "lefthook.yml" | "lefthook.yaml" | ".lefthook.yml" | ".pre-commit-config.yaml"
@@ -273,20 +301,97 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
             .to_owned(),
         ));
     }
-    if name == ".gitattributes"
-        && file
-            .added
-            .iter()
-            .any(|(_, l)| l.contains("filter=") || l.contains("diff=") || l.contains("merge="))
-    {
+    if name == ".gitattributes" {
+        // Drivers run programs of the user's git setup (git-lfs); `-diff`
+        // or `binary` turned every later review blind (review H2).
+        let drivers = file.added.iter().any(|(_, l)| {
+            l.contains("filter=")
+                || l.contains("diff=")
+                || l.contains("merge=")
+                || l.contains("-diff")
+                || l.contains("!diff")
+                || l.contains("binary")
+        });
+        findings.push(rule(
+            if drivers {
+                Severity::High
+            } else {
+                Severity::Medium
+            },
+            "gitattributes",
+            if drivers {
+                tr(
+                    ".gitattributes setzt Filter-, Diff- oder Merge-Treiber oder erklärt Dateien \
+                     zu Binärdateien",
+                    ".gitattributes sets filter, diff or merge drivers or declares files binary",
+                )
+            } else {
+                tr(
+                    ".gitattributes geändert: legt fest, wie git Dateien behandelt",
+                    ".gitattributes changed: decides how git treats files",
+                )
+            }
+            .to_owned(),
+        ));
+    }
+    if name == ".lfsconfig" {
+        findings.push(rule(
+            Severity::High,
+            "lfsconfig",
+            tr!(
+                ".lfsconfig {new}: legt fest, woher Git LFS beim Auschecken lädt",
+                ".lfsconfig {new}: decides where Git LFS downloads from on checkout"
+            ),
+        ));
+    }
+    if lower.starts_with(".claude/settings") || lower.starts_with(".claude/hooks/") {
+        findings.push(rule(
+            Severity::High,
+            "claude-config",
+            tr!(
+                "Claude-Code-Einstellung {new}: Hooks und Freigaben führen Befehle auf deinem \
+                 Rechner aus",
+                "Claude Code setting {new}: hooks and permissions run commands on your computer"
+            ),
+        ));
+    }
+    if name == ".mcp.json" || lower == ".cursor/mcp.json" || lower == ".vscode/mcp.json" {
+        findings.push(rule(
+            Severity::High,
+            "mcp-config",
+            tr!(
+                "MCP-Konfiguration {new}: Editoren und Agents starten die Server darin als Programme",
+                "MCP configuration {new}: editors and agents start its servers as programs"
+            ),
+        ));
+    }
+    if is_agent_instructions(&lower, name) {
         findings.push(rule(
             Severity::Medium,
-            "gitattributes",
-            tr(
-                ".gitattributes setzt Filter-, Diff- oder Merge-Treiber",
-                ".gitattributes sets filter, diff or merge drivers",
-            )
-            .to_owned(),
+            "agent-instructions",
+            tr!(
+                "Anweisungen für Agents {new}: Claude Code, Codex & Co. auf deinem Rechner folgen \
+                 ihnen; bitte lesen",
+                "Instructions for agents {new}: Claude Code, Codex & co. on your computer follow \
+                 them; please read"
+            ),
+        ));
+    }
+    if matches!(name, "desktop.ini" | "autorun.inf")
+        || matches!(
+            extension(&lower).as_str(),
+            "url" | "scf" | "library-ms" | "searchconnector-ms"
+        )
+    {
+        findings.push(rule(
+            Severity::High,
+            "windows-shell",
+            tr!(
+                "{name} {new}: der Explorer liest die Datei beim Anzeigen des Ordners und kann \
+                 dabei Netzwerkfreigaben ansprechen",
+                "{name} {new}: Explorer reads it when showing the folder and can reach network \
+                 shares doing so"
+            ),
         ));
     }
     let ext = extension(&lower);
@@ -308,8 +413,10 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
             ext.as_str(),
             "exe" | "dll" | "msi" | "scr" | "com" | "sys" | "so" | "dylib" | "node" | "jar"
         );
+        // A NUL byte in a script makes git skip it, and these rules with it.
+        let disguised = TEXT_EXTENSIONS.contains(&ext.as_str());
         findings.push(rule(
-            if executable {
+            if executable || disguised {
                 Severity::High
             } else {
                 Severity::Low
@@ -319,6 +426,13 @@ fn check_path(file: &IncomingFile, findings: &mut Vec<Finding>) {
                 tr!(
                     "Ausführbare Binärdatei {new} (.{ext}); der Inhalt lässt sich nicht prüfen",
                     "Executable binary {new} (.{ext}); its content cannot be checked"
+                )
+            } else if disguised {
+                tr!(
+                    "Textdatei {new} (.{ext}), die git als Binärdatei sieht; ihr Inhalt entgeht \
+                     der Prüfung",
+                    "Text file {new} (.{ext}) that git sees as binary; its content escapes the \
+                     check"
                 )
             } else {
                 tr!(
@@ -344,13 +458,44 @@ const LIFECYCLE_SCRIPTS: &[&str] = &[
     "postpack",
 ];
 
+/// JSON text with `\uXXXX` escapes decoded: `"postinstall"` is the
+/// key `postinstall` to npm.
+fn unescape_json(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(index) = rest.find("\\u") {
+        out.push_str(&rest[..index]);
+        let code = rest
+            .get(index + 2..index + 6)
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+            .and_then(char::from_u32);
+        match code {
+            Some(c) => {
+                out.push(c);
+                rest = &rest[index + 6..];
+            }
+            None => {
+                out.push_str("\\u");
+                rest = &rest[index + 2..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `text` has `"<key>"` followed by a colon, anywhere: one-line
+/// JSON hid the key from a check at the start of the line (review H2).
+fn has_json_key(text: &str, key: &str) -> bool {
+    let quoted = format!("\"{key}\"");
+    text.match_indices(&quoted)
+        .any(|(index, _)| text[index + quoted.len()..].trim_start().starts_with(':'))
+}
+
 fn check_package_scripts(file: &IncomingFile, findings: &mut Vec<Finding>) {
     for (line, text) in &file.added {
-        let key = text.trim().trim_start_matches('"');
-        if let Some(script) = LIFECYCLE_SCRIPTS
-            .iter()
-            .find(|s| key.starts_with(&format!("{s}\"")))
-        {
+        let decoded = unescape_json(text);
+        if let Some(script) = LIFECYCLE_SCRIPTS.iter().find(|s| has_json_key(&decoded, s)) {
             findings.push(finding(
                 file,
                 Severity::High,
@@ -1249,6 +1394,7 @@ mod tests {
         review(&Incoming {
             files,
             truncated: false,
+            hook_dirs: vec![".githooks-own/".to_owned()],
         })
         .into_iter()
         .map(|f| (f.rule, f.severity))
@@ -1343,6 +1489,56 @@ mod tests {
     }
 
     #[test]
+    fn nothing_blinds_the_review_or_reaches_agents_on_the_host() {
+        let mut disguised = file("src/evil.js", 'A', &[]);
+        disguised.binary = true;
+        let mut model = file("app/assets/model.tflite", 'A', &[]);
+        model.binary = true;
+        let found = rules(vec![
+            file(".gitattributes", 'A', &["* -diff"]),
+            file(".claude/settings.json", 'A', &[r#"{"hooks": {}}"#]),
+            file(".mcp.json", 'A', &[r#"{"mcpServers": {}}"#]),
+            file("CLAUDE.md", 'M', &["Run the setup first."]),
+            file(".lfsconfig", 'A', &["[lfs]", "url = https://evil.example/"]),
+            file("docs/desktop.ini", 'A', &["[.ShellClassInfo]"]),
+            file(".githooks-own/pre-commit", 'A', &["make"]),
+            disguised,
+        ]);
+        for expected in [
+            ("gitattributes", Severity::High),
+            ("claude-config", Severity::High),
+            ("mcp-config", Severity::High),
+            ("agent-instructions", Severity::Medium),
+            ("lfsconfig", Severity::High),
+            ("windows-shell", Severity::High),
+            ("git-hook", Severity::High),
+            ("binary", Severity::High),
+        ] {
+            assert!(
+                found.contains(&expected),
+                "{expected:?} missing in {found:?}"
+            );
+        }
+        // An ordinary binary stays low, an ordinary attribute change medium.
+        assert_eq!(rules(vec![model]), [("binary", Severity::Low)]);
+        assert_eq!(
+            rules(vec![file(".gitattributes", 'M', &["*.sh text eol=lf"])]),
+            [("gitattributes", Severity::Medium)]
+        );
+        // Install scripts in one-line JSON or spelled with escapes.
+        for line in [
+            r#"{"name":"x","scripts":{"postinstall":"node x.js"}}"#,
+            r#"  "postinstall" : "node x.js","#,
+        ] {
+            assert_eq!(
+                rules(vec![file("package.json", 'M', &[line])]),
+                [("install-script", Severity::High)],
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
     fn ordinary_changes_stay_quiet() {
         let found = rules(vec![
             file(
@@ -1413,12 +1609,13 @@ mod tests {
         let findings = review(&Incoming {
             files: vec![script, link, exe],
             truncated: true,
+            hook_dirs: Vec::new(),
         });
         let found: Vec<_> = findings.iter().map(|f| (f.rule, f.severity)).collect();
         assert!(found.contains(&("symlink", Severity::High)));
         assert!(found.contains(&("binary", Severity::High)));
         assert!(found.contains(&("executable", Severity::Low)));
-        assert!(found.contains(&("too-large", Severity::Medium)));
+        assert!(found.contains(&("too-large", Severity::High)));
         // Most severe first.
         assert!(findings.windows(2).all(|w| w[0].severity <= w[1].severity));
         // Excerpts show what the eye would miss.

@@ -8,8 +8,8 @@ use std::time::Duration;
 use crate::gateway::{Gateway, Verdict};
 use crate::http::{self, HeadError, RequestHead, Target};
 use crate::llm::{
-    CREDENTIAL_HEADERS, DOCUMENTS_PATH, KNOWN_PATH, LLM_HOST, MEMORY_PATH, URL_HEADER,
-    WEB_FETCH_PATH, WEB_SEARCH_PATH, web_fetch_target,
+    CREDENTIAL_HEADERS, DOCUMENTS_PATH, KNOWN_PATH, LLM_HOST, MEMORY_PATH, PROJECT_HEADER,
+    URL_HEADER, WEB_FETCH_PATH, WEB_SEARCH_PATH, web_fetch_target,
 };
 use crate::pattern::Host;
 use crate::policy::Reason;
@@ -214,8 +214,13 @@ fn research_hit(gateway: &Gateway, url: &str) -> bool {
     // backslashes are escaped all the same.
     let escaped = url.replace('\\', "\\\\").replace('"', "\\\"");
     let body = format!("{{\"url\":\"{escaped}\"}}");
+    // Only hits of the project's own replies count; the name was checked.
+    let project = gateway
+        .project()
+        .map(|name| format!("{PROJECT_HEADER}: {name}\r\n"))
+        .unwrap_or_default();
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\n\
+        "POST {path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\n{project}\
          Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         upstream.host_header(),
         upstream.token(),
@@ -343,6 +348,11 @@ fn forward_llm(
     let mut add = vec![("Authorization", bearer.as_str())];
     if let Some(host) = &web_fetch {
         add.push(("X-Harness-Approved-Host", host));
+    }
+    // Replaces whatever the agent sent (it is in `CREDENTIAL_HEADERS`).
+    let project = gateway.project();
+    if let Some(name) = &project {
+        add.push(("X-Harness-Project", name));
     }
     let text = http::rewrite_head(
         head,

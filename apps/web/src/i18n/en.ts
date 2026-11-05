@@ -42,6 +42,7 @@ export const en: Messages = {
     file_empty: 'The file is empty.',
     memory_full: 'The memory is full (at most 50 entries). Delete something in the settings first.',
     memory_rejected: 'This looks like instructions from foreign content, not like a memory. Not saved.',
+    memory_protected: 'You wrote this memory yourself; only you can remove it.',
     memory_off: 'The memory is switched off on this server.',
     cost_limit: 'The daily cost limit is reached. It resets tomorrow; your own limit can be changed under Settings → Account.',
     storage_unavailable:
@@ -287,6 +288,9 @@ export const en: Messages = {
       show: 'Show list',
       hide: 'Hide list',
       hint: 'The model keeps this list itself and checks off what it has done.',
+      stalled: 'not finished',
+      dismiss: 'Dismiss list',
+      dismissHint: 'Hides the list until the model changes it again.',
     },
     progressFailed: 'Failed',
     showDetails: 'Show details',
@@ -420,11 +424,14 @@ export const en: Messages = {
   memory: {
     title: 'Memory',
     description:
-      'What every chat and agent knows about you, such as "answer briefly" or "pnpm instead of npm". Models add entries when you ask them to; here you change or delete them.',
+      'What every chat and agent knows about you, such as "answer briefly" or "pnpm instead of npm". Models suggest entries when you ask them to; they apply once you accept them. Here you change or delete them.',
     placeholder: 'Something every chat should know …',
     add: 'Remember',
     edit: 'Edit',
     remove: 'Delete',
+    pending: 'Suggestion, applies once you accept it',
+    confirm: 'Accept',
+    discard: 'Discard',
     emptyTitle: 'Nothing remembered yet',
     emptyBody: 'Say "Remember that …" in a chat or add something here.',
     count: '{count} of {max} entries',
@@ -435,6 +442,8 @@ export const en: Messages = {
     },
     call: {
       remembered: 'Remembered: "{text}"',
+      suggested: 'Suggested to remember: "{text}"',
+      discarded: 'Not in the memory: "{text}"',
       forgot: 'Forgot: "{text}"',
       rememberFailed: 'Not remembered',
       forgetFailed: 'Not forgotten',

@@ -128,7 +128,13 @@ function decodeEntities(text: string): string {
  * @returns The title in one line, at most 300 characters, or null.
  */
 export function htmlTitle(html: string): string | null {
-  const raw = /<title[^>]*>([\s\S]{0,2000}?)<\/title\s*>/i.exec(html)?.[1];
+  // By hand around a short window: one pattern over the page took
+  // quadratic time on many unclosed title tags (security review M5).
+  const start = html.search(/<title\b/i);
+  const open = start < 0 ? -1 : html.indexOf('>', start);
+  const window = open < 0 ? '' : html.slice(open + 1, open + 2_100);
+  const end = window.search(/<\/title\s*>/i);
+  const raw = end >= 0 && end <= 2_000 ? window.slice(0, end) : undefined;
   const title = raw ? decodeEntities(raw.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim() : '';
   return title ? title.slice(0, 300) : null;
 }
@@ -208,9 +214,37 @@ function createTurndown(base: URL): TurndownService {
   return service;
 }
 
-// Script and style bodies can be most of a page; dropping them before the
-// DOM is built keeps the conversion fast on small servers.
-const HEAVY_BLOCKS = /<(script|style|svg|noscript|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+/**
+ * The page without script, style, SVG, noscript and template blocks: they
+ * can be most of a page, and dropping them before the DOM is built keeps
+ * the conversion fast on small servers. By hand rather than one pattern:
+ * `[\s\S]*?<\/\1>` scanned to the end of the page once per unclosed tag
+ * (security review M5). An unclosed block runs to the end, as in a browser.
+ *
+ * @param html - The page.
+ * @returns The page without them.
+ */
+export function withoutHeavyBlocks(html: string): string {
+  // Searched in lower case of the same length: only ASCII letters change.
+  const lower = html.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+  const opening = /<(script|style|svg|noscript|template)\b/g;
+  const kept: string[] = [];
+  let from = 0;
+  for (let found = opening.exec(lower); found; found = opening.exec(lower)) {
+    kept.push(html.slice(from, found.index));
+    const tagEnd = lower.indexOf('>', found.index);
+    const closing = tagEnd < 0 ? -1 : lower.indexOf(`</${found[1] ?? ''}`, tagEnd);
+    const closingEnd = closing < 0 ? -1 : lower.indexOf('>', closing);
+    if (closingEnd < 0) {
+      from = html.length;
+      break;
+    }
+    from = closingEnd + 1;
+    opening.lastIndex = from;
+  }
+  kept.push(html.slice(from));
+  return kept.join('');
+}
 
 /**
  * Converts an HTML page to Markdown.
@@ -220,7 +254,7 @@ const HEAVY_BLOCKS = /<(script|style|svg|noscript|template)\b[^>]*>[\s\S]*?<\/\1
  * @returns Markdown without scripts, styles, navigation and images.
  */
 export function htmlToMarkdown(html: string, base: URL): string {
-  return createTurndown(base).turndown(html.replace(HEAVY_BLOCKS, ''));
+  return createTurndown(base).turndown(withoutHeavyBlocks(html));
 }
 
 /**
@@ -283,7 +317,7 @@ function liftHeadings(document: ReturnType<typeof parseHTML>['document']): void 
  */
 export function mainContentToMarkdown(html: string, base: URL): string | null {
   try {
-    const { document } = parseHTML(html.replace(HEAVY_BLOCKS, ''));
+    const { document } = parseHTML(withoutHeavyBlocks(html));
     // Measured before Readability, which takes the document apart.
     const pageChars = textLength(document.body?.textContent);
     liftHeadings(document);
@@ -330,9 +364,23 @@ export function tidy(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
     .replace(/[\u{E0000}-\u{E007F}]/gu, '')
-    .replace(/[ \t]+\n/g, '\n')
+    .split('\n')
+    .map(withoutTrailingBlanks)
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * A line without spaces and tabs at its end. By hand: `/[ \t]+\n/g` took
+ * minutes on a megabyte of spaces without a line break (security review M5).
+ */
+function withoutTrailingBlanks(line: string): string {
+  let end = line.length;
+  while (end > 0 && (line[end - 1] === ' ' || line[end - 1] === '\t')) {
+    end -= 1;
+  }
+  return end === line.length ? line : line.slice(0, end);
 }
 
 /**

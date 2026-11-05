@@ -17,7 +17,9 @@ mod bundle;
 mod host;
 
 pub use bundle::BundleHeader;
-pub use host::{HostRepo, ImportOutcome, Incoming, IncomingFile, MergeOutcome, find_git};
+pub use host::{
+    HostRepo, ImportOutcome, Incoming, IncomingFile, MergeOutcome, file_list, find_git,
+};
 
 use crate::lang::tr;
 use crate::project::ProjectName;
@@ -392,7 +394,7 @@ fn run_script(
     args: &[&str],
 ) -> Result<String> {
     let mut command = vec![
-        "sh".to_owned(),
+        "/bin/sh".to_owned(),
         "-c".to_owned(),
         script.to_owned(),
         "harness-sync".to_owned(),

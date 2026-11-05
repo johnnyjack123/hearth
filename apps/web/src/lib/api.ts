@@ -154,6 +154,7 @@ export const api = {
     create: (input: MemoryInput) => request<Memory>('POST', '/memories', input),
     update: (id: string, input: MemoryInput) => request<Memory>('PUT', `/memories/${encodeURIComponent(id)}`, input),
     remove: (id: string) => request<void>('DELETE', `/memories/${encodeURIComponent(id)}`),
+    confirm: (id: string) => request<Memory>('POST', `/memories/${encodeURIComponent(id)}/confirm`),
   },
   appTemplates: {
     list: () => request<AppTemplate[]>('GET', '/app-templates'),

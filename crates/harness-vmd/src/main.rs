@@ -51,6 +51,12 @@ fn serve() -> Result<(), String> {
     use harness_core::tr;
     use harness_core::vmd::{Request, Response, service_dir};
 
+    // Only administrators may have shaped what SYSTEM reads from here
+    // (security review M8).
+    if let Some(root) = service_dir().parent() {
+        harness_core::vmd::check_service_root(root, None, false)
+            .map_err(|error| error.to_string())?;
+    }
     let config = config::Config::load(&service_dir().join("vmd.toml"))?;
     let user_sid = config.user_sid.clone();
     let vm = machine::Vm::new(config);

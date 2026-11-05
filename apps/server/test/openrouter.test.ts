@@ -107,6 +107,27 @@ describe('cheapest OpenRouter host', () => {
     expect(asked).toHaveLength(2);
   });
 
+  it('keeps a conversation with the host of its last call while that host is eligible', async () => {
+    let now = SATURDAY.getTime();
+    const named = { data: { endpoints: ENDPOINTS.data.endpoints.map((endpoint) => ({ ...endpoint, provider_name: endpoint.tag.split('/')[0] })) } };
+    const routing = new OpenRouterRouting(async () => named, () => now);
+    const model = 'deepseek/deepseek-v4.1-flash';
+    const options = { noFourBit: false };
+    expect(await routing.order(model, options, 'c1')).toEqual(['morph/fp8', 'open-inference/fp4', 'deepseek', 'no-cache']);
+    routing.stick(model, 'c1', 'deepseek');
+    expect(await routing.order(model, options, 'c1')).toEqual(['deepseek', 'morph/fp8', 'open-inference/fp4', 'no-cache']);
+    // Other conversations, other models and calls without a conversation go cheapest first.
+    expect((await routing.order(model, options, 'c2'))?.[0]).toBe('morph/fp8');
+    expect((await routing.order(model, options))?.[0]).toBe('morph/fp8');
+    // A host left out of the ranking (here only a flex endpoint) is not forced.
+    routing.stick(model, 'c1', 'deepinfra');
+    expect((await routing.order(model, options, 'c1'))?.[0]).toBe('morph/fp8');
+    // After half an hour without a call the cache is cold anyway.
+    routing.stick(model, 'c1', 'deepseek');
+    now += 31 * 60_000;
+    expect((await routing.order(model, options, 'c1'))?.[0]).toBe('morph/fp8');
+  });
+
   it('leaves a request alone that routes itself, and keeps other fields', () => {
     expect(cheapestProvider({ sort: 'throughput' }, ['a'])).toBeUndefined();
     expect(cheapestProvider({ order: ['x'] }, ['a'])).toBeUndefined();

@@ -57,10 +57,12 @@ export function splitSections(markdown: string): Section[] {
     if (/^\s*(```|~~~)/.test(line)) {
       inFence = !inFence;
     }
-    const match = !inFence ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null;
-    if (match) {
+    const title = !inFence ? headingText(line) : null;
+    if (title !== null) {
       flush();
-      heading = (match[2] ?? '')
+      // Cut first: the patterns below backtrack over long text.
+      heading = title
+        .slice(0, 300)
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
         // Anchor links of docs pages ("#", "¶") are no part of the title.
         .replace(/\s*[#¶§]+$/, '')
@@ -81,6 +83,32 @@ export function splitSections(markdown: string): Section[] {
     }
   }
   return sections;
+}
+
+/**
+ * The text of a Markdown heading line (`## Title ##`), or null for any
+ * other line. By hand: the pattern `^(#{1,6})\s+(.+?)\s*#*\s*$` took minutes
+ * on a heading padded with a megabyte of spaces (security review M5).
+ */
+function headingText(line: string): string | null {
+  let level = 0;
+  while (line[level] === '#') {
+    level += 1;
+  }
+  if (level < 1 || level > 6 || !/\s/.test(line[level] ?? '')) {
+    return null;
+  }
+  let text = line.slice(level).trim();
+  if (!text) {
+    return null;
+  }
+  // A closing run of hashes is no part of the title.
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '#') {
+    end -= 1;
+  }
+  text = text.slice(0, end).trimEnd();
+  return text;
 }
 
 /** Where code blocks start and end, so cuts can avoid them. */

@@ -74,6 +74,10 @@ pub struct Incoming {
     pub files: Vec<IncomingFile>,
     /// Whether the patch was longer than allowed and cut off.
     pub truncated: bool,
+    /// Hook folders the repository's git configuration names
+    /// (`core.hooksPath`), lower case with a trailing `/`, relative to the
+    /// repository; files there run with git commands.
+    pub hook_dirs: Vec<String>,
 }
 
 /// A file a merge would change.
@@ -220,6 +224,18 @@ impl HostRepo {
     /// Root of the repository.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Tracked files with changes nobody committed, as their paths
+    /// (sanitized for display). The agent only ever gets commits, so it works
+    /// without these, and a merge refuses to run over them.
+    pub fn uncommitted(&self) -> Result<Vec<String>> {
+        let status = self.run("status", &["status", "--porcelain", "--untracked-files=no"])?;
+        Ok(status
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| super::sanitize(line.get(3..).unwrap_or(line)))
+            .collect())
     }
 
     /// Writes all local branches, tags and `HEAD` into a bundle for the
@@ -382,14 +398,20 @@ impl HostRepo {
                 ));
             }
         }
-        let dirty = self.run("status", &["status", "--porcelain", "--untracked-files=no"])?;
-        if !dirty.trim().is_empty() {
+        let dirty = self.uncommitted()?;
+        if !dirty.is_empty() {
+            // Says where: the folder on this computer, not the agent's copy,
+            // which was taken for the culprit (4.11., changes left there for months).
+            let count = dirty.len();
+            let files = file_list(&dirty, 3);
             return Err(Error::Sync(tr!(
-                "Uncommittete Änderungen an {} Datei(en). Bitte erst committen oder stashen, \
-                 die Harness fasst sie nicht an",
-                "Uncommitted changes to {} file(s). Please commit or stash them first, \
-                 the harness does not touch them",
-                dirty.lines().count()
+                "Uncommittete Änderungen an {count} Datei(en) im Projektordner auf diesem Rechner \
+                 ({path}): {files}. Bitte dort erst committen oder stashen, die Harness fasst sie \
+                 nicht an",
+                "Uncommitted changes to {count} file(s) in the project folder on this computer \
+                 ({path}): {files}. Please commit or stash them there first, the harness does not \
+                 touch them",
+                path = self.path.display()
             )));
         }
 
@@ -398,7 +420,7 @@ impl HostRepo {
         }
         let commits = self.count(&[&format!("HEAD..{reference}")])?;
         if self.is_ancestor("HEAD", &reference)? {
-            self.run("merge", &["merge", "--quiet", "--ff-only", &reference])?;
+            self.run_unfiltered("merge", &["merge", "--quiet", "--ff-only", &reference])?;
             return Ok(MergeOutcome::FastForward { commits });
         }
 
@@ -412,7 +434,7 @@ impl HostRepo {
         ])?;
         match dry_run.status.code() {
             Some(0) => {
-                self.run("merge", &["merge", "--quiet", "--no-edit", branch])?;
+                self.run_unfiltered("merge", &["merge", "--quiet", "--no-edit", branch])?;
                 Ok(MergeOutcome::Merged { commits })
             }
             // Exit code 1: conflicts. Line 1 is the tree id, then file names.
@@ -490,10 +512,13 @@ impl HostRepo {
     /// its merge base with HEAD, with the added lines of text files. At most
     /// `max_patch_bytes` of patch are read. Diff drivers and textconv stay
     /// off, so a `.gitattributes` from the agent cannot choose programs to
-    /// run here.
+    /// run here. Attributes come from the empty tree: an agent's
+    /// `* -diff`, once merged, made every later diff "binary" and the
+    /// review blind (security review H2).
     pub fn incoming(&self, branch: &str, max_patch_bytes: usize) -> Result<Incoming> {
         let range = format!("HEAD...refs/heads/{branch}");
         let common = [
+            "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904",
             "-c",
             "core.quotePath=false",
             "diff",
@@ -532,7 +557,70 @@ impl HostRepo {
         }
         let _ = child.wait();
         apply_patch(&mut files, &String::from_utf8_lossy(&patch));
-        Ok(Incoming { files, truncated })
+        Ok(Incoming {
+            files,
+            truncated,
+            hook_dirs: self.hook_dirs(),
+        })
+    }
+
+    /// The repository's own hook folders inside it (`core.hooksPath` from
+    /// the user's configuration, not the empty folder harness sets).
+    fn hook_dirs(&self) -> Vec<String> {
+        let Ok(output) = self.output(&["config", "--show-scope", "--get-all", "core.hooksPath"])
+        else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.split_once('\t'))
+            .filter(|(scope, _)| *scope != "command")
+            .filter_map(|(_, dir)| {
+                let dir = dir.trim().replace('\\', "/");
+                let dir = dir.trim_start_matches("./").trim_end_matches('/');
+                // Absolute folders lie outside the repository.
+                let inside = !dir.is_empty()
+                    && !dir.starts_with('/')
+                    && !dir.starts_with('~')
+                    && dir.chars().nth(1) != Some(':')
+                    && !dir.split('/').any(|part| part == "..");
+                inside.then(|| format!("{}/", dir.to_ascii_lowercase()))
+            })
+            .collect()
+    }
+
+    /// Git with every filter driver of the user's configuration switched
+    /// off, for merges: a `filter=lfs` (or any other driver the user set up)
+    /// would otherwise run its program on what the agent wrote, and Git LFS
+    /// download from where the agent's `.lfsconfig` says (security review
+    /// M3). LFS files stay pointers; `git lfs pull` fetches them afterwards.
+    fn unfiltered(&self) -> Command {
+        let mut drivers: Vec<String> = self
+            .output(&["config", "--name-only", "--get-regexp", "^filter[.]"])
+            .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|key| {
+                let rest = key.strip_prefix("filter.")?;
+                rest.rsplit_once('.').map(|(driver, _)| driver.to_owned())
+            })
+            .collect();
+        drivers.sort();
+        drivers.dedup();
+        let mut cmd = self.command();
+        for driver in &drivers {
+            // Empty commands are no filter to git; `required` would fail.
+            for (key, value) in [
+                ("clean", ""),
+                ("smudge", ""),
+                ("process", ""),
+                ("required", "false"),
+            ] {
+                cmd.arg("-c").arg(format!("filter.{driver}.{key}={value}"));
+            }
+        }
+        cmd.env("GIT_LFS_SKIP_SMUDGE", "1");
+        cmd
     }
 
     fn command(&self) -> Command {
@@ -570,6 +658,23 @@ impl HostRepo {
                 program: self.git.clone(),
                 source,
             })
+    }
+
+    /// [`HostRepo::run`] with filters off, see [`HostRepo::unfiltered`].
+    fn run_unfiltered(&self, action: &str, args: &[&str]) -> Result<String> {
+        let output = self
+            .unfiltered()
+            .args(args)
+            .output()
+            .map_err(|source| Error::Spawn {
+                program: self.git.clone(),
+                source,
+            })?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        } else {
+            Err(git_error(action, &output))
+        }
     }
 
     /// Runs git and returns stdout; a non-zero exit is an error.
@@ -661,4 +766,18 @@ fn git_error(action: &str, output: &Output) -> Error {
 
 fn short(oid: &str) -> &str {
     &oid[..oid.len().min(10)]
+}
+
+/// The first `shown` paths, joined, with "…" when there are more.
+pub fn file_list(paths: &[String], shown: usize) -> String {
+    let mut list = paths
+        .iter()
+        .take(shown)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if paths.len() > shown {
+        list.push_str(", …");
+    }
+    list
 }

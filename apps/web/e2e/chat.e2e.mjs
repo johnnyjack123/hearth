@@ -548,10 +548,14 @@ try {
     await page.type('textarea', 'Merk dir: Ich nutze pnpm statt npm.');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
-    await waitForText('Gemerkt: „Ich nutze pnpm statt npm.“', 15_000);
+    // What a model stores is a suggestion until the user accepts it.
+    await waitForText('Zum Merken vorgeschlagen: „Ich nutze pnpm statt npm.“', 15_000);
     await waitForText('Gemerkt, das gilt ab jetzt in jedem Chat.', 10_000);
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await shot('50-memory-remembered');
+    await shot('50-memory-suggested');
+    await page.click(`button${text('Übernehmen')}`);
+    await waitForText('Gemerkt: „Ich nutze pnpm statt npm.“', 10_000);
+    await shot('50b-memory-remembered');
 
     // A new chat gets the memory with its first message.
     await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -602,8 +606,18 @@ try {
     // The list above the message box, as with agents.
     await page.waitForSelector('section[aria-label="Fortschritt"]', { timeout: 5_000 });
     await waitForText('1/3', 5_000);
+    // The reply ended with open steps: the model left the list behind.
+    await waitForText('nicht zu Ende geführt', 5_000);
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('52-chat-progress');
+    // The user dismisses it, and it stays away after a reload.
+    await page.click('button[aria-label="Liste ausblenden"]');
+    await page.waitForSelector('section[aria-label="Fortschritt"]', { hidden: true, timeout: 5_000 });
+    await page.reload({ waitUntil: 'networkidle0' });
+    await waitForText('Ich arbeite die Liste ab.', 10_000);
+    if (await page.$('section[aria-label="Fortschritt"]')) {
+      throw new Error('the dismissed list came back after a reload');
+    }
   });
 
   await step('images and documents in an ordinary chat', async () => {
