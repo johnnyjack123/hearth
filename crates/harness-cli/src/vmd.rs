@@ -182,7 +182,13 @@ fn status() -> anyhow::Result<bool> {
 fn orphaned(volume: &str, projects: &[String]) -> Option<String> {
     let name = volume
         .strip_prefix("harness-ws-")
-        .or_else(|| volume.strip_prefix("harness-home-"))?;
+        .or_else(|| volume.strip_prefix("harness-home-"))
+        .or_else(|| {
+            volume
+                .strip_prefix("harness-cfg-")
+                .and_then(|rest| rest.split_once('_'))
+                .map(|(project, _)| project)
+        })?;
     (!projects.iter().any(|project| project == name)).then(|| name.to_owned())
 }
 
@@ -443,7 +449,16 @@ fn clean(config: &ConfigDir, machine: &str, yes: bool) -> anyhow::Result<bool> {
             .try_for_each(|container| provider.remove_container(container))
             .and_then(|()| provider.remove_network(&project.network()))
             .and_then(|()| provider.remove_volume(&project.workspace_volume()))
-            .and_then(|()| provider.remove_volume(&project.home_volume()));
+            .and_then(|()| provider.remove_volume(&project.home_volume()))
+            .and_then(|()| {
+                provider.volumes()?.iter().try_for_each(|volume| {
+                    if volume.name.starts_with(&project.config_prefix()) {
+                        provider.remove_volume(&volume.name)
+                    } else {
+                        Ok(())
+                    }
+                })
+            });
         if let Err(error) = removed {
             println!("{name}: {error}");
         }
@@ -1278,7 +1293,12 @@ mod tests {
             Some("old")
         );
         assert_eq!(orphaned("harness-ws-shop", &projects), None);
-        // Shared by all projects.
+        assert_eq!(
+            orphaned("harness-cfg-old_pi", &projects).as_deref(),
+            Some("old")
+        );
+        assert_eq!(orphaned("harness-cfg-shop_pi", &projects), None);
+        // Shared by all projects (the config volume before 0.1.17 too).
         assert_eq!(orphaned("harness-tools", &projects), None);
         assert_eq!(orphaned("harness-cfg-pi", &projects), None);
     }

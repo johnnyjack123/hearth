@@ -312,12 +312,10 @@ fn shell_with_questions_in_the_same_terminal() {
     assert_eq!(term.finish(pump), Some(0));
 }
 
-/// pi's own interface through the relay. Without `harness login` in the
-/// test's HARNESS_HOME, `harness run` removes harness's entries from pi's
-/// models.json in the shared volume `harness-cfg-pi`; the next paired run
-/// writes them again. Not while the user works with pi.
+/// pi's own interface through the relay. pi's config lives in the test
+/// project's own volume, so the user's projects stay untouched.
 #[test]
-#[ignore = "needs the running Podman machine and both images; touches pi's shared config"]
+#[ignore = "needs the running Podman machine and both images"]
 fn pi_draws_and_exits_in_the_relayed_terminal() {
     let project = test_project("termpi");
     let (mut term, pump) = Terminal::start(&project, &["run", "pi"]);

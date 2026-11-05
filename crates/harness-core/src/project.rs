@@ -135,6 +135,30 @@ impl ProjectName {
     pub fn agent_branch(&self) -> String {
         format!("agent/{}", self.0)
     }
+
+    /// Volume holding a harness's own configuration and sessions (`persist`,
+    /// pi's `~/.pi`) in this project. One per project: a shared volume let a
+    /// hijacked agent read and change the sessions of every other project and
+    /// plant extensions that would run there (security review H1, 4.11.).
+    /// Every name starts with [`ProjectName::config_prefix`]; a harness name
+    /// too long for podman's 63 characters is hashed.
+    pub fn config_volume(&self, harness: &str) -> String {
+        let plain = format!("{}{harness}", self.config_prefix());
+        if plain.len() <= 63 {
+            return plain;
+        }
+        // FNV-1a: stable across builds, enough to tell harnesses apart.
+        let hash = harness.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        });
+        format!("{}{hash:08x}", self.config_prefix())
+    }
+
+    /// Start of the names of this project's [`ProjectName::config_volume`]s;
+    /// `_` never occurs in project or harness names.
+    pub fn config_prefix(&self) -> String {
+        format!("harness-cfg-{}_", self.0)
+    }
 }
 
 impl fmt::Display for ProjectName {

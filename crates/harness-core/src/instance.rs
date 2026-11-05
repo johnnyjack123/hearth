@@ -134,7 +134,7 @@ pub fn mounts(name: &ProjectName, harnesses: &[&HarnessConfig], apps: &[ReadyApp
             && !mounts.iter().any(|m| m.target == path)
         {
             mounts.push(mount(
-                MountSource::Volume(harness.config_volume()),
+                MountSource::Volume(harness.config_volume(name)),
                 &path,
                 false,
             ));
@@ -465,7 +465,7 @@ mod tests {
             described,
             "harness-ws-demo:/workspace harness-home-demo:/home/agent \
              harness-tools:/opt/harness-tools:ro \
-             harness-cfg-pi:/home/agent/.pi"
+             harness-cfg-demo_pi:/home/agent/.pi"
         );
         // The same harness twice does not mount twice.
         assert_eq!(
@@ -491,7 +491,7 @@ mod tests {
             "harness-ws-demo:/workspace harness-home-demo:/home/agent \
              harness-tools:/opt/harness-tools:ro \
              harness-app-go-6a000000:/opt/harness-apps/go:ro \
-             harness-cfg-pi:/home/agent/.pi"
+             harness-cfg-demo_pi:/home/agent/.pi"
         );
     }
 }

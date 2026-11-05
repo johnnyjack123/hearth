@@ -479,6 +479,13 @@ fn remove_from_vm(machine: &str, name: &ProjectName, keep_data: bool) -> anyhow:
         for volume in [name.workspace_volume(), name.home_volume()] {
             provider.remove_volume(&volume)?;
         }
+        // The harnesses' sessions and settings of this project.
+        let prefix = name.config_prefix();
+        for volume in provider.volumes()? {
+            if volume.name.starts_with(&prefix) {
+                provider.remove_volume(&volume.name)?;
+            }
+        }
     }
     Ok(())
 }

@@ -45,7 +45,7 @@ impl Drop for Cleanup<'_> {
         for volume in [
             name.workspace_volume(),
             name.home_volume(),
-            self.harness.config_volume(),
+            self.harness.config_volume(name),
         ] {
             let _ = p.remove_volume(&volume);
         }
