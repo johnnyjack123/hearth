@@ -521,6 +521,21 @@ fn web_fetch_hosts_pass_the_rules_first() {
     assert_eq!(document.status, 200);
     let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(head[0], "POST /api/llm/_documents HTTP/1.1");
+    // Once the host named the project, the server hears it with every
+    // request, never the project an agent claims.
+    control.send("project bildbearbeitung");
+    let document = request(
+        proxy,
+        "POST http://llm.harness/_documents HTTP/1.1\r\n\
+         X-Harness-Project: fremd\r\nContent-Length: 0\r\n\r\n",
+    );
+    assert_eq!(document.status, 200);
+    let head = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(
+        head.contains(&"X-Harness-Project: bildbearbeitung".to_owned()),
+        "{head:?}"
+    );
+    assert!(!head.iter().any(|h| h.contains("fremd")), "{head:?}");
 
     // Other paths of harness, also with a query, do not exist.
     for path in [

@@ -76,6 +76,7 @@ struct State {
     next_watcher: u64,
     log: VecDeque<LogEntry>,
     llm: Option<(LlmUpstream, Connector)>,
+    project: Option<String>,
 }
 
 struct Grant {
@@ -213,6 +214,11 @@ impl Gateway {
     /// Where `llm.harness` forwards to and how, if the host has set it.
     pub(crate) fn llm(&self) -> Option<(LlmUpstream, Connector)> {
         self.lock().llm.clone()
+    }
+
+    /// The project the host named, see [`Request::Project`].
+    pub(crate) fn project(&self) -> Option<String> {
+        self.lock().project.clone()
     }
 
     /// Records a connection attempt and tells the watchers.
@@ -358,6 +364,10 @@ impl Gateway {
                     state.llm = Some((upstream, connector));
                     Vec::new()
                 })
+            }
+            Request::Project(name) => {
+                state.project = Some(name);
+                Ok(Vec::new())
             }
             Request::Ping | Request::Bye => Ok(Vec::new()),
         };

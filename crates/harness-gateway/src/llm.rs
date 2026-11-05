@@ -24,6 +24,7 @@ pub const CREDENTIAL_HEADERS: &[&str] = &[
     "x-goog-api-key",
     "cookie",
     APPROVED_HOST_HEADER,
+    PROJECT_HEADER,
 ];
 
 /// Path of `web_fetch` below `llm.harness`: the server loads the page named
@@ -56,6 +57,20 @@ pub const URL_HEADER: &str = "x-harness-url";
 /// Header with the host the gateway allowed for `web_fetch`; the server
 /// loads nothing else.
 pub const APPROVED_HOST_HEADER: &str = "x-harness-approved-host";
+
+/// Header with the gateway's project on every request to the server: an
+/// agent's documents, searches and research hits belong to its project,
+/// not to every project on the computer. Only the gateway sets it.
+pub const PROJECT_HEADER: &str = "x-harness-project";
+
+/// Whether `name` can be a project name on the wire: what harness allows
+/// for projects (lower-case letters, digits, `-`, `_`, `.`), at most 64.
+pub fn valid_project(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"-_.".contains(&b))
+}
 
 /// Longest URL `web_fetch` takes, as on the server.
 const MAX_URL_LENGTH: usize = 2048;

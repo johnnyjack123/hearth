@@ -1,6 +1,6 @@
-import { type DeviceCredential, memoryRef, memoryTextSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
+import { type DeviceCredential, memoryRef, memoryTextSchema, projectNameSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
 import { createHash } from 'node:crypto';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { z } from 'zod';
 import { type AppDeps, type DeviceEnv, requireDevice } from '../http/context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
@@ -33,6 +33,30 @@ const memoryRequestSchema = z.discriminatedUnion('action', [
 const searchRequestSchema = z
   .object({ query: z.string().trim().min(1).max(400), kind: z.enum(SEARCH_KINDS).optional() })
   .strict();
+
+/** Set by the gateway on every request: the agent's project (`PROJECT_HEADER` in `llm.rs`). */
+const PROJECT_HEADER = 'x-harness-project';
+
+/**
+ * The project an agent's request comes from. The gateway sets it and drops
+ * any the agent sends; gateways before 0.1.17 send none, then the whole
+ * device counts as before.
+ *
+ * @param c - The request.
+ * @returns The project, or null for the device.
+ * @throws {HttpError} 400 for a name no gateway sends.
+ */
+function projectOf(c: Context): string | null {
+  const header = c.req.header(PROJECT_HEADER);
+  if (header === undefined) {
+    return null;
+  }
+  const parsed = projectNameSchema.safeParse(header);
+  if (!parsed.success) {
+    throw new HttpError(400, 'validation', `${PROJECT_HEADER} is no project name`);
+  }
+  return parsed.data;
+}
 
 /**
  * Wire protocol a provider kind speaks; decides allowed paths and how the key
@@ -178,7 +202,8 @@ export function llmRoutes(deps: AppDeps) {
     // research mode: the switch in the chat decides, not the agent.
     .post('/proxy/_web/search', async (c) => {
       const input = searchRequestSchema.parse(await c.req.json());
-      const question = deps.hub.researchQuestion(c.get('device').id);
+      const project = projectOf(c);
+      const question = deps.hub.researchQuestion(c.get('device').id, project);
       if (question === null) {
         return c.json(
           { error: '[research_off] Research mode is off; the user can switch it on in the web chat. Answer without searching.' },
@@ -193,7 +218,11 @@ export function llmRoutes(deps: AppDeps) {
       try {
         const output = await runSearch(backend, input, { helpers, question }, c.req.raw.signal);
         // Reading the hits needs no question to the user (`_web/known`).
-        deps.hub.researchFound(c.get('device').id, output.results.map((result) => result.url));
+        deps.hub.researchFound(
+          c.get('device').id,
+          project,
+          output.results.map((result) => result.url),
+        );
         return c.json({ text: searchModelText(output), results: output.results.length, warnings: output.warnings });
       } catch (error) {
         if (error instanceof WebSearchError) {
@@ -207,7 +236,7 @@ export function llmRoutes(deps: AppDeps) {
     // research reply loads without a question. 204 yes, 404 no.
     .post('/proxy/_web/known', async (c) => {
       const { url } = z.object({ url: z.string().max(4_000) }).parse(await c.req.json());
-      return c.body(null, deps.hub.researchKnows(c.get('device').id, url) ? 204 : 404);
+      return c.body(null, deps.hub.researchKnows(c.get('device').id, projectOf(c), url) ? 204 : 404);
     })
     // The memory tools of agents, under the proxy path like `_web/search`;
     // the memories belong to the device's owner.
@@ -242,7 +271,9 @@ export function llmRoutes(deps: AppDeps) {
     .post('/proxy/_documents', async (c) => {
       const request = readDocumentSchema.strict().parse(await c.req.json());
       const owner = c.get('owner').id;
-      const rows = await fileStore(db, deps.config.dataDir).ofConversations(owner, deps.hub.runningSessions(c.get('device').id));
+      // Only the chats of the agent's own project (security review M6).
+      const sessions = deps.hub.runningSessions(c.get('device').id, projectOf(c));
+      const rows = await fileStore(db, deps.config.dataDir).ofConversations(owner, sessions);
       const helpers = await loadHelpers(db, secretBox, owner, null, deps.helpers);
       try {
         return c.json(await readDocument(rows, request, { helpers, vectors: documentVectors(db), signal: c.req.raw.signal }));

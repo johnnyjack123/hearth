@@ -92,6 +92,9 @@ pub enum Request {
     /// base64 DER) or `llm none`. Carries the device token, so the host
     /// sends it through stdin, never as an argument.
     Llm(Option<LlmUpstream>),
+    /// Name the project the gateway belongs to: `project <name>`. Requests
+    /// to the server carry it, see [`crate::llm::PROJECT_HEADER`].
+    Project(String),
     /// Receive events on this connection and answer questions. While at
     /// least one connection watches, requests to unknown hosts wait for an
     /// answer instead of failing.
@@ -118,6 +121,7 @@ impl fmt::Display for Request {
             Request::Decide { id, allow: None } => write!(f, "decide {id} deny"),
             Request::Llm(Some(upstream)) => write!(f, "llm {upstream}"),
             Request::Llm(None) => f.write_str("llm none"),
+            Request::Project(name) => write!(f, "project {name}"),
             Request::Watch => f.write_str("watch"),
             Request::Status => f.write_str("status"),
             Request::Ping => f.write_str("ping"),
@@ -180,6 +184,13 @@ impl FromStr for Request {
                 )?))),
                 _ => Err("llm: erwartet <url> <token> [<ca>] oder none".to_owned()),
             },
+            "project" => {
+                arity(1)?;
+                if !crate::llm::valid_project(words[0]) {
+                    return Err(format!("project: ungültiger Name {:?}", words[0]));
+                }
+                Ok(Request::Project(words[0].to_owned()))
+            }
             "watch" | "status" | "ping" | "bye" => {
                 arity(0)?;
                 Ok(match command {
@@ -501,6 +512,7 @@ mod tests {
                     .unwrap(),
             )),
             Request::Llm(None),
+            Request::Project("bildbearbeitung".to_owned()),
             Request::Watch,
             Request::Status,
             Request::Ping,

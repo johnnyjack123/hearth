@@ -907,6 +907,13 @@ data: [DONE]
       expect((await known('https://kaffee.example/roesten')).status).toBe(204);
       expect((await known('https://kaffee.example/roesten/')).status).toBe(204);
       expect((await known('https://kaffee.example/anderes')).status).toBe(404);
+      // Research mode and hits belong to the chat's project: an agent of
+      // another project on the computer gets neither.
+      const elsewhere = { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': 'anderes' };
+      expect((await server.request('POST', '/api/llm/proxy/_web/search', { body: { query: 'x' }, headers: elsewhere })).status).toBe(403);
+      expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: elsewhere })).status).toBe(404);
+      const own = { ...elsewhere, 'x-harness-project': 'demo' };
+      expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: own })).status).toBe(204);
 
       device.emit(conversation.id, { type: 'done', aborted: false });
       await (await reply).text();
@@ -1111,6 +1118,16 @@ data: [DONE]
     expect(elsewhere.status).toBe(404);
     expect(((await elsewhere.json()) as { error: string }).error).toBe(`No document "${file.id.slice(-8)}" in this chat.`);
     expect((await read(token, { file: 'x', unknown: true })).status).toBe(400);
+    // The gateway names the agent's project: an agent in another project of
+    // the same computer does not reach the chat's documents.
+    const inProject = (project: string) =>
+      server.request('POST', '/api/llm/proxy/_documents', {
+        body: { file: file.id.slice(-8) },
+        headers: { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': project },
+      });
+    expect((await inProject('demo')).status).toBe(200);
+    expect((await inProject('anderes')).status).toBe(404);
+    expect((await inProject('../demo')).status).toBe(400);
 
     device.emit(conversation.id, { type: 'done', aborted: false });
     await (await reply).text();
