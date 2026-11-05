@@ -265,9 +265,163 @@ pub fn current_user_sid() -> Result<String> {
     Ok(result)
 }
 
+/// SID of the owner of a file or folder, e.g. `S-1-5-32-544`.
+#[cfg(windows)]
+pub fn owner_sid(path: &std::path::Path) -> Result<String> {
+    use std::os::windows::ffi::OsStrExt as _;
+
+    use windows_sys::Win32::Foundation::{ERROR_SUCCESS, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
+    };
+    use windows_sys::Win32::Security::{OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: NUL-terminated path and valid out pointers; the owner points
+    // into the descriptor, which is freed below.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            wide.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(Error::Vmd(tr!(
+            "Besitzer von {} lesen: {}",
+            "Reading the owner of {}: {}",
+            path.display(),
+            std::io::Error::from_raw_os_error(status as i32)
+        )));
+    }
+    let mut text: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: valid SID; the string is allocated by Windows.
+    let converted = unsafe { ConvertSidToStringSidW(owner, &mut text) } != 0;
+    let result = if converted {
+        // SAFETY: NUL-terminated string from ConvertSidToStringSidW.
+        let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
+        let sid = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
+        // SAFETY: allocated with LocalAlloc by the conversion.
+        unsafe { LocalFree(text.cast()) };
+        Ok(sid)
+    } else {
+        Err(Error::Vmd(format!(
+            "SID: {}",
+            std::io::Error::last_os_error()
+        )))
+    };
+    // SAFETY: allocated by GetNamedSecurityInfoW.
+    unsafe { LocalFree(descriptor.cast()) };
+    result
+}
+
+/// Owners the service's data folder may have: SYSTEM and Administrators.
+pub const TRUSTED_OWNERS: [&str; 2] = ["S-1-5-18", "S-1-5-32-544"];
+
+/// Checks the service's data folder (`C:\ProgramData\llm-harness`) before
+/// anything runs as SYSTEM from it. Any user may create folders in
+/// ProgramData: another account of a shared computer could prepare it
+/// before the first install, with a junction inside that sends what the
+/// installer writes, or what the service reads, elsewhere (security review
+/// M8, 3.11.). A folder that does not exist yet passes.
+///
+/// `also` is an owner trusted besides [`TRUSTED_OWNERS`] (the installing
+/// user, whose own old folder is taken over). Reparse points (junctions,
+/// symlinks) fail anywhere in the tree with `deep`, else only on the way to
+/// what the service reads (the service starts with that: after the install
+/// only administrators can add anything).
+#[cfg(windows)]
+pub fn check_service_root(root: &std::path::Path, also: Option<&str>, deep: bool) -> Result<()> {
+    use std::os::windows::fs::MetadataExt as _;
+
+    const REPARSE_POINT: u32 = 0x400;
+    let Ok(meta) = std::fs::symlink_metadata(root) else {
+        return Ok(());
+    };
+    let owner = owner_sid(root)?;
+    if !TRUSTED_OWNERS.contains(&owner.as_str()) && Some(owner.as_str()) != also {
+        return Err(Error::Vmd(tr!(
+            "{} gehört einem anderen Konto ({owner}). Bitte prüfen und als Administrator \
+             löschen, dann neu einrichten.",
+            "{} belongs to another account ({owner}). Please check it and delete it as \
+             administrator, then set up again.",
+            root.display()
+        )));
+    }
+    let mut pending = vec![(root.to_path_buf(), meta)];
+    if !deep {
+        for path in [service_dir(), service_dir().join("vmd.toml")] {
+            if path.starts_with(root)
+                && let Ok(meta) = std::fs::symlink_metadata(&path)
+            {
+                pending.push((path, meta));
+            }
+        }
+    }
+    while let Some((path, meta)) = pending.pop() {
+        if meta.file_attributes() & REPARSE_POINT != 0 {
+            return Err(Error::Vmd(tr!(
+                "{} ist eine Verknüpfung (Junction oder Symlink); im Datenordner des Dienstes \
+                 darf keine sein. Bitte prüfen und als Administrator löschen.",
+                "{} is a link (junction or symlink); the service's data folder must not hold \
+                 one. Please check it and delete it as administrator.",
+                path.display()
+            )));
+        }
+        if meta.is_dir() && deep {
+            let entries = std::fs::read_dir(&path)
+                .map_err(|error| Error::Vmd(format!("{}: {error}", path.display())))?;
+            for entry in entries.flatten() {
+                if let Ok(meta) = std::fs::symlink_metadata(entry.path()) {
+                    pending.push((entry.path(), meta));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn service_roots_with_links_or_foreign_owners_fail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("llm-harness");
+        // Missing: the installer creates it.
+        check_service_root(&root, None, true).unwrap();
+        std::fs::create_dir_all(root.join("vmd")).unwrap();
+        // Created by this user: only trusted when named.
+        let me = current_user_sid().unwrap();
+        assert!(check_service_root(&root, None, true).is_err());
+        check_service_root(&root, Some(&me), true).unwrap();
+        // A junction inside, as `mklink /J` makes it without admin rights.
+        let target = tmp.path().join("elsewhere");
+        std::fs::create_dir_all(&target).unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(root.join("vmd").join("home"))
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        let error = check_service_root(&root, Some(&me), true)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Verknüpfung"), "{error}");
+        // Not looked for when the service starts: only administrators can
+        // add anything after the install.
+        check_service_root(&root, Some(&me), false).unwrap();
+    }
 
     #[cfg(windows)]
     #[test]
