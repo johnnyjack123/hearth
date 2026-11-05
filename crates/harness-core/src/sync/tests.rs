@@ -493,6 +493,51 @@ fn incoming_lists_what_a_merge_brings() {
 }
 
 #[test]
+fn merged_attributes_do_not_blind_the_next_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = crate::paths::canonical(tmp.path()).unwrap().join("host");
+    let host = host_repo(&dir);
+    // An earlier merge brought `* -diff` and the repository names its own
+    // hook folder.
+    commit(&dir, ".gitattributes", "* -diff\n", "attributes");
+    git(&dir, &["config", "core.hooksPath", "tools/Hooks"]);
+    git(&dir, &["switch", "--quiet", "-c", BRANCH]);
+    commit(&dir, "f.js", "evil()\n", "agent work");
+    git(&dir, &["switch", "--quiet", "main"]);
+
+    let incoming = host.incoming(BRANCH, 1 << 20).unwrap();
+    let file = &incoming.files[0];
+    assert!(!file.binary, "{file:?}");
+    assert_eq!(file.added, [(1, "evil()".to_owned())]);
+    assert_eq!(incoming.hook_dirs, ["tools/hooks/"]);
+}
+
+#[test]
+fn merges_run_no_filter_of_the_users_git() {
+    let s = Setup::new();
+    // A filter driver as Git LFS sets it up, here one that leaves a mark.
+    let marker = s.root.join("filter-ran");
+    let command = format!(
+        "touch '{}'",
+        marker.display().to_string().replace('\\', "/")
+    );
+    git(s.host_dir(), &["config", "filter.mark.smudge", &command]);
+    git(s.host_dir(), &["config", "filter.mark.required", "true"]);
+    s.agent_commit(".gitattributes", "*.txt filter=mark\n");
+    s.agent_commit("agent.txt", "x\n");
+    s.import(false).unwrap();
+    assert_eq!(
+        s.host.merge(BRANCH).unwrap(),
+        MergeOutcome::FastForward { commits: 2 }
+    );
+    assert!(!marker.exists(), "the filter ran during the merge");
+    assert_eq!(
+        fs::read_to_string(s.host_dir().join("agent.txt")).unwrap(),
+        "x\n"
+    );
+}
+
+#[test]
 fn branch_helpers_follow_a_merge() {
     let temp = tempfile::tempdir().unwrap();
     let host = temp.path().join("host");
