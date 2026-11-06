@@ -1,4 +1,4 @@
-import { EFFORT_LEVELS, type EffortLevel } from '@harness/shared';
+import { DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { detectLocale, type Locale, translate, type TranslateFn } from '@/i18n/index.ts';
 
@@ -24,6 +24,8 @@ interface PreferencesValue {
   research: boolean;
   /** Thinking effort of the chat used last (null: the provider's default); a new chat starts with it. */
   effort: EffortLevel | null;
+  /** Answer length of the chat used last; a new chat starts with it. */
+  verbosity: Verbosity;
   /** Jev judges prompt injection warnings right away, see {@link autoAssessEnabled}. */
   autoAssess: boolean;
   /**
@@ -36,6 +38,7 @@ interface PreferencesValue {
   setLocale: (locale: Locale) => void;
   setResearch: (on: boolean) => void;
   setEffort: (effort: EffortLevel | null) => void;
+  setVerbosity: (verbosity: Verbosity) => void;
   setAutoAssess: (on: boolean) => void;
   setShowThinking: (on: boolean) => void;
   t: TranslateFn;
@@ -49,6 +52,7 @@ const STORAGE = {
   locale: 'harness.locale',
   research: 'harness.research',
   effort: 'harness.effort',
+  verbosity: 'harness.verbosity',
   autoAssess: 'harness.autoAssess',
   showThinking: 'harness.showThinking',
 } as const;
@@ -106,6 +110,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     const stored = read(STORAGE.effort, ['default', ...EFFORT_LEVELS], 'default');
     return stored === 'default' ? null : stored;
   });
+  const [verbosity, setVerbosityState] = useState<Verbosity>(() => read(STORAGE.verbosity, VERBOSITY_LEVELS, DEFAULT_VERBOSITY));
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
   useEffect(() => {
@@ -150,6 +155,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.effort, next ?? 'default');
     setEffortState(next);
   }, []);
+  const setVerbosity = useCallback((next: Verbosity) => {
+    write(STORAGE.verbosity, next);
+    setVerbosityState(next);
+  }, []);
   const setResearch = useCallback((on: boolean) => {
     write(STORAGE.research, on ? 'on' : 'off');
     setResearchState(on);
@@ -173,6 +182,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       locale,
       research,
       effort,
+      verbosity,
       autoAssess,
       showThinking,
       setTheme,
@@ -180,6 +190,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setLocale,
       setResearch,
       setEffort,
+      setVerbosity,
       setAutoAssess,
       setShowThinking,
       t: (key, params) => translate(locale, key, params),
@@ -191,6 +202,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       locale,
       research,
       effort,
+      verbosity,
       autoAssess,
       showThinking,
       setTheme,
@@ -198,6 +210,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setLocale,
       setResearch,
       setEffort,
+      setVerbosity,
       setAutoAssess,
       setShowThinking,
     ],

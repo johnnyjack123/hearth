@@ -1,6 +1,8 @@
 import {
   CALCULATOR_TOOL,
+  DEFAULT_VERBOSITY,
   FORGET_TOOL,
+  type Verbosity,
   type MemoryToolOutput,
   REMEMBER_TOOL,
   type CalculatorOutput,
@@ -50,6 +52,7 @@ import { WebFetchError } from '../webfetch/errors.ts';
 import { createWebFetchTool, type WebFetchConfig } from '../webfetch/tool.ts';
 import { KnownUrls } from '../websearch/known-urls.ts';
 import { assessor } from '../assess.ts';
+import { keepToolContent } from '../inspect.ts';
 import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
 import { createWebSearchTool } from '../websearch/tool.ts';
 import { type Calculator, CalculatorError } from '../calculator/engine.ts';
@@ -96,6 +99,17 @@ const WEB_FETCH_INSTRUCTIONS = [
  */
 const NOTE_INSTRUCTIONS =
   'User messages can start with a note from LLM Harness in square brackets, such as today\'s date; the latest note applies.';
+
+/**
+ * The answer length the user picks per chat. Only its name travels in the
+ * notes, so the text here never changes; `medium` needs no note.
+ */
+const VERBOSITY_INSTRUCTIONS = [
+  'Answer length: unless a note says otherwise, give a focused answer of medium length that covers what was asked with the details that matter, without padding or repetition.',
+  'A note can set it: "short" means a few sentences or a short list with only what was asked, no background, no headings, no closing summary or offers;',
+  '"detailed" means a thorough answer with background, reasoning, examples and caveats; "medium" goes back to the default.',
+  'Code, and content the user asked for in full (a letter, a whole file), is never cut short.',
+].join(' ');
 
 /**
  * Research mode: switched on and off by the user during a chat, announced
@@ -503,15 +517,19 @@ export interface ChatHosts {
 /**
  * The note for a new user message: today's date and whether research mode
  * is on, each only if it differs from the last note of the chat (or the
- * chat starts). The note is stored with the message, so later requests send
- * exactly the same text.
+ * chat starts), and the answer length. The note is stored with the message,
+ * so later requests send exactly the same text.
+ *
+ * A length other than medium goes with every message: models drift back to
+ * their habit when the setting lies many turns behind.
  *
  * @param previous - The conversation before the message.
- * @param state - Date (YYYY-MM-DD) and research mode now; research is null
- *   when no search provider is set up and the mode does not exist.
+ * @param state - Date (YYYY-MM-DD), research mode and answer length now;
+ *   research is null when no search provider is set up and the mode does
+ *   not exist.
  * @returns The note, or null if nothing changed.
  */
-export function chatNote(previous: ChatMessage[], state: { date: string; research: boolean | null }): string | null {
+export function chatNote(previous: ChatMessage[], state: { date: string; research: boolean | null; verbosity: Verbosity }): string | null {
   const last = previous.findLast((message) => message.role === 'user' && message.metadata?.date !== undefined)?.metadata;
   const parts: string[] = [];
   if (last?.date !== state.date) {
@@ -519,6 +537,9 @@ export function chatNote(previous: ChatMessage[], state: { date: string; researc
   }
   if (state.research !== null && (last === undefined || (last.research === true) !== state.research)) {
     parts.push(`Research mode is ${state.research ? 'on' : 'off'}.`);
+  }
+  if (state.verbosity !== DEFAULT_VERBOSITY || (last !== undefined && (last.verbosity ?? DEFAULT_VERBOSITY) !== state.verbosity)) {
+    parts.push(`Answer length: ${state.verbosity}.`);
   }
   return parts.length > 0 ? `[LLM Harness: ${parts.join(' ')}]` : null;
 }
@@ -581,6 +602,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             known,
             helpers,
             assess: options.assess ? assessor(helpers, abortSignal) : null,
+            keep: (toolCallId, content) => keepToolContent(db, conversationId, toolCallId, content),
           }),
         }
       : {}),
@@ -601,6 +623,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   const instructions = [
     INSTRUCTIONS,
     NOTE_INSTRUCTIONS,
+    VERBOSITY_INSTRUCTIONS,
     ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
     ...(search ? [researchInstructions(webFetch !== null)] : []),
     ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),

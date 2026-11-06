@@ -3,6 +3,7 @@ import {
   CALCULATOR_TOOL,
   type Compaction,
   FORGET_TOOL,
+  type Inspection,
   REMEMBER_TOOL,
   WEB_FETCH_TOOL,
   WEB_SEARCH_TOOL,
@@ -61,6 +62,8 @@ export interface MessageListProps {
   onApprove?: (id: number, decision: ApprovalDecision) => Promise<void>;
   /** Asks Jev about the prompt injection warning of a tool call in a stored reply. */
   onAssess?: (messageId: string, toolCallId: string) => Promise<void>;
+  /** Loads the whole content behind the prompt injection warning of a tool call in a stored reply. */
+  onInspect?: (messageId: string, toolCallId: string) => Promise<Inspection>;
 }
 
 /**
@@ -69,7 +72,7 @@ export interface MessageListProps {
  * @param props - See {@link MessageListProps}.
  * @returns The message column.
  */
-export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove, onAssess }: MessageListProps) {
+export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove, onAssess, onInspect }: MessageListProps) {
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
   // Links of a reply are checked against everything the chat read or found.
@@ -102,6 +105,7 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
               onRegenerate={onRegenerate}
               onApprove={onApprove}
               onAssess={onAssess}
+              onInspect={onInspect}
               known={known}
             />,
             divider,
@@ -138,6 +142,7 @@ function AssistantMessage({
   onRegenerate,
   onApprove,
   onAssess,
+  onInspect,
   known,
 }: {
   message: ChatMessage;
@@ -147,10 +152,12 @@ function AssistantMessage({
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
   onAssess: ((messageId: string, toolCallId: string) => Promise<void>) | undefined;
+  onInspect: ((messageId: string, toolCallId: string) => Promise<Inspection>) | undefined;
   known: ReadonlyMap<string, KnownSource>;
 }) {
   // Only stored replies can be assessed; a streaming one is not saved yet.
   const assess = (toolCallId: string) => (onAssess && !streaming ? () => onAssess(message.id, toolCallId) : undefined);
+  const inspect = (toolCallId: string) => (onInspect && !streaming ? () => onInspect(message.id, toolCallId) : undefined);
   // The search blocks mark these hits, the sources list them.
   const pages = readPages(message);
   const harness = message.metadata?.agent?.harness ?? 'pi';
@@ -178,11 +185,27 @@ function AssistantMessage({
           return <DocumentRead key={part.toolCallId} part={part} streaming={streaming} />;
         }
         if (part.type === 'dynamic-tool') {
-          return <ToolCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />;
+          return (
+            <ToolCall
+              key={part.toolCallId}
+              part={part}
+              streaming={streaming}
+              ms={toolMs?.[part.toolCallId]}
+              onAssess={assess(part.toolCallId)}
+              onInspect={inspect(part.toolCallId)}
+            />
+          );
         }
         if (part.type === `tool-${WEB_FETCH_TOOL}`) {
           return (
-            <WebFetchCall key={part.toolCallId} part={part} streaming={streaming} ms={toolMs?.[part.toolCallId]} onAssess={assess(part.toolCallId)} />
+            <WebFetchCall
+              key={part.toolCallId}
+              part={part}
+              streaming={streaming}
+              ms={toolMs?.[part.toolCallId]}
+              onAssess={assess(part.toolCallId)}
+              onInspect={inspect(part.toolCallId)}
+            />
           );
         }
         if (part.type === `tool-${REMEMBER_TOOL}` || part.type === `tool-${FORGET_TOOL}`) {
@@ -203,6 +226,7 @@ function AssistantMessage({
               read={pages}
               ms={toolMs?.[part.toolCallId]}
               onAssess={assess(part.toolCallId)}
+              onInspect={inspect(part.toolCallId)}
             />
           );
         }

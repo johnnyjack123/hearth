@@ -75,6 +75,16 @@ export interface WebFetchContext {
   helpers: Helpers | null;
   /** Asks Jev about warnings right away; null unless the user wants that. */
   assess?: Assessor | null;
+  /** Keeps the whole content of a page with warnings, so the user can read the places in context. */
+  keep?: (toolCallId: string, content: WarnedPage) => Promise<void>;
+}
+
+/** The whole of a page the patterns flagged, beyond what the model read. */
+export interface WarnedPage {
+  /** The page as Markdown, the main content unless the whole page was asked for. */
+  page: string;
+  /** The HTML source; null for other content. */
+  source: string | null;
 }
 
 /**
@@ -223,6 +233,8 @@ export interface LoadPageOptions {
   signal?: AbortSignal;
   /** Called before each redirect, see `FetchPageOptions.onRedirect`. */
   onRedirect?: (next: URL, from: URL) => Promise<void>;
+  /** Called with the whole page when the patterns flagged something. */
+  onWarned?: (content: WarnedPage) => Promise<void>;
 }
 
 /**
@@ -261,6 +273,9 @@ export async function loadPage(start: URL, request: PageRequest, options: LoadPa
       : truncate(readable, config.maxChars);
   // Readable text first: its excerpts are what the user can make sense of.
   const findings = findInjections(readable, raw);
+  if (findings.length > 0 && options.onWarned) {
+    await options.onWarned({ page: readable, source: isHtml ? raw : null });
+  }
   return {
     url: page.url.href,
     status: page.status,
@@ -338,7 +353,7 @@ export function createWebFetchTool(context: WebFetchContext) {
     }
   }
 
-  async function run(input: Input, signal: AbortSignal | undefined): Promise<WebFetchOutput> {
+  async function run(input: Input, signal: AbortSignal | undefined, toolCallId: string): Promise<WebFetchOutput> {
     const start = parseTarget(input.url.trim(), config);
     // A URL found in search results or on a page carries nothing of the
     // chat, and neither can the redirects its server chooses. The same
@@ -358,6 +373,10 @@ export function createWebFetchTool(context: WebFetchContext) {
           await authorize(next, signal);
         }
       },
+      onWarned: async (content) => {
+        // The page is read already; a failed store only costs the user the view.
+        await context.keep?.(toolCallId, content).catch(() => undefined);
+      },
     });
     // Only links the model actually gets to see.
     known?.addLinks(output.text);
@@ -374,9 +393,9 @@ export function createWebFetchTool(context: WebFetchContext) {
   return tool({
     description: DESCRIPTION,
     inputSchema,
-    execute: async (input, { abortSignal }) => {
+    execute: async (input, { abortSignal, toolCallId }) => {
       try {
-        return await run(input, abortSignal);
+        return await run(input, abortSignal, toolCallId);
       } catch (error) {
         if (abortSignal?.aborted && !(error instanceof WebFetchError)) {
           throw new WebFetchError('aborted', 'The chat request was stopped while the page loaded.');

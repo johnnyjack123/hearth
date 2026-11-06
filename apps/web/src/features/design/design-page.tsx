@@ -28,7 +28,8 @@ import { Spinner } from '@/components/ui/spinner.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { SegmentedControl, Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx';
 import { type Density, usePreferences } from '@/lib/preferences.tsx';
-import { EffortControl } from '@/features/chat/effort-control.tsx';
+import { ChatOptions } from '@/features/chat/chat-options.tsx';
+import type { EnvironmentOption } from '@/features/chat/environment.tsx';
 
 const COLOR_PAIRS: [string, string | null][] = [
   ['background', 'foreground'],
@@ -50,6 +51,16 @@ const COLOR_PAIRS: [string, string | null][] = [
   ['input', null],
   ['ring', null],
 ];
+
+// The options without a computer: the environment row only opens nothing here.
+const DESIGN_ENVIRONMENT: EnvironmentOption = {
+  link: null,
+  online: undefined,
+  workspace: null,
+  pick: () => undefined,
+  details: () => null,
+  dialogs: null,
+};
 
 function Block({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -188,9 +199,23 @@ export function DesignPage() {
               <Slider label={t('design.disabled')} min={0} max={7} step={1} value={[2]} disabled />
             </div>
           </Row>
-          <Row label="EffortControl">
-            <EffortControl effort={effort} onEffortChange={setEffort} />
-            <EffortControl effort={null} onEffortChange={() => undefined} />
+          <Row label="ChatOptions">
+            <ChatOptions
+              environment={DESIGN_ENVIRONMENT}
+              research={{ on: true, onChange: () => undefined }}
+              effort={effort}
+              onEffortChange={setEffort}
+              verbosity="short"
+              onVerbosityChange={() => undefined}
+            />
+            <ChatOptions
+              environment={DESIGN_ENVIRONMENT}
+              research={null}
+              effort={null}
+              onEffortChange={() => undefined}
+              verbosity="medium"
+              onVerbosityChange={() => undefined}
+            />
           </Row>
           <Row label="SegmentedControl">
             <SegmentedControl

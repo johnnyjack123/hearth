@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, Inspection, ProviderCredential } from '@harness/shared';
 import { simulateReadableStream } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -256,6 +256,24 @@ describe('web fetch in ordinary chats', () => {
     const reply = (await load(conversationId)).messages[1];
     expect(reply?.parts.map((part) => part.type)).toEqual(['step-start', 'tool-web_fetch', 'data-approval', 'step-start', 'text']);
     expect(reply?.parts[2]).toMatchObject({ data: { state: 'resolved', answer: 'once', url: target } });
+
+    // The page with its warning is kept whole: the comment lives only in
+    // the HTML source, marked where it is.
+    const toolCallId = (reply?.parts[1] as { toolCallId: string }).toolCallId;
+    const inspected = await server.request('GET', `/api/conversations/${conversationId}/inspection?message=${reply?.id}&tool=${toolCallId}`, {
+      cookie,
+    });
+    expect(inspected.status).toBe(200);
+    const view = (await inspected.json()) as Inspection;
+    expect(view).toMatchObject({ location: target, complete: true });
+    expect(view.texts.map((text) => text.kind)).toEqual(['page', 'source']);
+    expect(view.texts[0]?.text).toContain('Bohnen werden geröstet');
+    const [mark] = view.texts[1]?.marks ?? [];
+    expect(view.texts[1]?.text.slice(mark?.start, mark?.end)).toContain('ignore previous instructions');
+    // Nobody else reads it.
+    expect(
+      (await server.request('GET', `/api/conversations/${conversationId}/inspection?message=${reply?.id}&tool=${toolCallId}`, { cookie: mallory })).status,
+    ).toBe(404);
 
     // The stored call goes back to the model as a real tool call next time.
     target = `http://site.test:${port}/again`;

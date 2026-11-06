@@ -26,6 +26,18 @@ export interface ModelPickerProps {
 }
 
 /**
+ * A model's name without the vendor some catalogs put in front, as in
+ * OpenRouter's "DeepSeek: DeepSeek V4.1 Flash".
+ *
+ * @param name - The catalog's name.
+ * @returns The name without the prefix, or as it was.
+ */
+export function withoutVendor(name: string): string {
+  const stripped = name.replace(/^[^:]{1,40}:\s+/, '');
+  return stripped || name;
+}
+
+/**
  * Searchable model dropdown grouped by credential, shown inside the composer.
  *
  * @param props - See {@link ModelPickerProps}.
@@ -40,12 +52,17 @@ export function ModelPicker({ selection, onSelect, groups, loading, recent = [] 
   };
   const selectedGroup = groups?.find((group) => group.credentialId === selection?.credentialId);
   const selectedModel = selectedGroup?.models.find((model) => model.id === selection?.modelId);
-  const label = selectedModel?.name ?? selection?.modelId ?? t('chat.selectModel');
+  // The key it runs over instead of the vendor OpenRouter puts in front:
+  // "OpenRouter: DeepSeek V4.1 Flash" rather than "DeepSeek: DeepSeek V4.1 Flash".
+  const label =
+    selectedGroup && selection
+      ? `${selectedGroup.label}: ${withoutVendor(selectedModel?.name ?? selection.modelId)}`
+      : (selection?.modelId ?? t('chat.selectModel'));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="group/marquee min-w-0 max-w-64 gap-1.5 px-2 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="sm" className="group/marquee min-w-0 max-w-52 shrink gap-1.5 px-2 text-muted-foreground hover:text-foreground">
           <Sparkles className="text-primary" />
           <MarqueeText text={label} />
           <ChevronDown className="opacity-60" />

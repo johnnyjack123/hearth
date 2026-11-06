@@ -10,10 +10,12 @@ import {
   type ConversationDetail,
   type EffortLevel,
   createConversationSchema,
+  DEFAULT_VERBOSITY,
   linkConversationSchema,
   type TakeoverReport,
   updateConversationSchema,
   updateLinkSchema,
+  type Verbosity,
   WEB_FETCH_DECISIONS,
   type WebFetchDecision,
 } from '@harness/shared';
@@ -56,6 +58,7 @@ import { costGuard } from '../services/costs.ts';
 import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { assessor, warnedContent, withAssessment } from '../assess.ts';
+import { inspection } from '../inspect.ts';
 import { agentCompaction, type AgentPricer, type CompactionEvent, compactionCall, streamAgent, transcript, withCall } from './agent.ts';
 import { assignTitle, type ChatHosts, chatNote, localDate, parseUserMessage, streamChat } from './chat.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -126,6 +129,26 @@ async function attachTakeover(
 const AGENT_RESEARCH_NOTE =
   '[LLM Harness: Research mode is on. Search the web with web_search for current or uncertain facts, ' +
   'read the most promising results with web_fetch and name your sources.]';
+
+/** What an agent reads about the answer length; it has none of the chat's system prompt. */
+const AGENT_VERBOSITY_NOTES: Record<Verbosity, string> = {
+  short: '[LLM Harness: Keep your answers short: a few sentences on what you did or found. This does not limit the work itself.]',
+  medium: '[LLM Harness: Answer at your usual length again.]',
+  detailed: '[LLM Harness: Answer in detail: explain what you did and why, the options you weighed, and what to watch out for.]',
+};
+
+/**
+ * The agent's note on the answer length: with every message while it is not
+ * medium, as in ordinary chats, and once when it goes back to medium.
+ *
+ * @param previous - The chat before the message.
+ * @param verbosity - The length now.
+ * @returns The note, or null.
+ */
+export function agentVerbosityNote(previous: ChatMessage[], verbosity: Verbosity): string | null {
+  const last = previous.findLast((message) => message.role === 'user')?.metadata?.verbosity ?? DEFAULT_VERBOSITY;
+  return verbosity !== DEFAULT_VERBOSITY || last !== verbosity ? AGENT_VERBOSITY_NOTES[verbosity] : null;
+}
 
 /**
  * Routes for the signed-in user's conversations, mounted at `/api/conversations`.
@@ -488,8 +511,11 @@ export function conversationRoutes(deps: AppDeps) {
       const lastMemoryHash = previous.findLast((message) => message.role === 'user' && message.metadata?.memoryHash !== undefined)?.metadata
         ?.memoryHash;
       const memoryUpdate = memory ? memoryNote(lastMemoryHash, memory) : null;
+      const verbosity = body.verbosity ?? DEFAULT_VERBOSITY;
       // Linked chats talk to an agent with its own prompt and get no other notes.
-      const note = link ? null : [chatNote(previous, { date, research: search ? research : null }), memoryUpdate].filter(Boolean).join('\n') || null;
+      const note = link
+        ? null
+        : [chatNote(previous, { date, research: search ? research : null, verbosity }), memoryUpdate].filter(Boolean).join('\n') || null;
       // Decided once and stored, so later requests condense at the same place.
       const condensed = !link && shouldCondense(previous, settings.condense);
       const stored: ChatMessage = {
@@ -499,6 +525,7 @@ export function conversationRoutes(deps: AppDeps) {
           ...(link ? {} : { date }),
           ...(research ? { research } : {}),
           ...(body.effort ? { effort: body.effort } : {}),
+          ...(verbosity !== DEFAULT_VERBOSITY ? { verbosity } : {}),
           ...(note ? { note } : {}),
           ...(memory ? { memoryHash: memory.hash } : {}),
           ...(condensed ? { condensed } : {}),
@@ -531,7 +558,7 @@ export function conversationRoutes(deps: AppDeps) {
           // The agent learns about research mode and changed memories with
           // the message; the server lets its searches through only while
           // this reply runs.
-          text: [research ? AGENT_RESEARCH_NOTE : null, memoryUpdate, text].filter(Boolean).join('\n\n'),
+          text: [research ? AGENT_RESEARCH_NOTE : null, agentVerbosityNote(previous, verbosity), memoryUpdate, text].filter(Boolean).join('\n\n'),
           // pi's levels are the chat's. pi keeps a level for the whole
           // session, so the chat's "default" has to be named, too.
           thinking: body.effort ?? AGENT_DEFAULT_THINKING,
@@ -696,6 +723,19 @@ export function conversationRoutes(deps: AppDeps) {
       };
       await saveMessage(db, conversation.id, updated);
       return c.json(updated);
+    })
+    // The whole content behind a warning, with every flagged place marked.
+    .get('/:id/inspection', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      const { messageId, toolCallId } = assessmentRequestSchema.parse({ messageId: c.req.query('message'), toolCallId: c.req.query('tool') });
+      const found = await inspection(db, conversation.id, await loadMessages(db, conversation.id), messageId, toolCallId);
+      if (!found) {
+        throw notFound('Tool call');
+      }
+      return c.json(found);
     })
     .post('/:id/stop', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));

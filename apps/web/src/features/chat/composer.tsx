@@ -72,13 +72,20 @@ export function Composer({
   const canSend = (value.trim().length > 0 || attachments.parts.length > 0) && !blocked && !busy;
 
   // Grow with the content; the max height comes from the max-h class.
+  // Measured without a scrollbar: with one (classic scrollbars on Windows)
+  // the text wrapped earlier while measuring, and the box kept an empty
+  // line once the scrollbar was gone again.
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) {
       return;
     }
+    textarea.style.overflowY = 'hidden';
     textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
+    const height = textarea.scrollHeight;
+    textarea.style.height = `${height}px`;
+    // It scrolls only once the content is taller than the max height.
+    textarea.style.overflowY = height > textarea.clientHeight ? 'auto' : 'hidden';
   }, [value]);
 
   function submit(event?: FormEvent) {
@@ -167,7 +174,7 @@ export function Composer({
         aria-label={placeholder ?? t('chat.placeholder')}
         rows={1}
         autoFocus={autoFocus}
-        className="max-h-60 min-h-12 w-full resize-none overflow-y-auto bg-transparent px-4 pt-3.5 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
+        className="max-h-60 min-h-12 w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base text-foreground outline-none placeholder:text-muted-foreground"
       />
       <div className="flex items-center gap-2 px-2 pb-2">
         <div className="flex min-w-0 flex-1 items-center gap-1">

@@ -1,4 +1,4 @@
-import type { AgentDataParts, AgentToolOutput, ApprovalDecision, WebFetchDecision } from '@harness/shared';
+import type { AgentDataParts, AgentToolOutput, ApprovalDecision, Inspection, WebFetchDecision } from '@harness/shared';
 import type { DynamicToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, FilePen, FileText, Globe, Info, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -87,11 +87,13 @@ export function ToolCall({
   streaming,
   ms,
   onAssess,
+  onInspect,
 }: {
   part: DynamicToolUIPart;
   streaming: boolean;
   ms?: number | undefined;
   onAssess?: (() => Promise<void>) | undefined;
+  onInspect?: (() => Promise<Inspection>) | undefined;
 }) {
   const t = useT();
   const exitCode = part.state === 'output-error' ? bashExitCode(part.toolName, part.errorText) : null;
@@ -163,7 +165,7 @@ export function ToolCall({
           </motion.div>
         ) : null}
       </AnimatePresence>
-      {warnings.length > 0 ? <InjectionWarning warnings={warnings} findings={findings} assessment={assessment} onAssess={onAssess} /> : null}
+      {warnings.length > 0 ? <InjectionWarning warnings={warnings} findings={findings} assessment={assessment} onAssess={onAssess} onInspect={onInspect} /> : null}
     </div>
   );
 }

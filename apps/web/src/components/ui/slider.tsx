@@ -7,10 +7,16 @@ import { cn } from '@/lib/utils.ts';
  * from a fixed list. One thumb per value.
  *
  * @param props - Radix slider props plus `label`, the accessible name of
- *   the thumbs.
+ *   the thumbs, and `valueText`, what a screen reader says for the value
+ *   (e.g. the level's name instead of its index).
  * @returns The slider.
  */
-export function Slider({ className, label, ...props }: ComponentProps<typeof SliderPrimitive.Root> & { label: string }) {
+export function Slider({
+  className,
+  label,
+  valueText,
+  ...props
+}: ComponentProps<typeof SliderPrimitive.Root> & { label: string; valueText?: string }) {
   const values = props.value ?? props.defaultValue ?? [0];
   return (
     <SliderPrimitive.Root
@@ -27,6 +33,7 @@ export function Slider({ className, label, ...props }: ComponentProps<typeof Sli
         <SliderPrimitive.Thumb
           key={index}
           aria-label={label}
+          aria-valuetext={valueText}
           className={cn(
             'relative block size-5 cursor-grab rounded-full bg-control-thumb shadow-elevation-1 active:cursor-grabbing',
             'transition-transform duration-(--duration-fast) ease-standard hover:scale-110',

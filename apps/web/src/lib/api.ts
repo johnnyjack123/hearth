@@ -16,6 +16,7 @@ import type {
   CreateProviderCredentialInput,
   CredentialModels,
   DeviceSummary,
+  Inspection,
   LinkConversationInput,
   Memory,
   MemoryInput,
@@ -180,6 +181,11 @@ export const api = {
     stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
     assess: (id: string, messageId: string, toolCallId: string) =>
       request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/assessments`, { messageId, toolCallId }),
+    inspection: (id: string, messageId: string, toolCallId: string) =>
+      request<Inspection>(
+        'GET',
+        `/conversations/${encodeURIComponent(id)}/inspection?message=${encodeURIComponent(messageId)}&tool=${encodeURIComponent(toolCallId)}`,
+      ),
     compact: (id: string, input: CompactRequestBody) =>
       request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/compact`, input),
   },
