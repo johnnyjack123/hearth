@@ -310,6 +310,23 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('memory').dropColumn('pending').execute();
     },
   },
+  // The whole of web pages with prompt injection warnings, for reading the
+  // places in context; deleted with the chat.
+  '0016_tool_content': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('toolContent')
+        .addColumn('conversationId', 'text', (col) => col.notNull().references('conversation.id').onDelete('cascade'))
+        .addColumn('toolCallId', 'text', (col) => col.notNull())
+        .addColumn('content', 'text', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('toolContent_pk', ['conversationId', 'toolCallId'])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('toolContent').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

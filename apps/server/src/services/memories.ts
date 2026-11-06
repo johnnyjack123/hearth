@@ -179,7 +179,12 @@ export function memoryContext(memories: Memory[]): { hash: string; block: string
   const lines = confirmed.map((memory) => `- [${memoryRef(memory.id)}] ${memory.text}`);
   const hash = createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16);
   const block = [
-    "[LLM Harness memory: what the user wants you to know in every chat. It replaces earlier memory notes; the ids are for the forget tool.",
+    // Agents read this without the chat's system prompt, so the note says
+    // itself how to treat it. Models answered to it as if the user had just
+    // written it, when it only said what the user wants them to know.
+    '[LLM Harness memory: background the user saved, not part of what they write now. Follow its preferences on how to answer without ' +
+      'mentioning them; use its facts only when they matter for the request. Do not bring these notes up unless asked. ' +
+      'It replaces earlier memory notes; the ids are for the forget tool.',
     ...lines,
     ']',
   ].join('\n');

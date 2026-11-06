@@ -5,7 +5,7 @@
  * Fixed patterns only catch the blunt cases, so a hit is a warning, never a
  * block.
  */
-import type { InjectionFinding, WebFetchWarning } from '@harness/shared';
+import type { InjectionFinding, InjectionMark, WebFetchWarning } from '@harness/shared';
 
 const RULES: readonly [id: WebFetchWarning, pattern: RegExp][] = [
   [
@@ -146,6 +146,45 @@ function* take<T>(items: Iterable<T>, max: number): Generator<T> {
   }
 }
 
+/** Where a pattern matched, as positions in the scanned text. */
+interface Match {
+  kind: WebFetchWarning;
+  start: number;
+  end: number;
+}
+
+/**
+ * Every match of the patterns in one text, in the order
+ * {@link findInjections} reports them.
+ */
+function* matches(text: string): Generator<Match> {
+  // The patterns run on the text as it reads, so invisible characters
+  // cannot break up a phrase; the match covers them where they were.
+  const visible = visibleText(text);
+  const scanned = visible?.text ?? text;
+  for (const [kind, pattern] of RULES) {
+    for (const match of take(scanned.matchAll(new RegExp(pattern.source, `${pattern.flags}g`)), MAX_MATCHES)) {
+      const from = match.index;
+      const to = from + match[0].length;
+      const start = visible ? (visible.origin[from] ?? from) : from;
+      const end = visible ? (visible.origin[to - 1] ?? to - 1) + 1 : to;
+      yield { kind, start, end };
+      if (end - start !== to - from) {
+        yield { kind: 'zero_width', start, end };
+      }
+    }
+  }
+  for (const [kind, pattern] of [
+    ['unicode_tags', TAGS],
+    ['bidi_controls', BIDI],
+    ['zero_width', INVISIBLE_RUN],
+  ] as const) {
+    for (const match of take(text.matchAll(pattern), MAX_MATCHES)) {
+      yield { kind, start: match.index, end: match.index + match[0].length };
+    }
+  }
+}
+
 /**
  * Looks for prompt injection patterns and where they are.
  *
@@ -159,55 +198,50 @@ export function findInjections(...texts: string[]): InjectionFinding[] {
   const seen = new Set<string>();
   const perKind = new Map<WebFetchWarning, number>();
 
-  /** Records a match unless its kind is full or the same text was seen. */
-  function add(kind: WebFetchWarning, text: string, start: number, end: number): void {
-    const count = perKind.get(kind) ?? 0;
-    if (count >= PER_KIND || findings.length >= MAX_FINDINGS) {
-      return;
-    }
-    const match = shorten(text.slice(start, end));
-    const key = `${kind}\u0000${match.toLowerCase()}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
-    perKind.set(kind, count + 1);
-    findings.push({
-      kind,
-      before: tail(text.slice(Math.max(0, start - CONTEXT * 4), start), CONTEXT),
-      match,
-      after: head(text.slice(end, end + CONTEXT * 4), CONTEXT),
-    });
-  }
-
-  function addAll(kind: WebFetchWarning, text: string, pattern: RegExp): void {
-    for (const match of take(text.matchAll(pattern), MAX_MATCHES)) {
-      add(kind, text, match.index, match.index + match[0].length);
-    }
-  }
-
   for (const text of texts) {
-    // The patterns run on the text as it reads, so invisible characters
-    // cannot break up a phrase; the finding shows them where they were.
-    const visible = visibleText(text);
-    const scanned = visible?.text ?? text;
-    for (const [kind, pattern] of RULES) {
-      for (const match of take(scanned.matchAll(new RegExp(pattern.source, `${pattern.flags}g`)), MAX_MATCHES)) {
-        const from = match.index;
-        const to = from + match[0].length;
-        const start = visible ? (visible.origin[from] ?? from) : from;
-        const end = visible ? (visible.origin[to - 1] ?? to - 1) + 1 : to;
-        add(kind, text, start, end);
-        if (end - start !== to - from) {
-          add('zero_width', text, start, end);
-        }
+    for (const { kind, start, end } of matches(text)) {
+      // A kind that is full, or the same text seen before, adds nothing.
+      const count = perKind.get(kind) ?? 0;
+      if (count >= PER_KIND || findings.length >= MAX_FINDINGS) {
+        continue;
       }
+      const match = shorten(text.slice(start, end));
+      const key = `${kind}\u0000${match.toLowerCase()}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      perKind.set(kind, count + 1);
+      findings.push({
+        kind,
+        before: tail(text.slice(Math.max(0, start - CONTEXT * 4), start), CONTEXT),
+        match,
+        after: head(text.slice(end, end + CONTEXT * 4), CONTEXT),
+      });
     }
-    addAll('unicode_tags', text, TAGS);
-    addAll('bidi_controls', text, BIDI);
-    addAll('zero_width', text, INVISIBLE_RUN);
   }
   return findings;
+}
+
+/**
+ * Every place in a text where a pattern matched, for showing the whole text
+ * with the places marked. Unlike {@link findInjections}, repeats count: the
+ * user sees each place.
+ *
+ * @param text - The text, e.g. a page as the model read it.
+ * @param max - Most places returned.
+ * @returns The places in reading order; one per range when several patterns
+ *   matched the same text.
+ */
+export function injectionMarks(text: string, max = 200): InjectionMark[] {
+  const marks = new Map<string, InjectionMark>();
+  for (const { kind, start, end } of matches(text)) {
+    const key = `${start}:${end}`;
+    if (!marks.has(key)) {
+      marks.set(key, { kind, start, end });
+    }
+  }
+  return [...marks.values()].sort((a, b) => a.start - b.start || b.end - a.end).slice(0, max);
 }
 
 /**

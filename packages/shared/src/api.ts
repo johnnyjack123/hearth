@@ -114,6 +114,18 @@ export const EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 /**
+ * How long answers should be. The model learns it from a note in front of
+ * the user's message; `medium` is what it does without one.
+ */
+export const VERBOSITY_LEVELS = ['short', 'medium', 'detailed'] as const;
+
+/** See {@link VERBOSITY_LEVELS}. */
+export type Verbosity = (typeof VERBOSITY_LEVELS)[number];
+
+/** The length a chat answers with until the user picks another. */
+export const DEFAULT_VERBOSITY: Verbosity = 'medium';
+
+/**
  * When a chat gets its older turns summarized, like pi does it: once fewer
  * than {@link reserveTokens} of the model's context window are left, the
  * turns before the most recent {@link keepRecentTokens} become a summary
@@ -331,6 +343,11 @@ export interface MessageMetadata {
    * provider's default. The chat opens with it.
    */
   effort?: EffortLevel;
+  /**
+   * Answer length a user message was sent with; missing for messages from
+   * before 6.11.2026, which count as {@link DEFAULT_VERBOSITY}.
+   */
+  verbosity?: Verbosity;
   /** Date (YYYY-MM-DD) a user message of an ordinary chat was sent on, for the notes. */
   date?: string;
   /**
@@ -525,6 +542,8 @@ export const chatRequestSchema = z.object({
   research: z.boolean().optional(),
   /** Thinking effort; missing for the provider's default. */
   effort: z.enum(EFFORT_LEVELS).optional(),
+  /** Answer length; missing for {@link DEFAULT_VERBOSITY}. */
+  verbosity: z.enum(VERBOSITY_LEVELS).optional(),
   /** Jev judges prompt injection warnings right away (needs an OpenRouter key). */
   assess: z.boolean().optional(),
 });

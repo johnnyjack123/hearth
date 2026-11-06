@@ -10,6 +10,10 @@ describe('memory notes', () => {
   it('reach the model only when they changed', () => {
     const context = memoryContext([memory('0190-aaaa-0000-0000-00000000abcd1234', 'Antwortet auf Deutsch.')]);
     expect(context.block).toContain('- [abcd1234] Antwortet auf Deutsch.');
+    // Background, not something the user just said: models answered to it
+    // in every chat.
+    expect(context.block).toMatch(/^\[LLM Harness memory: background the user saved, not part of what they write now\./);
+    expect(context.block).toContain('Do not bring these notes up unless asked.');
     expect(memoryNote(undefined, context)).toBe(context.block);
     expect(memoryNote(context.hash, context)).toBeNull();
     // All gone: one line says so; never any: nothing.

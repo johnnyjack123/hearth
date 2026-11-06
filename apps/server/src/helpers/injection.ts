@@ -7,6 +7,7 @@
  * the warning and never removes it.
  */
 import type { InjectionFinding, ModelCallUsage } from '@harness/shared';
+import { injectionMarks } from '../webfetch/injection.ts';
 import { type Helpers, jevScores } from './openrouter.ts';
 
 /** Content Jev reads; above ~32 KB Jev switches to a slower, coarser mode. */
@@ -32,6 +33,57 @@ export interface WarnedContent {
   findings: InjectionFinding[];
 }
 
+/** Context around a flagged place beyond the start of a long text. */
+const WINDOW_CHARS = 1_500;
+
+/**
+ * What Jev reads of the content: all of it when short; otherwise the start
+ * and the surroundings of every flagged place further down, so a place deep
+ * in a long page is judged in context, not from its excerpt alone.
+ *
+ * @param content - The text as the assistant read it.
+ * @returns At most about {@link MAX_CONTENT_CHARS} characters, gaps marked.
+ */
+export function jevContent(content: string): string {
+  if (content.length <= MAX_CONTENT_CHARS) {
+    return content;
+  }
+  const head = MAX_CONTENT_CHARS / 2;
+  const windows: [number, number][] = [];
+  for (const mark of injectionMarks(content)) {
+    if (mark.end <= head) {
+      continue;
+    }
+    const from = Math.max(head, mark.start - WINDOW_CHARS);
+    const to = Math.min(content.length, mark.end + WINDOW_CHARS);
+    const last = windows.at(-1);
+    if (last && from <= last[1]) {
+      last[1] = Math.max(last[1], to);
+    } else {
+      windows.push([from, to]);
+    }
+  }
+  if (windows.length === 0) {
+    return `${content.slice(0, MAX_CONTENT_CHARS)}\n[… cut off]`;
+  }
+  const parts = [content.slice(0, head)];
+  let budget = MAX_CONTENT_CHARS - head;
+  let shown = head;
+  for (const [from, to] of windows) {
+    if (budget <= 0) {
+      break;
+    }
+    const end = Math.min(to, from + budget);
+    parts.push(`\n[… ${from - shown} characters left out …]\n`, content.slice(from, end));
+    budget -= end - from;
+    shown = end;
+  }
+  if (shown < content.length) {
+    parts.push(`\n[… ${content.length - shown} characters left out]`);
+  }
+  return parts.join('');
+}
+
 /**
  * Asks Jev how likely the content is a prompt injection.
  *
@@ -47,8 +99,7 @@ export async function assessInjection(
   signal?: AbortSignal,
 ): Promise<{ danger: number; cost: number | null } | null> {
   const before = helpers.usage.length;
-  const content =
-    warned.content.length > MAX_CONTENT_CHARS ? `${warned.content.slice(0, MAX_CONTENT_CHARS)}\n[… cut off]` : warned.content;
+  const content = jevContent(warned.content);
   const state = {
     task:
       `An AI assistant read ${warned.source} while helping its user. A pattern check flagged places in it as a possible prompt ` +

@@ -56,6 +56,47 @@ export interface InjectionFinding {
   after: string;
 }
 
+/** A place in an inspected text where a prompt injection pattern matched. */
+export interface InjectionMark {
+  /** Which pattern matched. */
+  kind: WebFetchWarning;
+  /** Offset of the first character, in UTF-16 code units. */
+  start: number;
+  /** Offset after the last character. */
+  end: number;
+}
+
+/** One text behind a prompt injection warning, with the places marked. */
+export interface InspectedText {
+  /**
+   * What it is: the page as Markdown, the page's HTML source (hidden text
+   * and comments live only there), search hits, or an agent tool's output.
+   */
+  kind: 'page' | 'source' | 'results' | 'output';
+  /** The text. */
+  text: string;
+  /** True if it was cut at the limit for storing it. */
+  truncated: boolean;
+  /** The places, in reading order. */
+  marks: InjectionMark[];
+}
+
+/**
+ * The content behind the prompt injection warning of one tool call, for
+ * reading the places in context (`GET …/inspection`).
+ */
+export interface Inspection {
+  /** Where it came from: URL, search query or tool call. */
+  location: string;
+  /** The texts; pages come with their HTML source when a place is only there. */
+  texts: InspectedText[];
+  /**
+   * False when only what the model read is there: web pages loaded before
+   * 6.11.2026, whose whole text was not kept.
+   */
+  complete: boolean;
+}
+
 /**
  * Jev's second opinion on a prompt injection warning, stored with the tool
  * output it is about. It stands next to the warning and never replaces it:

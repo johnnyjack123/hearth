@@ -230,6 +230,17 @@ export interface UserLimitTable {
 /**
  * Kysely database schema of the tables this app queries.
  */
+/**
+ * Row of `toolContent`: the whole content behind a tool call's prompt
+ * injection warning, as JSON (`StoredToolContent`).
+ */
+export interface ToolContentTable {
+  conversationId: string;
+  toolCallId: string;
+  content: string;
+  createdAt: number;
+}
+
 export interface DB {
   user: UserTable;
   providerCredential: ProviderCredentialTable;
@@ -246,4 +257,5 @@ export interface DB {
   memory: MemoryTable;
   costDay: CostDayTable;
   userLimit: UserLimitTable;
+  toolContent: ToolContentTable;
 }
