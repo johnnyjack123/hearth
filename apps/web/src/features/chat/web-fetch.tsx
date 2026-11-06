@@ -1,4 +1,4 @@
-import { parseWebFetchError, type WebFetchGrep, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
+import { type Inspection, parseWebFetchError, type WebFetchGrep, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, Globe, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -106,11 +106,13 @@ export function WebFetchCall({
   streaming,
   ms,
   onAssess,
+  onInspect,
 }: {
   part: ToolUIPart;
   streaming: boolean;
   ms?: number | undefined;
   onAssess?: (() => Promise<void>) | undefined;
+  onInspect?: (() => Promise<Inspection>) | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -166,7 +168,7 @@ export function WebFetchCall({
         />
       </button>
       {warnings.length > 0 ? (
-        <InjectionWarning warnings={warnings} findings={output?.findings} assessment={output?.assessment} onAssess={onAssess} />
+        <InjectionWarning warnings={warnings} findings={output?.findings} assessment={output?.assessment} onAssess={onAssess} onInspect={onInspect} />
       ) : null}
       {failure && !open ? <p className="border-t border-border px-3 py-2 text-muted-foreground">{failure.text}</p> : null}
       <AnimatePresence initial={false}>

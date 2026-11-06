@@ -1,9 +1,19 @@
-import { type InjectionAssessment, type InjectionFinding, WEB_FETCH_WARNINGS, type WebFetchWarning } from '@harness/shared';
-import { ChevronRight, Scale, TriangleAlert } from 'lucide-react';
+import {
+  type InjectionAssessment,
+  type InjectionFinding,
+  type InspectedText,
+  type Inspection,
+  WEB_FETCH_WARNINGS,
+  type WebFetchWarning,
+} from '@harness/shared';
+import { ChevronDown, ChevronRight, ChevronUp, ScanSearch, Scale, TriangleAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
+import { Skeleton } from '@/components/ui/display.tsx';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx';
+import { SegmentedControl } from '@/components/ui/tabs.tsx';
 import { errorMessage } from '@/lib/api.ts';
 import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
@@ -219,7 +229,8 @@ export function AssessmentRow({ assessment, onAssess }: { assessment: InjectionA
  * second opinion.
  *
  * @param props - Kinds of warnings, the findings if stored, Jev's opinion
- *   and how to ask for it.
+ *   and how to ask for it, and how to load the whole content (once the
+ *   reply is stored).
  * @returns The warning bar.
  */
 export function InjectionWarning({
@@ -227,14 +238,17 @@ export function InjectionWarning({
   findings,
   assessment,
   onAssess,
+  onInspect,
 }: {
   warnings: WebFetchWarning[];
   findings: InjectionFinding[] | undefined;
   assessment?: InjectionAssessment | undefined;
   onAssess?: (() => Promise<void>) | undefined;
+  onInspect?: (() => Promise<Inspection>) | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
   return (
     <div role="note" className="flex flex-col gap-1 border-t border-border bg-warning px-3 py-2 text-warning-foreground last:rounded-b-lg">
       <div className="flex items-start gap-2">
@@ -256,6 +270,20 @@ export function InjectionWarning({
         />
         {open ? t('webFetch.hideFindings') : t('webFetch.showFindings')}
       </Button>
+      {onInspect ? (
+        <>
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => setInspecting(true)}
+            className="ms-6 h-auto gap-1 self-start px-0 py-1 text-warning-foreground underline"
+          >
+            <ScanSearch className="size-3.5" aria-hidden="true" />
+            {t('inspection.open')}
+          </Button>
+          <InspectionDialog open={inspecting} onOpenChange={setInspecting} load={onInspect} />
+        </>
+      ) : null}
       <AnimatePresence initial={false}>
         {open ? (
           <motion.div
@@ -270,5 +298,197 @@ export function InjectionWarning({
       </AnimatePresence>
       <AssessmentRow assessment={assessment} onAssess={onAssess} />
     </div>
+  );
+}
+
+/** A run of the text: plain, or a marked place with the patterns that matched it. */
+type Segment = { text: string; place: null } | { text: string; place: { index: number; kinds: WebFetchWarning[] } };
+
+/**
+ * Cuts a text at its marks. Overlapping marks (a comment that also
+ * addresses the AI) become one place, so every place is counted once.
+ *
+ * @param inspected - The text with its marks.
+ * @returns The runs in order and the number of places.
+ */
+export function segments(inspected: InspectedText): { runs: Segment[]; places: number } {
+  const runs: Segment[] = [];
+  const merged: { start: number; end: number; kinds: WebFetchWarning[] }[] = [];
+  for (const mark of [...inspected.marks].sort((a, b) => a.start - b.start)) {
+    const last = merged.at(-1);
+    if (last && mark.start < last.end) {
+      last.end = Math.max(last.end, mark.end);
+      if (!last.kinds.includes(mark.kind)) {
+        last.kinds.push(mark.kind);
+      }
+    } else {
+      merged.push({ start: mark.start, end: mark.end, kinds: [mark.kind] });
+    }
+  }
+  let at = 0;
+  merged.forEach((place, index) => {
+    if (place.start > at) {
+      runs.push({ text: inspected.text.slice(at, place.start), place: null });
+    }
+    runs.push({ text: inspected.text.slice(place.start, place.end), place: { index, kinds: place.kinds } });
+    at = place.end;
+  });
+  if (at < inspected.text.length) {
+    runs.push({ text: inspected.text.slice(at), place: null });
+  }
+  return { runs, places: merged.length };
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * The whole content behind a prompt injection warning: the page, its HTML
+ * source, the search hits or an agent's tool output, every flagged place
+ * marked. It opens at the first place; the others can be stepped through.
+ *
+ * @param props - Open state and how to load the content.
+ * @returns The dialog.
+ */
+export function InspectionDialog({
+  open,
+  onOpenChange,
+  load,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  load: () => Promise<Inspection>;
+}) {
+  const t = useT();
+  const [state, setState] = useState<{ inspection: Inspection } | { error: string } | null>(null);
+  const [textIndex, setTextIndex] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const moved = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    setState(null);
+    load().then(
+      (inspection) => {
+        if (cancelled) {
+          return;
+        }
+        // Start where the first place is; hidden text may be in the source only.
+        const first = inspection.texts.findIndex((text) => text.marks.length > 0);
+        setTextIndex(Math.max(0, first));
+        setCurrent(0);
+        moved.current = false;
+        setState({ inspection });
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          setState({ error: errorMessage(t, error) });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // Loaded once per opening; `t` and `load` change with every render.
+  }, [open]);
+
+  const inspection = state && 'inspection' in state ? state.inspection : null;
+  const shown = inspection?.texts[textIndex];
+  const { runs, places } = shown ? segments(shown) : { runs: [], places: 0 };
+
+  useEffect(() => {
+    const target = scrollRef.current?.querySelector(`[data-place="${current}"]`);
+    if (!target) {
+      return;
+    }
+    // The first jump is instant, stepping glides unless motion is reduced.
+    target.scrollIntoView({ block: 'center', behavior: moved.current && !prefersReducedMotion() ? 'smooth' : 'auto' });
+    moved.current = true;
+  }, [current, textIndex, inspection]);
+
+  function step(by: number) {
+    if (places > 0) {
+      setCurrent((index) => (index + by + places) % places);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[min(85vh,calc(var(--spacing)*220))] max-w-4xl flex-col gap-3">
+        <DialogHeader>
+          <DialogTitle>{t('inspection.title')}</DialogTitle>
+          <DialogDescription className="break-all font-mono text-xs">{inspection?.location ?? ' '}</DialogDescription>
+        </DialogHeader>
+        {state === null ? (
+          <div className="flex flex-col gap-2" aria-busy="true" aria-label={t('common.loading')}>
+            <Skeleton className="h-8 w-1/2" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        ) : 'error' in state ? (
+          <p className="flex items-start gap-2 text-sm text-destructive">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            {state.error}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              {inspection && inspection.texts.length > 1 ? (
+                <SegmentedControl
+                  label={t('inspection.texts')}
+                  value={String(textIndex)}
+                  onValueChange={(value) => {
+                    setTextIndex(Number(value));
+                    setCurrent(0);
+                    moved.current = false;
+                  }}
+                  options={inspection.texts.map((text, index) => ({
+                    value: String(index),
+                    label: t('inspection.textLabel', { kind: t(`inspection.kinds.${text.kind}`), count: segments(text).places }),
+                  }))}
+                />
+              ) : null}
+              <span className="flex-1 text-sm text-muted-foreground" aria-live="polite">
+                {places > 0 ? t('inspection.position', { index: current + 1, count: places }) : t('inspection.none')}
+              </span>
+              <Button variant="outline" size="icon-sm" aria-label={t('inspection.previous')} disabled={places < 2} onClick={() => step(-1)}>
+                <ChevronUp />
+              </Button>
+              <Button variant="outline" size="icon-sm" aria-label={t('inspection.next')} disabled={places < 2} onClick={() => step(1)}>
+                <ChevronDown />
+              </Button>
+            </div>
+            {inspection && !inspection.complete ? <p className="text-xs text-muted-foreground">{t('inspection.incomplete')}</p> : null}
+            {shown?.kind === 'source' ? <p className="text-xs text-muted-foreground">{t('inspection.sourceHint')}</p> : null}
+            {shown?.truncated ? <p className="text-xs text-muted-foreground">{t('inspection.truncated')}</p> : null}
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto rounded-lg bg-muted p-3" tabIndex={0} aria-label={t('inspection.title')}>
+              <pre className="whitespace-pre-wrap wrap-anywhere font-mono text-xs text-foreground">
+                {runs.map((run, index) =>
+                  run.place ? (
+                    <mark
+                      key={index}
+                      data-place={run.place.index}
+                      title={run.place.kinds.map((kind) => t(`webFetch.warnings.${kind}`)).join(', ')}
+                      className={cn(
+                        'rounded-sm bg-warning px-0.5 text-warning-foreground underline decoration-2 underline-offset-2',
+                        run.place.index === current && 'ring-(length:--focus-ring-width) ring-ring',
+                      )}
+                    >
+                      <RevealedText text={run.text} />
+                    </mark>
+                  ) : (
+                    run.text
+                  ),
+                )}
+              </pre>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

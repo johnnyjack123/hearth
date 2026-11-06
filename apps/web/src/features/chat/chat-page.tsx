@@ -1,6 +1,6 @@
 import { useChat } from '@ai-sdk/react';
 import type { FileUIPart } from 'ai';
-import type { ConversationDetail, EffortLevel } from '@harness/shared';
+import type { ConversationDetail, EffortLevel, Verbosity } from '@harness/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -16,13 +16,12 @@ import { useConversation, usePublicSettings } from '@/lib/queries.ts';
 import { ChecklistPanel, currentChecklist, hiddenChecklists, hideChecklist } from './agent-checklist.tsx';
 import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
+import { ChatOptions } from './chat-options.tsx';
 import { ContextMeter } from './context-meter.tsx';
-import { EffortControl } from './effort-control.tsx';
-import { EnvironmentButton, latestWorkspace, useLinkOnline } from './environment.tsx';
+import { latestWorkspace, useChatEnvironment, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
-import { ResearchToggle } from './research-toggle.tsx';
 import { useStickToBottom } from './use-stick-to-bottom.ts';
 
 /**
@@ -82,12 +81,14 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   // new chats.
   const [research, setChatResearch] = useState(entry.research.current);
   const [effort, setChatEffort] = useState(entry.effort.current);
-  const { setResearch: setLastResearch, setEffort: setLastEffort } = usePreferences();
+  const [verbosity, setChatVerbosity] = useState(entry.verbosity.current);
+  const { setResearch: setLastResearch, setEffort: setLastEffort, setVerbosity: setLastVerbosity } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
   entry.research.current = research;
   entry.effort.current = effort;
+  entry.verbosity.current = verbosity;
   const [draft, setDraft] = useState('');
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
@@ -101,6 +102,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   const busy = status === 'submitted' || status === 'streaming';
   const { link } = conversation;
   const online = useLinkOnline(link);
+  const environment = useChatEnvironment(conversation, online, latestWorkspace(messages));
   // The plan of the agent or the chat model, as it checks it off.
   const [hiddenLists, setHiddenLists] = useState(hiddenChecklists);
   const latestList = currentChecklist(conversation.id, messages, busy);
@@ -114,6 +116,11 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   function setEffort(next: EffortLevel | null) {
     setChatEffort(next);
     setLastEffort(next);
+  }
+
+  function setVerbosity(next: Verbosity) {
+    setChatVerbosity(next);
+    setLastVerbosity(next);
   }
 
   async function compact() {
@@ -133,6 +140,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
     scrollToBottom('auto');
     setLastResearch(research);
     setLastEffort(effort);
+    setLastVerbosity(verbosity);
     void sendMessage({ text, files });
   }
 
@@ -149,6 +157,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           onAssess={async (messageId, toolCallId) => {
             upsertMessage(conversation.id, await api.conversations.assess(conversation.id, messageId, toolCallId));
           }}
+          onInspect={(messageId, toolCallId) => api.conversations.inspection(conversation.id, messageId, toolCallId)}
         />
       </div>
 
@@ -197,15 +206,20 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             }
             toolbar={
               <>
+                <ChatOptions
+                  environment={environment}
+                  // Agents in an environment search through the server as well.
+                  research={publicSettings?.webSearch ? { on: research, onChange: setResearch } : null}
+                  effort={effort}
+                  onEffortChange={setEffort}
+                  verbosity={verbosity}
+                  onVerbosityChange={setVerbosity}
+                />
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
-                <EnvironmentButton conversation={conversation} online={online} workspace={latestWorkspace(messages)} />
-                {/* Agents in an environment search through the server as well. */}
-                {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
-                {/* In a linked chat the level goes to pi. */}
-                <EffortControl effort={effort} onEffortChange={setEffort} {...(link ? { agent: link.harness } : {})} />
               </>
             }
           />
+          {environment.dialogs}
           <ComposerHint />
         </div>
       </div>

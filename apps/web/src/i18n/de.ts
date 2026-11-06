@@ -105,6 +105,28 @@ export const de = {
     send: 'Nachricht senden',
     stop: 'Antwort stoppen',
     research: 'Recherche',
+    options: {
+      label: 'Chat-Optionen',
+      labelActive: 'Chat-Optionen: {active}',
+      noEnvironment: 'Keine, normaler Chat',
+      back: 'Zurück',
+    },
+    verbosity: {
+      title: 'Antwortlänge',
+      label: 'Antwortlänge: {level}',
+      levels: {
+        short: 'Kurz',
+        medium: 'Mittel',
+        detailed: 'Ausführlich',
+      },
+      hints: {
+        short: 'Ein paar Sätze, nur das Gefragte. Code und Texte, die du ganz haben willst, bleiben vollständig.',
+        medium: 'Das Gefragte mit den wichtigen Details, ohne Füllsätze.',
+        detailed: 'Gründlich: Hintergrund, Begründung, Beispiele und Fallstricke.',
+      },
+      note: 'Gilt ab der nächsten Nachricht dieses Chats.',
+      agentNote: 'Gilt ab der nächsten Nachricht für {harness}. Die Arbeit selbst begrenzt es nicht, nur die Antworten.',
+    },
     effort: {
       title: 'Denktiefe',
       label: 'Denktiefe: {level}',
@@ -797,6 +819,25 @@ export const de = {
     autoAssess: 'Warnungen sofort von Jev bewerten lassen',
     autoAssessHint:
       'Bei Verdacht auf Prompt-Injection gibt Jev gleich eine Zweitmeinung (braucht einen OpenRouter-Zugang, Bruchteile eines Cents). Sonst per Knopf an der Warnung.',
+  },
+  inspection: {
+    open: 'Im Zusammenhang ansehen',
+    title: 'Fundstellen im Zusammenhang',
+    texts: 'Welcher Text',
+    textLabel: '{kind} ({count})',
+    kinds: {
+      page: 'Text der Seite',
+      source: 'HTML-Quelltext',
+      results: 'Suchtreffer',
+      output: 'Ausgabe',
+    },
+    position: 'Stelle {index} von {count}',
+    none: 'In diesem Text ist keine Stelle markiert.',
+    previous: 'Vorige Stelle',
+    next: 'Nächste Stelle',
+    incomplete: 'Diese Seite wurde geladen, bevor harness ganze Seiten aufbewahrt hat. Zu sehen ist nur, was das Modell gelesen hat.',
+    sourceHint: 'Versteckter Text und HTML-Kommentare stehen nur im Quelltext; im Browser sieht man sie nicht.',
+    truncated: 'Gekürzt: aufbewahrt sind die ersten 2 Millionen Zeichen.',
   },
   assessment: {
     ask: 'Von Jev bewerten lassen',

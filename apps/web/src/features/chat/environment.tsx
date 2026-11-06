@@ -9,13 +9,12 @@ import {
   projectNameSchema,
 } from '@harness/shared';
 import { useNavigate } from '@tanstack/react-router';
-import { Check, ChevronDown, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
+import { Check, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { Badge, EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
@@ -115,23 +114,36 @@ export function latestWorkspace(messages: ChatMessage[]): WorkspaceState | null 
   return null;
 }
 
-/**
- * The composer's environment control: links the chat to a project on one of
- * the user's computers, shows the link and dissolves it.
- *
- * @param props - The conversation, whether its device is online and what of
- *   the agent's work is not taken over yet.
- * @returns The control.
- */
-export function EnvironmentButton({
-  conversation,
-  online,
-  workspace = null,
-}: {
-  conversation: ConversationSummary;
+/** The environment part of the chat options, see `ChatOptions`. */
+export interface EnvironmentOption {
+  /** The chosen environment; null for an ordinary chat. */
+  link: ChatLink | null;
+  /** Whether its computer is connected; undefined while unknown. */
   online: boolean | undefined;
-  workspace?: WorkspaceState | null;
-}) {
+  /** What of the agent's work the user's folder lacks, if reported. */
+  workspace: WorkspaceState | null;
+  /** Opens the dialog that picks an environment. */
+  pick: () => void;
+  /** The options page of a chosen environment; `close` closes the options. */
+  details: (close: () => void) => ReactNode;
+  /** The dialogs, rendered outside the options so they outlive them. */
+  dialogs: ReactNode;
+}
+
+/**
+ * The environment of an existing chat: links it to a project on one of the
+ * user's computers, shows the link and dissolves it.
+ *
+ * @param conversation - The chat.
+ * @param online - Whether its device is online.
+ * @param workspace - What of the agent's work is not taken over yet.
+ * @returns The option for the chat options.
+ */
+export function useChatEnvironment(
+  conversation: ConversationSummary,
+  online: boolean | undefined,
+  workspace: WorkspaceState | null = null,
+): EnvironmentOption {
   const t = useT();
   const navigate = useNavigate();
   const [unlinking, setUnlinking] = useState(false);
@@ -194,168 +206,129 @@ export function EnvironmentButton({
     }
   }
 
-  return (
-    <EnvironmentControl
-      link={link}
-      online={online}
-      confirmLabel={t('agent.link')}
-      onChoose={choose}
-      mark={link && workspace ? <WorkspaceMark workspace={workspace} /> : null}
-      work={
-        link ? (
-          <>
-            {workspace ? <WorkspaceLine workspace={workspace} /> : null}
-            <Button variant="secondary" size="sm" className="justify-start" loading={saving} disabled={online === false} onClick={() => void save()}>
-              <Save />
-              {saving ? t('takeover.saving') : t('takeover.save')}
-            </Button>
-            <span className="text-xs text-muted-foreground">{t('takeover.saveHint')}</span>
-            <label className="flex cursor-pointer items-start gap-3 pt-1">
-              <Switch checked={link.autosync} onCheckedChange={(checked) => void setAutosync(checked)} />
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm text-foreground">{t('takeover.autosync')}</span>
-                <span className="text-xs text-muted-foreground">{t('takeover.autosyncHint')}</span>
-              </span>
-            </label>
-          </>
-        ) : null
-      }
-      actions={(close) =>
-        link ? (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-start"
-              onClick={() => {
-                close();
-                void navigate({ to: '/', search: { device: link.deviceId, project: link.project, harness: link.harness } });
-              }}
-            >
-              <MessageSquarePlus />
-              {t('agent.newChatHere')}
-            </Button>
-            <Button variant="ghost" size="sm" className="justify-start text-destructive" loading={unlinking} onClick={() => void unlink(close)}>
-              <Unlink />
-              {t('agent.unlink')}
-            </Button>
-          </>
-        ) : null
-      }
-    />
-  );
+  return useEnvironmentOption({
+    link,
+    online,
+    workspace: link ? workspace : null,
+    confirmLabel: t('agent.link'),
+    onChoose: choose,
+    work: link ? (
+      <>
+        {workspace ? <WorkspaceLine workspace={workspace} /> : null}
+        <Button variant="secondary" size="sm" className="justify-start" loading={saving} disabled={online === false} onClick={() => void save()}>
+          <Save />
+          {saving ? t('takeover.saving') : t('takeover.save')}
+        </Button>
+        <span className="text-xs text-muted-foreground">{t('takeover.saveHint')}</span>
+        <label className="flex cursor-pointer items-start gap-3 pt-1">
+          <Switch checked={link.autosync} onCheckedChange={(checked) => void setAutosync(checked)} />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-sm text-foreground">{t('takeover.autosync')}</span>
+            <span className="text-xs text-muted-foreground">{t('takeover.autosyncHint')}</span>
+          </span>
+        </label>
+      </>
+    ) : null,
+    actions: (close) =>
+      link ? (
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="justify-start"
+            onClick={() => {
+              close();
+              void navigate({ to: '/', search: { device: link.deviceId, project: link.project, harness: link.harness } });
+            }}
+          >
+            <MessageSquarePlus />
+            {t('agent.newChatHere')}
+          </Button>
+          <Button variant="ghost" size="sm" className="justify-start text-destructive" loading={unlinking} onClick={() => void unlink(close)}>
+            <Unlink />
+            {t('agent.unlink')}
+          </Button>
+        </>
+      ) : null,
+  });
 }
 
 /**
- * The environment control of the start page: the chat does not exist yet, so
- * the choice is only kept until the first message creates it.
+ * The environment of the start page: the chat does not exist yet, so the
+ * choice is only kept until the first message creates it.
  *
- * @param props - The chosen environment and how to change it.
- * @returns The control.
+ * @param value - The chosen environment.
+ * @param onChange - Changes it.
+ * @returns The option for the chat options.
  */
-export function NewChatEnvironment({
-  value,
-  onChange,
-}: {
-  value: LinkConversationInput | null;
-  onChange: (value: LinkConversationInput | null) => void;
-}) {
+export function useNewChatEnvironment(
+  value: LinkConversationInput | null,
+  onChange: (value: LinkConversationInput | null) => void,
+): EnvironmentOption {
   const t = useT();
   const device = useLinkDevice(value);
   // Until the device list is there, the id stands in for the name.
   const link: ChatLink | null = value ? { ...value, deviceName: device?.name ?? value.deviceId, autosync: false } : null;
-  return (
-    <EnvironmentControl
-      link={link}
-      online={device?.online}
-      confirmLabel={t('agent.choose')}
-      onChoose={onChange}
-      actions={(close) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="justify-start"
-          onClick={() => {
-            close();
-            onChange(null);
-          }}
-        >
-          <X />
-          {t('agent.withoutEnvironment')}
-        </Button>
-      )}
-    />
-  );
+  return useEnvironmentOption({
+    link,
+    online: device?.online,
+    workspace: null,
+    confirmLabel: t('agent.choose'),
+    onChoose: onChange,
+    work: null,
+    actions: (close) => (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="justify-start"
+        onClick={() => {
+          close();
+          onChange(null);
+        }}
+      >
+        <X />
+        {t('agent.withoutEnvironment')}
+      </Button>
+    ),
+  });
 }
 
 /**
- * Button with dialog when no environment is chosen; otherwise the chosen one
- * with a menu: device, the agent's `work`, VM, another environment, and
- * `actions`. `mark` sits in the button next to the online dot.
+ * The dialog to pick an environment, and the page of a chosen one: device,
+ * the agent's `work`, VM, programs, another environment, and `actions`.
+ * The dialogs' state lives here, in the page, so closing the options does
+ * not close them.
  */
-function EnvironmentControl({
+function useEnvironmentOption({
   link,
   online,
+  workspace,
   confirmLabel,
   onChoose,
-  mark = null,
-  work = null,
+  work,
   actions,
 }: {
   link: ChatLink | null;
   online: boolean | undefined;
+  workspace: WorkspaceState | null;
   confirmLabel: string;
   onChoose: (choice: LinkConversationInput) => Promise<void> | void;
-  mark?: ReactNode;
-  work?: ReactNode;
+  work: ReactNode;
   actions: (close: () => void) => ReactNode;
-}) {
+}): EnvironmentOption {
   const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const device = useLinkDevice(link);
 
-  const dialog = (
-    <LinkDialog
-      open={dialogOpen}
-      onOpenChange={setDialogOpen}
-      current={link ? { deviceId: link.deviceId, project: link.project, harness: link.harness } : null}
-      confirmLabel={confirmLabel}
-      onChoose={onChoose}
-    />
-  );
-  if (!link) {
-    return (
-      <>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="min-w-0 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
-          aria-label={t('agent.connect')}
-          onClick={() => setDialogOpen(true)}
-        >
-          <Container />
-          <span className="truncate max-sm:sr-only">{t('agent.environment')}</span>
-        </Button>
-        {dialog}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className="min-w-0 max-w-64 gap-1.5 px-2 text-muted-foreground hover:text-foreground">
-            <Container className="text-primary" />
-            <span className="truncate">{t('agent.linkedTo', { harness: link.harness, project: link.project })}</span>
-            <StatusDot online={online} />
-            {mark}
-            <ChevronDown className="opacity-60" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" side="top" className="flex w-[min(var(--spacing)*80,calc(100vw-var(--spacing)*8))] flex-col gap-3 p-3">
+  return {
+    link,
+    online,
+    workspace,
+    pick: () => setDialogOpen(true),
+    details: (close) =>
+      link ? (
+        <div className="flex flex-col gap-3">
           <div className="flex items-start gap-3">
             <Laptop className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -375,7 +348,7 @@ function EnvironmentControl({
                 device={device}
                 project={link.project}
                 onChange={() => {
-                  setMenuOpen(false);
+                  close();
                   setAppsOpen(true);
                 }}
               />
@@ -387,24 +360,39 @@ function EnvironmentControl({
               size="sm"
               className="justify-start"
               onClick={() => {
-                setMenuOpen(false);
+                close();
                 setDialogOpen(true);
               }}
             >
               <Container />
               {t('agent.change')}
             </Button>
-            {actions(() => setMenuOpen(false))}
+            {actions(close)}
           </div>
-        </PopoverContent>
-      </Popover>
-      {dialog}
-      {device ? <ProjectAppsDialog open={appsOpen} onOpenChange={setAppsOpen} device={device} project={link.project} /> : null}
-    </>
-  );
+        </div>
+      ) : null,
+    dialogs: (
+      <>
+        <LinkDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          current={link ? { deviceId: link.deviceId, project: link.project, harness: link.harness } : null}
+          confirmLabel={confirmLabel}
+          onChoose={onChoose}
+        />
+        {device && link ? <ProjectAppsDialog open={appsOpen} onOpenChange={setAppsOpen} device={device} project={link.project} /> : null}
+      </>
+    ),
+  };
 }
 
-function StatusDot({ online }: { online: boolean | undefined }) {
+/**
+ * Green when the computer is connected, grey when not, nothing while unknown.
+ *
+ * @param props - Whether it is online.
+ * @returns The dot.
+ */
+export function StatusDot({ online }: { online: boolean | undefined }) {
   const t = useT();
   if (online === undefined) {
     return null;
@@ -430,8 +418,14 @@ function workspaceText(t: ReturnType<typeof useT>, { commits, changes }: Workspa
   return t('takeover.workspaceUnsaved', { what: what.join(', ') });
 }
 
-/** Saved or not, in the environment button; the shape differs, not only the color. */
-function WorkspaceMark({ workspace }: { workspace: WorkspaceState }) {
+/**
+ * Saved or not, next to the environment; the shape differs, not only the
+ * color.
+ *
+ * @param props - The latest report.
+ * @returns The mark.
+ */
+export function WorkspaceMark({ workspace }: { workspace: WorkspaceState }) {
   const t = useT();
   const saved = workspace.commits === 0 && workspace.changes === 0;
   const text = workspaceText(t, workspace);

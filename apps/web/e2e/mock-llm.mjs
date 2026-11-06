@@ -101,7 +101,9 @@ function researchStep(payload) {
 function effortStep(payload) {
   const last = payload.messages?.at(-1);
   if (last?.role === 'user' && textOf(last.content).includes('Wie viel denkst du')) {
-    return { text: `Denkstufe laut Anfrage: ${payload.reasoning_effort ?? 'Standard'}.` };
+    // The answer length comes as a note in front of the message.
+    const length = /Answer length: (\w+)\./.exec(textOf(last.content))?.[1] ?? 'medium';
+    return { text: `Denkstufe laut Anfrage: ${payload.reasoning_effort ?? 'Standard'}. Antwortlänge laut Hinweis: ${length}.` };
   }
   return null;
 }

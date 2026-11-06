@@ -346,8 +346,11 @@ echo "== Gedächtnis und Recherche-Treffer bei pi"
 say_in_chat m6e '@remember Nutzt pnpm statt npm.'
 check "Werkzeug remember in pi geladen" grep -q '"toolName":"remember"' "$WORK/m6e.log"
 check "Erinnerung beim Server, vom Agent" test "$(api GET /api/memories | json 'v[0].text + " " + v[0].source')" = "Nutzt pnpm statt npm. agent"
+# What an agent stores is a suggestion; no chat reads it before the user confirms it.
+check "Erinnerung des Agents ist ein Vorschlag" test "$(api GET /api/memories | json 'v[0].pending')" = true
+api POST "/api/memories/$(api GET /api/memories | json 'v[0].id')/confirm" > /dev/null
 say_in_chat m6f '!echo weiter'
-check "Erinnerung mit der nächsten Nachricht bei pi" grep -q 'LLM Harness memory: what the user wants' "$WORK/mock-requests.log"
+check "Erinnerung mit der nächsten Nachricht bei pi" grep -q 'LLM Harness memory: background the user saved' "$WORK/mock-requests.log"
 printf '%s' "{\"message\":{\"id\":\"m6g\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"?read kaffee\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"research\":true}" > "$WORK/m6g.json"
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6g.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m6g.log"
 check "Treffer ohne Rückfrage gelesen" bash -c "grep -q 'Example Domain' '$WORK/m6g.log' && ! grep -q '\"host\":\"example.org\"' '$WORK/m6g.log'"

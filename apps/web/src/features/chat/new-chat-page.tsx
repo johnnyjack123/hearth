@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput, Verbosity } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FileUIPart } from 'ai';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
@@ -17,10 +17,9 @@ import { queryKeys, useProviders, usePublicSettings, useSession } from '@/lib/qu
 import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
+import { ChatOptions } from './chat-options.tsx';
 import { getChat } from './chat-store.ts';
-import { environmentFromSearch, NewChatEnvironment, useLinkOnline } from './environment.tsx';
-import { EffortControl } from './effort-control.tsx';
-import { ResearchToggle } from './research-toggle.tsx';
+import { environmentFromSearch, useLinkOnline, useNewChatEnvironment } from './environment.tsx';
 
 const SUGGESTIONS: { icon: typeof Lightbulb; title: MessageKey; prompt: MessageKey }[] = [
   { icon: Lightbulb, title: 'chat.suggestions.explainTitle', prompt: 'chat.suggestions.explainPrompt' },
@@ -44,7 +43,14 @@ export function NewChatPage() {
   const { selection, select, models, images, recent } = useModelSelection(null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
-  const { research: lastResearch, setResearch: setLastResearch, effort: lastEffort, setEffort: setLastEffort } = usePreferences();
+  const {
+    research: lastResearch,
+    setResearch: setLastResearch,
+    effort: lastEffort,
+    setEffort: setLastEffort,
+    verbosity: lastVerbosity,
+    setVerbosity: setLastVerbosity,
+  } = usePreferences();
   // Starts as in the chat used last; changes here count as using it.
   const [research, setChatResearch] = useState(lastResearch);
   function setResearch(on: boolean) {
@@ -55,6 +61,11 @@ export function NewChatPage() {
   function setEffort(next: EffortLevel | null) {
     setChatEffort(next);
     setLastEffort(next);
+  }
+  const [verbosity, setChatVerbosity] = useState(lastVerbosity);
+  function setVerbosity(next: Verbosity) {
+    setChatVerbosity(next);
+    setLastVerbosity(next);
   }
   const { data: publicSettings } = usePublicSettings();
   const search = useSearch({ from: '/app/' });
@@ -68,6 +79,7 @@ export function NewChatPage() {
     setEnvironment(environmentFromSearch(search));
   }
   const online = useLinkOnline(environment);
+  const environmentOption = useNewChatEnvironment(environment, setEnvironment);
 
   async function submit(text: string, files: FileUIPart[]) {
     if (!selection) {
@@ -83,7 +95,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research, effort).chat.sendMessage({ text, files });
+      void getChat(conversation.id, [], selection, research, effort, verbosity).chat.sendMessage({ text, files });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -166,13 +178,19 @@ export function NewChatPage() {
                 autoFocus
                 toolbar={
                   <>
+                    <ChatOptions
+                      environment={environmentOption}
+                      research={publicSettings?.webSearch ? { on: research, onChange: setResearch } : null}
+                      effort={effort}
+                      onEffortChange={setEffort}
+                      verbosity={verbosity}
+                      onVerbosityChange={setVerbosity}
+                    />
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
-                    <NewChatEnvironment value={environment} onChange={setEnvironment} />
-                    {publicSettings?.webSearch ? <ResearchToggle pressed={research} onPressedChange={setResearch} /> : null}
-                    <EffortControl effort={effort} onEffortChange={setEffort} {...(environment ? { agent: environment.harness } : {})} />
                   </>
                 }
               />
+              {environmentOption.dialogs}
               <ComposerHint />
             </div>
           </div>

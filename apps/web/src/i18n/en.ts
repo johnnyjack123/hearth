@@ -107,6 +107,28 @@ export const en: Messages = {
     send: 'Send message',
     stop: 'Stop response',
     research: 'Research',
+    options: {
+      label: 'Chat options',
+      labelActive: 'Chat options: {active}',
+      noEnvironment: 'None, ordinary chat',
+      back: 'Back',
+    },
+    verbosity: {
+      title: 'Answer length',
+      label: 'Answer length: {level}',
+      levels: {
+        short: 'Short',
+        medium: 'Medium',
+        detailed: 'Detailed',
+      },
+      hints: {
+        short: 'A few sentences, only what you asked. Code and texts you want in full stay complete.',
+        medium: 'What you asked with the details that matter, no filler.',
+        detailed: 'Thorough: background, reasoning, examples and caveats.',
+      },
+      note: 'Applies from the next message in this chat.',
+      agentNote: 'Applies to {harness} from the next message. It limits the answers, not the work.',
+    },
     effort: {
       title: 'Thinking',
       label: 'Thinking: {level}',
@@ -797,6 +819,25 @@ export const en: Messages = {
     autoAssess: 'Have Jev judge warnings right away',
     autoAssessHint:
       'On a suspected prompt injection, Jev gives a second opinion at once (needs an OpenRouter key, fractions of a cent). Otherwise use the button on the warning.',
+  },
+  inspection: {
+    open: 'View in context',
+    title: 'Flagged places in context',
+    texts: 'Which text',
+    textLabel: '{kind} ({count})',
+    kinds: {
+      page: 'Page text',
+      source: 'HTML source',
+      results: 'Search hits',
+      output: 'Output',
+    },
+    position: 'Place {index} of {count}',
+    none: 'No place is marked in this text.',
+    previous: 'Previous place',
+    next: 'Next place',
+    incomplete: 'This page was loaded before harness kept whole pages. Only what the model read is shown.',
+    sourceHint: 'Hidden text and HTML comments are only in the source; a browser does not show them.',
+    truncated: 'Shortened: the first 2 million characters are kept.',
   },
   assessment: {
     ask: 'Ask Jev to judge it',

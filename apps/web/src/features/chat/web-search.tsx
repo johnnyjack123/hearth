@@ -1,4 +1,4 @@
-import { parseWebSearchError, SEARCH_KINDS, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
+import { type Inspection, parseWebSearchError, SEARCH_KINDS, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
 import type { ToolUIPart } from 'ai';
 import { BookOpenCheck, ChevronRight, CircleAlert, Search, Star } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -127,12 +127,14 @@ export function WebSearchCall({
   read,
   ms,
   onAssess,
+  onInspect,
 }: {
   part: ToolUIPart;
   streaming: boolean;
   read: ReadPage[];
   ms?: number | undefined;
   onAssess?: (() => Promise<void>) | undefined;
+  onInspect?: (() => Promise<Inspection>) | undefined;
 }) {
   const t = useT();
   /** Number of a hit among the sources, or 0 if the model did not read it. */
@@ -202,7 +204,7 @@ export function WebSearchCall({
         />
       </button>
       {output && output.warnings.length > 0 ? (
-        <InjectionWarning warnings={output.warnings} findings={output.findings} assessment={output.assessment} onAssess={onAssess} />
+        <InjectionWarning warnings={output.warnings} findings={output.findings} assessment={output.assessment} onAssess={onAssess} onInspect={onInspect} />
       ) : null}
       {failureText !== null ? <p className="border-t border-border px-3 py-2 text-muted-foreground">{failureText}</p> : null}
       <AnimatePresence initial={false}>

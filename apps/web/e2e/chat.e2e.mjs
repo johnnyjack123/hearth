@@ -87,6 +87,41 @@ async function waitFor(condition, what, timeout = 5_000) {
   }
 }
 
+/** The gear in the composer; its label names what is switched on. */
+const OPTIONS = 'button[aria-label^="Chat-Optionen"]';
+
+/** Opens the chat options behind the gear. */
+async function openOptions() {
+  await page.click(OPTIONS);
+  await page.waitForSelector('[data-chat-options]', { timeout: 5_000 });
+}
+
+/** Closes them again. */
+async function closeOptions() {
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[data-chat-options]', { hidden: true, timeout: 5_000 });
+}
+
+/** Opens the page of the chat's environment within the options. */
+async function openEnvironment() {
+  await openOptions();
+  await page.click(`[data-chat-options] button${text('pi in demo')}`);
+  await page.waitForSelector(`[data-chat-options] ${text('Andere Umgebung')}`, { timeout: 5_000 });
+}
+
+/** Waits until the gear's label says whether `what` is on. */
+const optionShown = (what, on, timeout = 10_000) =>
+  page.waitForSelector(on ? `${OPTIONS}[aria-label*="${what}"]` : `${OPTIONS}:not([aria-label*="${what}"])`, { timeout });
+
+/** Moves a level slider in the options to a named stop with the given keys. */
+async function slide(label, keys, wanted) {
+  await page.focus(`[data-chat-options] [role=slider][aria-label="${label}"]`);
+  for (const key of keys) {
+    await page.keyboard.press(key);
+  }
+  await page.waitForSelector(`[data-chat-options] [role=slider][aria-label="${label}"][aria-valuetext="${wanted}"]`, { timeout: 5_000 });
+}
+
 try {
   await step('register first user', async () => {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
@@ -108,7 +143,7 @@ try {
     await page.waitForSelector('[role=dialog]');
     await page.click(`[role=dialog] ${text('OpenAI-kompatibel')}`);
     const label = await page.$('[role=dialog] input:not([type=radio]):not([type=url]):not([type=password])');
-    await label.click({ clickCount: 3 });
+    await label.click({ count: 3 });
     await label.type('Mock');
     await page.type('[role=dialog] input[type=url]', 'http://127.0.0.1:8091/v1');
     await shot('03-provider-dialog');
@@ -217,6 +252,22 @@ try {
     await page.$eval(text('Fundstellen verbergen'), (element) => element.closest('[role=note]').scrollIntoView({ block: 'start' }));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('23-web-fetch-findings');
+    // The whole page, at the first place, every place marked.
+    await page.click(text('Im Zusammenhang ansehen'));
+    await page.waitForSelector(`[role=dialog] ${text('Fundstellen im Zusammenhang')}`, { timeout: 5_000 });
+    await page.waitForSelector('[role=dialog] [data-place="0"]', { timeout: 10_000 });
+    await waitForText('Stelle 1 von', 5_000);
+    const view = await page.$eval('[role=dialog]', (dialog) => ({
+      text: dialog.textContent ?? '',
+      places: dialog.querySelectorAll('[data-place]').length,
+    }));
+    if (!view.text.includes('Kaffeebohnen werden bei etwa 200') || view.places < 1) {
+      throw new Error(`inspection shows ${view.places} places in ${view.text.slice(0, 300)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await shot('23b-web-fetch-inspection');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
 
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'), { timeout: 10_000 });
@@ -232,10 +283,15 @@ try {
   let researchPath = '';
   await step('research mode searches and reads found pages without asking', async () => {
     // The admin sets up SearXNG; the mock LLM stands in for it.
-    await page.waitForSelector(text('Suchanbieter'), { timeout: 10_000 });
-    if (await page.$('[aria-label="Recherche"]')) {
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await openOptions();
+    if (await page.$('[data-chat-options] [role=switch][aria-label="Recherche"]')) {
       throw new Error('research switch shown without a search provider');
     }
+    await closeOptions();
+    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle0' });
+    await page.click('[role=tab]::-p-text(Server)');
+    await page.waitForSelector(text('Suchanbieter'), { timeout: 10_000 });
     await page.click(`[aria-label="Suchanbieter"] ${text('SearXNG')}`);
     // A wrong port first: the test names the likely cause.
     await page.type('input[type=url]', 'http://127.0.0.1:8099');
@@ -281,8 +337,13 @@ try {
 
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('mock-model'), { timeout: 10_000 });
-    await page.click('[aria-label="Recherche"]');
-    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]');
+    await openOptions();
+    await page.click('[data-chat-options] [role=switch][aria-label="Recherche"]');
+    await page.waitForSelector('[data-chat-options] [role=switch][aria-label="Recherche"][aria-checked="true"]');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('27a-chat-options');
+    await closeOptions();
+    await optionShown('Recherche', true);
     await page.type('textarea', 'Recherchiere, wie man Kaffee röstet');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
@@ -368,7 +429,7 @@ try {
 
     // The chat opens with the switch as last used in it.
     await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+    await optionShown('Recherche', true);
 
     // Tokens and cost of every model call of the reply, without any setting.
     await page.waitForSelector(text('Laut der Recherche röstet man Kaffee'), { timeout: 10_000 });
@@ -437,35 +498,39 @@ try {
     // A new chat starts as the chat used last; switching it does not change
     // existing chats.
     await page.goto(BASE, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
-    await page.click('[aria-label="Recherche"]');
+    await optionShown('Recherche', true);
+    await openOptions();
+    await page.click('[data-chat-options] [role=switch][aria-label="Recherche"]');
+    await closeOptions();
     await page.reload({ waitUntil: 'networkidle0' });
-    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 10_000 });
+    await optionShown('Recherche', false);
     await page.goto(`${BASE}${researchPath}`, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[aria-label="Recherche"][aria-pressed="true"]', { timeout: 10_000 });
+    await optionShown('Recherche', true);
   });
 
-  await step('thinking effort and summarizing a chat on request', async () => {
+  await step('thinking effort, answer length and summarizing a chat on request', async () => {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
-    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 10_000 });
-    await page.click('[aria-label="Denktiefe: Standard"]');
-    await page.waitForSelector('[role=slider]');
-    await page.focus('[role=slider]');
+    await optionShown('Denktiefe', false);
+    await openOptions();
     // Standard, Aus, Minimal, Niedrig, Mittel, Hoch.
-    for (let press = 0; press < 5; press += 1) {
-      await page.keyboard.press('ArrowRight');
-    }
-    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+    await slide('Denktiefe', Array(5).fill('ArrowRight'), 'Hoch');
     await waitForText('Gründlich: langsamer und mehr Token.', 5_000);
+    // Kurz, Mittel, Ausführlich.
+    await slide('Antwortlänge', ['Home'], 'Kurz');
+    await waitForText('Ein paar Sätze, nur das Gefragte.', 5_000);
     await new Promise((resolve) => setTimeout(resolve, 400));
     await shot('31-effort');
-    await page.keyboard.press('Escape');
+    await closeOptions();
+    await optionShown('Denktiefe: Hoch', true);
+    await optionShown('Antwortlänge: Kurz', true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('31b-options-marks');
     await page.focus('textarea');
     await page.type('textarea', 'Wie viel denkst du?');
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
-    // The level reaches the provider as reasoning_effort.
-    await page.waitForSelector(text('Denkstufe laut Anfrage: high.'), { timeout: 15_000 });
+    // The level reaches the provider as reasoning_effort, the length as a note.
+    await page.waitForSelector(text('Denkstufe laut Anfrage: high. Antwortlänge laut Hinweis: short.'), { timeout: 15_000 });
     await new Promise((resolve) => setTimeout(resolve, 800));
     await page.type('textarea', 'Und noch eine Frage dazu');
     await page.keyboard.press('Enter');
@@ -488,14 +553,15 @@ try {
     // Stored: after a reload the divider and the chat's level are still there.
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 10_000 });
-    await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
-    // Back to the default, which later chats start with.
-    await page.click('[aria-label="Denktiefe: Hoch"]');
-    await page.waitForSelector('[role=slider]');
-    await page.focus('[role=slider]');
-    await page.keyboard.press('Home');
-    await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
-    await page.keyboard.press('Escape');
+    await optionShown('Denktiefe: Hoch', true);
+    await optionShown('Antwortlänge: Kurz', true);
+    // Back to the defaults, which later chats start with.
+    await openOptions();
+    await slide('Denktiefe', ['Home'], 'Standard');
+    await slide('Antwortlänge', ['ArrowRight'], 'Mittel');
+    await closeOptions();
+    await optionShown('Denktiefe', false);
+    await optionShown('Antwortlänge', false);
   });
 
   await step('the calculator, formulas and copying code without the clipboard API', async () => {
@@ -960,11 +1026,11 @@ try {
 
     try {
       await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
-      await page.waitForSelector('[aria-label="Mit Umgebung verbinden"]', { timeout: 10_000 });
       // A draft in the composer must stay a draft: the toolbar button once
       // submitted the form.
       await page.type('textarea', 'Noch nicht senden');
-      await page.click('[aria-label="Mit Umgebung verbinden"]');
+      await openOptions();
+      await page.click('[data-chat-options] [aria-label="Mit Umgebung verbinden"]');
       await page.waitForSelector(`[role=dialog] ${text('demo')}`, { timeout: 10_000 });
       await page.waitForSelector(`[role=dialog] ${text('VM aus, startet bei Bedarf')}`, { timeout: 10_000 });
       const draft = await page.$eval('textarea', (element) => element.value);
@@ -974,9 +1040,12 @@ try {
       await page.click(`[role=dialog] ${text('demo')}`);
       await shot('16-link-dialog');
       await page.click(`[role=dialog] ${text('Verbinden')}`);
-      await page.waitForSelector(text('pi in demo'), { timeout: 10_000 });
+      await optionShown('pi in demo', true);
+      await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
       // Agents search through the server too, so the switch stays.
-      await page.waitForSelector('[aria-label="Recherche"][aria-pressed="false"]', { timeout: 5_000 });
+      await openOptions();
+      await page.waitForSelector('[data-chat-options] [role=switch][aria-label="Recherche"][aria-checked="false"]', { timeout: 5_000 });
+      await closeOptions();
 
       await page.focus('textarea');
       await page.keyboard.down('Control');
@@ -1055,18 +1124,13 @@ try {
       await page.waitForSelector(text('Beantwortet'), { timeout: 5_000 });
 
       // pi's thinking level and summaries come from the chat as well.
-      await page.click('[aria-label="Denktiefe: Standard"]');
-      await page.waitForSelector('[role=slider]');
+      await openOptions();
       await waitForText('Wie pi ab Werk: Mittel.', 5_000);
-      await page.focus('[role=slider]');
-      for (let press = 0; press < 5; press += 1) {
-        await page.keyboard.press('ArrowRight');
-      }
-      await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
+      await slide('Denktiefe', Array(5).fill('ArrowRight'), 'Hoch');
       await waitForText('Gilt ab der nächsten Nachricht für pi in dieser Umgebung.', 5_000);
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('19-agent-effort');
-      await page.keyboard.press('Escape');
+      await closeOptions();
       await page.focus('textarea');
       await page.type('textarea', 'Denk gründlich nach');
       await page.keyboard.press('Enter');
@@ -1093,20 +1157,16 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await shot('19-agent-compaction');
       // The default again, which later chats start with.
-      await page.click('[aria-label="Denktiefe: Hoch"]');
-      await page.waitForSelector('[role=slider]');
-      await page.focus('[role=slider]');
-      await page.keyboard.press('Home');
-      await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
-      await page.keyboard.press('Escape');
+      await openOptions();
+      await slide('Denktiefe', ['Home'], 'Standard');
+      await closeOptions();
 
       // The VM in the chat: state, when it stops by itself, the idle time.
       if (!received.some((message) => message.type === 'settings' && message.idleMinutes === 30)) {
         throw new Error(`device got no idle time: ${JSON.stringify(received.map((message) => message.type))}`);
       }
       sendStatus('running', { stopIn: 25 * 60 });
-      // The composer's button, not the label under the reply.
-      await page.click(`form ${text('pi in demo')}`);
+      await openEnvironment();
       await page.waitForSelector(text('VM läuft'), { timeout: 10_000 });
       await page.waitForSelector(text('Stoppt um'), { timeout: 10_000 });
       await page.waitForSelector(text('Automatisch stoppen nach 30 min'), { timeout: 5_000 });
@@ -1154,7 +1214,7 @@ try {
       await shot('40-project-apps');
       await page.keyboard.press('Escape');
       await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
-      await page.click(`form ${text('pi in demo')}`);
+      await openEnvironment();
       await waitForText('Programme: C/C++, Rust');
 
       // Save progress: autosync on, then a takeover the device holds.
@@ -1178,9 +1238,9 @@ try {
       // The card and autosync survive a reload.
       await page.reload({ waitUntil: 'networkidle0' });
       await waitForText('Nicht übernommen: schwere Funde');
-      await page.click(`form ${text('pi in demo')}`);
+      await openEnvironment();
       await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
-      await page.keyboard.press('Escape');
+      await closeOptions();
 
       // The same controls under Settings -> Devices, in light mode.
       sendStatus('running', { stopIn: 50 * 60 });
@@ -1281,21 +1341,16 @@ try {
 
       // A new chat straight in the environment, from the linked chat's menu.
       await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
-      await page.click(`form ${text('pi in demo')}`);
+      await openEnvironment();
       await page.click(text('Neuer Chat in dieser Umgebung'));
       await page.waitForFunction(() => location.pathname === '/' && location.search.includes('project=demo'), { timeout: 5_000 });
       await page.waitForFunction(() => document.querySelector('textarea')?.placeholder.includes('pi in demo'), { timeout: 10_000 });
       // The thinking level is there before the first message, too (it was
       // hidden with an environment, and pi got its default).
-      await page.click('[aria-label="Denktiefe: Standard"]');
-      await page.waitForSelector('[role=slider]');
+      await openOptions();
       await waitForText('Wie pi ab Werk: Mittel.', 5_000);
-      await page.focus('[role=slider]');
-      for (let press = 0; press < 5; press += 1) {
-        await page.keyboard.press('ArrowRight');
-      }
-      await page.waitForSelector('[aria-label="Denktiefe: Hoch"]', { timeout: 5_000 });
-      await page.keyboard.press('Escape');
+      await slide('Denktiefe', Array(5).fill('ArrowRight'), 'Hoch');
+      await closeOptions();
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('37-new-chat-environment');
       await page.focus('textarea');
@@ -1312,28 +1367,25 @@ try {
         throw new Error(`new chat in an environment sent thinking ${fresh.thinking}`);
       }
       // The chat keeps it; back to the default for the steps after this one.
-      await page.click('[aria-label="Denktiefe: Hoch"]');
-      await page.waitForSelector('[role=slider]');
-      await page.focus('[role=slider]');
-      await page.keyboard.press('Home');
-      await page.waitForSelector('[aria-label="Denktiefe: Standard"]', { timeout: 5_000 });
-      await page.keyboard.press('Escape');
-      await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
-      await page.waitForSelector('[data-workspace="saved"][aria-label="Alles übernommen"]', { timeout: 5_000 });
+      await openOptions();
+      await slide('Denktiefe', ['Home'], 'Standard');
+      await page.waitForSelector(`[data-chat-options] ${text('pi in demo')}`, { timeout: 5_000 });
+      await page.waitForSelector('[data-chat-options] [data-workspace="saved"][aria-label="Alles übernommen"]', { timeout: 5_000 });
+      await closeOptions();
       await shot('38-new-chat-environment-reply');
 
       // The start page's own dialog, and back to an ordinary chat.
       await page.goto(BASE, { waitUntil: 'networkidle0' });
-      await page.click('[aria-label="Mit Umgebung verbinden"]');
+      await openOptions();
+      await page.click('[data-chat-options] [aria-label="Mit Umgebung verbinden"]');
       await page.click(`[role=dialog] ${text('demo')}`);
       await page.click(`[role=dialog] ${text('Auswählen')}`);
-      await page.waitForSelector(`form ${text('pi in demo')}`, { timeout: 5_000 });
+      await optionShown('pi in demo', true);
       // The dialog fades out over the composer first.
       await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
-      await page.click(`form ${text('pi in demo')}`);
-      await page.waitForSelector(text('Ohne Umgebung'), { timeout: 5_000 });
+      await openEnvironment();
       await page.click(text('Ohne Umgebung'));
-      await page.waitForSelector('[aria-label="Mit Umgebung verbinden"]', { timeout: 5_000 });
+      await optionShown('pi in demo', false);
     } finally {
       device.close();
     }
