@@ -207,6 +207,51 @@ try {
     await page.waitForSelector('[cmdk-group-heading]', { hidden: true, timeout: 5_000 });
   });
 
+  await step('tags put a chat into a folder at the top of the list', async () => {
+    const actions = 'nav button[aria-label^="Aktionen für „Testgespräch mit Mock“"]';
+    // Radix opens menus on pointer down, which a DOM click() does not send.
+    await page.click(actions);
+    await page.click(`[role=menuitem]${text('Tags …')}`);
+    await page.waitForSelector('[role=dialog] input[aria-label="Neuer Tag"]', { timeout: 5_000 });
+    await page.type('[role=dialog] input[aria-label="Neuer Tag"]', 'Projekt X');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[role=dialog] button[aria-pressed="true"]::-p-text(Projekt X)', { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('07c-tags-dialog');
+    await page.click(`[role=dialog] button${text('Speichern')}`);
+    await page.waitForSelector('[role=dialog]', { hidden: true, timeout: 5_000 });
+    // The folder heads the list, closed; it opens to the chat, which stays in "Heute" as well.
+    const folder = '[data-tag-folder="Projekt X"] button[aria-expanded]';
+    await page.waitForSelector(`${folder}[aria-expanded="false"]`, { timeout: 5_000 });
+    const firstHeading = await page.$eval('nav h2', (element) => element.textContent);
+    if (firstHeading !== 'Ordner') {
+      throw new Error(`the list starts with ${firstHeading}`);
+    }
+    await page.click(folder);
+    await page.waitForSelector('[data-tag-folder="Projekt X"] a::-p-text(Testgespräch mit Mock)', { timeout: 5_000 });
+    const listed = await page.$$eval('nav a', (links) => links.filter((link) => link.textContent === 'Testgespräch mit Mock').length);
+    if (listed !== 2) {
+      throw new Error(`the chat is listed ${listed} times`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('07d-tag-folder');
+    // The folder stays open after a reload; renaming and removing reach every chat.
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector(`${folder}[aria-expanded="true"]`, { timeout: 5_000 });
+    await page.click('[data-tag-folder="Projekt X"] button[aria-label^="Aktionen für den Ordner"]');
+    await page.click(`[role=menuitem]${text('Umbenennen')}`);
+    await page.waitForSelector('[role=dialog] input', { timeout: 5_000 });
+    await page.click('[role=dialog] input', { count: 3 });
+    await page.type('[role=dialog] input', 'Kunde');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-tag-folder="Kunde"]', { timeout: 5_000 });
+    await page.click('[data-tag-folder="Kunde"] button[aria-label^="Aktionen für den Ordner"]');
+    await page.click(`[role=menuitem]${text('Tag entfernen')}`);
+    await page.click(`[role=alertdialog] button${text('Tag entfernen')}`);
+    await page.waitForSelector('[data-tag-folder]', { hidden: true, timeout: 5_000 });
+    await page.waitForSelector('[role=alertdialog]', { hidden: true, timeout: 5_000 });
+  });
+
   let fetchPath = '';
   await step('web fetch in an ordinary chat asks, then answers from the page', async () => {
     // The mock model calls web_fetch for a URL the user did not name, so the

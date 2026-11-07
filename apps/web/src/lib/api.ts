@@ -147,6 +147,10 @@ export const api = {
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
   },
+  tags: {
+    rename: (from: string, to: string) => request<{ chats: number }>('PATCH', '/tags', { from, to }),
+    remove: (name: string) => request<{ chats: number }>('DELETE', '/tags', { name }),
+  },
   openrouter: {
     hosts: (model: string) => request<OpenRouterHosts>('GET', `/openrouter/hosts?model=${encodeURIComponent(model)}`),
     pin: (model: string, host: string | null) => request<OpenRouterHosts>('PUT', '/openrouter/hosts', { model, host }),
@@ -175,6 +179,7 @@ export const api = {
     rename: (id: string, title: string) =>
       request<ConversationSummary>('PATCH', `/conversations/${encodeURIComponent(id)}`, { title }),
     remove: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}`),
+    setTags: (id: string, tags: string[]) => request<ConversationSummary>('PUT', `/conversations/${encodeURIComponent(id)}/tags`, { tags }),
     link: (id: string, input: LinkConversationInput) =>
       request<ConversationSummary>('PUT', `/conversations/${encodeURIComponent(id)}/link`, input),
     unlink: (id: string) => request<void>('DELETE', `/conversations/${encodeURIComponent(id)}/link`),
