@@ -327,6 +327,22 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('toolContent').execute();
     },
   },
+  // The OpenRouter host a user pinned a model to, for chats and agents.
+  '0017_openrouter_pin': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('openRouterPin')
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('modelId', 'text', (col) => col.notNull())
+        .addColumn('host', 'text', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('openRouterPin_pk', ['userId', 'modelId'])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('openRouterPin').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

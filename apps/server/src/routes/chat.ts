@@ -40,7 +40,7 @@ import { compactionRange, latestCompaction, summarize, withCompaction } from '..
 import { condenseHistory } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
-import { withProviderOrder } from '../openrouter.ts';
+import { withOpenRouter } from '../openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type HostRates, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
 import { withFileContents } from '../files/model.ts';
 import { attachedFileIds, createReadDocumentTool, DocumentError, isLongDocument, READ_DOCUMENT_TOOL } from '../files/read.ts';
@@ -508,8 +508,8 @@ export interface StreamChatOptions {
 
 /** Which OpenRouter hosts the calls of a chat go to, see `OpenRouterRouting`. */
 export interface ChatHosts {
-  /** The hosts to try, in order, for the next call. */
-  order: () => Promise<string[] | null>;
+  /** The request's `provider` field for the next call: the pinned host, or the cheapest in order. */
+  provider: () => Promise<Record<string, unknown> | undefined>;
   /** Remembers the host that served a call. */
   stick: (host: string) => void;
 }
@@ -730,7 +730,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
         ...(hosts
           ? {
               prepareStep: async ({ stepNumber }: { stepNumber: number }) =>
-                stepNumber === 0 ? undefined : { providerOptions: withProviderOrder({}, await hosts.order()).providerOptions },
+                stepNumber === 0 ? undefined : { providerOptions: withOpenRouter({}, { provider: await hosts.provider() }).providerOptions },
             }
           : {}),
         abortSignal,

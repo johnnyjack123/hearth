@@ -427,6 +427,40 @@ export interface TokenRates {
   cacheWrite?: number;
 }
 
+/** One host OpenRouter runs a model on, for the user to pin it there. */
+export interface OpenRouterHost {
+  /** The provider's id for `provider.order`, e.g. `deepinfra`. */
+  slug: string;
+  /** Its name, e.g. `DeepInfra`. */
+  name: string;
+  /** Country code of the company's seat, if OpenRouter says. */
+  headquarters: string | null;
+  /** Country codes of its data centers, if OpenRouter says. */
+  datacenters: string[];
+  /** Its cheapest endpoint's prices right now. */
+  rates: TokenRates | null;
+  /** How it runs the model, e.g. `fp8`. */
+  quantizations: string[];
+  /** False if it is down or failed often in the last half hour. */
+  available: boolean;
+}
+
+/** The hosts of a model and the one the user pinned it to (`GET /api/openrouter/hosts`). */
+export interface OpenRouterHosts {
+  /** The pinned host's slug; null routes to the cheapest. */
+  pinned: string | null;
+  /** The hosts, cheapest first; null if OpenRouter's list is not available. */
+  hosts: OpenRouterHost[] | null;
+}
+
+/** Pins a model to one OpenRouter host, or with null lets it go to the cheapest. */
+export const pinOpenRouterHostSchema = z
+  .object({
+    model: z.string().regex(/^[a-z0-9][\w.-]*\/[\w.-]+$/i).max(200),
+    host: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/).nullable(),
+  })
+  .strict();
+
 /**
  * Tokens and cost of one model call within a reply. A reply with tools
  * makes several calls, each sending the whole conversation so far again.

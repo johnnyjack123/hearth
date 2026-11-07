@@ -735,18 +735,22 @@ data: [DONE]
     try {
       await server.close();
       server = await createTestServer(kind, {
-        openRouter: new OpenRouterRouting(async () => ({
-          data: {
-            endpoints: [
-              { tag: 'no-cache', provider_name: 'NoCache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
-              {
-                tag: 'cached/fp8',
-                provider_name: 'Cached',
-                pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' },
-              },
-            ],
-          },
-        })),
+        openRouter: new OpenRouterRouting(
+          async () => ({
+            data: {
+              endpoints: [
+                { tag: 'no-cache', provider_name: 'NoCache', pricing: { prompt: '0.00000004', completion: '0.0000002' } },
+                {
+                  tag: 'cached/fp8',
+                  provider_name: 'Cached',
+                  pricing: { prompt: '0.0000001', completion: '0.0000002', input_cache_read: '0.00000001' },
+                },
+              ],
+            },
+          }),
+          Date.now,
+          async () => null,
+        ),
       });
       cookie = await server.signUp('owner@example.com');
       const port = (upstream.address() as AddressInfo).port;
@@ -804,6 +808,23 @@ data: [DONE]
       expect(bodies[1]?.provider).toEqual({ order: ['no-cache', 'cached/fp8'], allow_fallbacks: true });
       await call('Etwas anderes');
       expect(bodies[2]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
+      // The conversation's calls share a cache key, the other conversation has its own.
+      expect(bodies[0]?.prompt_cache_key).toMatch(/^harness-[0-9a-f]{32}$/);
+      expect(bodies[1]?.prompt_cache_key).toBe(bodies[0]?.prompt_cache_key);
+      expect(bodies[2]?.prompt_cache_key).not.toBe(bodies[0]?.prompt_cache_key);
+      // A model pinned to a host goes there only, whatever the agent asks for.
+      await server.request('PUT', '/api/openrouter/hosts', { cookie, body: { model: 'deepseek/deepseek-v4.1-flash-1017', host: 'no-cache' } });
+      const pinned = await server.request('POST', `/api/llm/proxy/${credential.id}/chat/completions`, {
+        body: {
+          model: 'deepseek/deepseek-v4.1-flash-1017',
+          stream: true,
+          messages: [{ role: 'user', content: 'Los' }],
+          provider: { order: ['deepseek'], allow_fallbacks: true },
+        },
+        headers: { ...CLI, authorization: `Bearer ${token}` },
+      });
+      expect(await pinned.text()).toContain('[DONE]');
+      expect(bodies[3]?.provider).toEqual({ order: ['no-cache'], allow_fallbacks: false });
       await eventually(async () => (await load(conversation.id)).messages.length === 2);
       const usage = (await load(conversation.id)).messages[1]?.metadata?.usage;
       expect(usage).toMatchObject({ cost: 0.0004, billed: true, calls: [{ billed: true, cost: { total: 0.0004 } }] });

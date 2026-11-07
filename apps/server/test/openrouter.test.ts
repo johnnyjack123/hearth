@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   AgentBills,
+  cacheKey,
   cheapestProvider,
+  hostChoices,
   hostRates,
   meterBill,
   OpenRouterRouting,
+  pinnedProvider,
   rankEndpoints,
-  withProviderOrder,
+  withOpenRouter,
 } from '../src/openrouter.ts';
 import { agentCallCost, agentModelInfo, deepSeekPeak, pricesAt } from '../src/pricing.ts';
 
@@ -137,11 +140,84 @@ describe('cheapest OpenRouter host', () => {
       order: ['a', 'b'],
       allow_fallbacks: true,
     });
-    // Ordinary chats keep their thinking effort next to the order.
-    expect(withProviderOrder({ providerOptions: { openrouter: { reasoning: { effort: 'high' } } } }, ['a'])).toEqual({
-      providerOptions: { openrouter: { reasoning: { effort: 'high' }, provider: { order: ['a'], allow_fallbacks: true } } },
+    // Ordinary chats keep their thinking effort next to the order and the cache key.
+    expect(
+      withOpenRouter(
+        { providerOptions: { openrouter: { reasoning: { effort: 'high' } } } },
+        { provider: cheapestProvider(undefined, ['a']), cacheKey: 'harness-k' },
+      ),
+    ).toEqual({
+      providerOptions: {
+        openrouter: { reasoning: { effort: 'high' }, provider: { order: ['a'], allow_fallbacks: true }, prompt_cache_key: 'harness-k' },
+      },
     });
-    expect(withProviderOrder({ reasoning: 'low' }, null)).toEqual({ reasoning: 'low' });
+    expect(withOpenRouter({ reasoning: 'low' }, {})).toEqual({ reasoning: 'low' });
+  });
+
+  it('sends a pinned model to its host only, whatever the request says', () => {
+    // An agent's own routing gives way; other wishes stay.
+    expect(pinnedProvider({ order: ['deepseek'], only: ['deepseek'], allow_fallbacks: true, data_collection: 'deny' }, 'deepinfra')).toEqual({
+      data_collection: 'deny',
+      order: ['deepinfra'],
+      allow_fallbacks: false,
+    });
+    expect(pinnedProvider(['not', 'an', 'object'], 'deepinfra')).toEqual({ order: ['deepinfra'], allow_fallbacks: false });
+  });
+
+  it('names a conversation for the cache without giving its id away', () => {
+    const key = cacheKey('0190a3c2-0000-7000-8000-000000000001');
+    expect(key).toMatch(/^harness-[0-9a-f]{32}$/);
+    expect(key).not.toContain('0190a3c2');
+    expect(cacheKey('0190a3c2-0000-7000-8000-000000000001')).toBe(key);
+    expect(cacheKey('another')).not.toBe(key);
+  });
+
+  it('lists one choice per host with its prices and where the company sits', async () => {
+    const named = {
+      data: {
+        endpoints: [
+          ...ENDPOINTS.data.endpoints,
+          // A second endpoint of DeepInfra besides its flex tier, dearer than the flex one.
+          {
+            tag: 'deepinfra/fp8',
+            provider_name: 'DeepInfra',
+            quantization: 'fp8',
+            status: 0,
+            uptime_last_30m: 100,
+            pricing: { prompt: '0.000000098', completion: '0.000000294', input_cache_read: '0.0000000029' },
+          },
+          { tag: 'deepinfra/bf16', provider_name: 'DeepInfra', quantization: 'bf16', status: 0, uptime_last_30m: 100, pricing: { prompt: '0.0000002', completion: '0.0000008' } },
+        ].map((endpoint) => ({ provider_name: endpoint.tag.split('/')[0], ...endpoint })),
+      },
+    };
+    const providers = {
+      data: [
+        { slug: 'deepinfra', headquarters: 'US', datacenters: null },
+        { slug: 'deepseek', headquarters: 'CN', datacenters: ['CN', 'not a code'] },
+      ],
+    };
+    const hosts = hostChoices(named, providers, SATURDAY);
+    expect(hosts.map((host) => host.slug)).toEqual(['morph', 'deepinfra', 'open-inference', 'deepseek', 'no-cache', 'fireworks']);
+    expect(hosts.find((host) => host.slug === 'deepinfra')).toEqual({
+      slug: 'deepinfra',
+      name: 'DeepInfra',
+      headquarters: 'US',
+      datacenters: [],
+      // The cheaper of its two endpoints; the flex tier is not a choice.
+      rates: { input: 0.098, output: 0.294, cacheRead: 0.0029 },
+      quantizations: ['fp8', 'bf16'],
+      available: true,
+    });
+    expect(hosts.find((host) => host.slug === 'deepseek')).toMatchObject({ headquarters: 'CN', datacenters: ['CN'] });
+    // A host that is down comes last, still to be chosen.
+    expect(hosts.at(-1)).toMatchObject({ slug: 'fireworks', available: false });
+
+    const routing = new OpenRouterRouting(async () => named, () => SATURDAY.getTime(), async () => {
+      throw new Error('offline');
+    });
+    // Without the provider list, the seats are unknown; the hosts are still there.
+    expect((await routing.hosts('deepseek/deepseek-v4.1-flash'))?.find((host) => host.slug === 'deepseek')?.headquarters).toBeNull();
+    expect(await routing.hosts('deepseek/deepseek-v4.1-flash:free')).toBeNull();
   });
 });
 

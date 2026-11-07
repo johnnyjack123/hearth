@@ -241,6 +241,17 @@ export interface ToolContentTable {
   createdAt: number;
 }
 
+/**
+ * Row of `openRouterPin`: the OpenRouter host a user pinned a model to.
+ */
+export interface OpenRouterPinTable {
+  userId: string;
+  modelId: string;
+  /** The provider's slug for `provider.order`. */
+  host: string;
+  updatedAt: number;
+}
+
 export interface DB {
   user: UserTable;
   providerCredential: ProviderCredentialTable;
@@ -258,4 +269,5 @@ export interface DB {
   costDay: CostDayTable;
   userLimit: UserLimitTable;
   toolContent: ToolContentTable;
+  openRouterPin: OpenRouterPinTable;
 }
