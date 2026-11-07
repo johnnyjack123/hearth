@@ -1,5 +1,5 @@
 import { DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
-import { AlignLeft, ArrowLeft, Brain, ChevronRight, Container, Settings, Telescope } from 'lucide-react';
+import { AlignLeft, ArrowLeft, Brain, ChevronRight, Container, Server, Settings, Telescope } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Popover, PopoverContent, PopoverTrigger, Tooltip } from '@/components/ui/menu.tsx';
@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { type EnvironmentOption, StatusDot, WorkspaceMark } from './environment.tsx';
+import type { HostOption } from './openrouter-host.tsx';
 
 /** The effort slider's stops: the provider's default first, then pi's levels. */
 const EFFORT_STOPS: readonly (EffortLevel | null)[] = [null, ...EFFORT_LEVELS];
@@ -28,22 +29,25 @@ export interface ChatOptionsProps {
   verbosity: Verbosity;
   /** Changes the answer length. */
   onVerbosityChange: (verbosity: Verbosity) => void;
+  /** The OpenRouter host of the chat's model; null for other providers. */
+  host: HostOption | null;
 }
 
 /**
  * The composer's settings behind one gear button: environment, research
- * mode, thinking effort and answer length. The button shows small marks for
- * what differs from the defaults, so the composer stays uncluttered without
- * hiding what is switched on.
+ * mode, thinking effort, answer length and the OpenRouter host. The button
+ * is highlighted when something differs from the defaults and names it in
+ * its label and tooltip, so the composer stays uncluttered without hiding
+ * what is switched on.
  *
  * @param props - See {@link ChatOptionsProps}.
  * @returns The button with its menu.
  */
-export function ChatOptions({ environment, research, effort, onEffortChange, verbosity, onVerbosityChange }: ChatOptionsProps) {
+export function ChatOptions({ environment, research, effort, onEffortChange, verbosity, onVerbosityChange, host }: ChatOptionsProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // A chosen environment has a page of its own inside the menu.
-  const [page, setPage] = useState<'main' | 'environment'>('main');
+  // A chosen environment and the hosts have a page of their own inside the menu.
+  const [page, setPage] = useState<'main' | 'environment' | 'host'>('main');
   const { link, online, workspace } = environment;
   const agent = link?.harness;
   const unsaved = workspace !== null && (workspace.commits > 0 || workspace.changes > 0);
@@ -53,6 +57,7 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
     ...(research?.on ? [t('chat.research')] : []),
     ...(effort !== null ? [t('chat.effort.label', { level: t(`chat.effort.levels.${effort}`) })] : []),
     ...(verbosity !== DEFAULT_VERBOSITY ? [t('chat.verbosity.label', { level: t(`chat.verbosity.levels.${verbosity}`) })] : []),
+    ...(host?.pinned ? [t('chat.host.label', { host: host.pinned })] : []),
   ];
   const label = active.length > 0 ? t('chat.options.labelActive', { active: active.join(', ') }) : t('chat.options.label');
   const close = () => setOpen(false);
@@ -79,19 +84,8 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
             )}
           >
             <Settings />
-            {/* On a phone the model name needs the room; the highlight says something is on. */}
-            <span className="flex items-center gap-1.5 max-sm:hidden">
-              {link ? (
-                <span className="flex items-center gap-1" data-option="environment">
-                  <Container aria-hidden="true" />
-                  <StatusDot online={online} />
-                </span>
-              ) : null}
-              {research?.on ? <Telescope aria-hidden="true" data-option="research" /> : null}
-              {effort !== null ? <Brain aria-hidden="true" data-option="effort" /> : null}
-              {verbosity !== DEFAULT_VERBOSITY ? <AlignLeft aria-hidden="true" data-option="verbosity" /> : null}
-            </span>
-            {/* Work missing from the folder stays visible everywhere. */}
+            {/* The highlight says something is on, label and tooltip say what; the
+                model name keeps the room. Work missing from the folder stays visible. */}
             {link && unsaved && workspace ? <WorkspaceMark workspace={workspace} /> : null}
           </Button>
         </PopoverTrigger>
@@ -102,13 +96,13 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
         side="top"
         className="flex max-h-(--radix-popover-content-available-height) w-[min(var(--spacing)*84,calc(100vw-var(--spacing)*8))] flex-col overflow-y-auto p-0"
       >
-        {page === 'environment' && link ? (
+        {(page === 'environment' && link) || (page === 'host' && host) ? (
           <div className="flex flex-col gap-2 p-3">
             <Button variant="ghost" size="sm" className="self-start text-muted-foreground" onClick={() => setPage('main')}>
               <ArrowLeft />
               {t('chat.options.back')}
             </Button>
-            {environment.details(close)}
+            {page === 'host' ? host?.details : environment.details(close)}
           </div>
         ) : (
           <div className="flex flex-col divide-y divide-border">
@@ -168,6 +162,23 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
               hint={t(`chat.verbosity.hints.${verbosity}`)}
               note={agent ? t('chat.verbosity.agentNote', { harness: agent }) : t('chat.verbosity.note')}
             />
+            {host ? (
+              <button
+                type="button"
+                onClick={() => setPage('host')}
+                className={cn(
+                  'flex w-full items-center gap-3 px-4 py-3 text-start transition-colors duration-(--duration-instant) ease-standard hover:bg-accent',
+                  'focus-visible:outline-none focus-visible:ring-(length:--focus-ring-width) focus-visible:ring-ring focus-visible:ring-inset',
+                )}
+              >
+                <Server className={cn('size-4 shrink-0', host.pinned ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-sm font-medium text-foreground">{t('chat.host.title')}</span>
+                  <span className="truncate text-xs text-muted-foreground">{host.pinned ?? t('chat.host.auto')}</span>
+                </span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
         )}
       </PopoverContent>

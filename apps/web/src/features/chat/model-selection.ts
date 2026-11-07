@@ -93,10 +93,9 @@ export function useModelSelection(initial: { credentialId: string | null; modelI
     setSelection(next);
   }, []);
 
+  const group = models.data?.find((entry) => entry.credentialId === selection?.credentialId);
   // Whether the chosen model reads images, as the catalog says; undefined when unknown.
-  const images = models.data
-    ?.find((group) => group.credentialId === selection?.credentialId)
-    ?.models.find((model) => model.id === selection?.modelId)?.images;
+  const images = group?.models.find((model) => model.id === selection?.modelId)?.images;
 
-  return { selection, select, models, images, recent: recentModels(conversations.data, models.data) };
+  return { selection, select, models, images, kind: group?.kind, recent: recentModels(conversations.data, models.data) };
 }

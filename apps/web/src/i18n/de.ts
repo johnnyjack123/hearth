@@ -111,6 +111,23 @@ export const de = {
       noEnvironment: 'Keine, normaler Chat',
       back: 'Zurück',
     },
+    host: {
+      title: 'Anbieter bei OpenRouter',
+      label: 'Anbieter: {host}',
+      intro:
+        'OpenRouter lässt das Modell bei einem von mehreren Anbietern laufen. Ein fester Anbieter gilt für dieses Modell in all deinen Chats und Agents. Fällt er aus, scheitert die Anfrage, statt woanders hinzugehen.',
+      auto: 'Automatisch: der günstigste',
+      autoHint: 'Ein Chat bleibt beim Anbieter seines letzten Aufrufs, solange dessen Prompt-Cache warm ist.',
+      seat: 'Sitz: {country}',
+      seatUnknown: 'Sitz unbekannt',
+      datacenters: 'Rechenzentren: {countries}',
+      prices: 'Je 1 Mio. Tokens: Eingabe {input} · Cache {cacheRead} · Ausgabe {output}',
+      down: 'gestört',
+      gone: 'Nicht mehr gelistet: Anfragen scheitern, bis du einen anderen wählst.',
+      loading: 'Lade die Anbieter …',
+      unavailable: 'Die Anbieterliste von OpenRouter ist gerade nicht erreichbar.',
+      failed: 'Die Wahl wurde nicht gespeichert. Bitte noch einmal versuchen.',
+    },
     verbosity: {
       title: 'Antwortlänge',
       label: 'Antwortlänge: {level}',

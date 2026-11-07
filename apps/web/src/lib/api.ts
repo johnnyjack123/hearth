@@ -10,6 +10,7 @@ import type {
   CompactRequestBody,
   ConversationDetail,
   CostStatus,
+  OpenRouterHosts,
   ConversationSummary,
   CreateAppTemplateInput,
   CreateConversationInput,
@@ -145,6 +146,10 @@ export const api = {
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
+  },
+  openrouter: {
+    hosts: (model: string) => request<OpenRouterHosts>('GET', `/openrouter/hosts?model=${encodeURIComponent(model)}`),
+    pin: (model: string, host: string | null) => request<OpenRouterHosts>('PUT', '/openrouter/hosts', { model, host }),
   },
   costs: {
     get: () => request<CostStatus>('GET', '/costs'),

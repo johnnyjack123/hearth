@@ -53,7 +53,8 @@ import { compactionRange, shouldCompact, summarize } from '../compact.ts';
 import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
 import { agentCallCost, agentModelInfo, callUsage, catalogProvider, type HostRates, pricesAt, withHelpers } from '../pricing.ts';
-import { withProviderOrder } from '../openrouter.ts';
+import { cacheKey, cheapestProvider, pinnedProvider, withOpenRouter } from '../openrouter.ts';
+import { pinnedHost } from '../services/hosts.ts';
 import { costGuard } from '../services/costs.ts';
 import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
 import { loadHelpers } from '../helpers/load.ts';
@@ -594,12 +595,18 @@ export function conversationRoutes(deps: AppDeps) {
         previous.findLast((message) => message.metadata?.usage?.contextWindow)?.metadata?.usage?.contextWindow ?? pricing?.contextWindow;
       // Decided now and stored with the reply, so later requests start the same way.
       const compact = shouldCompact(previous, stored, settings.compact, contextWindow);
-      // OpenRouter: the cheapest hosts, the chat's own host first (its cache).
-      const routing = row.kind === 'openrouter' && settings.openRouterCheapest ? deps.openRouter : undefined;
-      const hosts: ChatHosts | undefined = routing && {
-        order: () => routing.order(body.modelId, { noFourBit: settings.openRouterNoFourBit }, conversation.id),
-        stick: (host) => routing.stick(body.modelId, conversation.id, host),
-      };
+      // OpenRouter: the host the user pinned the model to, else the cheapest
+      // hosts with the chat's own host first (its cache).
+      const openRouter = row.kind === 'openrouter';
+      const pinned = openRouter ? await pinnedHost(db, user.id, body.modelId) : null;
+      const routing = openRouter && settings.openRouterCheapest ? deps.openRouter : undefined;
+      const hosts: ChatHosts | undefined =
+        pinned !== null
+          ? { provider: async () => pinnedProvider(undefined, pinned), stick: () => undefined }
+          : routing && {
+              provider: async () => cheapestProvider(undefined, await routing.order(body.modelId, { noFourBit: settings.openRouterNoFourBit }, conversation.id)),
+              stick: (host) => routing.stick(body.modelId, conversation.id, host),
+            };
       return streamChat({
         db,
         conversationId: conversation.id,
@@ -617,7 +624,10 @@ export function conversationRoutes(deps: AppDeps) {
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
         assess: body.assess === true,
-        effort: withProviderOrder(effortOptions(row.kind, row.baseUrl, body.effort), (await hosts?.order()) ?? null),
+        effort: withOpenRouter(effortOptions(row.kind, row.baseUrl, body.effort), {
+          provider: await hosts?.provider(),
+          ...(openRouter ? { cacheKey: cacheKey(conversation.id) } : {}),
+        }),
         hosts,
         compaction: compact ? { keepRecentTokens: settings.compact.keepRecentTokens } : null,
         hostRates: await hostRatesFor(row, body.modelId),

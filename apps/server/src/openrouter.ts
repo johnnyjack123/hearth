@@ -1,15 +1,20 @@
 /**
  * OpenRouter specifics shared by ordinary chats and the pass-through for
- * agents: each request goes to the host that is cheapest right now, and
- * what OpenRouter billed is read back from its answer.
+ * agents: each request goes to the host the user pinned or else the one
+ * that is cheapest right now, and what OpenRouter billed is read back from
+ * its answer.
  */
-import type { TokenRates } from '@harness/shared';
+import { createHash } from 'node:crypto';
+import type { OpenRouterHost, TokenRates } from '@harness/shared';
 import type { JSONValue } from 'ai';
 import type { EffortOptions } from './effort.ts';
 import type { BilledCost } from './pricing.ts';
 
 /** Endpoint lists stay this long; prices and discounts change rarely. */
 const ENDPOINTS_TTL_MS = 10 * 60_000;
+
+/** The list of providers (where they sit) stays a day; it rarely changes. */
+const PROVIDERS_TTL_MS = 24 * 60 * 60_000;
 
 /** After a failed fetch, the next try waits this long. */
 const RETRY_MS = 60_000;
@@ -44,6 +49,22 @@ const FOUR_BIT = new Set(['fp4', 'mxfp4', 'nvfp4', 'int4']);
 
 /** Model ids whose endpoints can be listed; variants (`:free`, `:nitro`) route by their own rules. */
 const ROUTABLE_MODEL = /^[a-z0-9][\w.-]*\/[\w.-]+$/i;
+
+/** Country codes as OpenRouter's provider list gives them. */
+const COUNTRY = /^[A-Z]{2}$/;
+
+/** Routing fields of a request's `provider` that a pinned host replaces. */
+const ROUTING_FIELDS = ['order', 'only', 'ignore', 'sort', 'allow_fallbacks'];
+
+/**
+ * Whether OpenRouter lists hosts for a model id, so the user can pin one.
+ *
+ * @param modelId - OpenRouter's model id.
+ * @returns True for plain ids without a variant.
+ */
+export function routableModel(modelId: string): boolean {
+  return ROUTABLE_MODEL.test(modelId);
+}
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -206,16 +227,88 @@ export function hostRates(raw: unknown, host: string, at: Date): TokenRates | nu
       bestScore = score;
     }
   }
-  if (!best) {
-    return null;
-  }
-  // Per token in the list, per million tokens everywhere else.
+  return best ? perMillion(best) : null;
+}
+
+/** Per token in the list, per million tokens everywhere else. */
+function perMillion(prices: { prompt: number; completion: number; cacheRead?: number }): TokenRates {
   const million = (value: number) => Math.round(value * 1e6 * 1e9) / 1e9;
   return {
-    input: million(best.prompt),
-    output: million(best.completion),
-    ...(best.cacheRead !== undefined ? { cacheRead: million(best.cacheRead) } : {}),
+    input: million(prices.prompt),
+    output: million(prices.completion),
+    ...(prices.cacheRead !== undefined ? { cacheRead: million(prices.cacheRead) } : {}),
   };
+}
+
+/**
+ * The hosts of a model for the user to pick from, one per provider: its
+ * cheapest endpoint's prices now, its quantizations, and where the company
+ * sits and runs its data centers. Hosts that are down or failed often in
+ * the last half hour come last.
+ *
+ * @param raw - OpenRouter's answer of `/models/<id>/endpoints`.
+ * @param providers - OpenRouter's answer of `/providers`, or null.
+ * @param at - The moment the prices are for.
+ * @returns The hosts, cheapest first.
+ */
+export function hostChoices(raw: unknown, providers: unknown, at: Date): OpenRouterHost[] {
+  const endpoints = (raw as { data?: { endpoints?: unknown } } | null)?.data?.endpoints;
+  if (!Array.isArray(endpoints)) {
+    return [];
+  }
+  const companies = new Map<string, { headquarters?: unknown; datacenters?: unknown }>();
+  const listed = (providers as { data?: unknown } | null)?.data;
+  for (const entry of Array.isArray(listed) ? listed : []) {
+    if (entry && typeof entry === 'object' && typeof (entry as { slug?: unknown }).slug === 'string') {
+      companies.set((entry as { slug: string }).slug, entry as { headquarters?: unknown; datacenters?: unknown });
+    }
+  }
+  const hosts = new Map<string, { host: OpenRouterHost; score: number; index: number }>();
+  endpoints.forEach((entry: RawEndpoint, index) => {
+    if (!entry || typeof entry !== 'object' || typeof entry.tag !== 'string' || !entry.tag || isFlex(entry)) {
+      return;
+    }
+    const slug = hostSlug(entry.tag);
+    const prices = endpointPrices(entry, at);
+    const score = prices ? MIX.input * prices.prompt + MIX.cacheRead * (prices.cacheRead ?? prices.prompt) + MIX.output * prices.completion : Infinity;
+    const up = !(typeof entry.status === 'number' && entry.status < 0) && !(typeof entry.uptime_last_30m === 'number' && entry.uptime_last_30m < 80);
+    const quantization = typeof entry.quantization === 'string' && entry.quantization !== 'unknown' ? entry.quantization : null;
+    const known = hosts.get(slug);
+    if (known) {
+      known.host.available ||= up;
+      if (quantization && !known.host.quantizations.includes(quantization)) {
+        known.host.quantizations.push(quantization);
+      }
+      if (prices && score < known.score) {
+        known.host.rates = perMillion(prices);
+        known.score = score;
+      }
+      return;
+    }
+    const company = companies.get(slug);
+    const datacenters = Array.isArray(company?.datacenters) ? company.datacenters.filter((code): code is string => typeof code === 'string' && COUNTRY.test(code)) : [];
+    hosts.set(slug, {
+      host: {
+        slug,
+        name: typeof entry.provider_name === 'string' && entry.provider_name ? entry.provider_name.slice(0, 100) : slug,
+        headquarters: typeof company?.headquarters === 'string' && COUNTRY.test(company.headquarters) ? company.headquarters : null,
+        datacenters,
+        rates: prices ? perMillion(prices) : null,
+        quantizations: quantization ? [quantization] : [],
+        available: up,
+      },
+      score,
+      index,
+    });
+  });
+  return [...hosts.values()]
+    .sort((a, b) => Number(b.host.available) - Number(a.host.available) || a.score - b.score || a.index - b.index)
+    .map((entry) => entry.host);
+}
+
+/** The provider of an endpoint tag (`deepinfra/fp8` → `deepinfra`), as `provider.order` takes it. */
+function hostSlug(tag: string): string {
+  return tag.split('/')[0] ?? tag;
 }
 
 /** Loads OpenRouter's endpoint list of a model; tests pass a stand-in. */
@@ -225,6 +318,17 @@ const fetchEndpoints: EndpointFetcher = async (modelId) => {
   const response = await fetch(`https://openrouter.ai/api/v1/models/${modelId}/endpoints`, {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+};
+
+/** Loads OpenRouter's list of providers; tests pass a stand-in. */
+export type ProviderFetcher = () => Promise<unknown>;
+
+const fetchProviders: ProviderFetcher = async () => {
+  const response = await fetch('https://openrouter.ai/api/v1/providers', { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -247,15 +351,34 @@ export class OpenRouterRouting {
   readonly #failed = new Map<string, number>();
   readonly #loading = new Map<string, Promise<unknown>>();
   readonly #hosts = new Map<string, { host: string; at: number }>();
+  #providers: { loadedAt: number; raw: unknown } | null = null;
+  #providersFailedAt = -RETRY_MS;
+  #providersLoading: Promise<unknown> | null = null;
 
   /**
    * @param load - Loads an endpoint list.
    * @param now - The clock, for tests.
+   * @param loadProviders - Loads the list of providers.
    */
   constructor(
     private readonly load: EndpointFetcher = fetchEndpoints,
     private readonly now: () => number = Date.now,
+    private readonly loadProviders: ProviderFetcher = fetchProviders,
   ) {}
+
+  /**
+   * The hosts of a model for the user to pick from, see {@link hostChoices}.
+   *
+   * @param modelId - OpenRouter's model id.
+   * @returns The hosts, or null if the model has no list or it could not be loaded.
+   */
+  async hosts(modelId: string): Promise<OpenRouterHost[] | null> {
+    if (!ROUTABLE_MODEL.test(modelId)) {
+      return null;
+    }
+    const [raw, providers] = await Promise.all([this.#list(modelId), this.#providerList()]);
+    return raw === null ? null : hostChoices(raw, providers, new Date(this.now()));
+  }
 
   /**
    * The cheapest hosts for a model right now, the conversation's host first
@@ -356,6 +479,31 @@ export class OpenRouterRouting {
     }
     return loading;
   }
+
+  /** Where the providers sit; only for showing, so a failure means "unknown". */
+  async #providerList(): Promise<unknown> {
+    const now = this.now();
+    if (this.#providers && now - this.#providers.loadedAt < PROVIDERS_TTL_MS) {
+      return this.#providers.raw;
+    }
+    if (now - this.#providersFailedAt < RETRY_MS) {
+      return this.#providers?.raw ?? null;
+    }
+    this.#providersLoading ??= this.loadProviders()
+      .then((raw) => {
+        this.#providers = { loadedAt: this.now(), raw };
+        return raw;
+      })
+      .catch((error: unknown) => {
+        this.#providersFailedAt = this.now();
+        console.warn('[openrouter] providers not loaded:', error instanceof Error ? error.message : error);
+        return this.#providers?.raw ?? null;
+      })
+      .finally(() => {
+        this.#providersLoading = null;
+      });
+    return this.#providersLoading;
+  }
 }
 
 /**
@@ -379,22 +527,61 @@ export function cheapestProvider(existing: unknown, order: string[] | null): Rec
 }
 
 /**
- * Call options of an ordinary chat with the cheapest hosts first; agents'
- * requests get them in the pass-through.
+ * The `provider` field of a request whose model the user pinned to one
+ * host: that host only, never a fallback, because the user chose where the
+ * conversation goes (not to a company in another country, say). A failing
+ * host fails the request. The request's own routing gives way, so an agent
+ * cannot route around the choice; other fields (`data_collection` …) stay.
+ *
+ * @param existing - The request's own `provider` field.
+ * @param host - The provider's slug, e.g. `deepinfra`.
+ * @returns The field to send.
+ */
+export function pinnedProvider(existing: unknown, host: string): Record<string, unknown> {
+  const current = existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...(existing as Record<string, unknown>) } : {};
+  for (const field of ROUTING_FIELDS) {
+    delete current[field];
+  }
+  return { ...current, order: [host], allow_fallbacks: false };
+}
+
+/**
+ * The `prompt_cache_key` of a conversation. OpenAI-style hosts use it to
+ * send the calls of a conversation to the server that holds its prompt
+ * cache; DeepInfra documents it. Whether OpenRouter passes it on to the
+ * host is not documented (6.11.2026); the cache share of the calls tells.
+ * Hashed, so no ids of this server leave it.
+ *
+ * @param conversation - Names the conversation: a chat id, or an agent's key.
+ * @returns The key.
+ */
+export function cacheKey(conversation: string): string {
+  return `harness-${createHash('sha256').update(conversation).digest('hex').slice(0, 32)}`;
+}
+
+/**
+ * Call options of an ordinary chat with OpenRouter's routing and cache key
+ * in the request body; agents' requests get both in the pass-through.
  *
  * @param options - The call's options so far (thinking effort).
- * @param order - Hosts from {@link OpenRouterRouting.order}, if any.
- * @returns The options with `provider` in OpenRouter's request body.
+ * @param request - `provider` from {@link pinnedProvider} or {@link cheapestProvider}, and the cache key.
+ * @returns The options with the fields in `providerOptions.openrouter`.
  */
-export function withProviderOrder(options: EffortOptions, order: string[] | null | undefined): EffortOptions {
-  const openrouter = options.providerOptions?.openrouter ?? {};
-  const provider = cheapestProvider(openrouter.provider, order ?? null);
-  if (!provider) {
+export function withOpenRouter(options: EffortOptions, request: { provider?: Record<string, unknown>; cacheKey?: string }): EffortOptions {
+  if (!request.provider && !request.cacheKey) {
     return options;
   }
+  const openrouter = options.providerOptions?.openrouter ?? {};
   return {
     ...options,
-    providerOptions: { ...options.providerOptions, openrouter: { ...openrouter, provider: provider as JSONValue } },
+    providerOptions: {
+      ...options.providerOptions,
+      openrouter: {
+        ...openrouter,
+        ...(request.provider ? { provider: request.provider as JSONValue } : {}),
+        ...(request.cacheKey ? { prompt_cache_key: request.cacheKey } : {}),
+      },
+    },
   };
 }
 

@@ -1,4 +1,4 @@
-import type { EffortLevel } from '@harness/shared';
+import type { EffortLevel, OpenRouterHosts } from '@harness/shared';
 import { Bell, Copy, Inbox, Moon, Plus, Settings, Sun, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
@@ -30,6 +30,7 @@ import { SegmentedControl, Tabs, TabsContent, TabsList, TabsTrigger } from '@/co
 import { type Density, usePreferences } from '@/lib/preferences.tsx';
 import { ChatOptions } from '@/features/chat/chat-options.tsx';
 import type { EnvironmentOption } from '@/features/chat/environment.tsx';
+import { HostList } from '@/features/chat/openrouter-host.tsx';
 
 const COLOR_PAIRS: [string, string | null][] = [
   ['background', 'foreground'],
@@ -53,6 +54,33 @@ const COLOR_PAIRS: [string, string | null][] = [
 ];
 
 // The options without a computer: the environment row only opens nothing here.
+/** OpenRouter's hosts of a model as the chat options show them, without a server. */
+const DESIGN_HOSTS: OpenRouterHosts = {
+  pinned: 'deepinfra',
+  hosts: [
+    {
+      slug: 'deepinfra',
+      name: 'DeepInfra',
+      headquarters: 'US',
+      datacenters: [],
+      rates: { input: 0.098, cacheRead: 0.0029, output: 0.294 },
+      quantizations: ['fp8'],
+      available: true,
+    },
+    {
+      slug: 'siliconflow',
+      name: 'SiliconFlow',
+      headquarters: 'SG',
+      datacenters: ['US'],
+      rates: { input: 0.1, cacheRead: 0.01, output: 0.4 },
+      quantizations: ['fp8'],
+      available: true,
+    },
+    { slug: 'deepseek', name: 'DeepSeek', headquarters: 'CN', datacenters: [], rates: { input: 0.15, cacheRead: 0.003, output: 0.6 }, quantizations: [], available: true },
+    { slug: 'novita', name: 'Novita', headquarters: null, datacenters: [], rates: { input: 0.2, output: 0.8 }, quantizations: ['bf16'], available: false },
+  ],
+};
+
 const DESIGN_ENVIRONMENT: EnvironmentOption = {
   link: null,
   online: undefined,
@@ -207,6 +235,10 @@ export function DesignPage() {
               onEffortChange={setEffort}
               verbosity="short"
               onVerbosityChange={() => undefined}
+              host={{
+                pinned: 'DeepInfra',
+                details: <HostList data={DESIGN_HOSTS} loading={false} busy={false} failed={false} onPick={() => undefined} />,
+              }}
             />
             <ChatOptions
               environment={DESIGN_ENVIRONMENT}
@@ -215,6 +247,7 @@ export function DesignPage() {
               onEffortChange={() => undefined}
               verbosity="medium"
               onVerbosityChange={() => undefined}
+              host={null}
             />
           </Row>
           <Row label="SegmentedControl">

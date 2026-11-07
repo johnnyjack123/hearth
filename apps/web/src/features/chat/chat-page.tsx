@@ -17,6 +17,7 @@ import { ChecklistPanel, currentChecklist, hiddenChecklists, hideChecklist } fro
 import { compactChat, getChat, resumeReply, stopReply, upsertMessage } from './chat-store.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ChatOptions } from './chat-options.tsx';
+import { useOpenRouterHost } from './openrouter-host.tsx';
 import { ContextMeter } from './context-meter.tsx';
 import { latestWorkspace, useChatEnvironment, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
@@ -75,7 +76,8 @@ function ChatSkeleton() {
 
 function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessage> }) {
   const t = useT();
-  const { selection, select, models, images, recent } = useModelSelection(conversation);
+  const { selection, select, models, images, kind, recent } = useModelSelection(conversation);
+  const host = useOpenRouterHost(kind === 'openrouter' ? (selection?.modelId ?? null) : null);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
   // Each chat keeps its own switch; the one used last is the default for
   // new chats.
@@ -214,6 +216,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
                   onEffortChange={setEffort}
                   verbosity={verbosity}
                   onVerbosityChange={setVerbosity}
+                  host={host}
                 />
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
               </>

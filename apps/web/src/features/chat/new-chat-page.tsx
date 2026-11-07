@@ -18,6 +18,7 @@ import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
 import { useModelSelection } from './model-selection.ts';
 import { ChatOptions } from './chat-options.tsx';
+import { useOpenRouterHost } from './openrouter-host.tsx';
 import { getChat } from './chat-store.ts';
 import { environmentFromSearch, useLinkOnline, useNewChatEnvironment } from './environment.tsx';
 
@@ -40,7 +41,8 @@ export function NewChatPage() {
   const navigate = useNavigate();
   const { data: session } = useSession();
   const providers = useProviders();
-  const { selection, select, models, images, recent } = useModelSelection(null);
+  const { selection, select, models, images, kind, recent } = useModelSelection(null);
+  const host = useOpenRouterHost(kind === 'openrouter' ? (selection?.modelId ?? null) : null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const {
@@ -185,6 +187,7 @@ export function NewChatPage() {
                       onEffortChange={setEffort}
                       verbosity={verbosity}
                       onVerbosityChange={setVerbosity}
+                      host={host}
                     />
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />
                   </>

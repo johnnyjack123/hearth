@@ -204,7 +204,7 @@ export async function createTestServer(
     // Documents need a converter; tests without one say so explicitly.
     converter: options.converter ?? null,
     // No endpoint lists unless a test brings some: tests never go online.
-    openRouter: options.openRouter ?? new OpenRouterRouting(async () => null),
+    openRouter: options.openRouter ?? new OpenRouterRouting(async () => null, Date.now, async () => null),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

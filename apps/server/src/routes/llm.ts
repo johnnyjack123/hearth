@@ -18,7 +18,8 @@ import { DEFAULT_SEARCH_ENDPOINTS, WebSearchError } from '../websearch/providers
 import { runSearch, searchModelText } from '../websearch/tool.ts';
 import { memoryText } from '../memory/tool.ts';
 import { clientBetas, providerSideTool } from '../llm-tools.ts';
-import { cheapestProvider, meterBill } from '../openrouter.ts';
+import { cacheKey, cheapestProvider, meterBill, pinnedProvider } from '../openrouter.ts';
+import { pinnedHost } from '../services/hosts.ts';
 import { costGuard } from '../services/costs.ts';
 import { addMemory, removeMemory } from '../services/memories.ts';
 import { assertEndpointAllowed } from './providers.ts';
@@ -344,8 +345,8 @@ export function llmRoutes(deps: AppDeps) {
           400,
         );
       }
-      // Chat requests to OpenRouter go to the cheapest hosts first.
-      const routed = text !== null && row.kind === 'openrouter' && path === 'chat/completions' ? await cheapest(text, request, device) : null;
+      // Chat requests to OpenRouter go to the pinned host or the cheapest first.
+      const routed = text !== null && row.kind === 'openrouter' && path === 'chat/completions' ? await route(text, request, device, owner.id) : null;
       const body = routed?.body ?? text;
 
       let upstream: Response;
@@ -390,15 +391,17 @@ export function llmRoutes(deps: AppDeps) {
     });
 
   /**
-   * An OpenRouter chat request with the cheapest hosts first, the host of
-   * the conversation's last call before them, unless the admin turned that
-   * off or the request routes itself.
+   * An OpenRouter chat request with the conversation's cache key and the
+   * host its owner pinned the model to. Without a pin, the cheapest hosts
+   * go first, the host of the conversation's last call before them, unless
+   * the admin turned that off or the request routes itself.
    */
-  async function cheapest(text: string, request: unknown, device: string): Promise<{ body: string; conversation?: { model: string; key: string } }> {
-    const settings = await getServerSettings(db);
-    if (!settings.openRouterCheapest) {
-      return { body: text };
-    }
+  async function route(
+    text: string,
+    request: unknown,
+    device: string,
+    owner: string,
+  ): Promise<{ body: string; conversation?: { model: string; key: string } }> {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       return { body: text };
     }
@@ -406,10 +409,20 @@ export function llmRoutes(deps: AppDeps) {
     if (typeof fields.model !== 'string') {
       return { body: text };
     }
-    const conversation = { model: fields.model, key: conversationKey(device, fields.messages) };
-    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit }, conversation.key)) ?? null;
+    const key = conversationKey(device, fields.messages);
+    const changes: Record<string, unknown> = fields.prompt_cache_key === undefined ? { prompt_cache_key: cacheKey(key) } : {};
+    const pinned = await pinnedHost(db, owner, fields.model);
+    if (pinned !== null) {
+      return { body: JSON.stringify({ ...fields, ...changes, provider: pinnedProvider(fields.provider, pinned) }) };
+    }
+    const settings = await getServerSettings(db);
+    if (!settings.openRouterCheapest) {
+      return { body: JSON.stringify({ ...fields, ...changes }) };
+    }
+    const conversation = { model: fields.model, key };
+    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit }, key)) ?? null;
     const provider = cheapestProvider(fields.provider, order);
-    return { body: provider ? JSON.stringify({ ...fields, provider }) : text, conversation };
+    return { body: JSON.stringify({ ...fields, ...changes, ...(provider ? { provider } : {}) }), conversation };
   }
 }
 

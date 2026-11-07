@@ -14,6 +14,7 @@ import { fileRoutes } from './routes/files.ts';
 import { llmRoutes } from './routes/llm.ts';
 import { costRoutes } from './routes/costs.ts';
 import { memoryRoutes } from './routes/memories.ts';
+import { openRouterRoutes } from './routes/openrouter.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
 import { OpenRouterRouting } from './openrouter.ts';
@@ -91,6 +92,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   api.route('/app-templates', appTemplateRoutes(deps));
   api.route('/memories', memoryRoutes(deps));
   api.route('/costs', costRoutes(deps));
+  api.route('/openrouter', openRouterRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
   app.route('/api', api);
 
