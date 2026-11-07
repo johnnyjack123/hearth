@@ -152,6 +152,38 @@ fn install(dir: &Path) -> Result<(), String> {
     install_into(dir, &PROGRAMS)
 }
 
+/// Programs of `names` that are not in `dir`. Windows Defender sometimes
+/// takes an unsigned program for malware (a guess of its machine learning,
+/// `…!ml`) and deletes it, often a minute after it was written; setup then
+/// cannot start, and the background service neither.
+fn missing<'a>(dir: &Path, names: &[&'a str]) -> Vec<&'a str> {
+    names
+        .iter()
+        .copied()
+        .filter(|name| !dir.join(name).is_file())
+        .collect()
+}
+
+fn quarantine_hint(names: &[&str]) -> String {
+    tr!(
+        "✗ {} fehlt nach der Installation. Meist hat Windows Defender die Datei für \
+         Schadsoftware gehalten und entfernt, ein Fehlalarm bei unsignierten Programmen \
+         (etwa „Trojan:Win32/Bearfoos.A!ml“).\n  Windows-Sicherheit → Viren- & \
+         Bedrohungsschutz → Schutzverlauf: den Eintrag öffnen, „Aktionen“ → \
+         „Wiederherstellen“. Danach dieses Programm erneut starten.",
+        "✗ {} is missing after the installation. Usually Windows Defender took it for \
+         malware and removed it, a false alarm with unsigned programs (e.g. \
+         “Trojan:Win32/Bearfoos.A!ml”).\n  Windows Security → Virus & threat protection \
+         → Protection history: open the entry, “Actions” → “Restore”. Then start this \
+         program again.",
+        names.join(", ")
+    )
+}
+
+fn program_names() -> Vec<&'static str> {
+    PROGRAMS.iter().map(|(name, _)| *name).collect()
+}
+
 fn wait_for_enter() {
     print!(
         "{}",
@@ -193,9 +225,19 @@ fn main() {
         "{}",
         tr!("✓ Programme in {}\n", "✓ Programs in {}\n", dir.display())
     );
+    let gone = missing(&dir, &program_names());
+    if !gone.is_empty() {
+        println!("{}", quarantine_hint(&gone));
+        wait_for_enter();
+        std::process::exit(1);
+    }
     let status = Command::new(dir.join("harness.exe")).arg("setup").status();
     let ok = status.is_ok_and(|s| s.success());
-    if !ok {
+    // Defender may strike only once setup started the programs.
+    let gone = missing(&dir, &program_names());
+    if !gone.is_empty() {
+        println!("\n{}", quarantine_hint(&gone));
+    } else if !ok {
         println!(
             "{}",
             tr(
@@ -207,12 +249,27 @@ fn main() {
         );
     }
     wait_for_enter();
-    std::process::exit(i32::from(!ok));
+    std::process::exit(i32::from(!ok || !gone.is_empty()));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_programs_that_vanished() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("harnessd.exe"), b"x").unwrap();
+        let names = ["harness.exe", "harnessd.exe", "harness-vmd.exe"];
+        assert_eq!(
+            missing(dir.path(), &names),
+            ["harness.exe", "harness-vmd.exe"]
+        );
+        let hint = quarantine_hint(&["harness.exe"]);
+        assert!(hint.contains("harness.exe fehlt"), "{hint}");
+        assert!(hint.contains("Schutzverlauf"), "{hint}");
+        assert!(!hint.contains("  Schadsoftware"), "{hint}");
+    }
 
     #[test]
     fn running_programs_move_aside_instead_of_failing() {
