@@ -113,6 +113,23 @@ export const en: Messages = {
       noEnvironment: 'None, ordinary chat',
       back: 'Back',
     },
+    host: {
+      title: 'Host at OpenRouter',
+      label: 'Host: {host}',
+      intro:
+        'OpenRouter runs the model at one of several hosts. A fixed host applies to this model in all your chats and agents. If it fails, the request fails instead of going elsewhere.',
+      auto: 'Automatic: the cheapest',
+      autoHint: "A chat stays with the host of its last call while that host's prompt cache is warm.",
+      seat: 'Based in {country}',
+      seatUnknown: 'Location unknown',
+      datacenters: 'Data centers: {countries}',
+      prices: 'Per 1M tokens: input {input} · cache {cacheRead} · output {output}',
+      down: 'unstable',
+      gone: 'No longer listed: requests fail until you pick another one.',
+      loading: 'Loading the hosts …',
+      unavailable: "OpenRouter's list of hosts cannot be reached right now.",
+      failed: 'The choice was not saved. Please try again.',
+    },
     verbosity: {
       title: 'Answer length',
       label: 'Answer length: {level}',

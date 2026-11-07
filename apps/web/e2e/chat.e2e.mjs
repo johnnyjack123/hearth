@@ -1437,6 +1437,21 @@ try {
       throw new Error(`marquee: shifted ${shifted}, title "${long}", short title "${short}"`);
     }
     await shot('30-marquee-dark');
+    // The hosts of an OpenRouter model to pin it to, with where each company sits.
+    await optionShown('Anbieter: DeepInfra', true);
+    await page.$eval(OPTIONS, (element) => element.scrollIntoView({ block: 'center' }));
+    await openOptions();
+    await page.click('[data-chat-options] ::-p-text(Anbieter bei OpenRouter)');
+    await page.waitForSelector('[data-chat-options] [role=radiogroup]', { timeout: 5_000 });
+    const hostChoices = await page.$$eval('[data-chat-options] [role=radio]', (radios) =>
+      radios.map((radio) => `${radio.getAttribute('aria-checked')} ${radio.textContent}`),
+    );
+    if (hostChoices.length !== 5 || !hostChoices[1].startsWith('true DeepInfra') || !hostChoices.some((choice) => choice.includes('China'))) {
+      throw new Error(`hosts: ${JSON.stringify(hostChoices)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('31c-hosts-dark');
+    await closeOptions();
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
     await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Und noch eine Frage'));
