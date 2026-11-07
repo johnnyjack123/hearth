@@ -14,6 +14,7 @@ import {
   linkConversationSchema,
   type TakeoverReport,
   updateConversationSchema,
+  updateConversationTagsSchema,
   updateLinkSchema,
   type Verbosity,
   WEB_FETCH_DECISIONS,
@@ -38,6 +39,7 @@ import {
   saveMessage,
   setAutosync,
   setLink,
+  setTags,
   updateConversation,
 } from '../services/conversations.ts';
 import { type CredentialRow, findCredential, resolveCredential } from '../services/credentials.ts';
@@ -329,6 +331,16 @@ export function conversationRoutes(deps: AppDeps) {
       const { title } = updateConversationSchema.parse(await c.req.json());
       await updateConversation(db, conversation.id, { title });
       return c.json({ ...conversation, title, updatedAt: Date.now() });
+    })
+    .put('/:id/tags', async (c) => {
+      const user = c.get('user');
+      const conversation = await findConversation(db, user.id, c.req.param('id'));
+      if (!conversation) {
+        throw notFound('Conversation');
+      }
+      const { tags } = updateConversationTagsSchema.parse(await c.req.json());
+      // Tagging files a chat; it does not count as activity.
+      return c.json({ ...conversation, tags: await setTags(db, user.id, conversation.id, tags) });
     })
     .delete('/:id', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));

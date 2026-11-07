@@ -252,6 +252,15 @@ export interface OpenRouterPinTable {
   updatedAt: number;
 }
 
+/**
+ * Row of `conversationTag`: a tag the user put on a chat.
+ */
+export interface ConversationTagTable {
+  conversationId: string;
+  name: string;
+  createdAt: number;
+}
+
 export interface DB {
   user: UserTable;
   providerCredential: ProviderCredentialTable;
@@ -270,4 +279,5 @@ export interface DB {
   userLimit: UserLimitTable;
   toolContent: ToolContentTable;
   openRouterPin: OpenRouterPinTable;
+  conversationTag: ConversationTagTable;
 }

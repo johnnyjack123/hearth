@@ -523,7 +523,29 @@ export interface ConversationSummary {
   createdAt: number;
   /** Time of the last message or rename, epoch milliseconds. */
   updatedAt: number;
+  /** The user's tags; each one is a folder at the top of the chat list. */
+  tags: string[];
 }
+
+/** Most tags on one chat. */
+export const MAX_CHAT_TAGS = 10;
+
+/** A tag's name: trimmed, without control characters. */
+const tagNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[^\p{Cc}\p{Cf}]+$/u);
+
+/** Sets the tags of a chat (`PUT /api/conversations/:id/tags`). */
+export const updateConversationTagsSchema = z.object({ tags: z.array(tagNameSchema).max(MAX_CHAT_TAGS) }).strict();
+
+/** Renames a tag on all of the user's chats (`PATCH /api/tags`); a name in use merges both. */
+export const renameTagSchema = z.object({ from: tagNameSchema, to: tagNameSchema }).strict();
+
+/** Takes a tag off all of the user's chats (`DELETE /api/tags`); the chats stay. */
+export const removeTagSchema = z.object({ name: tagNameSchema }).strict();
 
 /**
  * A conversation including its messages.

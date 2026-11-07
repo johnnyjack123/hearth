@@ -18,7 +18,7 @@ type ConversationRow = Selectable<ConversationTable> & {
   linkAutosync: number | null;
 };
 
-function toSummary(row: ConversationRow): ConversationSummary {
+function toSummary(row: ConversationRow, tags: string[] = []): ConversationSummary {
   const { linkDeviceId, linkDeviceName, linkProject, linkHarness, linkAutosync } = row;
   return {
     id: row.id,
@@ -37,7 +37,27 @@ function toSummary(row: ConversationRow): ConversationSummary {
         : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    tags,
   };
+}
+
+/** The tags of the given chats, in the order they were put on. */
+async function tagsOf(db: Kysely<DB>, conversationIds: string[]): Promise<Map<string, string[]>> {
+  const tags = new Map<string, string[]>();
+  if (conversationIds.length === 0) {
+    return tags;
+  }
+  const rows = await db
+    .selectFrom('conversationTag')
+    .select(['conversationId', 'name'])
+    .where('conversationId', 'in', conversationIds)
+    .orderBy('createdAt')
+    .orderBy('name')
+    .execute();
+  for (const row of rows) {
+    tags.set(row.conversationId, [...(tags.get(row.conversationId) ?? []), row.name]);
+  }
+  return tags;
 }
 
 function selectConversations(db: Kysely<DB>) {
@@ -56,20 +76,32 @@ function selectConversations(db: Kysely<DB>) {
 }
 
 /**
- * Lists a user's conversations, most recently active first.
+ * Lists a user's conversations, most recently active first: the latest
+ * `limit`, and every tagged one besides, so the folders of the chat list
+ * are complete.
  *
  * @param db - Open database.
  * @param userId - Owner.
- * @param limit - Maximum number of conversations.
+ * @param limit - Maximum number of untagged conversations.
  * @returns Conversation summaries.
  */
 export async function listConversations(db: Kysely<DB>, userId: string, limit = 200): Promise<ConversationSummary[]> {
-  const rows = await selectConversations(db)
+  const latest = await selectConversations(db)
     .where('conversation.userId', '=', userId)
     .orderBy('conversation.updatedAt', 'desc')
     .limit(limit)
     .execute();
-  return rows.map(toSummary);
+  const seen = new Set(latest.map((row) => row.id));
+  const tagged = await selectConversations(db)
+    .where('conversation.userId', '=', userId)
+    .where('conversation.id', 'in', db.selectFrom('conversationTag').select('conversationTag.conversationId'))
+    .execute();
+  const rows = [...latest, ...tagged.filter((row) => !seen.has(row.id))].sort((a, b) => b.updatedAt - a.updatedAt);
+  const tags = await tagsOf(
+    db,
+    rows.map((row) => row.id),
+  );
+  return rows.map((row) => toSummary(row, tags.get(row.id)));
 }
 
 /**
@@ -89,7 +121,116 @@ export async function findConversation(
     .where('conversation.id', '=', id)
     .where('conversation.userId', '=', userId)
     .executeTakeFirst();
-  return row ? toSummary(row) : undefined;
+  return row ? toSummary(row, (await tagsOf(db, [row.id])).get(row.id)) : undefined;
+}
+
+/**
+ * Sets the tags of a chat. A name that differs from one of the user's tags
+ * only in case takes that tag's spelling, so "arbeit" joins the folder
+ * "Arbeit".
+ *
+ * @param db - Open database.
+ * @param userId - Owner of the chat.
+ * @param conversationId - Conversation, already checked for ownership.
+ * @param names - The tags, trimmed.
+ * @returns The tags as stored.
+ */
+export async function setTags(db: Kysely<DB>, userId: string, conversationId: string, names: string[]): Promise<string[]> {
+  const known = new Map((await userTags(db, userId)).map((name) => [name.toLowerCase(), name]));
+  const tags: string[] = [];
+  for (const name of names) {
+    const spelled = known.get(name.toLowerCase()) ?? name;
+    if (!tags.some((tag) => tag.toLowerCase() === spelled.toLowerCase())) {
+      tags.push(spelled);
+    }
+  }
+  const now = Date.now();
+  await db.transaction().execute(async (trx) => {
+    const before = await trx.selectFrom('conversationTag').select(['name', 'createdAt']).where('conversationId', '=', conversationId).execute();
+    await trx.deleteFrom('conversationTag').where('conversationId', '=', conversationId).execute();
+    if (tags.length > 0) {
+      // Tags already on the chat keep their place.
+      const since = new Map(before.map((row) => [row.name, row.createdAt]));
+      await trx
+        .insertInto('conversationTag')
+        .values(tags.map((name, index) => ({ conversationId, name, createdAt: since.get(name) ?? now + index })))
+        .execute();
+    }
+  });
+  return (await tagsOf(db, [conversationId])).get(conversationId) ?? [];
+}
+
+/** The distinct tags of a user's chats. */
+async function userTags(db: Kysely<DB>, userId: string): Promise<string[]> {
+  const rows = await db
+    .selectFrom('conversationTag')
+    .innerJoin('conversation', 'conversation.id', 'conversationTag.conversationId')
+    .select('conversationTag.name')
+    .distinct()
+    .where('conversation.userId', '=', userId)
+    .execute();
+  return rows.map((row) => row.name);
+}
+
+/** The user's chats with a tag, compared without case. */
+async function chatsTagged(db: Kysely<DB>, userId: string, name: string): Promise<{ conversationId: string; name: string }[]> {
+  const rows = await db
+    .selectFrom('conversationTag')
+    .innerJoin('conversation', 'conversation.id', 'conversationTag.conversationId')
+    .select(['conversationTag.conversationId', 'conversationTag.name'])
+    .where('conversation.userId', '=', userId)
+    .execute();
+  return rows.filter((row) => row.name.toLowerCase() === name.toLowerCase());
+}
+
+/**
+ * Renames a tag on all of a user's chats. Chats that carry both names keep
+ * one; renaming to a tag in use merges the two folders.
+ *
+ * @param db - Open database.
+ * @param userId - Owner.
+ * @param from - The tag now.
+ * @param to - Its new name.
+ * @returns How many chats carry the tag.
+ */
+export async function renameTag(db: Kysely<DB>, userId: string, from: string, to: string): Promise<number> {
+  const renamed = await chatsTagged(db, userId, from);
+  if (renamed.length === 0) {
+    return 0;
+  }
+  const target = (await userTags(db, userId)).find((name) => name.toLowerCase() === to.toLowerCase() && name.toLowerCase() !== from.toLowerCase()) ?? to;
+  const already = new Set((await chatsTagged(db, userId, target)).map((row) => row.conversationId));
+  await db.transaction().execute(async (trx) => {
+    for (const row of renamed) {
+      if (already.has(row.conversationId) && row.name !== target) {
+        await trx.deleteFrom('conversationTag').where('conversationId', '=', row.conversationId).where('name', '=', row.name).execute();
+      } else {
+        await trx
+          .updateTable('conversationTag')
+          .set({ name: target })
+          .where('conversationId', '=', row.conversationId)
+          .where('name', '=', row.name)
+          .execute();
+      }
+    }
+  });
+  return new Set([...renamed.map((row) => row.conversationId), ...already]).size;
+}
+
+/**
+ * Takes a tag off all of a user's chats; the chats stay.
+ *
+ * @param db - Open database.
+ * @param userId - Owner.
+ * @param name - The tag.
+ * @returns How many chats carried it.
+ */
+export async function removeTag(db: Kysely<DB>, userId: string, name: string): Promise<number> {
+  const rows = await chatsTagged(db, userId, name);
+  for (const row of rows) {
+    await db.deleteFrom('conversationTag').where('conversationId', '=', row.conversationId).where('name', '=', row.name).execute();
+  }
+  return rows.length;
 }
 
 /**

@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "harness-cli"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "clap",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "harness-core"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "harness-gateway",
  "keyring",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "harness-setup"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "harness-vmd"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "harness-core",
  "serde",
