@@ -343,6 +343,21 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('openRouterPin').execute();
     },
   },
+  // Tags on chats; each tag is a folder in the chat list.
+  '0018_conversation_tags': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('conversationTag')
+        .addColumn('conversationId', 'text', (col) => col.notNull().references('conversation.id').onDelete('cascade'))
+        .addColumn('name', 'text', (col) => col.notNull())
+        .addColumn('createdAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('conversationTag_pk', ['conversationId', 'name'])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('conversationTag').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code
