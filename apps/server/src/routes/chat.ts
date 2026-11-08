@@ -1,7 +1,9 @@
 import {
   CALCULATOR_TOOL,
+  DEFAULT_TONE,
   DEFAULT_VERBOSITY,
   FORGET_TOOL,
+  type Tone,
   type Verbosity,
   type MemoryToolOutput,
   REMEMBER_TOOL,
@@ -110,6 +112,35 @@ const VERBOSITY_INSTRUCTIONS = [
   '"detailed" means a thorough answer with background, reasoning, examples and caveats; "medium" goes back to the default.',
   'Code, and content the user asked for in full (a letter, a whole file), is never cut short.',
 ].join(' ');
+
+/**
+ * The tone the user picks per chat. As with the answer length, only its name
+ * travels in the notes, so the text never changes during a chat; `neutral`
+ * needs no note. "scientific" is the user's wish of 8.11.: nothing made up,
+ * research where it can, and an own guess only when it says so. Research
+ * mode is mentioned only where it exists, like in its own instructions.
+ *
+ * @param research - Whether the server has a search provider, so chats have research mode.
+ * @returns The instructions.
+ */
+function toneInstructions(research: boolean): string {
+  return [
+    'Tone: unless a note sets one, write clearly and matter-of-factly, friendly without being chatty.',
+    'A note can set it: "scientific" means precise and sober, with technical terms where they fit, separating established knowledge, evidence and speculation.',
+    'In that tone never invent facts, figures, quotes or sources.',
+    research
+      ? 'While research mode is on, check what you are not sure of with the web tools instead of answering from memory. ' +
+        'When you cannot verify something (research mode is off, or nothing reliable came up), say plainly that you do not know or are not sure; ' +
+        'you may add your own assessment, but label it explicitly as your own guess. If research mode is off and the question needs facts you cannot check, ' +
+        'say that research mode would let you look them up.'
+      : 'When you cannot verify something, say plainly that you do not know or are not sure; you may add your own assessment, but label it explicitly as your own guess.',
+    '"formal" means a polite, formal register without slang, jokes or emojis, using the formal address where the language has one (German "Sie").',
+    '"friendly" means warm, personal and encouraging, with the informal address (German "du") unless the user writes formally.',
+    '"relaxed" means casual and conversational, like talking to a friend: short sentences, light humor and an occasional emoji are fine, informal address.',
+    '"critical" means candid: question assumptions, point out weaknesses, risks and counterarguments, say clearly when something is a bad idea, no flattery; stay fair and constructive.',
+    '"neutral" goes back to the default. The tone never changes the facts or the answer length.',
+  ].join(' ');
+}
 
 /**
  * Research mode: switched on and off by the user during a chat, announced
@@ -517,19 +548,24 @@ export interface ChatHosts {
 /**
  * The note for a new user message: today's date and whether research mode
  * is on, each only if it differs from the last note of the chat (or the
- * chat starts), and the answer length. The note is stored with the message,
- * so later requests send exactly the same text.
+ * chat starts), the answer length and the tone. The note is stored with the
+ * message, so later requests send exactly the same text.
  *
- * A length other than medium goes with every message: models drift back to
- * their habit when the setting lies many turns behind.
+ * A length other than medium, and a tone other than neutral, go with every
+ * message: models drift back to their habit when the setting lies many
+ * turns behind.
  *
  * @param previous - The conversation before the message.
- * @param state - Date (YYYY-MM-DD), research mode and answer length now;
- *   research is null when no search provider is set up and the mode does
- *   not exist.
+ * @param state - Date (YYYY-MM-DD), research mode, answer length and tone
+ *   now; research is null when no search provider is set up and the mode
+ *   does not exist.
  * @returns The note, or null if nothing changed.
  */
-export function chatNote(previous: ChatMessage[], state: { date: string; research: boolean | null; verbosity: Verbosity }): string | null {
+export function chatNote(
+  previous: ChatMessage[],
+  state: { date: string; research: boolean | null; verbosity: Verbosity; tone?: Tone },
+): string | null {
+  const tone = state.tone ?? DEFAULT_TONE;
   const last = previous.findLast((message) => message.role === 'user' && message.metadata?.date !== undefined)?.metadata;
   const parts: string[] = [];
   if (last?.date !== state.date) {
@@ -540,6 +576,9 @@ export function chatNote(previous: ChatMessage[], state: { date: string; researc
   }
   if (state.verbosity !== DEFAULT_VERBOSITY || (last !== undefined && (last.verbosity ?? DEFAULT_VERBOSITY) !== state.verbosity)) {
     parts.push(`Answer length: ${state.verbosity}.`);
+  }
+  if (tone !== DEFAULT_TONE || (last !== undefined && (last.tone ?? DEFAULT_TONE) !== tone)) {
+    parts.push(`Tone: ${tone}.`);
   }
   return parts.length > 0 ? `[LLM Harness: ${parts.join(' ')}]` : null;
 }
@@ -624,6 +663,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     INSTRUCTIONS,
     NOTE_INSTRUCTIONS,
     VERBOSITY_INSTRUCTIONS,
+    toneInstructions(search !== null),
     ...(webFetch ? [WEB_FETCH_INSTRUCTIONS] : []),
     ...(search ? [researchInstructions(webFetch !== null)] : []),
     ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),

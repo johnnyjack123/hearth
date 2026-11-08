@@ -127,6 +127,18 @@ export const VERBOSITY_LEVELS = ['short', 'medium', 'detailed'] as const;
 /** See {@link VERBOSITY_LEVELS}. */
 export type Verbosity = (typeof VERBOSITY_LEVELS)[number];
 
+/**
+ * How a chat sounds. Like the answer length, the model learns it from a note
+ * in front of the user's message; `neutral` is what it does without one.
+ */
+export const TONES = ['neutral', 'scientific', 'formal', 'friendly', 'relaxed', 'critical'] as const;
+
+/** See {@link TONES}. */
+export type Tone = (typeof TONES)[number];
+
+/** The tone a chat has until the user picks another. */
+export const DEFAULT_TONE: Tone = 'neutral';
+
 /** The length a chat answers with until the user picks another. */
 export const DEFAULT_VERBOSITY: Verbosity = 'medium';
 
@@ -353,6 +365,8 @@ export interface MessageMetadata {
    * before 6.11.2026, which count as {@link DEFAULT_VERBOSITY}.
    */
   verbosity?: Verbosity;
+  /** Tone a user message was sent with; missing for {@link DEFAULT_TONE}. */
+  tone?: Tone;
   /** Date (YYYY-MM-DD) a user message of an ordinary chat was sent on, for the notes. */
   date?: string;
   /**
@@ -456,6 +470,19 @@ export interface OpenRouterHosts {
   pinned: string | null;
   /** The hosts, cheapest first; null if OpenRouter's list is not available. */
   hosts: OpenRouterHost[] | null;
+}
+
+/**
+ * Which of a model's hosts the user's OpenRouter account may use: what the
+ * account's provider settings, data policy and guardrails leave.
+ */
+export interface OpenRouterHostAccess {
+  /** Slugs the account rules out. */
+  blocked: string[];
+  /** Slugs it may use. */
+  allowed: string[];
+  /** False when nothing could be checked (no list, no key); then nothing is hidden. */
+  checked: boolean;
 }
 
 /** Pins a model to one OpenRouter host, or with null lets it go to the cheapest. */
@@ -605,6 +632,8 @@ export const chatRequestSchema = z.object({
   effort: z.enum(EFFORT_LEVELS).optional(),
   /** Answer length; missing for {@link DEFAULT_VERBOSITY}. */
   verbosity: z.enum(VERBOSITY_LEVELS).optional(),
+  /** Tone; missing for {@link DEFAULT_TONE}. */
+  tone: z.enum(TONES).optional(),
   /** Jev judges prompt injection warnings right away (needs an OpenRouter key). */
   assess: z.boolean().optional(),
 });

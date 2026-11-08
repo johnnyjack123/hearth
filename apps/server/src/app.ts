@@ -21,6 +21,7 @@ import { tagRoutes } from './routes/tags.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
 import { OpenRouterRouting } from './openrouter.ts';
+import { HostAccess } from './openrouter-access.ts';
 import { SERVER_COMMIT, SERVER_VERSION } from './version.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
@@ -44,7 +45,7 @@ export interface CreateAppOptions {
  */
 export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   // One routing for chats and the agents' pass-through, so both share its lists.
-  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting() };
+  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting(), hostAccess: given.hostAccess ?? new HostAccess() };
   const app = new Hono<AppEnv>();
   app.onError(handleError);
 

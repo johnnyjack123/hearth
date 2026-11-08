@@ -346,7 +346,7 @@ export function llmRoutes(deps: AppDeps) {
         );
       }
       // Chat requests to OpenRouter go to the pinned host or the cheapest first.
-      const routed = text !== null && row.kind === 'openrouter' && path === 'chat/completions' ? await route(text, request, device, owner.id) : null;
+      const routed = text !== null && row.kind === 'openrouter' && path === 'chat/completions' ? await route(text, request, device, owner.id, row.id) : null;
       const body = routed?.body ?? text;
 
       let upstream: Response;
@@ -401,6 +401,7 @@ export function llmRoutes(deps: AppDeps) {
     request: unknown,
     device: string,
     owner: string,
+    credentialId: string,
   ): Promise<{ body: string; conversation?: { model: string; key: string } }> {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       return { body: text };
@@ -420,7 +421,8 @@ export function llmRoutes(deps: AppDeps) {
       return { body: JSON.stringify({ ...fields, ...changes }) };
     }
     const conversation = { model: fields.model, key };
-    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit }, key)) ?? null;
+    const exclude = deps.hostAccess?.blocked(credentialId, fields.model);
+    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit, exclude }, key)) ?? null;
     const provider = cheapestProvider(fields.provider, order);
     return { body: JSON.stringify({ ...fields, ...changes, ...(provider ? { provider } : {}) }), conversation };
   }

@@ -235,9 +235,21 @@ export function DesignPage() {
               onEffortChange={setEffort}
               verbosity="short"
               onVerbosityChange={() => undefined}
+              tone="scientific"
+              onToneChange={() => undefined}
               host={{
                 pinned: 'DeepInfra',
-                details: <HostList data={DESIGN_HOSTS} loading={false} busy={false} failed={false} onPick={() => undefined} />,
+                details: (
+                  <HostList
+                    data={DESIGN_HOSTS}
+                    // The account rules out the host in China, as the user's does.
+                    access={{ blocked: ['deepseek'], allowed: ['deepinfra'], checked: true }}
+                    loading={false}
+                    busy={false}
+                    failed={false}
+                    onPick={() => undefined}
+                  />
+                ),
               }}
             />
             <ChatOptions
@@ -247,6 +259,8 @@ export function DesignPage() {
               onEffortChange={() => undefined}
               verbosity="medium"
               onVerbosityChange={() => undefined}
+              tone="neutral"
+              onToneChange={() => undefined}
               host={null}
             />
           </Row>

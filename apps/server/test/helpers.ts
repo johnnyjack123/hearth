@@ -18,6 +18,7 @@ import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { createDeviceHub } from '../src/server.ts';
 import { OpenRouterRouting } from '../src/openrouter.ts';
+import { HostAccess } from '../src/openrouter-access.ts';
 import type { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import type { SearchEndpoints } from '../src/websearch/providers.ts';
@@ -161,6 +162,7 @@ export async function createTestServer(
     helpers?: HelperOptions;
     converter?: DocumentConverter | null;
     openRouter?: OpenRouterRouting;
+    hostAccess?: HostAccess;
   } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
@@ -213,6 +215,8 @@ export async function createTestServer(
     converter: options.converter ?? null,
     // No endpoint lists unless a test brings some: tests never go online.
     openRouter: options.openRouter ?? new OpenRouterRouting(async () => null, Date.now, async () => null),
+    // Nor probes OpenRouter for the account's hosts.
+    hostAccess: options.hostAccess ?? new HostAccess(async () => 'unknown'),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {
