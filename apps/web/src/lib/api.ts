@@ -10,6 +10,7 @@ import type {
   CompactRequestBody,
   ConversationDetail,
   CostStatus,
+  OpenRouterHostAccess,
   OpenRouterHosts,
   ConversationSummary,
   CreateAppTemplateInput,
@@ -154,6 +155,8 @@ export const api = {
   openrouter: {
     hosts: (model: string) => request<OpenRouterHosts>('GET', `/openrouter/hosts?model=${encodeURIComponent(model)}`),
     pin: (model: string, host: string | null) => request<OpenRouterHosts>('PUT', '/openrouter/hosts', { model, host }),
+    access: (model: string, credential: string) =>
+      request<OpenRouterHostAccess>('GET', `/openrouter/access?model=${encodeURIComponent(model)}&credential=${encodeURIComponent(credential)}`),
   },
   costs: {
     get: () => request<CostStatus>('GET', '/costs'),

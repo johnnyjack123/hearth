@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput, Verbosity } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput, Tone, Verbosity } from '@harness/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FileUIPart } from 'ai';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
@@ -42,7 +42,7 @@ export function NewChatPage() {
   const { data: session } = useSession();
   const providers = useProviders();
   const { selection, select, models, images, kind, recent } = useModelSelection(null);
-  const host = useOpenRouterHost(kind === 'openrouter' ? (selection?.modelId ?? null) : null);
+  const host = useOpenRouterHost(kind === 'openrouter' ? (selection ?? null) : null);
   const [draft, setDraft] = useState('');
   const [creating, setCreating] = useState(false);
   const {
@@ -52,6 +52,8 @@ export function NewChatPage() {
     setEffort: setLastEffort,
     verbosity: lastVerbosity,
     setVerbosity: setLastVerbosity,
+    tone: lastTone,
+    setTone: setLastTone,
   } = usePreferences();
   // Starts as in the chat used last; changes here count as using it.
   const [research, setChatResearch] = useState(lastResearch);
@@ -68,6 +70,11 @@ export function NewChatPage() {
   function setVerbosity(next: Verbosity) {
     setChatVerbosity(next);
     setLastVerbosity(next);
+  }
+  const [tone, setChatTone] = useState(lastTone);
+  function setTone(next: Tone) {
+    setChatTone(next);
+    setLastTone(next);
   }
   const { data: publicSettings } = usePublicSettings();
   const search = useSearch({ from: '/app/' });
@@ -97,7 +104,7 @@ export function NewChatPage() {
         messages: [],
       });
       // Send before navigating: the chat session outlives the page switch.
-      void getChat(conversation.id, [], selection, research, effort, verbosity).chat.sendMessage({ text, files });
+      void getChat(conversation.id, [], selection, research, effort, verbosity, tone).chat.sendMessage({ text, files });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
     } catch (error) {
       toast.error(errorMessage(t, error));
@@ -187,6 +194,8 @@ export function NewChatPage() {
                       onEffortChange={setEffort}
                       verbosity={verbosity}
                       onVerbosityChange={setVerbosity}
+                      tone={tone}
+                      onToneChange={setTone}
                       host={host}
                     />
                     <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />

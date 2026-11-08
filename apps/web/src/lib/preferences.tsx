@@ -1,4 +1,4 @@
-import { DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
+import { DEFAULT_TONE, DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Tone, TONES, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { detectLocale, type Locale, translate, type TranslateFn } from '@/i18n/index.ts';
 
@@ -26,6 +26,8 @@ interface PreferencesValue {
   effort: EffortLevel | null;
   /** Answer length of the chat used last; a new chat starts with it. */
   verbosity: Verbosity;
+  /** Tone of the chat used last; a new chat starts with it. */
+  tone: Tone;
   /** Jev judges prompt injection warnings right away, see {@link autoAssessEnabled}. */
   autoAssess: boolean;
   /**
@@ -39,6 +41,7 @@ interface PreferencesValue {
   setResearch: (on: boolean) => void;
   setEffort: (effort: EffortLevel | null) => void;
   setVerbosity: (verbosity: Verbosity) => void;
+  setTone: (tone: Tone) => void;
   setAutoAssess: (on: boolean) => void;
   setShowThinking: (on: boolean) => void;
   t: TranslateFn;
@@ -53,6 +56,7 @@ const STORAGE = {
   research: 'harness.research',
   effort: 'harness.effort',
   verbosity: 'harness.verbosity',
+  tone: 'harness.tone',
   autoAssess: 'harness.autoAssess',
   showThinking: 'harness.showThinking',
 } as const;
@@ -111,6 +115,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     return stored === 'default' ? null : stored;
   });
   const [verbosity, setVerbosityState] = useState<Verbosity>(() => read(STORAGE.verbosity, VERBOSITY_LEVELS, DEFAULT_VERBOSITY));
+  const [tone, setToneState] = useState<Tone>(() => read(STORAGE.tone, TONES, DEFAULT_TONE));
   const [systemDark, setSystemDark] = useState(systemPrefersDark);
 
   useEffect(() => {
@@ -159,6 +164,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     write(STORAGE.verbosity, next);
     setVerbosityState(next);
   }, []);
+  const setTone = useCallback((next: Tone) => {
+    write(STORAGE.tone, next);
+    setToneState(next);
+  }, []);
   const setResearch = useCallback((on: boolean) => {
     write(STORAGE.research, on ? 'on' : 'off');
     setResearchState(on);
@@ -183,6 +192,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       research,
       effort,
       verbosity,
+      tone,
       autoAssess,
       showThinking,
       setTheme,
@@ -191,6 +201,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setResearch,
       setEffort,
       setVerbosity,
+      setTone,
       setAutoAssess,
       setShowThinking,
       t: (key, params) => translate(locale, key, params),
@@ -203,6 +214,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       research,
       effort,
       verbosity,
+      tone,
       autoAssess,
       showThinking,
       setTheme,
@@ -211,6 +223,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       setResearch,
       setEffort,
       setVerbosity,
+      setTone,
       setAutoAssess,
       setShowThinking,
     ],

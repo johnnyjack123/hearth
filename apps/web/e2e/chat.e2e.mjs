@@ -127,6 +127,7 @@ try {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForFunction(() => location.pathname === '/register', { timeout: 10_000 });
     await shot('01-register');
+    await page.type('input[placeholder="ABCD-EFGH"]', 'e2e-setup');
     await page.type('input[autocomplete=name]', 'Erika Test');
     await page.type('input[autocomplete=email]', 'erika@example.com');
     await page.type('input[autocomplete=new-password]', 'sehr-sicheres-passwort');
@@ -563,11 +564,21 @@ try {
     // Kurz, Mittel, Ausführlich.
     await slide('Antwortlänge', ['Home'], 'Kurz');
     await waitForText('Ein paar Sätze, nur das Gefragte.', 5_000);
+    // The tone is a list, not a scale.
+    await page.click('[data-chat-options] [data-tone]');
+    await page.waitForSelector('[role=menuitemradio]', { timeout: 5_000 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await shot('31c-tone-menu');
+    await page.click('[role=menuitemradio]::-p-text(Wissenschaftlich)');
+    await waitForText('Erfindet nichts', 5_000);
+    // An Escape while the list still fades out would close only the list.
+    await page.waitForSelector('[role=menu]', { hidden: true, timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 400));
     await shot('31-effort');
     await closeOptions();
     await optionShown('Denktiefe: Hoch', true);
     await optionShown('Antwortlänge: Kurz', true);
+    await optionShown('Tonfall: Wissenschaftlich', true);
     await new Promise((resolve) => setTimeout(resolve, 300));
     await shot('31b-options-marks');
     await page.focus('textarea');
@@ -575,7 +586,7 @@ try {
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => location.pathname.startsWith('/c/'), { timeout: 10_000 });
     // The level reaches the provider as reasoning_effort, the length as a note.
-    await page.waitForSelector(text('Denkstufe laut Anfrage: high. Antwortlänge laut Hinweis: short.'), { timeout: 15_000 });
+    await page.waitForSelector(text('Denkstufe laut Anfrage: high. Antwortlänge laut Hinweis: short. Tonfall: scientific.'), { timeout: 15_000 });
     await new Promise((resolve) => setTimeout(resolve, 800));
     await page.type('textarea', 'Und noch eine Frage dazu');
     await page.keyboard.press('Enter');
@@ -600,13 +611,20 @@ try {
     await page.waitForSelector(text('Bis hier zusammengefasst'), { timeout: 10_000 });
     await optionShown('Denktiefe: Hoch', true);
     await optionShown('Antwortlänge: Kurz', true);
+    await optionShown('Tonfall: Wissenschaftlich', true);
     // Back to the defaults, which later chats start with.
     await openOptions();
     await slide('Denktiefe', ['Home'], 'Standard');
     await slide('Antwortlänge', ['ArrowRight'], 'Mittel');
+    await page.click('[data-chat-options] [data-tone]');
+    await page.waitForSelector('[role=menuitemradio]', { timeout: 5_000 });
+    await page.click('[role=menuitemradio]::-p-text(Neutral)');
+    await waitForText('Klar und sachlich', 5_000);
+    await page.waitForSelector('[role=menu]', { hidden: true, timeout: 5_000 });
     await closeOptions();
     await optionShown('Denktiefe', false);
     await optionShown('Antwortlänge', false);
+    await optionShown('Tonfall', false);
   });
 
   await step('the calculator, formulas and copying code without the clipboard API', async () => {
@@ -792,6 +810,8 @@ try {
     await page.goto(pairing.verificationUriComplete, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('„harness auf E2E“ möchte sich mit deinem Konto verbinden.'), { timeout: 10_000 });
     await page.waitForSelector(text(pairing.userCode));
+    // Vite's proxy is the address of both, browser and "device".
+    await waitForText('Das ist auch die Adresse deines Browsers');
     await shot('12-pairing');
     await page.click(text('Verbinden'));
     await page.waitForSelector(text('Verbunden. Du kannst zum Terminal zurückkehren.'), { timeout: 10_000 });
@@ -1491,9 +1511,11 @@ try {
     const hostChoices = await page.$$eval('[data-chat-options] [role=radio]', (radios) =>
       radios.map((radio) => `${radio.getAttribute('aria-checked')} ${radio.textContent}`),
     );
-    if (hostChoices.length !== 5 || !hostChoices[1].startsWith('true DeepInfra') || !hostChoices.some((choice) => choice.includes('China'))) {
+    // DeepSeek is ruled out by the (pretend) account and hidden, with a note.
+    if (hostChoices.length !== 4 || !hostChoices[1].startsWith('true DeepInfra') || hostChoices.some((choice) => choice.includes('DeepSeek'))) {
       throw new Error(`hosts: ${JSON.stringify(hostChoices)}`);
     }
+    await waitForText('Einen weiteren Anbieter schließt dein OpenRouter-Konto aus', 5_000);
     await new Promise((resolve) => setTimeout(resolve, 300));
     await shot('31c-hosts-dark');
     await closeOptions();

@@ -23,8 +23,8 @@ services:
     restart: unless-stopped
     ports:
       - "${HARNESS_PORT:-8080}:8080"
-    # PUBLIC_URL, HARNESS_SECRET, TRUSTED_ORIGINS und DATABASE_URL gehen
-    # direkt an den Server.
+    # PUBLIC_URL, HARNESS_SECRET, TRUSTED_ORIGINS, TRUSTED_PROXIES und
+    # DATABASE_URL gehen direkt an den Server.
     env_file:
       - path: .env
         required: false

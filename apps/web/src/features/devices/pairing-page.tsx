@@ -1,7 +1,7 @@
 import type { PairingInfo } from '@harness/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { CircleCheck, CircleX, Clock, Laptop, ShieldAlert } from 'lucide-react';
+import { CircleAlert, CircleCheck, CircleX, Clock, Globe, Laptop, ShieldAlert } from 'lucide-react';
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
@@ -9,7 +9,7 @@ import { Card, Skeleton } from '@/components/ui/display.tsx';
 import { Field } from '@/components/ui/field.tsx';
 import { Input } from '@/components/ui/input.tsx';
 import { ApiError, api, errorMessage } from '@/lib/api.ts';
-import { useT } from '@/lib/preferences.tsx';
+import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys } from '@/lib/queries.ts';
 import { Page } from '../shell/page.tsx';
 
@@ -83,6 +83,36 @@ function CodeForm({ initial, notFound }: { initial?: string; notFound: boolean }
   );
 }
 
+/**
+ * Where the request came from. A different address than the browser's is
+ * normal when the computer is elsewhere, but it is also what a stranger's
+ * pairing looks like when its link was sent to someone.
+ */
+function Origin({ info }: { info: PairingInfo }) {
+  const { t, locale } = usePreferences();
+  if (info.ip === null) {
+    return null;
+  }
+  const time = new Date(info.createdAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  return (
+    <>
+      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+        <Globe className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>
+          {t('pairing.origin', { ip: info.ip, time })}
+          {info.sameAddress ? ` ${t('pairing.sameAddress')}` : null}
+        </span>
+      </p>
+      {info.sameAddress === false ? (
+        <p role="alert" className="flex items-start gap-2 rounded-lg bg-destructive-subtle p-3 text-sm text-destructive">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          {t('pairing.otherAddress')}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function Decision({ info, code }: { info: PairingInfo; code: string }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -118,6 +148,7 @@ function Decision({ info, code }: { info: PairingInfo; code: string }) {
       return (
         <>
           {header}
+          <Origin info={info} />
           <p className="text-sm text-muted-foreground">{t('pairing.explain')}</p>
           <p className="flex items-start gap-2 text-sm text-foreground">
             <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />

@@ -192,6 +192,15 @@ export interface PairingInfo {
   status: 'pending' | 'approved' | 'denied' | 'expired';
   /** Expiry, epoch milliseconds. */
   expiresAt: number;
+  /** Start, epoch milliseconds. */
+  createdAt: number;
+  /** Address the device asked from, as the server sees it; null if unknown. */
+  ip: string | null;
+  /**
+   * Whether that is the address of the browser looking at the pairing; null
+   * when either is unknown. A different one may mean someone else started it.
+   */
+  sameAddress: boolean | null;
 }
 
 /**

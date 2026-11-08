@@ -1,7 +1,8 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { parseTrustedProxies, type TrustedProxies } from './http/client-ip.ts';
 
 const envSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
@@ -13,6 +14,8 @@ const envSchema = z.object({
   TRUSTED_ORIGINS: z.string().optional(),
   WEB_DIST: z.string().optional(),
   MARKITDOWN_URL: z.url().optional(),
+  TRUSTED_PROXIES: z.string().optional(),
+  HARNESS_SETUP_CODE: z.string().min(8, 'HARNESS_SETUP_CODE must be at least 8 characters').optional(),
 });
 
 /**
@@ -40,9 +43,35 @@ export interface ServerConfig {
    * without it, chats take images and text files but no documents.
    */
   markitdownUrl?: string | null;
+  /**
+   * Reverse proxies whose `X-Forwarded-For` names the client (`TRUSTED_PROXIES`);
+   * none when unset, then the address of the connection counts.
+   */
+  trustedProxies?: TrustedProxies;
+  /**
+   * Code the first account must give at sign-up, printed in the log while
+   * the server has no account; none needed when unset (tests).
+   */
+  setupCode?: string;
 }
 
 const SECRET_FILE = 'server-secret';
+
+/** Shortest secret the server accepts, from the file as from `HARNESS_SECRET`. */
+const MIN_SECRET_LENGTH = 32;
+
+// Without 0/O and 1/I, like the pairing codes: read off a log, typed by hand.
+const SETUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * A random code for the first account, formatted `ABCD-EFGH`.
+ *
+ * @returns The code.
+ */
+function newSetupCode(): string {
+  const chars = Array.from({ length: 8 }, () => SETUP_CODE_ALPHABET[randomInt(SETUP_CODE_ALPHABET.length)]);
+  return `${chars.slice(0, 4).join('')}-${chars.slice(4).join('')}`;
+}
 
 /**
  * A hint for start failures with a known cause in the Docker setup.
@@ -124,13 +153,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     trustedOrigins: [...new Set([new URL(publicUrl).origin, ...extraOrigins])],
     webDist: resolveWebDist(parsed.WEB_DIST),
     markitdownUrl: parsed.MARKITDOWN_URL?.replace(/\/+$/, '') ?? null,
+    trustedProxies: parseTrustedProxies(parsed.TRUSTED_PROXIES),
+    setupCode: parsed.HARNESS_SETUP_CODE ?? newSetupCode(),
   };
 }
 
 function readOrCreateSecret(dataDir: string): string {
   const file = path.join(dataDir, SECRET_FILE);
   if (existsSync(file)) {
-    return readFileSync(file, 'utf8').trim();
+    const stored = readFileSync(file, 'utf8').trim();
+    // An empty or truncated file would make every key derivable from little.
+    if (stored.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `${file} holds only ${stored.length} characters, at least ${MIN_SECRET_LENGTH} are needed. ` +
+          'Restore the file from a backup (stored API keys are bound to it), or remove it to start over without them.',
+      );
+    }
+    return stored;
   }
   const secret = randomBytes(48).toString('base64url');
   try {

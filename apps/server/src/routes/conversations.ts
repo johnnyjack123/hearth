@@ -10,12 +10,14 @@ import {
   type ConversationDetail,
   type EffortLevel,
   createConversationSchema,
+  DEFAULT_TONE,
   DEFAULT_VERBOSITY,
   linkConversationSchema,
   type TakeoverReport,
   updateConversationSchema,
   updateConversationTagsSchema,
   updateLinkSchema,
+  type Tone,
   type Verbosity,
   WEB_FETCH_DECISIONS,
   type WebFetchDecision,
@@ -139,6 +141,32 @@ const AGENT_VERBOSITY_NOTES: Record<Verbosity, string> = {
   medium: '[LLM Harness: Answer at your usual length again.]',
   detailed: '[LLM Harness: Answer in detail: explain what you did and why, the options you weighed, and what to watch out for.]',
 };
+
+/** What an agent reads about the tone; agents search only in research mode. */
+const AGENT_TONE_NOTES: Record<Tone, string> = {
+  neutral: '[LLM Harness: Write in your usual tone again.]',
+  scientific:
+    '[LLM Harness: Write precisely and soberly. Never invent facts, figures or sources. Check what you are not sure of, with web_search while research mode is on. ' +
+    'If you cannot verify something, say that you do not know; an own assessment is fine when you label it explicitly as your guess.]',
+  formal: '[LLM Harness: Write politely and formally, without slang, jokes or emojis, with the formal address where the language has one (German "Sie").]',
+  friendly: '[LLM Harness: Write warmly and encouragingly, with the informal address (German "du").]',
+  relaxed: '[LLM Harness: Write casually, like talking to a friend: short sentences, light humor is fine, informal address.]',
+  critical:
+    '[LLM Harness: Be candid and critical: question assumptions, point out weaknesses, risks and better alternatives, no flattery. Stay fair and constructive.]',
+};
+
+/**
+ * The agent's note on the tone: with every message while it is not neutral,
+ * and once when it goes back, like the answer length.
+ *
+ * @param previous - The chat before the message.
+ * @param tone - The tone now.
+ * @returns The note, or null.
+ */
+export function agentToneNote(previous: ChatMessage[], tone: Tone): string | null {
+  const last = previous.findLast((message) => message.role === 'user')?.metadata?.tone ?? DEFAULT_TONE;
+  return tone !== DEFAULT_TONE || last !== tone ? AGENT_TONE_NOTES[tone] : null;
+}
 
 /**
  * The agent's note on the answer length: with every message while it is not
@@ -525,10 +553,11 @@ export function conversationRoutes(deps: AppDeps) {
         ?.memoryHash;
       const memoryUpdate = memory ? memoryNote(lastMemoryHash, memory) : null;
       const verbosity = body.verbosity ?? DEFAULT_VERBOSITY;
+      const tone = body.tone ?? DEFAULT_TONE;
       // Linked chats talk to an agent with its own prompt and get no other notes.
       const note = link
         ? null
-        : [chatNote(previous, { date, research: search ? research : null, verbosity }), memoryUpdate].filter(Boolean).join('\n') || null;
+        : [chatNote(previous, { date, research: search ? research : null, verbosity, tone }), memoryUpdate].filter(Boolean).join('\n') || null;
       // Decided once and stored, so later requests condense at the same place.
       const condensed = !link && shouldCondense(previous, settings.condense);
       const stored: ChatMessage = {
@@ -539,6 +568,7 @@ export function conversationRoutes(deps: AppDeps) {
           ...(research ? { research } : {}),
           ...(body.effort ? { effort: body.effort } : {}),
           ...(verbosity !== DEFAULT_VERBOSITY ? { verbosity } : {}),
+          ...(tone !== DEFAULT_TONE ? { tone } : {}),
           ...(note ? { note } : {}),
           ...(memory ? { memoryHash: memory.hash } : {}),
           ...(condensed ? { condensed } : {}),
@@ -571,7 +601,9 @@ export function conversationRoutes(deps: AppDeps) {
           // The agent learns about research mode and changed memories with
           // the message; the server lets its searches through only while
           // this reply runs.
-          text: [research ? AGENT_RESEARCH_NOTE : null, agentVerbosityNote(previous, verbosity), memoryUpdate, text].filter(Boolean).join('\n\n'),
+          text: [research ? AGENT_RESEARCH_NOTE : null, agentVerbosityNote(previous, verbosity), agentToneNote(previous, tone), memoryUpdate, text]
+            .filter(Boolean)
+            .join('\n\n'),
           // pi's levels are the chat's. pi keeps a level for the whole
           // session, so the chat's "default" has to be named, too.
           thinking: body.effort ?? AGENT_DEFAULT_THINKING,
@@ -616,7 +648,15 @@ export function conversationRoutes(deps: AppDeps) {
         pinned !== null
           ? { provider: async () => pinnedProvider(undefined, pinned), stick: () => undefined }
           : routing && {
-              provider: async () => cheapestProvider(undefined, await routing.order(body.modelId, { noFourBit: settings.openRouterNoFourBit }, conversation.id)),
+              provider: async () =>
+                cheapestProvider(
+                  undefined,
+                  await routing.order(
+                    body.modelId,
+                    { noFourBit: settings.openRouterNoFourBit, exclude: deps.hostAccess?.blocked(row.id, body.modelId) },
+                    conversation.id,
+                  ),
+                ),
               stick: (host) => routing.stick(body.modelId, conversation.id, host),
             };
       return streamChat({

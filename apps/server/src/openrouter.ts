@@ -385,17 +385,18 @@ export class OpenRouterRouting {
    * while it is still eligible.
    *
    * @param modelId - OpenRouter's model id.
-   * @param options - See {@link rankEndpoints}.
+   * @param options - See {@link rankEndpoints}; `exclude` names host slugs the account may not use.
    * @param conversation - Names the conversation for {@link stick}; without it, cheapest first.
    * @returns Tags for `provider.order`, or null if none are known.
    */
-  async order(modelId: string, options: { noFourBit: boolean }, conversation?: string): Promise<string[] | null> {
+  async order(modelId: string, options: { noFourBit: boolean; exclude?: Set<string> }, conversation?: string): Promise<string[] | null> {
     if (!ROUTABLE_MODEL.test(modelId)) {
       return null;
     }
     const raw = await this.#list(modelId);
     const now = this.now();
-    const ranked = raw === null ? [] : rankHosts(raw, new Date(now), options);
+    // Hosts the account rules out would only take places in the order.
+    const ranked = (raw === null ? [] : rankHosts(raw, new Date(now), options)).filter((endpoint) => !options.exclude?.has(hostSlug(endpoint.tag)));
     const sticky = conversation === undefined ? undefined : this.#hosts.get(stickyKey(modelId, conversation));
     const own = sticky && now - sticky.at < STICKY_MS ? ranked.findIndex((endpoint) => endpoint.host === sticky.host) : -1;
     if (own > 0) {

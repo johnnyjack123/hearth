@@ -1,6 +1,6 @@
 import { useChat } from '@ai-sdk/react';
 import type { FileUIPart } from 'ai';
-import type { ConversationDetail, EffortLevel, Verbosity } from '@harness/shared';
+import type { ConversationDetail, EffortLevel, Tone, Verbosity } from '@harness/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -77,20 +77,22 @@ function ChatSkeleton() {
 function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessage> }) {
   const t = useT();
   const { selection, select, models, images, kind, recent } = useModelSelection(conversation);
-  const host = useOpenRouterHost(kind === 'openrouter' ? (selection?.modelId ?? null) : null);
+  const host = useOpenRouterHost(kind === 'openrouter' ? (selection ?? null) : null);
   const [entry] = useState(() => getChat(conversation.id, conversation.messages, selection));
   // Each chat keeps its own switch; the one used last is the default for
   // new chats.
   const [research, setChatResearch] = useState(entry.research.current);
   const [effort, setChatEffort] = useState(entry.effort.current);
   const [verbosity, setChatVerbosity] = useState(entry.verbosity.current);
-  const { setResearch: setLastResearch, setEffort: setLastEffort, setVerbosity: setLastVerbosity } = usePreferences();
+  const [tone, setChatTone] = useState(entry.tone.current);
+  const { setResearch: setLastResearch, setEffort: setLastEffort, setVerbosity: setLastVerbosity, setTone: setLastTone } = usePreferences();
   const { data: publicSettings } = usePublicSettings();
   // Read by the transport when the next request starts.
   entry.selection.current = selection;
   entry.research.current = research;
   entry.effort.current = effort;
   entry.verbosity.current = verbosity;
+  entry.tone.current = tone;
   const [draft, setDraft] = useState('');
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
@@ -125,6 +127,11 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
     setLastVerbosity(next);
   }
 
+  function setTone(next: Tone) {
+    setChatTone(next);
+    setLastTone(next);
+  }
+
   async function compact() {
     if (!selection) {
       return;
@@ -143,6 +150,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
     setLastResearch(research);
     setLastEffort(effort);
     setLastVerbosity(verbosity);
+    setLastTone(tone);
     void sendMessage({ text, files });
   }
 
@@ -216,6 +224,8 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
                   onEffortChange={setEffort}
                   verbosity={verbosity}
                   onVerbosityChange={setVerbosity}
+                  tone={tone}
+                  onToneChange={setTone}
                   host={host}
                 />
                 <ModelPicker selection={selection} onSelect={select} groups={models.data} loading={models.isPending} recent={recent} />

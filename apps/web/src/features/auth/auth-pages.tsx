@@ -16,10 +16,13 @@ const AUTH_ERRORS: Record<string, MessageKey> = {
   INVALID_EMAIL_OR_PASSWORD: 'auth.invalidCredentials',
   REGISTRATION_CLOSED: 'auth.registrationClosed',
   BANNED_USER: 'auth.banned',
+  SETUP_CODE_INVALID: 'auth.setupCodeInvalid',
+  TOO_MANY_REQUESTS: 'auth.tooManyRequests',
 };
 
-function authErrorKey(code: string | undefined): MessageKey {
-  return (code && AUTH_ERRORS[code]) || 'errors.unknown';
+// Better Auth's own rate limit answers 429 without a code.
+function authErrorKey(code: string | undefined, status?: number): MessageKey {
+  return (code && AUTH_ERRORS[code]) || (status === 429 ? 'auth.tooManyRequests' : 'errors.unknown');
 }
 
 function FormHeader({ title, subtitle }: { title: string; subtitle: string }) {
@@ -76,7 +79,7 @@ export function LoginPage() {
     try {
       const result = await authClient.signIn.email({ email, password });
       if (result.error) {
-        setError(authErrorKey(result.error.code));
+        setError(authErrorKey(result.error.code, result.error.status));
         return;
       }
       await afterAuth();
@@ -145,20 +148,28 @@ export function RegisterPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [setupCode, setSetupCode] = useState('');
   const [error, setError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
 
   const closed = settings.data?.registration === 'closed' && settings.data.hasUsers;
   const firstUser = settings.data?.hasUsers === false;
+  const needsCode = firstUser && settings.data?.setupCode === true;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const result = await authClient.signUp.email({ name, email, password });
+      const result = await authClient.signUp.email({
+        name,
+        email,
+        password,
+        // The server checks it only for the first account.
+        ...(needsCode ? { fetchOptions: { headers: { 'x-harness-setup-code': setupCode } } } : {}),
+      });
       if (result.error) {
-        setError(authErrorKey(result.error.code));
+        setError(authErrorKey(result.error.code, result.error.status));
         return;
       }
       await afterAuth();
@@ -183,6 +194,21 @@ export function RegisterPage() {
             </p>
           ) : null}
           {error ? <FormError>{t(error)}</FormError> : null}
+          {needsCode ? (
+            <Field label={t('auth.setupCode')} hint={t('auth.setupCodeHint')}>
+              {(control) => (
+                <Input
+                  {...control}
+                  required
+                  autoComplete="off"
+                  placeholder="ABCD-EFGH"
+                  className="font-mono uppercase tracking-widest"
+                  value={setupCode}
+                  onChange={(event) => setSetupCode(event.target.value)}
+                />
+              )}
+            </Field>
+          ) : null}
           <Field label={t('auth.name')}>
             {(control) => <Input {...control} autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} />}
           </Field>

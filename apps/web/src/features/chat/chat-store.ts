@@ -1,5 +1,13 @@
 import { Chat } from '@ai-sdk/react';
-import { type ConversationDetail, DEFAULT_VERBOSITY, type EffortLevel, type ModelSelection, type Verbosity } from '@harness/shared';
+import {
+  type ConversationDetail,
+  DEFAULT_TONE,
+  DEFAULT_VERBOSITY,
+  type EffortLevel,
+  type ModelSelection,
+  type Tone,
+  type Verbosity,
+} from '@harness/shared';
 import { DefaultChatTransport } from 'ai';
 import { api, type ChatMessage } from '@/lib/api.ts';
 import { autoAssessEnabled } from '@/lib/preferences.tsx';
@@ -20,6 +28,8 @@ export interface ChatEntry {
   effort: { current: EffortLevel | null };
   /** Answer length of the next request. */
   verbosity: { current: Verbosity };
+  /** Tone of the next request. */
+  tone: { current: Tone };
   /**
    * The server may still be writing a reply this tab never saw, e.g. after
    * a reload; {@link resumeReply} picks it up once.
@@ -71,6 +81,8 @@ export function upsertMessage(conversationId: string, message: ChatMessage): voi
  *   in the newest user message.
  * @param initialVerbosity - Answer length for the first request; by default
  *   as in the newest user message.
+ * @param initialTone - Tone for the first request; by default as in the
+ *   newest user message.
  * @returns The session entry.
  */
 export function getChat(
@@ -80,6 +92,7 @@ export function getChat(
   initialResearch = lastResearch(initialMessages),
   initialEffort = lastEffort(initialMessages),
   initialVerbosity = lastVerbosity(initialMessages),
+  initialTone = lastTone(initialMessages),
 ): ChatEntry {
   const existing = entries.get(conversationId);
   if (existing) {
@@ -90,6 +103,7 @@ export function getChat(
   const research = { current: initialResearch };
   const effort = { current: initialEffort };
   const verbosity = { current: initialVerbosity };
+  const tone = { current: initialTone };
   const chat: Chat<ChatMessage> = new Chat<ChatMessage>({
     id: conversationId,
     messages: initialMessages,
@@ -106,6 +120,7 @@ export function getChat(
           assess: autoAssessEnabled(),
           ...(effort.current ? { effort: effort.current } : {}),
           ...(verbosity.current !== DEFAULT_VERBOSITY ? { verbosity: verbosity.current } : {}),
+          ...(tone.current !== DEFAULT_TONE ? { tone: tone.current } : {}),
         },
       }),
     }),
@@ -121,7 +136,7 @@ export function getChat(
 
   // A reply runs while the newest stored message is the user's: the server
   // stores the reply when it ends.
-  const entry = { chat, selection, research, effort, verbosity, resumable: initialMessages.at(-1)?.role === 'user' };
+  const entry = { chat, selection, research, effort, verbosity, tone, resumable: initialMessages.at(-1)?.role === 'user' };
   entries.set(conversationId, entry);
   return entry;
 }
@@ -196,6 +211,17 @@ export function lastEffort(messages: ChatMessage[]): EffortLevel | null {
  */
 export function lastVerbosity(messages: ChatMessage[]): Verbosity {
   return messages.findLast((message) => message.role === 'user')?.metadata?.verbosity ?? DEFAULT_VERBOSITY;
+}
+
+/**
+ * The tone the newest user message was sent with, so a chat opens as it
+ * was left.
+ *
+ * @param messages - Stored messages.
+ * @returns The tone; neutral for chats from before it existed.
+ */
+export function lastTone(messages: ChatMessage[]): Tone {
+  return messages.findLast((message) => message.role === 'user')?.metadata?.tone ?? DEFAULT_TONE;
 }
 
 /**

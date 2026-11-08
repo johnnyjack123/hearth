@@ -7,6 +7,13 @@ import { deriveKey } from './crypto.ts';
 import type { Database } from './db/index.ts';
 import { countUsers, getServerSettings } from './services/settings.ts';
 
+/**
+ * Header the server sets to the client address it determined (see
+ * `http/client-ip.ts`); Better Auth reads only this one, never a
+ * client's own `X-Forwarded-For`.
+ */
+export const CLIENT_IP_HEADER = 'x-harness-client-ip';
+
 function authOptions(config: ServerConfig, database: Database) {
   return {
     appName: 'LLM Harness',
@@ -23,9 +30,19 @@ function authOptions(config: ServerConfig, database: Database) {
     },
     plugins: [admin()],
     telemetry: { enabled: false },
+    // On in production (Better Auth's default), per client address. Stricter
+    // than the defaults (3 in 10 s): a password guesser gets 5 a minute.
+    rateLimit: {
+      customRules: {
+        '/sign-in/email': { window: 60, max: 5 },
+        '/sign-up/email': { window: 600, max: 5 },
+        '/change-password': { window: 60, max: 5 },
+      },
+    },
     advanced: {
       cookiePrefix: 'harness',
       useSecureCookies: config.publicUrl.startsWith('https://'),
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
       user: {

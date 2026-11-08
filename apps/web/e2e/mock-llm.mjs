@@ -103,7 +103,8 @@ function effortStep(payload) {
   if (last?.role === 'user' && textOf(last.content).includes('Wie viel denkst du')) {
     // The answer length comes as a note in front of the message.
     const length = /Answer length: (\w+)\./.exec(textOf(last.content))?.[1] ?? 'medium';
-    return { text: `Denkstufe laut Anfrage: ${payload.reasoning_effort ?? 'Standard'}. Antwortlänge laut Hinweis: ${length}.` };
+    const tone = /Tone: (\w+)\./.exec(textOf(last.content))?.[1] ?? 'neutral';
+    return { text: `Denkstufe laut Anfrage: ${payload.reasoning_effort ?? 'Standard'}. Antwortlänge laut Hinweis: ${length}. Tonfall: ${tone}.` };
   }
   return null;
 }

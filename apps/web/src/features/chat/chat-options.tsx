@@ -1,8 +1,27 @@
-import { DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
-import { AlignLeft, ArrowLeft, Brain, ChevronRight, Container, Server, Settings, Telescope } from 'lucide-react';
+import {
+  DEFAULT_TONE,
+  DEFAULT_VERBOSITY,
+  EFFORT_LEVELS,
+  type EffortLevel,
+  type Tone,
+  TONES,
+  type Verbosity,
+  VERBOSITY_LEVELS,
+} from '@harness/shared';
+import { AlignLeft, ArrowLeft, Brain, ChevronDown, ChevronRight, Container, MessageCircle, Server, Settings, Telescope } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
-import { Popover, PopoverContent, PopoverTrigger, Tooltip } from '@/components/ui/menu.tsx';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Tooltip,
+} from '@/components/ui/menu.tsx';
 import { Slider } from '@/components/ui/slider.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { useT } from '@/lib/preferences.tsx';
@@ -29,13 +48,17 @@ export interface ChatOptionsProps {
   verbosity: Verbosity;
   /** Changes the answer length. */
   onVerbosityChange: (verbosity: Verbosity) => void;
+  /** Tone. */
+  tone: Tone;
+  /** Changes the tone. */
+  onToneChange: (tone: Tone) => void;
   /** The OpenRouter host of the chat's model; null for other providers. */
   host: HostOption | null;
 }
 
 /**
  * The composer's settings behind one gear button: environment, research
- * mode, thinking effort, answer length and the OpenRouter host. The button
+ * mode, thinking effort, answer length, tone and the OpenRouter host. The button
  * is highlighted when something differs from the defaults and names it in
  * its label and tooltip, so the composer stays uncluttered without hiding
  * what is switched on.
@@ -43,7 +66,17 @@ export interface ChatOptionsProps {
  * @param props - See {@link ChatOptionsProps}.
  * @returns The button with its menu.
  */
-export function ChatOptions({ environment, research, effort, onEffortChange, verbosity, onVerbosityChange, host }: ChatOptionsProps) {
+export function ChatOptions({
+  environment,
+  research,
+  effort,
+  onEffortChange,
+  verbosity,
+  onVerbosityChange,
+  tone,
+  onToneChange,
+  host,
+}: ChatOptionsProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // A chosen environment and the hosts have a page of their own inside the menu.
@@ -57,6 +90,7 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
     ...(research?.on ? [t('chat.research')] : []),
     ...(effort !== null ? [t('chat.effort.label', { level: t(`chat.effort.levels.${effort}`) })] : []),
     ...(verbosity !== DEFAULT_VERBOSITY ? [t('chat.verbosity.label', { level: t(`chat.verbosity.levels.${verbosity}`) })] : []),
+    ...(tone !== DEFAULT_TONE ? [t('chat.tone.label', { level: t(`chat.tone.levels.${tone}`) })] : []),
     ...(host?.pinned ? [t('chat.host.label', { host: host.pinned })] : []),
   ];
   const label = active.length > 0 ? t('chat.options.labelActive', { active: active.join(', ') }) : t('chat.options.label');
@@ -162,6 +196,7 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
               hint={t(`chat.verbosity.hints.${verbosity}`)}
               note={agent ? t('chat.verbosity.agentNote', { harness: agent }) : t('chat.verbosity.note')}
             />
+            <ToneSetting tone={tone} onToneChange={onToneChange} agent={agent} />
             {host ? (
               <button
                 type="button"
@@ -183,6 +218,44 @@ export function ChatOptions({ environment, research, effort, onEffortChange, ver
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * The tone, picked from a list: unlike length and effort, the tones are not
+ * steps of one scale.
+ */
+function ToneSetting({ tone, onToneChange, agent }: { tone: Tone; onToneChange: (tone: Tone) => void; agent: string | undefined }) {
+  const t = useT();
+  const name = t(`chat.tone.levels.${tone}`);
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <MessageCircle className={cn('size-4 shrink-0', tone !== DEFAULT_TONE ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
+        <span className="flex-1 text-sm font-medium text-foreground">{t('chat.tone.title')}</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" data-tone="" aria-label={t('chat.tone.label', { level: name })}>
+              {name}
+              <ChevronDown />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup value={tone} onValueChange={(value) => onToneChange(TONES.find((level) => level === value) ?? DEFAULT_TONE)}>
+              {TONES.map((level) => (
+                <DropdownMenuRadioItem key={level} value={level}>
+                  {t(`chat.tone.levels.${level}`)}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="flex flex-col gap-1 ps-7">
+        <p className="text-sm text-foreground">{t(`chat.tone.hints.${tone}`)}</p>
+        <p className="text-xs text-muted-foreground">{agent ? t('chat.tone.agentNote', { harness: agent }) : t('chat.tone.note')}</p>
+      </div>
+    </div>
   );
 }
 

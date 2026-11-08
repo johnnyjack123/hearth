@@ -1,4 +1,4 @@
-import type { OpenRouterHost, OpenRouterHosts } from '@harness/shared';
+import type { ModelSelection, OpenRouterHost, OpenRouterHostAccess, OpenRouterHosts } from '@harness/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -26,17 +26,27 @@ function hostsKey(model: string) {
  * the chat keeps to one host for its cache), or one the user pinned it to
  * for all chats and agents, say to keep data away from a country.
  *
- * @param model - The chat's model id when its credential is OpenRouter, else null.
+ * @param selection - The chat's credential and model when the credential is OpenRouter, else null.
  * @returns The option, or null when there is no choice (another provider, a model variant).
  */
-export function useOpenRouterHost(model: string | null): HostOption | null {
+export function useOpenRouterHost(selection: ModelSelection | null): HostOption | null {
   const queryClient = useQueryClient();
+  const model = selection?.modelId ?? null;
   const hosts = useQuery({
     queryKey: hostsKey(model ?? ''),
     queryFn: () => api.openrouter.hosts(model ?? ''),
     enabled: model !== null,
     // Prices and uptime move; the list on the server is ten minutes old at most.
     staleTime: 5 * 60_000,
+  });
+  // Which hosts the account allows takes the server a few seconds (it asks
+  // each host), so the list shows first and is narrowed when this comes.
+  const access = useQuery({
+    queryKey: ['openrouter-access', selection?.credentialId ?? '', model ?? ''],
+    queryFn: () => api.openrouter.access(model ?? '', selection?.credentialId ?? ''),
+    enabled: selection !== null && Boolean(hosts.data?.hosts?.length),
+    staleTime: 15 * 60_000,
+    retry: false,
   });
   const pin = useMutation({
     mutationFn: (host: string | null) => api.openrouter.pin(model ?? '', host),
@@ -51,6 +61,8 @@ export function useOpenRouterHost(model: string | null): HostOption | null {
     details: (
       <HostList
         data={hosts.data}
+        access={access.data}
+        checking={access.isFetching && !access.data}
         loading={hosts.isPending}
         busy={pin.isPending}
         failed={pin.isError}
@@ -64,19 +76,25 @@ export function useOpenRouterHost(model: string | null): HostOption | null {
 
 /**
  * The hosts of a model to pick from: the cheapest automatically, or one
- * fixed host with where the company sits and what it charges.
+ * fixed host with where the company sits and what it charges. Hosts the
+ * user's OpenRouter account rules out are left out once that is known.
  *
- * @param props - The list, whether it loads or a pick is being saved, and what a pick does.
+ * @param props - The list, what the account allows, whether something loads
+ *   or a pick is being saved, and what a pick does.
  * @returns The list.
  */
 export function HostList({
   data,
+  access,
+  checking = false,
   loading,
   busy,
   failed,
   onPick,
 }: {
   data: OpenRouterHosts | undefined;
+  access?: OpenRouterHostAccess | undefined;
+  checking?: boolean;
   loading: boolean;
   busy: boolean;
   failed: boolean;
@@ -84,8 +102,12 @@ export function HostList({
 }) {
   const { t, locale } = usePreferences();
   const pinned = data?.pinned ?? null;
-  const hosts = data?.hosts ?? [];
-  // A pinned host OpenRouter no longer lists stays visible, so it can be undone.
+  const blocked = new Set(access?.checked ? access.blocked : []);
+  const listed = data?.hosts ?? [];
+  const hosts = listed.filter((host) => !blocked.has(host.slug));
+  const hidden = listed.length - hosts.length;
+  // A pinned host OpenRouter no longer lists, or the account rules out,
+  // stays visible, so it can be undone.
   const missing = pinned !== null && !hosts.some((host) => host.slug === pinned);
   return (
     <div className="flex flex-col gap-2">
@@ -98,9 +120,18 @@ export function HostList({
       ) : null}
       <div role="radiogroup" aria-label={t('chat.host.title')} aria-busy={busy || loading} className="flex flex-col">
         <Choice selected={pinned === null} disabled={busy} onSelect={() => onPick(null)} title={t('chat.host.auto')} lines={[t('chat.host.autoHint')]} />
-        {missing ? <Choice selected disabled={busy} onSelect={() => undefined} title={pinned ?? ''} lines={[t('chat.host.gone')]} /> : null}
+        {missing ? (
+          <Choice
+            selected
+            disabled={busy}
+            onSelect={() => undefined}
+            title={listed.find((host) => host.slug === pinned)?.name ?? pinned ?? ''}
+            lines={[blocked.has(pinned ?? '') ? t('chat.host.blockedPinned') : t('chat.host.gone')]}
+          />
+        ) : null}
         {loading ? <p className="px-2 py-2 text-xs text-muted-foreground">{t('chat.host.loading')}</p> : null}
         {!loading && data?.hosts === null ? <p className="px-2 py-2 text-xs text-muted-foreground">{t('chat.host.unavailable')}</p> : null}
+        {checking ? <p className="px-2 py-2 text-xs text-muted-foreground">{t('chat.host.checking')}</p> : null}
         {hosts.map((host) => (
           <Choice
             key={host.slug}
@@ -112,6 +143,12 @@ export function HostList({
             lines={[where(host, locale, t), prices(host, locale, t)].filter((line): line is string => line !== null)}
           />
         ))}
+        {hidden > 0 ? <p className="px-2 py-2 text-xs text-muted-foreground">{hidden === 1 ? t('chat.host.hiddenOne') : t('chat.host.hidden', { count: String(hidden) })}</p> : null}
+        {access?.checked && listed.length > 0 && hosts.length === 0 ? (
+          <p role="alert" className="px-2 py-2 text-xs text-destructive">
+            {t('chat.host.noneAllowed')}
+          </p>
+        ) : null}
       </div>
     </div>
   );

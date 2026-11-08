@@ -59,10 +59,10 @@ describe.each(DIALECTS)('API on %s', (kind) => {
       const before = await (await server.request('GET', '/api/settings')).json();
       // Tests run from the sources: no release version.
       const version = { server: 'dev', commit: null };
-      expect(before).toEqual({ registration: 'open', hasUsers: false, allowCustomBaseUrls: false, webSearch: false, version });
+      expect(before).toEqual({ registration: 'open', hasUsers: false, setupCode: true, allowCustomBaseUrls: false, webSearch: false, version });
       await server.signUp('first@example.com');
       const after = await (await server.request('GET', '/api/settings')).json();
-      expect(after).toEqual({ registration: 'open', hasUsers: true, allowCustomBaseUrls: false, webSearch: false, version });
+      expect(after).toEqual({ registration: 'open', hasUsers: true, setupCode: false, allowCustomBaseUrls: false, webSearch: false, version });
     });
 
     it('rejects admin settings for regular users and anonymous requests', async () => {

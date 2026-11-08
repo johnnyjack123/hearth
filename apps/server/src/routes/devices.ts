@@ -13,7 +13,10 @@ import {
   updateDeviceSchema,
 } from '@harness/shared';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { rateKey } from '../http/client-ip.ts';
 import { HttpError, notFound } from '../http/errors.ts';
+import { RateLimiter } from '../http/rate-limit.ts';
 import { type AppDeps, type AppEnv, type DeviceEnv, requireDevice } from '../http/context.ts';
 import {
   decidePairing,
@@ -57,12 +60,27 @@ function withLive(hub: DeviceHub, device: DeviceSummary, projects: RemoteProject
  */
 export function pairingRoutes(deps: AppDeps) {
   const { db } = deps.database;
-  return new Hono()
+  // Anyone may start a pairing; one address must not fill the server's
+  // open pairings (50) nor keep its database busy.
+  const starts = new RateLimiter(5, 10 * 60_000);
+  // A device polls every 2 s; two behind one router stay well below this.
+  const polls = new RateLimiter(120, 60_000);
+  return new Hono<AppEnv>()
+    .use(
+      bodyLimit({
+        maxSize: 8 * 1024,
+        onError: () => {
+          throw new HttpError(413, 'validation', 'Request body too large');
+        },
+      }),
+    )
     .post('/', async (c) => {
+      starts.check(rateKey(c.get('clientIp')));
       const { name } = startPairingSchema.parse(await c.req.json());
-      return c.json(await startPairing(db, deps.config.publicUrl, name), 201);
+      return c.json(await startPairing(db, deps.config.publicUrl, name, c.get('clientIp')), 201);
     })
     .post('/token', async (c) => {
+      polls.check(rateKey(c.get('clientIp')));
       const { deviceCode } = pairingTokenSchema.parse(await c.req.json());
       return c.json(await pollPairing(db, deps.secretBox, deviceCode));
     });
@@ -128,11 +146,11 @@ export function deviceRoutes(deps: AppDeps) {
       deps.hub.disconnect(c.req.param('id'));
       return c.body(null, 204);
     })
-    .get('/pairing/:userCode', async (c) => c.json(await pairingInfo(db, c.req.param('userCode'))))
+    .get('/pairing/:userCode', async (c) => c.json(await pairingInfo(db, c.req.param('userCode'), c.get('clientIp'))))
     .post('/pairing/:userCode', async (c) => {
       const { approve } = pairingDecisionSchema.parse(await c.req.json());
       await decidePairing(db, deps.secretBox, c.get('user').id, c.req.param('userCode'), approve);
-      return c.json(await pairingInfo(db, c.req.param('userCode')));
+      return c.json(await pairingInfo(db, c.req.param('userCode'), c.get('clientIp')));
     });
 }
 

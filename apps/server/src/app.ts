@@ -5,9 +5,11 @@ import { Hono } from 'hono';
 import { csrf } from 'hono/csrf';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
+import { peerAddress, resolveClientIp } from './http/client-ip.ts';
 import { type AppDeps, type AppEnv, requireUser } from './http/context.ts';
 import { handleError, notFound } from './http/errors.ts';
 import { appTemplateRoutes } from './routes/app-templates.ts';
+import { authRoutes } from './routes/auth.ts';
 import { conversationRoutes } from './routes/conversations.ts';
 import { deviceRoutes, deviceSelfRoutes, pairingRoutes } from './routes/devices.ts';
 import { fileRoutes } from './routes/files.ts';
@@ -19,6 +21,7 @@ import { tagRoutes } from './routes/tags.ts';
 import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
 import { OpenRouterRouting } from './openrouter.ts';
+import { HostAccess } from './openrouter-access.ts';
 import { SERVER_COMMIT, SERVER_VERSION } from './version.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
@@ -42,29 +45,38 @@ export interface CreateAppOptions {
  */
 export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   // One routing for chats and the agents' pass-through, so both share its lists.
-  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting() };
+  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting(), hostAccess: given.hostAccess ?? new HostAccess() };
   const app = new Hono<AppEnv>();
   app.onError(handleError);
 
   if (options.logRequests) {
     app.use(logger());
   }
-  app.use(
-    secureHeaders({
-      // The SPA is built with hashed assets and no inline scripts. Shiki's
-      // highlighter compiles WebAssembly, which needs 'wasm-unsafe-eval'
-      // (it does not allow JavaScript eval).
-      contentSecurityPolicy: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        fontSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"],
-        frameAncestors: ["'none'"],
-      },
-    }),
-  );
+  const proxies = deps.config.trustedProxies;
+  app.use((c, next) => {
+    const peer = peerAddress(c);
+    c.set('clientIp', proxies ? resolveClientIp(peer, c.req.header('x-forwarded-for'), proxies) : peer);
+    return next();
+  });
+  const appHeaders = secureHeaders({
+    // The SPA is built with hashed assets and no inline scripts. Shiki's
+    // highlighter compiles WebAssembly, which needs 'wasm-unsafe-eval'
+    // (it does not allow JavaScript eval).
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  });
+  // Uploaded files are the users' own bytes: nothing in them may run, also
+  // when a browser opens one directly. secureHeaders overwrites the policy a
+  // route sets, so these paths get their own.
+  const fileHeaders = secureHeaders({ contentSecurityPolicy: { defaultSrc: ["'none'"], sandbox: [] } });
+  app.use((c, next) => (c.req.path.startsWith('/api/files/') ? fileHeaders(c, next) : appHeaders(c, next)));
   const csrfProtection = csrf({ origin: deps.config.trustedOrigins });
   app.use('/api/*', (c, next) =>
     // Device routes authenticate with a bearer token or not at all, never
@@ -74,7 +86,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   );
 
   app.get('/api/health', (c) => c.json({ ok: true, version: SERVER_VERSION, commit: SERVER_COMMIT }));
-  app.on(['GET', 'POST'], '/api/auth/*', (c) => deps.auth.handler(c.req.raw));
+  app.route('/api/auth', authRoutes(deps));
   app.route('/api/settings', publicSettingsRoutes(deps));
   // Device routes bring their own auth (pairing: none, device token) and
   // must be registered before the session-protected `api` router.
