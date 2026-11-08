@@ -571,6 +571,8 @@ try {
     await shot('31c-tone-menu');
     await page.click('[role=menuitemradio]::-p-text(Wissenschaftlich)');
     await waitForText('Erfindet nichts', 5_000);
+    // An Escape while the list still fades out would close only the list.
+    await page.waitForSelector('[role=menu]', { hidden: true, timeout: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 400));
     await shot('31-effort');
     await closeOptions();
@@ -618,6 +620,7 @@ try {
     await page.waitForSelector('[role=menuitemradio]', { timeout: 5_000 });
     await page.click('[role=menuitemradio]::-p-text(Neutral)');
     await waitForText('Klar und sachlich', 5_000);
+    await page.waitForSelector('[role=menu]', { hidden: true, timeout: 5_000 });
     await closeOptions();
     await optionShown('Denktiefe', false);
     await optionShown('Antwortlänge', false);
