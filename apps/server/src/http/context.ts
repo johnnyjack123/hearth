@@ -72,6 +72,8 @@ export interface AppEnv {
   Variables: {
     /** The signed-in user; guaranteed by {@link requireUser}. */
     user: SessionUser;
+    /** The client's address (see `client-ip.ts`), null if unknown. */
+    clientIp: string | null;
   };
 }
 

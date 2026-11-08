@@ -60,6 +60,10 @@ export const de = {
     registerTitle: 'Konto erstellen',
     registerSubtitle: 'Ein eigener Zugang, deine eigenen API-Keys.',
     firstUserHint: 'Du bist die erste Person auf diesem Server. Dein Konto wird automatisch Admin.',
+    setupCode: 'Einrichtungscode',
+    setupCodeHint: 'Steht im Protokoll des Servers (docker compose logs server). So kann niemand sonst einen frischen Server übernehmen.',
+    setupCodeInvalid: 'Der Einrichtungscode stimmt nicht. Er steht im Protokoll des Servers.',
+    tooManyRequests: 'Zu viele Versuche. Warte eine Minute und versuch es dann noch einmal.',
     name: 'Name',
     email: 'E-Mail',
     password: 'Passwort',
@@ -798,6 +802,10 @@ export const de = {
     explain:
       'Das Gerät darf dann LLM-Anfragen mit deinen hinterlegten Keys stellen, etwa für einen Coding-Agent in der Sandbox. Die Keys selbst und deine Chats bekommt es nie zu sehen.',
     compare: 'Bestätige nur, wenn du den Code gerade selbst angefordert hast und er mit dem auf deinem Rechner übereinstimmt.',
+    origin: 'Angefragt um {time} von {ip}.',
+    sameAddress: 'Das ist auch die Adresse deines Browsers.',
+    otherAddress:
+      'Die Anfrage kommt von einer anderen Adresse als dein Browser. Das passt, wenn dein Rechner woanders steht, etwa wenn du am Handy im Mobilfunk bestätigst. Hast du „harness login“ nicht gerade selbst gestartet, lehne ab: Dann hat dir jemand den Link geschickt.',
     approve: 'Verbinden',
     deny: 'Ablehnen',
     approved: 'Verbunden. Du kannst zum Terminal zurückkehren.',

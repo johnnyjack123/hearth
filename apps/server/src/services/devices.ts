@@ -195,10 +195,11 @@ export async function loadDeviceProjects(db: Kysely<DB>, deviceIds: string[]): P
  * @param db - Open database.
  * @param publicUrl - Origin of the web app, for the confirmation link.
  * @param name - Name the device reports.
+ * @param requestIp - Address the request came from, shown when confirming.
  * @returns Codes and timing for the device.
  * @throws {HttpError} 429 if too many pairings are open.
  */
-export async function startPairing(db: Kysely<DB>, publicUrl: string, name: string): Promise<PairingStart> {
+export async function startPairing(db: Kysely<DB>, publicUrl: string, name: string, requestIp: string | null = null): Promise<PairingStart> {
   const now = Date.now();
   // Finished or expired pairings are only kept briefly for the final poll.
   await db.deleteFrom('devicePairing').where('expiresAt', '<', now - PAIRING_TTL_MS).execute();
@@ -227,6 +228,7 @@ export async function startPairing(db: Kysely<DB>, publicUrl: string, name: stri
       encryptedToken: null,
       createdAt: now,
       expiresAt: now + PAIRING_TTL_MS,
+      requestIp,
     })
     .execute();
   const verificationUri = `${publicUrl}/device`;
@@ -298,10 +300,11 @@ async function findPairing(db: Kysely<DB>, userCode: string) {
  *
  * @param db - Open database.
  * @param userCode - Code as entered by the user.
+ * @param viewerIp - Address of the browser asking, to compare with where the pairing came from.
  * @returns The pairing.
  * @throws {HttpError} 404 if there is no such pairing.
  */
-export async function pairingInfo(db: Kysely<DB>, userCode: string): Promise<PairingInfo> {
+export async function pairingInfo(db: Kysely<DB>, userCode: string, viewerIp: string | null = null): Promise<PairingInfo> {
   const row = await findPairing(db, userCode);
   const expired = row.status === 'pending' && row.expiresAt <= Date.now();
   return {
@@ -309,6 +312,9 @@ export async function pairingInfo(db: Kysely<DB>, userCode: string): Promise<Pai
     name: row.name,
     status: expired ? 'expired' : row.status,
     expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+    ip: row.requestIp,
+    sameAddress: row.requestIp !== null && viewerIp !== null ? row.requestIp === viewerIp : null,
   };
 }
 
@@ -442,7 +448,29 @@ export async function deleteDevice(db: Kysely<DB>, userId: string, id: string): 
 }
 
 /**
- * Resolves a device token and records the use.
+ * Whether an account is banned right now. The admin plugin keeps a ban with
+ * an end date after it ended; only Better Auth's own sign-in lifts it.
+ *
+ * @param banned - The `banned` column (boolean, or 0/1 on SQLite).
+ * @param expires - The `banExpires` column.
+ * @param now - Current time.
+ * @returns True while the ban holds.
+ */
+export function isBanned(banned: boolean | number | null, expires: Date | string | number | null, now = Date.now()): boolean {
+  if (!banned) {
+    return false;
+  }
+  if (expires === null) {
+    return true;
+  }
+  const end = expires instanceof Date ? expires.getTime() : typeof expires === 'number' ? expires : Date.parse(expires);
+  // An end that cannot be read keeps the ban, rather than lifting it.
+  return Number.isNaN(end) || end > now;
+}
+
+/**
+ * Resolves a device token and records the use. Devices of banned accounts
+ * count as unknown: a ban signs the account out, and its computers with it.
  *
  * @param db - Open database.
  * @param token - Token from the `Authorization` header.
@@ -456,13 +484,16 @@ export async function authenticateDevice(
     .selectFrom('device')
     .innerJoin('user', 'user.id', 'device.userId')
     .selectAll('device')
-    .select(['user.email as ownerEmail', 'user.name as ownerName', 'user.role as ownerRole'])
+    .select(['user.email as ownerEmail', 'user.name as ownerName', 'user.role as ownerRole', 'user.banned as ownerBanned', 'user.banExpires as ownerBanExpires'])
     .where('device.tokenHash', '=', hashSecret(token))
     .executeTakeFirst();
   if (!found) {
     return undefined;
   }
-  const { ownerEmail, ownerName, ownerRole, ...device } = found;
+  const { ownerEmail, ownerName, ownerRole, ownerBanned, ownerBanExpires, ...device } = found;
+  if (isBanned(ownerBanned, ownerBanExpires)) {
+    return undefined;
+  }
   const now = Date.now();
   if (device.lastUsedAt === null || now - device.lastUsedAt > TOUCH_INTERVAL_MS) {
     await db.updateTable('device').set({ lastUsedAt: now }).where('id', '=', device.id).execute();

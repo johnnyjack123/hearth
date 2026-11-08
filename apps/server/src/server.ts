@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { createAuth, migrateAuth } from './auth.ts';
-import { loadConfig } from './config.ts';
+import { loadConfig, type ServerConfig } from './config.ts';
 import { createSecretBox } from './crypto.ts';
 import { createDatabase, parseDatabaseUrl } from './db/index.ts';
 import { migrateToLatest } from './db/migrations.ts';
@@ -10,6 +10,7 @@ import { createLlmGateway } from './llm.ts';
 import { PricingCatalog } from './pricing.ts';
 import { forDevice, listAppTemplates } from './services/app-templates.ts';
 import { saveDeviceApps, saveDeviceProjects, saveDeviceVersion } from './services/devices.ts';
+import { countUsers } from './services/settings.ts';
 import { DeviceHub } from './tunnel/hub.ts';
 import { attachTunnel } from './tunnel/socket.ts';
 
@@ -39,6 +40,29 @@ export function createDeviceHub(db: AppDeps['database']['db']): DeviceHub {
     version: (deviceId, harness) => saveDeviceVersion(db, deviceId, harness),
     templates: async (userId) => (await listAppTemplates(db, userId)).map(forDevice),
   });
+}
+
+/**
+ * What the log should say at startup about access from outside: the setup
+ * code while there is no account, and settings that do not fit a server
+ * behind HTTPS.
+ *
+ * @param config - Server configuration.
+ * @param users - Accounts so far.
+ * @returns Lines for the log.
+ */
+export function startupNotes(config: ServerConfig, users: number): string[] {
+  const notes: string[] = [];
+  if (users === 0 && config.setupCode) {
+    notes.push(`No account yet. The first account (it becomes admin) needs this setup code on the sign-up page: ${config.setupCode}`);
+  }
+  if (config.publicUrl.startsWith('https://') && !config.trustedProxies?.any) {
+    notes.push(
+      'PUBLIC_URL is https, but TRUSTED_PROXIES is empty: behind a reverse proxy every visitor shares its address, ' +
+        'so sign-in limits count everyone together. Set TRUSTED_PROXIES to the proxy (e.g. its Docker network, 172.16.0.0/12).',
+    );
+  }
+  return notes;
 }
 
 /**
@@ -79,6 +103,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
     console.log(`[server] database: ${target.kind}${target.kind === 'sqlite' ? ` (${target.file})` : ''}`);
     console.log(`[server] web app: ${config.webDist ?? 'not served (API only)'}`);
   });
+  for (const line of startupNotes(config, await countUsers(database.db))) {
+    console.log(`[server] ${line}`);
+  }
   attachTunnel(server, database.db, hub);
 
   const shutdown = (signal: string) => {

@@ -70,6 +70,8 @@ try {
       WEB_DIST: path.join(dataDir, 'no-web-build'),
       // The mock stands in for markitdown, too.
       MARKITDOWN_URL: 'http://127.0.0.1:8091',
+      // Known instead of random, so the test can type it like a person from the log.
+      HARNESS_SETUP_CODE: 'E2E-SETUP',
     },
   });
   const viteLog = start('vite', [path.join(webDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5174'], {

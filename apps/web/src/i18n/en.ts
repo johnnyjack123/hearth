@@ -62,6 +62,10 @@ export const en: Messages = {
     registerTitle: 'Create account',
     registerSubtitle: 'Your own account, your own API keys.',
     firstUserHint: 'You are the first person on this server. Your account becomes admin automatically.',
+    setupCode: 'Setup code',
+    setupCodeHint: "It is in the server's log (docker compose logs server). This way nobody else can claim a fresh server.",
+    setupCodeInvalid: "The setup code is wrong. It is in the server's log.",
+    tooManyRequests: 'Too many attempts. Wait a minute, then try again.',
     name: 'Name',
     email: 'Email',
     password: 'Password',
@@ -798,6 +802,10 @@ export const en: Messages = {
     explain:
       'The device may then send LLM requests using your stored keys, for example for a coding agent in the sandbox. It never sees the keys themselves or your chats.',
     compare: 'Only confirm if you just requested this code yourself and it matches the one on your computer.',
+    origin: 'Requested at {time} from {ip}.',
+    sameAddress: "That is your browser's address too.",
+    otherAddress:
+      'The request comes from another address than your browser. That fits when your computer is elsewhere, for example when you confirm on your phone over mobile data. If you did not just run "harness login" yourself, deny: someone sent you the link.',
     approve: 'Connect',
     deny: 'Deny',
     approved: 'Connected. You can return to the terminal.',

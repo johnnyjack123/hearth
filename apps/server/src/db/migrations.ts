@@ -358,6 +358,15 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('conversationTag').execute();
     },
   },
+  '0019_pairing_ip': {
+    async up(db: Kysely<unknown>) {
+      // Where a pairing came from, so the confirmation page can show it.
+      await db.schema.alterTable('devicePairing').addColumn('requestIp', 'text').execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('devicePairing').dropColumn('requestIp').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

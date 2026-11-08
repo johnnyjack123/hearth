@@ -9,6 +9,8 @@ import { createApp } from '../src/app.ts';
 import { createAuth, migrateAuth } from '../src/auth.ts';
 import type { ServerConfig } from '../src/config.ts';
 import { createSecretBox } from '../src/crypto.ts';
+import { parseTrustedProxies } from '../src/http/client-ip.ts';
+import { SETUP_CODE_HEADER } from '../src/routes/auth.ts';
 import { createDatabase, type Database, type DatabaseKind } from '../src/db/index.ts';
 import { migrateToLatest } from '../src/db/migrations.ts';
 import type { DocumentConverter } from '../src/files/convert.ts';
@@ -31,6 +33,9 @@ export const DIALECTS: DatabaseKind[] = process.env.TEST_POSTGRES_URL ? ['sqlite
  * Origin used for all test requests; must be trusted for Better Auth and CSRF.
  */
 export const ORIGIN = 'http://localhost:8080';
+
+/** Setup code of every test server; {@link TestServer.signUp} sends it. */
+export const SETUP_CODE = 'TEST-CODE';
 
 const usage = {
   inputTokens: { total: 5, noCache: 5, cacheRead: undefined, cacheWrite: undefined },
@@ -111,14 +116,15 @@ export interface TestServer {
    *
    * @param method - HTTP method.
    * @param url - Path, e.g. `/api/conversations`.
-   * @param options - JSON body, session cookie and extra headers (an empty
-   *   value removes a default header).
+   * @param options - JSON body, session cookie, extra headers (an empty
+   *   value removes a default header) and the address of the connection
+   *   (none by default, as `app.request` has no socket).
    * @returns The response.
    */
   request(
     method: string,
     url: string,
-    options?: { body?: unknown; cookie?: string; headers?: Record<string, string> },
+    options?: { body?: unknown; cookie?: string; headers?: Record<string, string>; peer?: string },
   ): Promise<Response>;
   /**
    * Registers an account and returns its session cookie.
@@ -168,6 +174,8 @@ export async function createTestServer(
     secret: 'test-secret-that-is-long-enough-for-hkdf-0123456789',
     trustedOrigins: [ORIGIN],
     webDist: null,
+    trustedProxies: parseTrustedProxies('10.0.0.0/8'),
+    setupCode: SETUP_CODE,
   };
 
   const database = createDatabase(databaseUrl);
@@ -223,12 +231,19 @@ export async function createTestServer(
         delete headers[name];
       }
     }
+    // Hono hands the third argument to routes as `c.env`, like the Node
+    // server does with its socket.
+    const env = options.peer ? { incoming: { socket: { remoteAddress: options.peer } } } : undefined;
     return Promise.resolve(
-      app.request(url, {
-        method,
-        headers,
-        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-      }),
+      app.request(
+        url,
+        {
+          method,
+          headers,
+          ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+        },
+        env,
+      ),
     );
   };
 
@@ -241,6 +256,7 @@ export async function createTestServer(
     async signUp(email) {
       const response = await request('POST', '/api/auth/sign-up/email', {
         body: { email, name: email.split('@')[0], password: 'correct-horse-battery' },
+        headers: { [SETUP_CODE_HEADER]: SETUP_CODE },
       });
       if (!response.ok) {
         throw new Error(`sign-up failed: ${response.status} ${await response.text()}`);

@@ -127,6 +127,7 @@ try {
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForFunction(() => location.pathname === '/register', { timeout: 10_000 });
     await shot('01-register');
+    await page.type('input[placeholder="ABCD-EFGH"]', 'e2e-setup');
     await page.type('input[autocomplete=name]', 'Erika Test');
     await page.type('input[autocomplete=email]', 'erika@example.com');
     await page.type('input[autocomplete=new-password]', 'sehr-sicheres-passwort');
@@ -792,6 +793,8 @@ try {
     await page.goto(pairing.verificationUriComplete, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('„harness auf E2E“ möchte sich mit deinem Konto verbinden.'), { timeout: 10_000 });
     await page.waitForSelector(text(pairing.userCode));
+    // Vite's proxy is the address of both, browser and "device".
+    await waitForText('Das ist auch die Adresse deines Browsers');
     await shot('12-pairing');
     await page.click(text('Verbinden'));
     await page.waitForSelector(text('Verbunden. Du kannst zum Terminal zurückkehren.'), { timeout: 10_000 });

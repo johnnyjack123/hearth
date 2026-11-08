@@ -21,9 +21,11 @@ export function publicSettingsRoutes(deps: AppDeps) {
   const { db } = deps.database;
   return new Hono().get('/', async (c) => {
     const settings = await getServerSettings(db);
+    const hasUsers = (await countUsers(db)) > 0;
     const body: PublicSettings = {
       registration: settings.registration,
-      hasUsers: (await countUsers(db)) > 0,
+      hasUsers,
+      setupCode: !hasUsers && Boolean(deps.config.setupCode),
       allowCustomBaseUrls: settings.allowCustomBaseUrls,
       webSearch: settings.search.provider !== 'off',
       version: { server: SERVER_VERSION, commit: SERVER_COMMIT },

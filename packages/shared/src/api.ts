@@ -62,6 +62,11 @@ export interface PublicSettings {
   registration: RegistrationMode;
   /** False until the first account exists; that account becomes admin. */
   hasUsers: boolean;
+  /**
+   * Whether the first account must give the setup code from the server's
+   * log, so nobody else can claim a fresh server that is on the internet.
+   */
+  setupCode: boolean;
   /** Whether non-admin users may use custom endpoints (Ollama, OpenAI-compatible). */
   allowCustomBaseUrls: boolean;
   /** Whether a search provider is set up, so chats can offer research mode. */

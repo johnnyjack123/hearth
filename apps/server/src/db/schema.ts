@@ -10,6 +10,10 @@ export interface UserTable {
   email: string;
   name: string;
   role: string | null;
+  /** Set by the admin plugin; 0/1 on SQLite. */
+  banned: boolean | number | null;
+  /** End of a ban; Date on Postgres, a timestamp or ISO string on SQLite. */
+  banExpires: Date | string | number | null;
 }
 
 /**
@@ -104,6 +108,8 @@ export interface DevicePairingTable {
   encryptedToken: string | null;
   createdAt: number;
   expiresAt: number;
+  /** Address the pairing was started from; null for pairings before 0.1.20. */
+  requestIp: string | null;
 }
 
 /**

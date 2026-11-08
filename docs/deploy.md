@@ -28,7 +28,7 @@ Jede Architektur baut nativ auf ihrem Runner. Vor dem Hochladen startet der Work
    docker compose up -d
    docker compose logs -f server
    ```
-5. Im Browser `PUBLIC_URL` öffnen, Konto anlegen, API-Keys hinterlegen. Auf dem Windows-Rechner dann `harness login http://<pi>:8080`.
+5. Im Browser `PUBLIC_URL` öffnen, Konto anlegen (das erste braucht den Einrichtungscode aus `docker compose logs server`), API-Keys hinterlegen. Auf dem Windows-Rechner dann `harness login http://<pi>:8080`.
 
 Aktualisieren: `docker compose pull && docker compose up -d`. Die Daten liegen neben `docker-compose.yml`:
 - `data`: SQLite-Datenbank und, falls `HARNESS_SECRET` leer ist, das erzeugte Geheimnis
@@ -135,6 +135,47 @@ Für den Server vertraut harness dann nur dieser CA, auf dem Windows-Rechner (Ko
 
 Antworten der Modelle kommen als Stream (Server-Sent Events); Caddy reicht sie ohne Puffern durch. Schlägt der Handshake fehl, zeigen `harness net status` und `harness net watch` bei `llm.harness` „TLS zum harness-Server fehlgeschlagen“. Die genaue Ursache steht in der Fehlerseite an den Agent (Status 502, z. B. „certificate not valid for name …“ oder `UnknownIssuer`) und in `podman logs` des Gateway-Containers.
 
+## Im Internet
+
+Seit v0.1.20 ist der Server dafür gebaut, öffentlich hinter einem Reverse-Proxy mit HTTPS zu stehen. Einrichten:
+
+1. **Nur HTTPS nach außen.** Am Router nur 443 (und 80 für Let's Encrypt) an den Reverse-Proxy weiterleiten, nie den Port des Servers. `HARNESS_PORT=127.0.0.1:8080` bindet ihn nur noch lokal; hängt der Proxy im selben Docker-Netz, braucht der Server gar keinen Port.
+2. **`PUBLIC_URL=https://<name>`** in der `.env`. Dann gelten die Login-Cookies nur noch über HTTPS (`Secure`); `http://<ip>:8080` im Heimnetz meldet danach nicht mehr an, also auch zu Hause den Namen nehmen. Löst die FritzBox den eigenen Namen intern nicht auf, unter Heimnetz → Netzwerk → Netzwerkeinstellungen → DNS-Rebind-Schutz den Namen als Ausnahme eintragen.
+3. **`TRUSTED_PROXIES`** auf die Adresse des Proxys setzen, wie der Server ihn sieht, kommagetrennt, auch als Bereich. Nur dann glaubt der Server dessen `X-Forwarded-For`, und die Sperren beim Anmelden zählen je Besucher statt alle zusammen. Für einen Proxy in Docker das Netz, das er mit dem Server teilt: `docker network inspect <netz> --format '{{(index .IPAM.Config 0).Subnet}}'`, oder pauschal `172.16.0.0/12` (alle Docker-Netze). Wer den Server direkt erreicht, kann sich so keine andere Adresse geben. Ohne den Eintrag warnt das Protokoll beim Start.
+4. **Registrierung schließen:** Administration → Server → Registrierung. Weitere Konten legt ein Admin unter Administration → Nutzer an.
+5. **Kostendeckel** pro Tag setzen (Administration → Server oder Einstellungen → Konto), falls ein Passwort doch einmal in falsche Hände gerät.
+6. Auf dem Windows-Rechner `harness login https://<name>`.
+
+**traefik** (läuft schon auf dem Host, eigenes Docker-Netz, hier `proxy`), als `docker-compose.override.yml` neben `docker-compose.yml`. Namen von Entrypoint, Zertifikats-Resolver und Netz hängen an der eigenen traefik-Konfiguration:
+
+```yaml
+services:
+  server:
+    networks: [default, documents, proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.harness.rule=Host(`chat.example.org`)
+      - traefik.http.routers.harness.entrypoints=websecure
+      - traefik.http.routers.harness.tls.certresolver=letsencrypt
+      - traefik.http.services.harness.loadbalancer.server.port=8080
+
+networks:
+  proxy:
+    external: true
+```
+
+Dazu in der `.env` `HARNESS_PORT=127.0.0.1:8080` und `TRUSTED_PROXIES` mit dem Netz `proxy`. traefik puffert weder Streams noch WebSockets (Tunnel der Rechner), nginx braucht dafür `proxy_buffering off` und die Upgrade-Header.
+
+**Was der Server selbst tut:**
+- Anmelden höchstens 5-mal pro Minute und Adresse (IPv6: je /64), Registrieren 5-mal in 10 Minuten; Kopplungen 5 Starts in 10 Minuten je Adresse.
+- Das erste Konto (es wird Admin) braucht den **Einrichtungscode** aus dem Protokoll (`docker compose logs server`, Zeile „No account yet …“). So kann niemand einen frischen Server übernehmen, bevor man selbst registriert ist. `HARNESS_SETUP_CODE` setzt ihn fest.
+- Bei geschlossener Registrierung lehnt der Server jede Registrierung ab, bevor er nachsieht, ob es die Adresse schon gibt.
+- Die Seite zum Koppeln zeigt, von welcher Adresse `harness login` kam, und warnt, wenn das nicht die des Browsers ist: So fällt auf, wenn jemand einen fremden Kopplungs-Link schickt.
+- Gesperrte Nutzer verlieren auch den Zugang ihrer Rechner.
+
+**Was noch fehlt:** Zwei-Faktor-Anmeldung gibt es nicht; ein gutes Passwort ist der einzige Schutz eines Kontos. Die Windows-Programme sind nicht signiert.
+
 ### Gateway-Image
 
 Das Gateway-Image kompiliert in der VM die TLS-Bibliotheken (rustls, ring, webpki-roots) und lädt sie dafür beim ersten `harness image build gateway` von crates.io, einige MB. Versionen und Prüfsummen stehen fest in `images/gateway/Cargo.lock`; die Datei ist der Workspace-Lock, beschränkt aufs Gateway (`bash scripts/gateway-lock.sh`, ein Test meldet Abweichungen). Auf dem Windows-Entwicklungsrechner baut das Gateway ohne TLS (Feature `tls` aus), weil `ring` dort clang bräuchte. Gelintet und getestet wird der TLS-Code im Workflow `.github/workflows/gateway.yml` und beim Bau des Images.
@@ -167,6 +208,14 @@ HARNESS_SECRET=
 # Weitere Adressen der Web-App, kommagetrennt, z. B. wenn der Server auch
 # unter einem Namen erreichbar ist: http://raspberrypi:8080
 TRUSTED_ORIGINS=
+
+# Hinter einem Reverse-Proxy: dessen Adresse oder Netz (kommagetrennt, auch
+# CIDR wie 172.16.0.0/12). Nur von dort glaubt der Server X-Forwarded-For.
+TRUSTED_PROXIES=
+
+# Einrichtungscode für das erste Konto. Leer lassen: Der Server erzeugt einen
+# und schreibt ihn ins Protokoll, solange es kein Konto gibt.
+HARNESS_SETUP_CODE=
 
 # Postgres statt SQLite: Passwort setzen und die beiden Zeilen darunter
 # einkommentieren. COMPOSE_PROFILES startet den Postgres-Container mit.
