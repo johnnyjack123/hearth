@@ -26,6 +26,11 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
     // A server with its own CA needs it from the first request on.
     let ca = ServerCa::from_config(&server)?;
     let client = ServerClient::new(&url, ca.as_ref())?;
+    if let Some(old) = server.url.as_deref().filter(|old| *old != client.url())
+        && move_device(config, old, &client)?
+    {
+        return Ok(true);
+    }
     let previous = load_token(client.url())?;
     let pairing = client.start_pairing(&device_name())?;
 
@@ -139,6 +144,64 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
             ),
         }
     }
+    Ok(true)
+}
+
+/// The same server under a new address, e.g. behind a reverse proxy now:
+/// the device keeps its token, so chats linked to it and its settings stay.
+/// The token goes to the new address only after the server there proved it
+/// holds this device ([`ServerClient::holds_device`]); otherwise this
+/// returns false and the computer pairs anew.
+fn move_device(config: &ConfigDir, old_url: &str, client: &ServerClient) -> anyhow::Result<bool> {
+    let Some(token) = load_token(old_url)? else {
+        return Ok(false);
+    };
+    if !client.holds_device(&token)? {
+        return Ok(false);
+    }
+    save_token(client.url(), &token)
+        .context(tr("Geräte-Token speichern", "Saving the device token"))?;
+    config.set_server_url(Some(client.url()))?;
+    delete_token(old_url)?;
+    let me = client.device(&token)?;
+    println!(
+        "{}",
+        tr!(
+            "Derselbe Server unter neuer Adresse: {} bleibt gekoppelt als „{}“ ({}).",
+            "The same server at a new address: {} stays paired as “{}” ({}).",
+            client.url(),
+            me.device.name,
+            me.user.email
+        )
+    );
+    announce_projects(config);
+    // The service reads the address when it starts.
+    if crate::daemon::running(config) {
+        crate::daemon::stop(config);
+        match crate::daemon::start(config) {
+            Ok(true) => println!(
+                "{}",
+                tr(
+                    "Hintergrunddienst neu gestartet.",
+                    "Background service restarted."
+                )
+            ),
+            _ => println!(
+                "{}",
+                tr(
+                    "Hintergrunddienst startet nicht, siehe `harness daemon`.",
+                    "Background service does not start, see `harness daemon`."
+                )
+            ),
+        }
+    }
+    println!(
+        "{}",
+        tr(
+            "Laufende Gateways übernehmen die Adresse mit `harness net start`.",
+            "Running gateways take over the address with `harness net start`."
+        )
+    );
     Ok(true)
 }
 

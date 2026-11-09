@@ -6,6 +6,7 @@ import {
   diffAssessmentRequestSchema,
   pairingDecisionSchema,
   pairingTokenSchema,
+  proveDeviceSchema,
   type RemoteProject,
   requestAppFileSchema,
   setProjectAppsSchema,
@@ -27,6 +28,7 @@ import {
   loadDeviceProjects,
   pairingInfo,
   pollPairing,
+  proveDevice,
   saveDeviceProjects,
   startPairing,
   updateDevice,
@@ -83,6 +85,17 @@ export function pairingRoutes(deps: AppDeps) {
       polls.check(rateKey(c.get('clientIp')));
       const { deviceCode } = pairingTokenSchema.parse(await c.req.json());
       return c.json(await pollPairing(db, deps.secretBox, deviceCode));
+    })
+    // `harness login` with a new address of this server keeps its device,
+    // once the server proved it holds it (see `proveDevice`).
+    .post('/prove', async (c) => {
+      polls.check(rateKey(c.get('clientIp')));
+      const { lookup, nonce } = proveDeviceSchema.parse(await c.req.json());
+      const proof = await proveDevice(db, lookup, nonce);
+      if (proof === null) {
+        throw notFound('Device');
+      }
+      return c.json({ proof });
     });
 }
 

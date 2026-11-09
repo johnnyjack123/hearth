@@ -200,6 +200,20 @@ describe.each(DIALECTS)('server on the internet (%s)', (kind) => {
     expect((await asDevice()).status).toBe(200);
   });
 
+  it('proves it holds a device without the token travelling, as harness computes it', async () => {
+    const cookie = await server.signUp('owner@example.com');
+    const started = (await (await server.request('POST', '/api/pairing', { body: { name: 'PC' }, headers: CLI })).json()) as PairingStart;
+    await server.request('POST', `/api/devices/pairing/${started.userCode}`, { cookie, body: { approve: true } });
+    // The token of the fixed values in `harness-core/src/server.rs`.
+    await server.database.db.updateTable('device').set({ tokenHash: 'a71e718f66da4e3bde5b7756f407734208d50d07f5e67f411329e17883285433' }).execute();
+    const prove = (lookup: string) =>
+      server.request('POST', '/api/pairing/prove', { body: { lookup, nonce: '00112233445566778899aabbccddeeff' }, headers: CLI });
+    const known = await prove('a0cc9c1632b9567bfe8d4d7aa836e1298dbf103fcfdcada8481e691668153c1d');
+    expect(await known.json()).toEqual({ proof: 'dd44dcd282ec2ec506d61ae11f379095c42c7b06e3cd4eef2dd58c5b28586449' });
+    expect((await prove('0'.repeat(64))).status).toBe(404);
+    expect((await server.request('POST', '/api/pairing/prove', { body: { lookup: 'x', nonce: 'y' }, headers: CLI })).status).toBe(400);
+  });
+
   it('serves uploaded files under their own sandboxing policy', async () => {
     const cookie = await server.signUp('owner@example.com');
     const uploaded = await server.app.request('/api/files', {

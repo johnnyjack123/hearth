@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 import {
   type AppsReport,
   appsReportSchema,
@@ -445,6 +445,32 @@ export async function deleteDevice(db: Kysely<DB>, userId: string, id: string): 
   if (Number(result.numDeletedRows) !== 1) {
     throw notFound('Device');
   }
+}
+
+/**
+ * Proves that this server holds a device, without the device's token
+ * travelling: the device names it by SHA-256 of the stored token hash and
+ * checks the answer, HMAC-SHA-256 of its nonce keyed with that hash. Only a
+ * server that stores the hash can answer, and the answer gives nobody a
+ * way to sign in.
+ *
+ * @param db - Open database.
+ * @param lookup - SHA-256 (hex) of the device's stored token hash.
+ * @param nonce - The device's challenge.
+ * @returns The proof (hex), or null for no such device or a banned owner.
+ */
+export async function proveDevice(db: Kysely<DB>, lookup: string, nonce: string): Promise<string | null> {
+  // Devices are few on a self-hosted server; the lookup is not stored.
+  const devices = await db
+    .selectFrom('device')
+    .innerJoin('user', 'user.id', 'device.userId')
+    .select(['device.tokenHash', 'user.banned', 'user.banExpires'])
+    .execute();
+  const device = devices.find((row) => hashSecret(row.tokenHash) === lookup);
+  if (!device || isBanned(device.banned, device.banExpires)) {
+    return null;
+  }
+  return createHmac('sha256', device.tokenHash).update(nonce).digest('hex');
 }
 
 /**

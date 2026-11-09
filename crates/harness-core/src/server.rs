@@ -13,8 +13,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harness_gateway::{LlmUpstream, pem};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use ureq::Agent;
 use ureq::tls::{Certificate, RootCerts, TlsConfig, TlsProvider};
 
@@ -185,6 +187,32 @@ struct ErrorDetail {
     message: String,
 }
 
+/// The server's answer to [`ServerClient::holds_device`].
+#[derive(Deserialize)]
+struct Proof {
+    proof: String,
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// What a device proof is built from: the hash the server stores for
+/// `token` (its key) and the hash of that, which names the device.
+fn device_lookup(token: &str) -> (String, String) {
+    let stored = hex(&Sha256::digest(token.as_bytes()));
+    let lookup = hex(&Sha256::digest(stored.as_bytes()));
+    (stored, lookup)
+}
+
+/// The answer a server holding the device gives to `nonce`, in hex.
+fn device_proof(stored: &str, nonce: &str) -> String {
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(stored.as_bytes())
+        .expect("HMAC takes keys of any length");
+    mac.update(nonce.as_bytes());
+    hex(&mac.finalize().into_bytes())
+}
+
 /// HTTP client for one harness server.
 pub struct ServerClient {
     url: String,
@@ -321,6 +349,27 @@ impl ServerClient {
             .post(format!("{}/api/pairing/token", self.url))
             .send_json(serde_json::json!({ "deviceCode": device_code }));
         self.read(response)
+    }
+
+    /// Whether this server holds the device of `token`, proved without
+    /// sending the token: `harness login` keeps the device when the same
+    /// server moves to a new address, and a mistyped address learns nothing.
+    /// The server answers a random challenge with an HMAC keyed with the
+    /// token's hash, which only it stores.
+    pub fn holds_device(&self, token: &str) -> Result<bool> {
+        let (stored, lookup) = device_lookup(token);
+        let mut challenge = [0u8; 32];
+        getrandom::fill(&mut challenge).map_err(|e| Error::Server(e.to_string()))?;
+        let nonce = hex(&challenge);
+        let response = self
+            .agent
+            .post(format!("{}/api/pairing/prove", self.url))
+            .send_json(serde_json::json!({ "lookup": lookup, "nonce": nonce }));
+        // Another server, or one from before the check, knows no such device.
+        let Ok(Proof { proof }) = self.read::<Proof>(response) else {
+            return Ok(false);
+        };
+        Ok(proof == device_proof(&stored, &nonce))
     }
 
     /// The device a token belongs to; fails for revoked tokens.
@@ -590,6 +639,24 @@ mod tests {
     use super::*;
 
     const TOKEN: &str = "hd_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
+
+    #[test]
+    fn device_proofs_match_the_server() {
+        // The same values are in the server's test (`internet.test.ts`).
+        let (stored, lookup) = device_lookup("hd_example-token");
+        assert_eq!(
+            stored,
+            "a71e718f66da4e3bde5b7756f407734208d50d07f5e67f411329e17883285433"
+        );
+        assert_eq!(
+            lookup,
+            "a0cc9c1632b9567bfe8d4d7aa836e1298dbf103fcfdcada8481e691668153c1d"
+        );
+        assert_eq!(
+            device_proof(&stored, "00112233445566778899aabbccddeeff"),
+            "dd44dcd282ec2ec506d61ae11f379095c42c7b06e3cd4eef2dd58c5b28586449"
+        );
+    }
 
     #[test]
     fn urls() {
