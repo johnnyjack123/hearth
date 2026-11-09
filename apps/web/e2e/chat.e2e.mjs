@@ -1,6 +1,7 @@
 // End-to-end check of the chat flow in a headless Chromium-based browser
 // against an isolated server and Vite instance started by run-e2e.mjs.
 // Uses an installed browser (puppeteer-core) so nothing large is downloaded.
+import { createHmac } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -71,6 +72,21 @@ const step = async (name, fn) => {
 };
 const shot = (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
 const text = (selectorText) => `::-p-text(${selectorText})`;
+
+/**
+ * The code an authenticator app shows now for a secret as the setup dialog
+ * prints it (base32 in groups of four; RFC 6238: 30 s, 6 digits, SHA-1).
+ */
+function totp(secret) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const bits = [...secret.replace(/[\s=]/g, '')].map((char) => alphabet.indexOf(char).toString(2).padStart(5, '0')).join('');
+  const key = Buffer.from(bits.match(/.{8}/g).map((byte) => Number.parseInt(byte, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)));
+  const mac = createHmac('sha1', key).update(counter).digest();
+  const offset = mac.at(-1) & 0xf;
+  return ((mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
+}
 
 /** Waits for text the page shows after a refresh, e.g. of the device list. */
 const waitForText = (wanted, timeout = 15_000) =>
@@ -723,6 +739,47 @@ try {
     await page.click('[role=tab]::-p-text(Server)');
     await waitForText('Server-Version dev');
     await waitForText('Tageslimit je Nutzer in US-$');
+  });
+
+  await step('two-factor sign-in: set up, sign in with a code, turn off', async () => {
+    await page.goto(`${BASE}/settings?tab=account`, { waitUntil: 'networkidle0' });
+    await page.click(text('Einrichten'));
+    await page.type('[data-two-factor] input[type=password]', 'sehr-sicheres-passwort');
+    await page.click(`[data-two-factor] button${text('Weiter')}`);
+    const secret = await (await page.waitForSelector('[data-totp-secret]', { timeout: 10_000 })).evaluate((element) => element.textContent);
+    await page.waitForSelector('[data-two-factor] svg[role=img]');
+    await shot('54-two-factor-scan');
+    await page.type('[data-two-factor] input[autocomplete=one-time-code]', totp(secret));
+    await page.click(`[data-two-factor] button${text('Bestätigen')}`);
+    await page.waitForSelector('[data-backup-codes]', { timeout: 10_000 });
+    await shot('54b-two-factor-codes');
+    await page.click(text('Gespeichert, fertig'));
+    await page.waitForSelector('[role=dialog]', { hidden: true });
+    await waitForText('An: Die Anmeldung braucht Passwort und Code.');
+
+    // A fresh browser needs the code after the password.
+    const context = await browser.createBrowserContext();
+    try {
+      const fresh = await context.newPage();
+      await fresh.evaluateOnNewDocument(() => localStorage.setItem('harness.locale', 'de'));
+      await fresh.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
+      await fresh.type('input[autocomplete=email]', 'erika@example.com');
+      await fresh.type('input[autocomplete=current-password]', 'sehr-sicheres-passwort');
+      await fresh.click('button[type=submit]');
+      await fresh.waitForSelector(text('Bestätigungscode'), { timeout: 10_000 });
+      await fresh.screenshot({ path: path.join(OUT, '54c-two-factor-login.png') });
+      await fresh.type('input[autocomplete=one-time-code]', totp(secret));
+      await fresh.click('button[type=submit]');
+      await fresh.waitForFunction(() => location.pathname === '/', { timeout: 10_000 });
+    } finally {
+      await context.close();
+    }
+
+    // Off again: later steps sign in with the password alone.
+    await page.click(text('Ausschalten'));
+    await page.type('[role=dialog] input[type=password]', 'sehr-sicheres-passwort');
+    await page.click(`[role=dialog] button${text('Ausschalten')}`);
+    await waitForText('Aus: Das Passwort allein reicht.');
   });
 
   await step('the chat model shows its plan as a progress list', async () => {

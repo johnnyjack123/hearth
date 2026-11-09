@@ -5,6 +5,7 @@ import { type FormEvent, type ReactNode, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Field } from '@/components/ui/field.tsx';
 import { Input } from '@/components/ui/input.tsx';
+import { Switch } from '@/components/ui/switch.tsx';
 import type { MessageKey } from '@/i18n/index.ts';
 import { authClient } from '@/lib/auth-client.ts';
 import { useT } from '@/lib/preferences.tsx';
@@ -18,6 +19,10 @@ const AUTH_ERRORS: Record<string, MessageKey> = {
   BANNED_USER: 'auth.banned',
   SETUP_CODE_INVALID: 'auth.setupCodeInvalid',
   TOO_MANY_REQUESTS: 'auth.tooManyRequests',
+  INVALID_CODE: 'auth.twoFactor.invalidCode',
+  INVALID_BACKUP_CODE: 'auth.twoFactor.invalidBackupCode',
+  ACCOUNT_TEMPORARILY_LOCKED: 'auth.twoFactor.locked',
+  INVALID_TWO_FACTOR_COOKIE: 'auth.twoFactor.expired',
 };
 
 // Better Auth's own rate limit answers 429 without a code.
@@ -71,6 +76,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<MessageKey | null>(null);
   const [busy, setBusy] = useState(false);
+  // The password was right and the account has two-factor sign-in on.
+  const [needsCode, setNeedsCode] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -80,6 +87,10 @@ export function LoginPage() {
       const result = await authClient.signIn.email({ email, password });
       if (result.error) {
         setError(authErrorKey(result.error.code, result.error.status));
+        return;
+      }
+      if ('twoFactorRedirect' in result.data && result.data.twoFactorRedirect) {
+        setNeedsCode(true);
         return;
       }
       await afterAuth();
@@ -95,6 +106,18 @@ export function LoginPage() {
   // A fresh server has nobody to sign in; send the first person to registration.
   if (settings.data?.hasUsers === false) {
     return <Navigate to="/register" replace />;
+  }
+
+  if (needsCode) {
+    return (
+      <CodeStep
+        onDone={afterAuth}
+        onExpired={() => {
+          setNeedsCode(false);
+          setError('auth.twoFactor.expired');
+        }}
+      />
+    );
   }
 
   return (
@@ -131,6 +154,84 @@ export function LoginPage() {
           </Link>
         </p>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * The second step of a sign-in with two-factor on: the code of the
+ * authenticator app, or one of the backup codes.
+ */
+function CodeStep({ onDone, onExpired }: { onDone: () => Promise<void>; onExpired: () => void }) {
+  const t = useT();
+  const [backup, setBackup] = useState(false);
+  const [code, setCode] = useState('');
+  const [trust, setTrust] = useState(false);
+  const [error, setError] = useState<MessageKey | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const input = { code: backup ? code.trim() : code.replace(/\s/g, ''), trustDevice: trust };
+      const result = backup ? await authClient.twoFactor.verifyBackupCode(input) : await authClient.twoFactor.verifyTotp(input);
+      if (result.error) {
+        // The password step is minutes old; start over.
+        if (result.error.code === 'INVALID_TWO_FACTOR_COOKIE') {
+          onExpired();
+          return;
+        }
+        setError(authErrorKey(result.error.code, result.error.status));
+        return;
+      }
+      await onDone();
+    } catch {
+      setError('errors.network');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <FormHeader title={t('auth.twoFactor.title')} subtitle={backup ? t('auth.twoFactor.backupSubtitle') : t('auth.twoFactor.subtitle')} />
+      <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-5">
+        {error ? <FormError>{t(error)}</FormError> : null}
+        <Field label={backup ? t('auth.twoFactor.backupCode') : t('auth.twoFactor.code')}>
+          {(control) => (
+            <Input
+              {...control}
+              required
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode={backup ? 'text' : 'numeric'}
+              className="font-mono tracking-widest"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+            />
+          )}
+        </Field>
+        <label className="flex cursor-pointer items-center gap-3 text-sm text-foreground">
+          <Switch checked={trust} onCheckedChange={setTrust} aria-label={t('auth.twoFactor.trust')} />
+          {t('auth.twoFactor.trust')}
+        </label>
+        <Button type="submit" variant="primary" size="lg" loading={busy}>
+          {t('auth.twoFactor.verify')}
+        </Button>
+      </form>
+      <Button
+        variant="link"
+        className="self-center"
+        onClick={() => {
+          setBackup(!backup);
+          setCode('');
+          setError(null);
+        }}
+      >
+        {backup ? t('auth.twoFactor.useApp') : t('auth.twoFactor.useBackup')}
+      </Button>
     </>
   );
 }

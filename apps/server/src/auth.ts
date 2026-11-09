@@ -1,7 +1,7 @@
 import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
-import { admin } from 'better-auth/plugins';
+import { admin, twoFactor } from 'better-auth/plugins';
 import type { ServerConfig } from './config.ts';
 import { deriveKey } from './crypto.ts';
 import type { Database } from './db/index.ts';
@@ -28,7 +28,9 @@ function authOptions(config: ServerConfig, database: Database) {
       maxPasswordLength: 256,
       autoSignIn: true,
     },
-    plugins: [admin()],
+    // Two-factor sign-in with an authenticator app and backup codes; the
+    // issuer in the app is the app name.
+    plugins: [admin(), twoFactor()],
     telemetry: { enabled: false },
     // On in production (Better Auth's default), per client address. Stricter
     // than the defaults (3 in 10 s): a password guesser gets 5 a minute.
