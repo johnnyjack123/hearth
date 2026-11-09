@@ -100,6 +100,31 @@ export function condenseHistory(messages: ChatMessage[]): ChatMessage[] {
 }
 
 /**
+ * The reasoning of earlier replies, kept where it pays: DeepSeek expects the
+ * reasoning of earlier turns back once a request has tools, and the
+ * provider's prompt cache holds the conversation with it. Without it, the
+ * first call of every new message read the previous reply at full price
+ * (8.11.: 69 % instead of nearly all from the cache). Left out is the
+ * reasoning of replies by another model or credential, whose formats and
+ * signatures the current provider may reject, and of replies before the
+ * last condensing mark, where the chat is long or its cache cold anyway.
+ *
+ * @param messages - The conversation, after the latest summary.
+ * @param current - Model and credential of the request.
+ * @returns Copies of the messages without the reasoning that goes.
+ */
+export function withReasoning(messages: ChatMessage[], current: { modelId: string; credentialId: string }): ChatMessage[] {
+  const mark = lastMark(messages);
+  return messages.map((message, index) => {
+    if (message.role !== 'assistant' || !message.parts.some((part) => part.type === 'reasoning')) {
+      return message;
+    }
+    const own = message.metadata?.modelId === current.modelId && message.metadata.credentialId === current.credentialId;
+    return own && index > mark ? message : { ...message, parts: message.parts.filter((part) => part.type !== 'reasoning') };
+  });
+}
+
+/**
  * URLs of pages whose content was condensed away: the model is told it can
  * load them again, and they do so without asking. The same URL carries
  * nothing new out of the chat.
