@@ -152,6 +152,7 @@ export const en: Messages = {
       hiddenOne: 'Your OpenRouter account rules out one more host (provider settings, privacy or guardrails); it is hidden.',
       noneAllowed: 'Your OpenRouter account allows no host for this model. Check your provider settings at OpenRouter.',
       blockedPinned: 'Your OpenRouter account rules out this host: requests fail until you pick another.',
+      checkedAt: 'Checked on {date}; check again under Settings → Providers.',
       unavailable: "OpenRouter's list of hosts cannot be reached right now.",
       failed: 'The choice was not saved. Please try again.',
     },
@@ -841,6 +842,19 @@ export const en: Messages = {
     expired: 'This code has expired. Run “harness login” again.',
     notFound: 'This code does not exist. Check what you entered.',
     manage: 'Manage devices',
+  },
+  hostCheck: {
+    title: 'Host check at OpenRouter',
+    description:
+      'Checks once a week, for the models of your five latest OpenRouter chats, which hosts your OpenRouter account allows, and hides the others in the host list. The cheapest routing leaves them out as well.',
+    switch: 'Check allowed hosts',
+    cost: 'Each allowed host gets a one-token request for this (fractions of a cent); OpenRouter refuses excluded ones before they see anything.',
+    none: 'No chat with an OpenRouter model yet.',
+    never: 'Not checked yet',
+    result: 'Checked on {date}: {allowed} allowed, {blocked} excluded',
+    refresh: 'Check now',
+    done: 'Hosts checked.',
+    off: 'Off: the host list shows every host, and no check requests go out.',
   },
   providers: {
     title: 'Providers and API keys',

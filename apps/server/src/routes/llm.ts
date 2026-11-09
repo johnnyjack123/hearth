@@ -19,6 +19,7 @@ import { runSearch, searchModelText } from '../websearch/tool.ts';
 import { memoryText } from '../memory/tool.ts';
 import { clientBetas, providerSideTool } from '../llm-tools.ts';
 import { cacheKey, cheapestProvider, meterBill, pinnedProvider } from '../openrouter.ts';
+import { blockedHosts } from '../services/host-access.ts';
 import { pinnedHost } from '../services/hosts.ts';
 import { costGuard } from '../services/costs.ts';
 import { addMemory, removeMemory } from '../services/memories.ts';
@@ -421,7 +422,7 @@ export function llmRoutes(deps: AppDeps) {
       return { body: JSON.stringify({ ...fields, ...changes }) };
     }
     const conversation = { model: fields.model, key };
-    const exclude = deps.hostAccess?.blocked(credentialId, fields.model);
+    const exclude = await blockedHosts(db, owner, credentialId, fields.model);
     const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit, exclude }, key)) ?? null;
     const provider = cheapestProvider(fields.provider, order);
     return { body: JSON.stringify({ ...fields, ...changes, ...(provider ? { provider } : {}) }), conversation };

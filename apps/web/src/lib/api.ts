@@ -10,6 +10,7 @@ import type {
   CompactRequestBody,
   ConversationDetail,
   CostStatus,
+  HostCheckStatus,
   OpenRouterHostAccess,
   OpenRouterHosts,
   ConversationSummary,
@@ -157,6 +158,9 @@ export const api = {
     pin: (model: string, host: string | null) => request<OpenRouterHosts>('PUT', '/openrouter/hosts', { model, host }),
     access: (model: string, credential: string) =>
       request<OpenRouterHostAccess>('GET', `/openrouter/access?model=${encodeURIComponent(model)}&credential=${encodeURIComponent(credential)}`),
+    accessStatus: () => request<HostCheckStatus>('GET', '/openrouter/access/status'),
+    refreshAccess: () => request<HostCheckStatus>('POST', '/openrouter/access/refresh'),
+    setAccessCheck: (enabled: boolean) => request<HostCheckStatus>('PUT', '/openrouter/access/settings', { enabled }),
   },
   costs: {
     get: () => request<CostStatus>('GET', '/costs'),

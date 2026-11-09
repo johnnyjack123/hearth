@@ -144,6 +144,11 @@ export function HostList({
           />
         ))}
         {hidden > 0 ? <p className="px-2 py-2 text-xs text-muted-foreground">{hidden === 1 ? t('chat.host.hiddenOne') : t('chat.host.hidden', { count: String(hidden) })}</p> : null}
+        {access?.checked && access.checkedAt !== null ? (
+          <p className="px-2 text-xs text-muted-foreground">
+            {t('chat.host.checkedAt', { date: new Date(access.checkedAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' }) })}
+          </p>
+        ) : null}
         {access?.checked && listed.length > 0 && hosts.length === 0 ? (
           <p role="alert" className="px-2 py-2 text-xs text-destructive">
             {t('chat.host.noneAllowed')}

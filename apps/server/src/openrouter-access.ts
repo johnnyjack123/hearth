@@ -12,20 +12,11 @@ export type HostAccessState = 'allowed' | 'blocked' | 'unknown';
 /** Asks OpenRouter whether a key may use one host for a model. */
 export type HostProbe = (request: { apiKey: string; baseUrl: string; model: string; host: string }) => Promise<HostAccessState>;
 
-/** A result is shown again without asking for this long. */
-const CHECK_TTL_MS = 15 * 60_000;
-
-/** Routing leaves out blocked hosts while the result is younger than this. */
-const KEEP_MS = 6 * 60 * 60_000;
-
 /** Probes at a time; a model has up to some forty hosts. */
 const CONCURRENCY = 6;
 
 /** One probe waits at most this long. */
 const PROBE_TIMEOUT_MS = 20_000;
-
-/** Results kept at most (credential and model). */
-const MAX_RESULTS = 1_000;
 
 /**
  * One probe: a one-token request that only this host may serve. Hosts the
@@ -79,24 +70,20 @@ export function accessFromAnswer(status: number, body: unknown): HostAccessState
 }
 
 /**
- * Probes and remembers which hosts each OpenRouter credential may use.
+ * Probes the hosts of a model for a credential, a few at a time; a second
+ * request for the same credential and model while one runs waits for it.
+ * What the probes found is stored by the caller (`services/host-access.ts`).
  */
-export class HostAccess {
-  readonly #results = new Map<string, { at: number; states: Map<string, HostAccessState> }>();
+export class HostProber {
   readonly #running = new Map<string, Promise<Map<string, HostAccessState>>>();
 
   /**
    * @param probe - Asks about one host; tests pass a stand-in.
-   * @param now - The clock, for tests.
    */
-  constructor(
-    private readonly probe: HostProbe = probeHost,
-    private readonly now: () => number = Date.now,
-  ) {}
+  constructor(private readonly probe: HostProbe = probeHost) {}
 
   /**
-   * The state of each host for a credential, probed unless a recent result
-   * covers them all.
+   * The state of each host for a credential.
    *
    * @param credential - The OpenRouter credential: its id, key and API URL.
    * @param model - OpenRouter's model id.
@@ -105,44 +92,12 @@ export class HostAccess {
    */
   async check(credential: { id: string; apiKey: string; baseUrl: string }, model: string, hosts: string[]): Promise<Map<string, HostAccessState>> {
     const key = `${credential.id}\n${model}`;
-    const known = this.#results.get(key);
-    if (known && this.now() - known.at < CHECK_TTL_MS && hosts.every((host) => known.states.has(host))) {
-      return known.states;
-    }
     let running = this.#running.get(key);
     if (!running) {
-      running = this.#probeAll(credential, model, hosts)
-        .then((states) => {
-          this.#results.delete(key);
-          this.#results.set(key, { at: this.now(), states });
-          for (const oldest of this.#results.keys()) {
-            if (this.#results.size <= MAX_RESULTS) {
-              break;
-            }
-            this.#results.delete(oldest);
-          }
-          return states;
-        })
-        .finally(() => this.#running.delete(key));
+      running = this.#probeAll(credential, model, hosts).finally(() => this.#running.delete(key));
       this.#running.set(key, running);
     }
     return running;
-  }
-
-  /**
-   * Hosts a credential may not use, from a recent result only; never probes,
-   * so requests do not wait for it.
-   *
-   * @param credentialId - The OpenRouter credential.
-   * @param model - OpenRouter's model id.
-   * @returns Their slugs; empty when nothing is known.
-   */
-  blocked(credentialId: string, model: string): Set<string> {
-    const known = this.#results.get(`${credentialId}\n${model}`);
-    if (!known || this.now() - known.at >= KEEP_MS) {
-      return new Set();
-    }
-    return new Set([...known.states].filter(([, state]) => state === 'blocked').map(([host]) => host));
   }
 
   async #probeAll(credential: { apiKey: string; baseUrl: string }, model: string, hosts: string[]): Promise<Map<string, HostAccessState>> {

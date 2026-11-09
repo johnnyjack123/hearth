@@ -150,6 +150,7 @@ export const de = {
       hiddenOne: 'Einen weiteren Anbieter schließt dein OpenRouter-Konto aus (Anbieter-Einstellungen, Datenschutz oder Guardrails); er ist ausgeblendet.',
       noneAllowed: 'Dein OpenRouter-Konto erlaubt für dieses Modell keinen Anbieter. Prüfe die Anbieter-Einstellungen bei OpenRouter.',
       blockedPinned: 'Dein OpenRouter-Konto schließt diesen Anbieter aus: Anfragen scheitern, bis du einen anderen wählst.',
+      checkedAt: 'Geprüft am {date}; neu prüfen unter Einstellungen → Anbieter.',
       unavailable: 'Die Anbieterliste von OpenRouter ist gerade nicht erreichbar.',
       failed: 'Die Wahl wurde nicht gespeichert. Bitte noch einmal versuchen.',
     },
@@ -841,6 +842,19 @@ export const de = {
     expired: 'Dieser Code ist abgelaufen. Starte „harness login“ erneut.',
     notFound: 'Diesen Code gibt es nicht. Prüfe die Eingabe.',
     manage: 'Geräte verwalten',
+  },
+  hostCheck: {
+    title: 'Anbieter-Prüfung bei OpenRouter',
+    description:
+      'Prüft für die Modelle deiner fünf letzten OpenRouter-Chats einmal pro Woche, welche Anbieter dein OpenRouter-Konto erlaubt, und blendet die anderen in der Anbieterauswahl aus. Das günstigste Routing lässt sie ebenfalls weg.',
+    switch: 'Erlaubte Anbieter prüfen',
+    cost: 'Jeder erlaubte Anbieter bekommt dafür eine Anfrage mit einem Token (Bruchteile eines Cents); ausgeschlossene lehnt OpenRouter ab, bevor sie etwas sehen.',
+    none: 'Noch kein Chat mit einem OpenRouter-Modell.',
+    never: 'Noch nicht geprüft',
+    result: 'Geprüft am {date}: {allowed} erlaubt, {blocked} ausgeschlossen',
+    refresh: 'Jetzt prüfen',
+    done: 'Anbieter geprüft.',
+    off: 'Aus: Die Anbieterauswahl zeigt alle Anbieter, und es gehen keine Prüfanfragen raus.',
   },
   providers: {
     title: 'Anbieter und API-Keys',

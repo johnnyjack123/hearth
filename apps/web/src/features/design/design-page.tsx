@@ -243,7 +243,7 @@ export function DesignPage() {
                   <HostList
                     data={DESIGN_HOSTS}
                     // The account rules out the host in China, as the user's does.
-                    access={{ blocked: ['deepseek'], allowed: ['deepinfra'], checked: true }}
+                    access={{ blocked: ['deepseek'], allowed: ['deepinfra'], checked: true, checkedAt: Date.UTC(2026, 10, 9) }}
                     loading={false}
                     busy={false}
                     failed={false}

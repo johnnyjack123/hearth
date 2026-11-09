@@ -61,6 +61,30 @@ export interface MessageTable {
 }
 
 /**
+ * Row of `userSetting`: one setting of one user, JSON-encoded.
+ */
+export interface UserSettingTable {
+  userId: string;
+  key: string;
+  value: string;
+  updatedAt: number;
+}
+
+/**
+ * Row of `openRouterAccess`: which hosts of a model an OpenRouter
+ * credential may use, as the last check found.
+ */
+export interface OpenRouterAccessTable {
+  credentialId: string;
+  modelId: string;
+  /** JSON array of host slugs the account rules out. */
+  blocked: string;
+  /** JSON array of host slugs it may use. */
+  allowed: string;
+  checkedAt: number;
+}
+
+/**
  * Row of `setting`: a key with a JSON-encoded value.
  */
 export interface SettingTable {
@@ -286,4 +310,6 @@ export interface DB {
   toolContent: ToolContentTable;
   openRouterPin: OpenRouterPinTable;
   conversationTag: ConversationTagTable;
+  userSetting: UserSettingTable;
+  openRouterAccess: OpenRouterAccessTable;
 }

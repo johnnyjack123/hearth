@@ -58,6 +58,7 @@ import { shouldCondense } from '../condense.ts';
 import { effortOptions } from '../effort.ts';
 import { agentCallCost, agentModelInfo, callUsage, catalogProvider, type HostRates, pricesAt, withHelpers } from '../pricing.ts';
 import { cacheKey, cheapestProvider, pinnedProvider, withOpenRouter } from '../openrouter.ts';
+import { blockedHosts } from '../services/host-access.ts';
 import { pinnedHost } from '../services/hosts.ts';
 import { costGuard } from '../services/costs.ts';
 import { listMemories, memoryContext, memoryNote } from '../services/memories.ts';
@@ -644,6 +645,8 @@ export function conversationRoutes(deps: AppDeps) {
       const openRouter = row.kind === 'openrouter';
       const pinned = openRouter ? await pinnedHost(db, user.id, body.modelId) : null;
       const routing = openRouter && settings.openRouterCheapest ? deps.openRouter : undefined;
+      // Hosts the account rules out would only take places in the order.
+      const exclude = routing ? await blockedHosts(db, user.id, row.id, body.modelId) : undefined;
       const hosts: ChatHosts | undefined =
         pinned !== null
           ? { provider: async () => pinnedProvider(undefined, pinned), stick: () => undefined }
@@ -653,7 +656,7 @@ export function conversationRoutes(deps: AppDeps) {
                   undefined,
                   await routing.order(
                     body.modelId,
-                    { noFourBit: settings.openRouterNoFourBit, exclude: deps.hostAccess?.blocked(row.id, body.modelId) },
+                    { noFourBit: settings.openRouterNoFourBit, exclude },
                     conversation.id,
                   ),
                 ),
