@@ -12,6 +12,7 @@ import { queryKeys, useSession } from '@/lib/queries.ts';
 import { useSignOut } from '../auth/use-sign-out.ts';
 import { Section } from '../shell/page.tsx';
 import { CostLimitSection } from './cost-limit.tsx';
+import { TwoFactorSection } from './two-factor.tsx';
 
 /**
  * Profile, password and sign-out.
@@ -121,6 +122,8 @@ export function AccountPanel() {
           </form>
         </Card>
       </Section>
+
+      <TwoFactorSection />
 
       <CostLimitSection />
 

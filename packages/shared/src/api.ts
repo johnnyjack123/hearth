@@ -481,8 +481,36 @@ export interface OpenRouterHostAccess {
   blocked: string[];
   /** Slugs it may use. */
   allowed: string[];
-  /** False when nothing could be checked (no list, no key); then nothing is hidden. */
+  /** False when nothing was checked (yet); then nothing is hidden. */
   checked: boolean;
+  /** When the hosts were checked, epoch milliseconds. */
+  checkedAt: number | null;
+  /** Set when the user switched the checks off. */
+  disabled?: boolean;
+}
+
+/**
+ * The settings card of the host checks: whether they run, and what they
+ * found for the OpenRouter models of the latest chats.
+ */
+export interface HostCheckStatus {
+  /** Whether the checks run. */
+  enabled: boolean;
+  /** The models of the latest chats, newest first. */
+  models: {
+    /** OpenRouter's model id. */
+    model: string;
+    /** The credential the chat ran on. */
+    credentialId: string;
+    /** Its label. */
+    credential: string;
+    /** When its hosts were checked; null for never. */
+    checkedAt: number | null;
+    /** Hosts the account rules out. */
+    blocked: number;
+    /** Hosts it may use. */
+    allowed: number;
+  }[];
 }
 
 /** Pins a model to one OpenRouter host, or with null lets it go to the cheapest. */

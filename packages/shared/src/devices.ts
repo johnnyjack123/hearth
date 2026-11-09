@@ -174,6 +174,20 @@ export const pairingTokenSchema = z
   .strict();
 
 /**
+ * Asks a server to prove it holds a device, before the device sends its
+ * token to a new address of it (`harness login` behind a reverse proxy).
+ * `lookup` is SHA-256 of the token's stored hash, in hex; the server answers
+ * with HMAC-SHA-256 of `nonce`, keyed with that stored hash. Neither tells a
+ * stranger anything that would let them sign in.
+ */
+export const proveDeviceSchema = z
+  .object({
+    lookup: z.string().regex(/^[0-9a-f]{64}$/),
+    nonce: z.string().regex(/^[0-9a-f]{32,128}$/),
+  })
+  .strict();
+
+/**
  * Answer to a poll. The token is handed out exactly once.
  */
 export type PairingPoll =

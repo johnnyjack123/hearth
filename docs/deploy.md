@@ -174,7 +174,15 @@ Dazu in der `.env` `HARNESS_PORT=127.0.0.1:8080` und `TRUSTED_PROXIES` mit dem N
 - Die Seite zum Koppeln zeigt, von welcher Adresse `harness login` kam, und warnt, wenn das nicht die des Browsers ist: So fällt auf, wenn jemand einen fremden Kopplungs-Link schickt.
 - Gesperrte Nutzer verlieren auch den Zugang ihrer Rechner.
 
-**Was noch fehlt:** Zwei-Faktor-Anmeldung gibt es nicht; ein gutes Passwort ist der einzige Schutz eines Kontos. Die Windows-Programme sind nicht signiert.
+**Zwei-Faktor-Anmeldung** (seit v0.1.21): Einstellungen → Konto → Zwei-Faktor-Anmeldung, mit einer Authenticator-App und Backup-Codes. Hat jemand Handy und Backup-Codes verloren, kann ein Admin sie auf dem Server abschalten (Postgres; mit SQLite dieselben Befehle per `sqlite3`):
+
+```sh
+docker compose exec postgres psql -U harness -d harness -c "DELETE FROM \"twoFactor\" WHERE \"userId\" = (SELECT id FROM \"user\" WHERE email = 'name@example.org'); UPDATE \"user\" SET \"twoFactorEnabled\" = false WHERE email = 'name@example.org';"
+```
+
+**Umzug hinter den Proxy:** `harness login https://<name>` erkennt denselben Server unter der neuen Adresse und behält das Gerät (verknüpfte Chats, Einstellungen, Projekte). Vorher beweist der Server, dass er das Gerät kennt, ohne dass das Token übertragen wird; eine vertippte Adresse bekommt es nie. Bei einem anderen Server koppelt `harness login` wie gewohnt neu.
+
+**Was noch fehlt:** Die Windows-Programme sind nicht signiert.
 
 ### Gateway-Image
 

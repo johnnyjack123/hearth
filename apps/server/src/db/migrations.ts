@@ -367,6 +367,31 @@ const migrations: Record<string, Migration> = {
       await db.schema.alterTable('devicePairing').dropColumn('requestIp').execute();
     },
   },
+  '0020_host_access': {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable('userSetting')
+        .addColumn('userId', 'text', (col) => col.notNull().references('user.id').onDelete('cascade'))
+        .addColumn('key', 'text', (col) => col.notNull())
+        .addColumn('value', 'text', (col) => col.notNull())
+        .addColumn('updatedAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('userSetting_pk', ['userId', 'key'])
+        .execute();
+      await db.schema
+        .createTable('openRouterAccess')
+        .addColumn('credentialId', 'text', (col) => col.notNull().references('providerCredential.id').onDelete('cascade'))
+        .addColumn('modelId', 'text', (col) => col.notNull())
+        .addColumn('blocked', 'text', (col) => col.notNull())
+        .addColumn('allowed', 'text', (col) => col.notNull())
+        .addColumn('checkedAt', 'bigint', (col) => col.notNull())
+        .addPrimaryKeyConstraint('openRouterAccess_pk', ['credentialId', 'modelId'])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable('openRouterAccess').execute();
+      await db.schema.dropTable('userSetting').execute();
+    },
+  },
 };
 
 // Migrations are bundled into the server build, so they are provided in code

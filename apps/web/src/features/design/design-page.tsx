@@ -9,6 +9,7 @@ import { ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogFooter, 
 import { Avatar, Badge, Card, EmptyState, Kbd, MarqueeText, ProgressBar, Separator, Skeleton } from '@/components/ui/display.tsx';
 import { Field } from '@/components/ui/field.tsx';
 import { Input, Textarea } from '@/components/ui/input.tsx';
+import { QrCode } from '@/components/ui/qr-code.tsx';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -243,7 +244,7 @@ export function DesignPage() {
                   <HostList
                     data={DESIGN_HOSTS}
                     // The account rules out the host in China, as the user's does.
-                    access={{ blocked: ['deepseek'], allowed: ['deepinfra'], checked: true }}
+                    access={{ blocked: ['deepseek'], allowed: ['deepinfra'], checked: true, checkedAt: Date.UTC(2026, 10, 9) }}
                     loading={false}
                     busy={false}
                     failed={false}
@@ -331,6 +332,10 @@ export function DesignPage() {
               <ProgressBar value={2} max={5} label="2/5" />
               <ProgressBar value={5} max={5} label="5/5" />
             </div>
+          </Row>
+          <Row label="QrCode">
+            {/* Dark on light in both themes: scanners rarely read inverted codes. */}
+            <QrCode value="otpauth://totp/LLM%20Harness:erika%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=LLM%20Harness" label="QR" className="size-32" />
           </Row>
           <Row label="Skeleton">
             <div className="flex w-full max-w-sm flex-col gap-2">

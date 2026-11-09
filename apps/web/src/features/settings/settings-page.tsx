@@ -7,6 +7,7 @@ import { Page } from '../shell/page.tsx';
 import { AccountPanel } from './account-panel.tsx';
 import { AppearancePanel } from './appearance-panel.tsx';
 import { DevicesPanel } from './devices-panel.tsx';
+import { HostCheckSection } from './host-check.tsx';
 import { MemoryPanel } from './memory-panel.tsx';
 import { ProvidersPanel } from './providers-panel.tsx';
 
@@ -57,7 +58,10 @@ export function SettingsPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="providers">
-          <ProvidersPanel />
+          <div className="flex flex-col gap-10">
+            <ProvidersPanel />
+            <HostCheckSection />
+          </div>
         </TabsContent>
         <TabsContent value="devices">
           <div className="flex flex-col gap-10">

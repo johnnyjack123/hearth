@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway", "crates/harness-setup", "crates/harness-vmd"]
 
 [workspace.package]
-version = "0.1.20"
+version = "0.1.21"
 edition = "2024"
 rust-version = "1.88"
 license = "UNLICENSED"
@@ -31,6 +31,12 @@ tungstenite = { version = "0.30.0", features = ["native-tls"] }
 # For the tunnel to a server with its own CA (already in the lock file
 # through ureq and tungstenite).
 native-tls = "0.2.18"
+# A server proves it holds a device before `harness login` moves the
+# token to a new address of it. Pure Rust (RustCrypto); digest and
+# getrandom are already in the lock file through tungstenite and tempfile.
+sha2 = "0.11"
+hmac = "0.13"
+getrandom = "0.4"
 # Pseudo consoles and raw console input for `harness run`, the tray icon of
 # harnessd (already in the lock file through keyring and native-tls).
 windows-sys = { version = "0.61.2", features = [

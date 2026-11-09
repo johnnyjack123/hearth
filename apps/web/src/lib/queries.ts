@@ -15,6 +15,7 @@ export const queryKeys = {
   appTemplates: ['app-templates'] as const,
   memories: ['memories'] as const,
   costs: ['costs'] as const,
+  hostCheck: ['openrouter-access', 'status'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,

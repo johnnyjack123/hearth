@@ -39,7 +39,7 @@ import { v7 as uuidv7 } from 'uuid';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';
 import { compactionRange, latestCompaction, summarize, withCompaction } from '../compact.ts';
-import { condenseHistory } from '../condense.ts';
+import { condenseHistory, withReasoning } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { withOpenRouter } from '../openrouter.ts';
@@ -672,14 +672,15 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
   ].join(' ');
 
   /**
-   * The conversation as the model reads it, after the latest summary.
-   * Reasoning from earlier turns is display-only: sending it back breaks
-   * when the user switches providers mid-conversation (signatures are
-   * provider-specific). The tools turn stored results back into what the
-   * model saw; a call cut off by stop has no result and is left out.
+   * The conversation as the model reads it, after the latest summary, with
+   * the reasoning of earlier replies where it helps (see `withReasoning`).
+   * The tools turn stored results back into what the model saw; a call cut
+   * off by stop has no result and is left out.
    */
   async function modelMessagesFor(latest: { through: string; summary: string } | null) {
-    const history = agentToolsAsText(serverToolsAsText(condenseHistory(withNotes(withCompaction(messages, latest))), missing));
+    const history = agentToolsAsText(
+      serverToolsAsText(withReasoning(condenseHistory(withNotes(withCompaction(messages, latest))), { modelId, credentialId }), missing),
+    );
     return pruneMessages({
       messages: await convertToModelMessages(
         // Images as data, documents as text; a model the catalog says is
@@ -690,7 +691,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
           ignoreIncompleteToolCalls: true,
         },
       ),
-      reasoning: 'all',
+      reasoning: 'none',
     });
   }
 
