@@ -1,5 +1,6 @@
+import type { ServerActivity, UserActivity } from '@harness/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Ellipsis, Plus, ShieldCheck, ShieldOff, Trash2, UserRoundCheck } from 'lucide-react';
+import { Activity, Ban, Ellipsis, Laptop, Plus, ShieldCheck, ShieldOff, Trash2, UserRoundCheck } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
@@ -9,6 +10,7 @@ import { Field, Label } from '@/components/ui/field.tsx';
 import { Input } from '@/components/ui/input.tsx';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/menu.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
+import { api } from '@/lib/api.ts';
 import { authClient, isAdmin } from '@/lib/auth-client.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys, useSession } from '@/lib/queries.ts';
@@ -21,6 +23,31 @@ interface AdminUser {
   role?: string | null;
   banned?: boolean | null;
   createdAt: Date | string;
+}
+
+/** A user counts as active this long after their last request. */
+const ACTIVE_MS = 5 * 60_000;
+
+/** How often the page asks who is on the server. */
+const ACTIVITY_REFRESH_MS = 15_000;
+
+/**
+ * Whether a user is on the server right now: a reply of theirs is being
+ * written, or they used the web app a moment ago.
+ */
+function isActive(activity: UserActivity | undefined, now: number): boolean {
+  return Boolean(activity && (activity.replies > 0 || (activity.lastSeenAt !== null && now - activity.lastSeenAt < ACTIVE_MS)));
+}
+
+/** "5 minutes ago", "2 hours ago" in the reader's language. */
+function ago(at: number, now: number, locale: string): string {
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const minutes = Math.round((at - now) / 60_000);
+  if (minutes > -60) {
+    return format.format(minutes, 'minute');
+  }
+  const hours = Math.round(minutes / 60);
+  return hours > -24 ? format.format(hours, 'hour') : format.format(Math.round(hours / 24), 'day');
 }
 
 async function listUsers(): Promise<AdminUser[]> {
@@ -41,41 +68,85 @@ async function listUsers(): Promise<AdminUser[]> {
 export function UsersPanel() {
   const t = useT();
   const users = useQuery({ queryKey: queryKeys.users, queryFn: listUsers });
+  const activity = useQuery({ queryKey: queryKeys.activity, queryFn: api.admin.activity, refetchInterval: ACTIVITY_REFRESH_MS });
   const [creating, setCreating] = useState(false);
+  const activityOf = (id: string) => activity.data?.users.find((entry) => entry.userId === id);
 
   return (
-    <Section title={t('admin.tabUsers')} description={t('admin.usersDescription')}>
-      <div className="flex justify-end">
-        <Button variant="primary" onClick={() => setCreating(true)}>
-          <Plus />
-          {t('admin.createUser')}
-        </Button>
-      </div>
-      <Card>
-        {users.data ? (
-          <ul>
-            {users.data.map((user, index) => (
-              <li key={user.id}>
-                {index > 0 ? <Separator /> : null}
-                <UserRow user={user} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="flex flex-col gap-3 p-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        )}
-      </Card>
-      <CreateUserDialog open={creating} onOpenChange={setCreating} />
-    </Section>
+    <div className="flex flex-col gap-10">
+      <Section title={t('admin.activity.title')} description={t('admin.activity.description')}>
+        {activity.data && users.data ? <ActivityCard activity={activity.data} users={users.data} /> : <Skeleton className="h-20 w-full rounded-xl" />}
+      </Section>
+      <Section title={t('admin.tabUsers')} description={t('admin.usersDescription')}>
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            <Plus />
+            {t('admin.createUser')}
+          </Button>
+        </div>
+        <Card>
+          {users.data ? (
+            <ul>
+              {users.data.map((user, index) => (
+                <li key={user.id}>
+                  {index > 0 ? <Separator /> : null}
+                  <UserRow user={user} activity={activityOf(user.id)} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="flex flex-col gap-3 p-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          )}
+        </Card>
+        <CreateUserDialog open={creating} onOpenChange={setCreating} />
+      </Section>
+    </div>
   );
 }
 
-function UserRow({ user }: { user: AdminUser }) {
+/**
+ * Who is on the server right now, with running replies and connected
+ * computers, so an admin knows whether an update would interrupt someone.
+ */
+function ActivityCard({ activity, users }: { activity: ServerActivity; users: AdminUser[] }) {
   const t = useT();
   const { locale } = usePreferences();
+  const now = Date.now();
+  const name = (id: string) => {
+    const user = users.find((entry) => entry.id === id);
+    return user ? user.name || user.email : id;
+  };
+  const active = activity.users.filter((entry) => isActive(entry, now));
+  const replies = activity.users.reduce((sum, entry) => sum + entry.replies, 0);
+  const devices = activity.users.reduce((sum, entry) => sum + entry.devices, 0);
+  const since = new Date(activity.since).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  return (
+    <Card className="flex flex-col gap-2 p-4" data-activity>
+      <p className="flex items-start gap-2 text-sm font-medium text-foreground">
+        <Activity className={active.length > 0 ? 'mt-0.5 size-4 shrink-0 text-success' : 'mt-0.5 size-4 shrink-0 text-muted-foreground'} aria-hidden="true" />
+        {active.length > 0 ? t('admin.activity.busy', { names: active.map((entry) => name(entry.userId)).join(', ') }) : t('admin.activity.idle')}
+      </p>
+      {replies > 0 || devices > 0 ? (
+        <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+          {replies > 0 ? <span>{t('admin.activity.replies', { count: replies })}</span> : null}
+          {devices > 0 ? <span>{t('admin.activity.devices', { count: devices })}</span> : null}
+        </p>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {activity.users.length === 0 ? `${t('admin.activity.nobody')} ` : ''}
+        {t('admin.activity.since', { date: since })}
+      </p>
+    </Card>
+  );
+}
+
+function UserRow({ user, activity }: { user: AdminUser; activity: UserActivity | undefined }) {
+  const t = useT();
+  const { locale } = usePreferences();
+  const now = Date.now();
   const queryClient = useQueryClient();
   const { data: session } = useSession();
   const [removing, setRemoving] = useState(false);
@@ -101,9 +172,21 @@ function UserRow({ user }: { user: AdminUser }) {
           {self ? <Badge>{t('common.you')}</Badge> : null}
           {admin ? <Badge variant="primary">{t('account.roleAdmin')}</Badge> : null}
           {user.banned ? <Badge variant="destructive">{t('admin.banned')}</Badge> : null}
+          {activity && activity.replies > 0 ? (
+            <Badge variant="success">{t('admin.activity.replying')}</Badge>
+          ) : isActive(activity, now) ? (
+            <Badge variant="success">{t('admin.activity.active')}</Badge>
+          ) : null}
+          {activity && activity.devices > 0 ? (
+            <Badge>
+              <Laptop aria-hidden="true" />
+              {t('admin.activity.devices', { count: activity.devices })}
+            </Badge>
+          ) : null}
         </div>
         <span className="truncate text-xs text-muted-foreground">
           {user.email} · {new Date(user.createdAt).toLocaleDateString(locale)}
+          {activity?.lastSeenAt && !isActive(activity, now) ? ` · ${t('admin.activity.lastSeen', { time: ago(activity.lastSeenAt, now, locale) })}` : ''}
         </span>
       </div>
       {self ? null : (

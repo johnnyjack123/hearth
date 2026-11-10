@@ -54,7 +54,6 @@ export const de = {
     unknown: 'Etwas ist schiefgelaufen. Versuch es noch einmal.',
   },
   auth: {
-    tagline: 'Dein Chat. Deine Keys. Deine Umgebungen.',
     loginTitle: 'Willkommen zurück',
     loginSubtitle: 'Melde dich an, um weiterzuchatten.',
     registerTitle: 'Konto erstellen',
@@ -624,10 +623,36 @@ export const de = {
   settings: {
     title: 'Einstellungen',
     tabProviders: 'API-Keys',
+    tabChat: 'Chat',
     tabDevices: 'Geräte',
     tabMemory: 'Gedächtnis',
     tabAppearance: 'Darstellung',
     tabAccount: 'Konto',
+  },
+  features: {
+    title: 'Chat',
+    description: 'Was deine Chat-Modelle und Agents dürfen. Gilt nur für dein Konto.',
+    webFetch: 'Webseiten laden',
+    webFetchHint:
+      'Chat-Modelle und Agents dürfen Webseiten über den Server abrufen, nur von öffentlichen Adressen. Hosts, die du nicht selbst genannt hast, lädt der Server erst nach Rückfrage im Chat.',
+    calculator: 'Taschenrechner',
+    calculatorHint:
+      'Modelle in normalen Chats rechnen mit math.js auf dem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    memory: 'Gedächtnis',
+    memoryHint:
+      'Chat-Modelle und Agents dürfen sich auf deinen Wunsch Vorlieben und Fakten merken, die dann in jedem Chat gelten. Du siehst und bearbeitest sie unter Gedächtnis. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    progress: 'Fortschrittsliste',
+    progressHint:
+      'Bei Aufgaben mit mehreren Schritten zeigt das Modell in normalen Chats seinen Plan als Liste über dem Eingabefeld und hakt ab, was erledigt ist. Ausschalten, falls ein Modell keine Werkzeuge kann.',
+    openRouterTitle: 'Anbieter bei OpenRouter',
+    openRouterDescription: 'Wie Anfragen über deine OpenRouter-Zugänge einen Anbieter finden, wenn du im Chat keinen festen gewählt hast.',
+    openRouterCheapest: 'Immer der günstigste Anbieter',
+    openRouterCheapestHint:
+      'Jede Anfrage geht zuerst an den Anbieter, der das Modell gerade am günstigsten rechnet, mit Rabatten, Cache-Preisen und Tageszeit. Fällt er aus, folgen die nächstgünstigen. Aus: OpenRouter entscheidet selbst.',
+    openRouterNoFourBit: 'Anbieter mit 4-Bit-Modellen auslassen',
+    openRouterNoFourBitHint:
+      'Die günstigsten Anbieter rechnen oft mit auf 4 Bit verkleinerten Modellen (fp4, int4). Das spart Geld, kann aber schlechtere Antworten geben.',
+    saved: 'Einstellung gespeichert',
   },
   files: {
     read: {
@@ -1035,28 +1060,23 @@ export const de = {
     customBaseUrls: 'Eigene Endpunkte erlauben',
     customBaseUrlsHint:
       'Erlaubt Nutzern Ollama oder OpenAI-kompatible Server mit eigener Adresse. Der Server sendet dann Anfragen an Adressen, die Nutzer wählen. Nur aktivieren, wenn du allen Nutzern vertraust.',
-    webFetch: 'Webseiten laden',
-    webFetchHint:
-      'Modelle in normalen Chats dürfen Webseiten über diesen Server abrufen, nur von öffentlichen Adressen. Hosts, die der Nutzer nicht selbst genannt hat, lädt der Server erst nach Rückfrage im Chat.',
-    calculator: 'Taschenrechner',
-    calculatorHint:
-      'Modelle in normalen Chats rechnen mit math.js auf diesem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
-    memory: 'Gedächtnis',
-    memoryHint:
-      'Chat-Modelle und Agents dürfen sich auf Wunsch der Nutzer Vorlieben und Fakten merken, die dann in jedem Chat gelten. Jeder Nutzer sieht und bearbeitet sein Gedächtnis in den Einstellungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
     dailyCostLimit: 'Tageslimit je Nutzer in US-$',
     dailyCostLimitHint: 'Höchstens so viel darf jeder Nutzer pro Tag ausgeben (Chats, Agents, Hilfsaufrufe). Nutzer können sich ein niedrigeres setzen. Leer für keins.',
     dailyCostLimitNone: 'kein Limit',
-    progress: 'Fortschrittsliste',
-    progressHint:
-      'Bei Aufgaben mit mehreren Schritten zeigt das Modell in normalen Chats seinen Plan als Liste über dem Eingabefeld und hakt ab, was erledigt ist. Ausschalten, falls ein Modell keine Werkzeuge kann.',
-    openRouterCheapest: 'OpenRouter: immer der günstigste Anbieter',
-    openRouterCheapestHint:
-      'Jede Anfrage geht zuerst an den Anbieter, der das Modell gerade am günstigsten rechnet, mit Rabatten, Cache-Preisen und Tageszeit. Fällt er aus, folgen die nächstgünstigen. Aus: OpenRouter entscheidet selbst.',
-    openRouterNoFourBit: 'Anbieter mit 4-Bit-Modellen auslassen',
-    openRouterNoFourBitHint:
-      'Die günstigsten Anbieter rechnen oft mit auf 4 Bit verkleinerten Modellen (fp4, int4). Das spart Geld, kann aber schlechtere Antworten geben.',
     saved: 'Einstellung gespeichert',
+    activity: {
+      title: 'Gerade auf dem Server',
+      description: 'Wer die Web-App genutzt hat, wessen Antworten gerade laufen und welche Rechner verbunden sind. Vor einem Update siehst du hier, ob du jemanden unterbrichst.',
+      since: 'Seit dem Start des Servers am {date}.',
+      nobody: 'Seit dem Start hat niemand den Server genutzt.',
+      active: 'gerade aktiv',
+      lastSeen: 'zuletzt {time}',
+      replying: 'Antwort läuft',
+      replies: 'Antworten laufen: {count}',
+      devices: 'Rechner verbunden: {count}',
+      idle: 'Gerade nutzt niemand den Server.',
+      busy: 'Gerade aktiv: {names}',
+    },
     condense: {
       title: 'Lange Chats eindampfen',
       description:

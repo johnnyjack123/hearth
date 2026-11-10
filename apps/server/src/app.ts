@@ -15,6 +15,7 @@ import { deviceRoutes, deviceSelfRoutes, pairingRoutes } from './routes/devices.
 import { fileRoutes } from './routes/files.ts';
 import { llmRoutes } from './routes/llm.ts';
 import { costRoutes } from './routes/costs.ts';
+import { featureRoutes } from './routes/features.ts';
 import { memoryRoutes } from './routes/memories.ts';
 import { openRouterRoutes } from './routes/openrouter.ts';
 import { tagRoutes } from './routes/tags.ts';
@@ -22,6 +23,9 @@ import { providerRoutes } from './routes/providers.ts';
 import { adminSettingsRoutes, publicSettingsRoutes } from './routes/settings.ts';
 import { OpenRouterRouting } from './openrouter.ts';
 import { HostProber } from './openrouter-access.ts';
+import { ActivityTracker } from './http/activity.ts';
+import { adminActivityRoutes } from './routes/activity.ts';
+import { ActiveStreams } from './streams.ts';
 import { SERVER_COMMIT, SERVER_VERSION } from './version.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
@@ -45,7 +49,13 @@ export interface CreateAppOptions {
  */
 export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   // One routing for chats and the agents' pass-through, so both share its lists.
-  const deps: AppDeps = { ...given, openRouter: given.openRouter ?? new OpenRouterRouting(), hostProber: given.hostProber ?? new HostProber() };
+  const deps: AppDeps = {
+    ...given,
+    openRouter: given.openRouter ?? new OpenRouterRouting(),
+    hostProber: given.hostProber ?? new HostProber(),
+    streams: given.streams ?? new ActiveStreams(),
+    activity: given.activity ?? new ActivityTracker(),
+  };
   const app = new Hono<AppEnv>();
   app.onError(handleError);
 
@@ -95,7 +105,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   app.route('/api/llm', llmRoutes(deps));
 
   const api = new Hono<AppEnv>();
-  api.use(requireUser(deps.auth));
+  api.use(requireUser(deps.auth, (user) => deps.activity?.touch(user.id)));
   const { providers, models } = providerRoutes(deps);
   api.route('/providers', providers);
   api.route('/models', models);
@@ -107,7 +117,9 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   api.route('/costs', costRoutes(deps));
   api.route('/openrouter', openRouterRoutes(deps));
   api.route('/tags', tagRoutes(deps));
+  api.route('/features', featureRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
+  api.route('/admin/activity', adminActivityRoutes(deps));
   app.route('/api', api);
 
   app.all('/api/*', () => {

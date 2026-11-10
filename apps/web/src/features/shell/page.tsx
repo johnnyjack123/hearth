@@ -20,7 +20,10 @@ export function Page({
   children: ReactNode;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    // relative: hidden inputs that Radix places absolutely (switches in a
+    // form) stay inside this scroller; otherwise they stretch the whole
+    // window and a second scrollbar scrolls the app out of view.
+    <div className="relative min-h-0 flex-1 overflow-y-auto">
       <motion.div
         variants={fade}
         initial="initial"

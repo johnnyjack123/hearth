@@ -10,7 +10,8 @@ import { documentVectors } from '../files/vectors.ts';
 import { ProviderRequestError } from '../llm.ts';
 import { loadHelpers } from '../helpers/load.ts';
 import { findCredential, listCredentialRows, resolveCredential } from '../services/credentials.ts';
-import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
+import { chatFeatures } from '../services/features.ts';
+import { loadSearchBackend } from '../services/settings.ts';
 import { agentFetch, APPROVED_HOST_HEADER, URL_HEADER } from '../webfetch/agent.ts';
 import { WebFetchError } from '../webfetch/errors.ts';
 import { DEFAULT_WEB_FETCH_CONFIG, pageRequestSchema } from '../webfetch/tool.ts';
@@ -186,8 +187,8 @@ export function llmRoutes(deps: AppDeps) {
       if (!url || !approvedHost) {
         throw new HttpError(400, 'validation', `${URL_HEADER} and ${APPROVED_HOST_HEADER} are required`);
       }
-      if (!(await getServerSettings(db)).webFetch) {
-        return c.json({ error: 'Loading web pages is switched off on the harness server.' }, 403);
+      if (!(await chatFeatures(db, c.get('owner').id)).webFetch) {
+        return c.json({ error: 'Loading web pages is switched off in the settings of the harness web app.' }, 403);
       }
       const request = pageRequestSchema.strict().parse(await c.req.json());
       const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
@@ -243,8 +244,8 @@ export function llmRoutes(deps: AppDeps) {
     // The memory tools of agents, under the proxy path like `_web/search`;
     // the memories belong to the device's owner.
     .post('/proxy/_memory', async (c) => {
-      if (!(await getServerSettings(db)).memory) {
-        return c.json({ error: '[memory_off] The memory is switched off on the harness server.' }, 403);
+      if (!(await chatFeatures(db, c.get('owner').id)).memory) {
+        return c.json({ error: '[memory_off] The memory is switched off in the settings of the harness web app.' }, 403);
       }
       const input = memoryRequestSchema.parse(await c.req.json());
       const owner = c.get('owner').id;
@@ -417,13 +418,13 @@ export function llmRoutes(deps: AppDeps) {
     if (pinned !== null) {
       return { body: JSON.stringify({ ...fields, ...changes, provider: pinnedProvider(fields.provider, pinned) }) };
     }
-    const settings = await getServerSettings(db);
-    if (!settings.openRouterCheapest) {
+    const features = await chatFeatures(db, owner);
+    if (!features.openRouterCheapest) {
       return { body: JSON.stringify({ ...fields, ...changes }) };
     }
     const conversation = { model: fields.model, key };
     const exclude = await blockedHosts(db, owner, credentialId, fields.model);
-    const order = (await deps.openRouter?.order(fields.model, { noFourBit: settings.openRouterNoFourBit, exclude }, key)) ?? null;
+    const order = (await deps.openRouter?.order(fields.model, { noFourBit: features.openRouterNoFourBit, exclude }, key)) ?? null;
     const provider = cheapestProvider(fields.provider, order);
     return { body: JSON.stringify({ ...fields, ...changes, ...(provider ? { provider } : {}) }), conversation };
   }

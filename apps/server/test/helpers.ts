@@ -17,6 +17,7 @@ import type { DocumentConverter } from '../src/files/convert.ts';
 import { type LlmGateway, ProviderRequestError } from '../src/llm.ts';
 import { PricingCatalog } from '../src/pricing.ts';
 import { createDeviceHub } from '../src/server.ts';
+import { updateServerSettings } from '../src/services/settings.ts';
 import { OpenRouterRouting } from '../src/openrouter.ts';
 import { HostProber } from '../src/openrouter-access.ts';
 import type { DeviceHub } from '../src/tunnel/hub.ts';
@@ -186,6 +187,8 @@ export async function createTestServer(
   }
   await migrateAuth(config, database);
   await migrateToLatest(database.db);
+  // Tests sign up several accounts; a fresh server keeps registration closed.
+  await updateServerSettings(database.db, { registration: 'open' });
   const auth = createAuth(config, database);
 
   const llm = options.llm ?? createMockLlm();

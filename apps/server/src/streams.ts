@@ -66,6 +66,13 @@ export class ActiveStreams {
   }
 
   /**
+   * @returns Conversations whose reply is being written right now.
+   */
+  running(): string[] {
+    return [...this.#streams].filter(([, active]) => !active.done).map(([id]) => id);
+  }
+
+  /**
    * Whether a reply is being written for the conversation.
    *
    * @param conversationId - Conversation id.

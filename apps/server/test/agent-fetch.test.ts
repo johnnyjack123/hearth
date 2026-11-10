@@ -120,7 +120,7 @@ describe('web fetch for agents', () => {
     expect(asUser.status).toBe(401);
     expect((await agentFetch(`http://site.test:${port}/page`, 'site.test', {}, 'Bearer hd_wrong')).status).toBe(401);
 
-    expect((await server.request('PATCH', '/api/admin/settings', { cookie, body: { webFetch: false } })).status).toBe(200);
+    expect((await server.request('PATCH', '/api/features', { cookie, body: { webFetch: false } })).status).toBe(200);
     const off = await agentFetch(`http://site.test:${port}/page`, 'site.test');
     expect(off.status).toBe(403);
     expect(((await off.json()) as { error: string }).error).toContain('switched off');

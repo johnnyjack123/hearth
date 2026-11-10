@@ -62,7 +62,7 @@ describe('progress list in ordinary chats', () => {
     expect(part?.output).toEqual({ done: 1, total: 3 });
 
     // Switched off, the tool is gone and earlier lists become text.
-    await server.request('PATCH', '/api/admin/settings', { cookie, body: { progress: false } });
+    await server.request('PATCH', '/api/features', { cookie, body: { progress: false } });
     script = [{ text: 'Ok.' }];
     await chat(id, 'Danke.');
     expect(llm.calls.at(-1)?.tools).not.toContain('progress');

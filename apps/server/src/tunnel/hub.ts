@@ -303,6 +303,13 @@ export class DeviceHub {
   }
 
   /**
+   * @returns The devices connected right now, with their owners.
+   */
+  online(): { deviceId: string; userId: string }[] {
+    return [...this.#devices].filter(([, connection]) => connection.greeted).map(([deviceId, connection]) => ({ deviceId, userId: connection.userId }));
+  }
+
+  /**
    * @param deviceId - Device id.
    * @returns Whether it is connected and which projects it offers.
    */

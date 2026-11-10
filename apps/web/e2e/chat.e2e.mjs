@@ -335,11 +335,10 @@ try {
     await page.waitForSelector(text('Laut der Testseite werden Kaffeebohnen'), { timeout: 10_000 });
     await page.waitForSelector(text('Einmal erlaubt'), { timeout: 5_000 });
 
-    // Admins can switch it off.
-    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle0' });
-    await page.click('[role=tab]::-p-text(Server)');
+    // Each user switches it in their own settings.
+    await page.goto(`${BASE}/settings?tab=chat`, { waitUntil: 'networkidle0' });
     await page.waitForSelector(text('Webseiten laden'), { timeout: 10_000 });
-    await shot('25-admin-web-fetch');
+    await shot('25-settings-chat');
   });
 
   let researchPath = '';
@@ -736,9 +735,19 @@ try {
     await shot('53-costs');
     // The server's version for admins; `dev` from the sources.
     await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle0' });
+    // Who is on the server: the admin, who just used the web app.
+    await page.waitForSelector('[data-activity]', { timeout: 10_000 });
+    await waitForText('Gerade aktiv:');
+    await shot('55-admin-activity');
     await page.click('[role=tab]::-p-text(Server)');
     await waitForText('Server-Version dev');
     await waitForText('Tageslimit je Nutzer in US-$');
+    // Only the page scrolls, never the window: hidden switch inputs in its
+    // forms once stretched the window and a second scrollbar appeared.
+    const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    if (overflow > 1) {
+      throw new Error(`the window scrolls by ${overflow} px on the admin page`);
+    }
   });
 
   await step('two-factor sign-in: set up, sign in with a code, turn off', async () => {

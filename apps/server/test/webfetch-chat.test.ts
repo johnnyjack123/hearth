@@ -399,7 +399,7 @@ describe('web fetch in ordinary chats', () => {
   });
 
   it('offers no tool when an admin switches web fetch off', async () => {
-    const off = await server.request('PATCH', '/api/admin/settings', { cookie, body: { webFetch: false } });
+    const off = await server.request('PATCH', '/api/features', { cookie, body: { webFetch: false } });
     expect(off.status).toBe(200);
     expect(((await off.json()) as { webFetch: boolean }).webFetch).toBe(false);
     const conversationId = await newConversation();
