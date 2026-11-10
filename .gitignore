@@ -45,3 +45,7 @@ apps/web/e2e/.output/
 
 # Worktrees of Claude Code agents
 .claude/worktrees/
+
+# Python bytecode
+__pycache__/
+*.pyc
