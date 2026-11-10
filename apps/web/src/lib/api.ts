@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   AppsSetResult,
   AppTemplate,
+  ChatFeatures,
   ChatFile,
   CompactRequestBody,
   ConversationDetail,
@@ -29,8 +30,10 @@ import type {
   PublicSettings,
   RequestAppFileInput,
   SearchTestResult,
+  ServerActivity,
   ServerSettings,
   UpdateAppTemplateInput,
+  UpdateChatFeatures,
   UpdateDeviceInput,
   UpdateLinkInput,
   UpdateProviderCredentialInput,
@@ -148,6 +151,13 @@ export const api = {
     pairing: (userCode: string) => request<PairingInfo>('GET', `/devices/pairing/${encodeURIComponent(userCode)}`),
     decide: (userCode: string, approve: boolean) =>
       request<PairingInfo>('POST', `/devices/pairing/${encodeURIComponent(userCode)}`, { approve }),
+  },
+  features: {
+    get: () => request<ChatFeatures>('GET', '/features'),
+    update: (patch: UpdateChatFeatures) => request<ChatFeatures>('PATCH', '/features', patch),
+  },
+  admin: {
+    activity: () => request<ServerActivity>('GET', '/admin/activity'),
   },
   tags: {
     rename: (from: string, to: string) => request<{ chats: number }>('PATCH', '/tags', { from, to }),

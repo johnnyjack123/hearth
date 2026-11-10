@@ -21,16 +21,10 @@ import {
 } from '../websearch/providers.ts';
 
 const DEFAULTS: ServerSettings = {
-  registration: 'open',
+  // Closed unless an admin opens it (the user's wish, 10.11.): the server
+  // may stand on the internet, and the first account is never blocked.
+  registration: 'closed',
   allowCustomBaseUrls: false,
-  webFetch: true,
-  calculator: true,
-  // The user's wish (1.11.): always the cheapest host. 4-bit hosts stay in,
-  // they are often the cheapest; admins can leave them out.
-  openRouterCheapest: true,
-  openRouterNoFourBit: false,
-  memory: true,
-  progress: true,
   dailyCostLimit: null,
   search: {
     provider: 'off',

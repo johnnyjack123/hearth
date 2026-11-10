@@ -76,17 +76,19 @@ export interface PublicSettings {
 }
 
 /**
- * Server-wide settings managed by admins.
+ * Chat features each user switches for themselves (Settings → Chat). Until
+ * 0.1.22 they were server settings; a value an admin stored then still
+ * counts for users who never set their own.
  */
-export interface ServerSettings {
-  /** Who may create an account. */
-  registration: RegistrationMode;
-  /** Whether non-admin users may point credentials at custom endpoints. */
-  allowCustomBaseUrls: boolean;
-  /** Whether models in ordinary chats may load web pages through the server. */
+export interface ChatFeatures {
+  /** Whether models in ordinary chats, and the user's agents, may load web pages through the server. */
   webFetch: boolean;
   /** The calculator tool (math.js on the server) in ordinary chats. */
   calculator: boolean;
+  /** The memory: chat models and agents may store what the user wants every chat to know. */
+  memory: boolean;
+  /** The progress list in ordinary chats: the model shows its plan for tasks with several steps. */
+  progress: boolean;
   /**
    * OpenRouter requests go to the host that is cheapest right now (its
    * discounts, cache prices and hours included), the next ones as fallback;
@@ -95,10 +97,68 @@ export interface ServerSettings {
   openRouterCheapest: boolean;
   /** With {@link openRouterCheapest}: skip hosts that run a model in 4 bits (fp4, int4), which may answer worse. */
   openRouterNoFourBit: boolean;
-  /** The memory: chat models and agents may store what the user wants every chat to know. */
-  memory: boolean;
-  /** The progress list in ordinary chats: the model shows its plan for tasks with several steps. */
-  progress: boolean;
+}
+
+/** {@link ChatFeatures} of a user who changed nothing. */
+export const DEFAULT_CHAT_FEATURES: ChatFeatures = {
+  webFetch: true,
+  calculator: true,
+  memory: true,
+  progress: true,
+  // The user's wish (1.11.): always the cheapest host. 4-bit hosts stay in,
+  // they are often the cheapest.
+  openRouterCheapest: true,
+  openRouterNoFourBit: false,
+};
+
+/** A change of some of the user's {@link ChatFeatures}. */
+export const updateChatFeaturesSchema = z
+  .object({
+    webFetch: z.boolean(),
+    calculator: z.boolean(),
+    memory: z.boolean(),
+    progress: z.boolean(),
+    openRouterCheapest: z.boolean(),
+    openRouterNoFourBit: z.boolean(),
+  })
+  .partial()
+  .strict();
+
+/** See {@link updateChatFeaturesSchema}. */
+export type UpdateChatFeatures = z.infer<typeof updateChatFeaturesSchema>;
+
+/**
+ * One user's use of the server right now, for admins.
+ */
+export interface UserActivity {
+  /** The user's id. */
+  userId: string;
+  /** Their last request of the web app since the server started, epoch ms; null if none. */
+  lastSeenAt: number | null;
+  /** Replies being written for them right now, in chats and by agents. */
+  replies: number;
+  /** Their computers connected right now. */
+  devices: number;
+}
+
+/**
+ * Who uses the server right now, for admins (e.g. before an update).
+ */
+export interface ServerActivity {
+  /** When the server started, epoch ms; activity before is unknown. */
+  since: number;
+  /** Users with any activity since then, or with a computer connected. */
+  users: UserActivity[];
+}
+
+/**
+ * Server-wide settings managed by admins.
+ */
+export interface ServerSettings {
+  /** Who may create an account. */
+  registration: RegistrationMode;
+  /** Whether non-admin users may point credentials at custom endpoints. */
+  allowCustomBaseUrls: boolean;
   /** Most a user may spend per day in US dollars, chats and agents together; null for no limit. */
   dailyCostLimit: number | null;
   /** Web search for research mode. */
@@ -202,12 +262,6 @@ export const updateServerSettingsSchema = z
   .object({
     registration: z.enum(['open', 'closed']),
     allowCustomBaseUrls: z.boolean(),
-    webFetch: z.boolean(),
-    calculator: z.boolean(),
-    openRouterCheapest: z.boolean(),
-    openRouterNoFourBit: z.boolean(),
-    memory: z.boolean(),
-    progress: z.boolean(),
     dailyCostLimit: z.number().positive().max(100_000).nullable(),
     search: updateSearchSettingsSchema,
     condense: updateCondenseSettingsSchema,

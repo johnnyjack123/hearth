@@ -16,6 +16,8 @@ export const queryKeys = {
   memories: ['memories'] as const,
   costs: ['costs'] as const,
   hostCheck: ['openrouter-access', 'status'] as const,
+  features: ['features'] as const,
+  activity: ['admin', 'activity'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
   users: ['admin', 'users'] as const,

@@ -56,7 +56,6 @@ export const en: Messages = {
     unknown: 'Something went wrong. Please try again.',
   },
   auth: {
-    tagline: 'Your chat. Your keys. Your environments.',
     loginTitle: 'Welcome back',
     loginSubtitle: 'Sign in to continue chatting.',
     registerTitle: 'Create account',
@@ -624,10 +623,36 @@ export const en: Messages = {
   settings: {
     title: 'Settings',
     tabProviders: 'API keys',
+    tabChat: 'Chat',
     tabDevices: 'Devices',
     tabMemory: 'Memory',
     tabAppearance: 'Appearance',
     tabAccount: 'Account',
+  },
+  features: {
+    title: 'Chat',
+    description: 'What your chat models and agents may do. Applies to your account only.',
+    webFetch: 'Load web pages',
+    webFetchHint:
+      'Chat models and agents may fetch web pages through the server, from public addresses only. Hosts you did not name yourself load only after a question in the chat.',
+    calculator: 'Calculator',
+    calculatorHint:
+      'Models in ordinary chats calculate with math.js on the server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',
+    memory: 'Memory',
+    memoryHint:
+      'Chat models and agents may remember preferences and facts when you ask them to; these then apply in every chat. You see and edit them under Memory. Switch it off if a model cannot use tools.',
+    progress: 'Progress list',
+    progressHint:
+      'For tasks with several steps the model shows its plan in ordinary chats as a list above the message box and checks off what is done. Switch it off if a model cannot use tools.',
+    openRouterTitle: 'Hosts on OpenRouter',
+    openRouterDescription: 'How requests through your OpenRouter credentials find a host when you did not pick a fixed one in the chat.',
+    openRouterCheapest: 'Always the cheapest host',
+    openRouterCheapestHint:
+      'Every request goes first to the host that serves the model cheapest right now, discounts, cache prices and time of day included. If it fails, the next cheapest follow. Off: OpenRouter decides itself.',
+    openRouterNoFourBit: 'Skip hosts with 4-bit models',
+    openRouterNoFourBitHint:
+      'The cheapest hosts often run models shrunk to 4 bits (fp4, int4). That saves money but may give worse answers.',
+    saved: 'Setting saved',
   },
   files: {
     read: {
@@ -1035,28 +1060,23 @@ export const en: Messages = {
     customBaseUrls: 'Allow custom endpoints',
     customBaseUrlsHint:
       'Lets users connect Ollama or OpenAI-compatible servers at their own address. The server then sends requests to addresses users choose. Only enable this if you trust all users.',
-    webFetch: 'Load web pages',
-    webFetchHint:
-      'Models in ordinary chats may fetch web pages through this server, from public addresses only. Hosts the user did not name themselves load only after a question in the chat.',
-    calculator: 'Calculator',
-    calculatorHint:
-      'Models in ordinary chats calculate with math.js on this server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',
-    memory: 'Memory',
-    memoryHint:
-      'Chat models and agents may remember preferences and facts when users ask them to; these then apply in every chat. Each user sees and edits their memory in the settings. Switch it off if a model cannot use tools.',
     dailyCostLimit: 'Daily limit per user in US$',
     dailyCostLimitHint: 'Each user may spend at most this much per day (chats, agents, helper calls). Users can set a lower one. Empty for none.',
     dailyCostLimitNone: 'no limit',
-    progress: 'Progress list',
-    progressHint:
-      'For tasks with several steps the model shows its plan in ordinary chats as a list above the message box and checks off what is done. Switch it off if a model cannot use tools.',
-    openRouterCheapest: 'OpenRouter: always the cheapest host',
-    openRouterCheapestHint:
-      'Every request goes first to the host that serves the model cheapest right now, discounts, cache prices and time of day included. If it fails, the next cheapest follow. Off: OpenRouter decides itself.',
-    openRouterNoFourBit: 'Skip hosts with 4-bit models',
-    openRouterNoFourBitHint:
-      'The cheapest hosts often run models shrunk to 4 bits (fp4, int4). That saves money but may give worse answers.',
     saved: 'Setting saved',
+    activity: {
+      title: 'On the server right now',
+      description: 'Who used the web app, whose replies are being written and which computers are connected. Before an update you see here whether you would interrupt someone.',
+      since: 'Since the server started on {date}.',
+      nobody: 'Nobody has used the server since it started.',
+      active: 'active now',
+      lastSeen: 'last seen {time}',
+      replying: 'reply running',
+      replies: 'Replies running: {count}',
+      devices: 'Computers connected: {count}',
+      idle: 'Nobody is using the server right now.',
+      busy: 'Active right now: {names}',
+    },
     condense: {
       title: 'Condense long chats',
       description:

@@ -2,7 +2,6 @@ import { Outlet } from '@tanstack/react-router';
 import { motion } from 'motion/react';
 import { Logo } from '@/components/brand/logo.tsx';
 import { riseIn } from '@/lib/motion.ts';
-import { useT } from '@/lib/preferences.tsx';
 
 /**
  * Layout for sign-in and registration: a calm brand panel on wide screens and
@@ -11,7 +10,6 @@ import { useT } from '@/lib/preferences.tsx';
  * @returns The auth layout with the active form in its outlet.
  */
 export function AuthLayout() {
-  const t = useT();
   return (
     <div className="grid min-h-dvh bg-background lg:grid-cols-2">
       <div className="relative hidden overflow-hidden border-e border-border bg-sidebar lg:flex lg:flex-col lg:justify-between lg:p-10">
@@ -20,7 +18,6 @@ export function AuthLayout() {
           <div className="absolute -start-1/4 top-1/4 size-3/5 rounded-full bg-primary/10 blur-3xl" />
           <div className="absolute -end-1/4 bottom-0 size-1/2 rounded-full bg-primary/5 blur-3xl" />
         </div>
-        <p className="relative max-w-sm text-balance text-3xl font-semibold tracking-tight text-foreground">{t('auth.tagline')}</p>
       </div>
       <div className="flex items-center justify-center p-6">
         <motion.div variants={riseIn} initial="initial" animate="animate" className="flex w-full max-w-sm flex-col gap-8">

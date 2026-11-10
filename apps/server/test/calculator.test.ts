@@ -138,7 +138,7 @@ describe('calculator in a chat', () => {
     ]);
 
     // Switched off by an admin: no tool, and the earlier call is text.
-    const off = await server.request('PATCH', '/api/admin/settings', { cookie, body: { calculator: false } });
+    const off = await server.request('PATCH', '/api/features', { cookie, body: { calculator: false } });
     expect(off.status).toBe(200);
     script = [{ text: 'ok' }];
     await chat(id, 'Danke');

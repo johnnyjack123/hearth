@@ -46,6 +46,7 @@ import {
 } from '../services/conversations.ts';
 import { type CredentialRow, findCredential, resolveCredential } from '../services/credentials.ts';
 import { findDevice, loadDeviceProjects } from '../services/devices.ts';
+import { chatFeatures } from '../services/features.ts';
 import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { ActiveStreams } from '../streams.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
@@ -198,7 +199,7 @@ export function conversationRoutes(deps: AppDeps) {
   const fetchApprovals = new FetchApprovals();
   const calculator = deps.calculator ?? sharedCalculator();
   // Replies being written, for a page that reloads in the middle of one.
-  const streams = new ActiveStreams();
+  const streams = deps.streams ?? new ActiveStreams();
   const files = fileStore(db, deps.config.dataDir);
 
   /**
@@ -547,9 +548,10 @@ export function conversationRoutes(deps: AppDeps) {
       const research = search !== null && body.research === true;
       const date = localDate(new Date());
       const settings = await getServerSettings(db);
+      const features = await chatFeatures(db, user.id);
       // The memories go along whenever they changed since the chat's last
       // message; the hash is stored, so the prompt stays the same otherwise.
-      const memory = settings.memory ? memoryContext(await listMemories(db, user.id)) : null;
+      const memory = features.memory ? memoryContext(await listMemories(db, user.id)) : null;
       const lastMemoryHash = previous.findLast((message) => message.role === 'user' && message.metadata?.memoryHash !== undefined)?.metadata
         ?.memoryHash;
       const memoryUpdate = memory ? memoryNote(lastMemoryHash, memory) : null;
@@ -644,7 +646,7 @@ export function conversationRoutes(deps: AppDeps) {
       // hosts with the chat's own host first (its cache).
       const openRouter = row.kind === 'openrouter';
       const pinned = openRouter ? await pinnedHost(db, user.id, body.modelId) : null;
-      const routing = openRouter && settings.openRouterCheapest ? deps.openRouter : undefined;
+      const routing = openRouter && features.openRouterCheapest ? deps.openRouter : undefined;
       // Hosts the account rules out would only take places in the order.
       const exclude = routing ? await blockedHosts(db, user.id, row.id, body.modelId) : undefined;
       const hosts: ChatHosts | undefined =
@@ -656,7 +658,7 @@ export function conversationRoutes(deps: AppDeps) {
                   undefined,
                   await routing.order(
                     body.modelId,
-                    { noFourBit: settings.openRouterNoFourBit, exclude },
+                    { noFourBit: features.openRouterNoFourBit, exclude },
                     conversation.id,
                   ),
                 ),
@@ -672,10 +674,10 @@ export function conversationRoutes(deps: AppDeps) {
         pricing,
         abortSignal: stop.signal,
         consumeSseStream: follow,
-        webFetch: settings.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
+        webFetch: features.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
         search,
         research,
-        calculator: settings.calculator ? calculator : null,
+        calculator: features.calculator ? calculator : null,
         helpers: await loadHelpers(db, secretBox, user.id, row, deps.helpers),
         title,
         assess: body.assess === true,
@@ -688,8 +690,8 @@ export function conversationRoutes(deps: AppDeps) {
         hostRates: await hostRatesFor(row, body.modelId),
         budget: costs.limit === null ? null : { left: costs.limit - costs.spent, exceeded: () => stop.abort() },
         files,
-        memory: settings.memory ? { userId: user.id } : null,
-        progress: settings.progress,
+        memory: features.memory ? { userId: user.id } : null,
+        progress: features.progress,
       });
     })
     // Summarizes the chat now, on the user's request: everything but the

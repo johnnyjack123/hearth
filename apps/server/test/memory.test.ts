@@ -179,7 +179,7 @@ describe('memory', () => {
     expect(unknown.status).toBe(404);
 
     // Off: no tools, no notes, and agents get a refusal.
-    await server.request('PATCH', '/api/admin/settings', { cookie, body: { memory: false } });
+    await server.request('PATCH', '/api/features', { cookie, body: { memory: false } });
     const off = await server.request('POST', '/api/llm/proxy/_memory', { headers: device, body: { action: 'remember', text: 'Noch was.' } });
     expect(off.status).toBe(403);
     const created = (await (await server.request('POST', '/api/conversations', { cookie, body: {} })).json()) as ConversationSummary;

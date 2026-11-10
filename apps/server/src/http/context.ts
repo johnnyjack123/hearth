@@ -15,6 +15,8 @@ import type { DeviceHub } from '../tunnel/hub.ts';
 import type { WebFetchConfig } from '../webfetch/tool.ts';
 import type { SearchEndpoints } from '../websearch/providers.ts';
 import type { HelperOptions } from '../helpers/load.ts';
+import type { ActiveStreams } from '../streams.ts';
+import type { ActivityTracker } from './activity.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
 
@@ -55,6 +57,10 @@ export interface AppDeps {
   helpers?: HelperOptions;
   /** The calculator's math.js worker; one shared by the whole server when unset. */
   calculator?: Calculator;
+  /** Replies being written; one registry for the whole app when unset. */
+  streams?: ActiveStreams;
+  /** When users last used the web app; one tracker for the whole app when unset. */
+  activity?: ActivityTracker;
   /**
    * Turns documents into Markdown; by default markitdown at
    * `config.markitdownUrl`, null for none. Tests pass a stand-in.
@@ -84,15 +90,17 @@ export interface AppEnv {
  * Resolves the session cookie and rejects anonymous requests with 401.
  *
  * @param auth - Auth instance used to read the session.
+ * @param seen - Called with every signed-in user, e.g. to note their activity.
  * @returns The middleware.
  */
-export function requireUser(auth: Auth) {
+export function requireUser(auth: Auth, seen?: (user: SessionUser) => void) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) {
       throw new HttpError(401, 'unauthorized', 'Not signed in');
     }
     c.set('user', session.user);
+    seen?.(session.user);
     await next();
   });
 }

@@ -51,8 +51,9 @@ function DailyLimitRow({ current, onSave }: { current: number | null; onSave: (l
 }
 
 /**
- * Server-wide settings: registration mode, custom endpoints, web fetch and
- * the web search behind research mode.
+ * Server-wide settings: registration mode, custom endpoints, the daily cost
+ * limit and the web search behind research mode. Chat features are each
+ * user's own (Settings → Chat).
  *
  * @returns The server panel.
  */
@@ -117,80 +118,7 @@ export function ServerPanel() {
                 }
               />
               <Separator />
-              <SettingRow
-                label={t('admin.webFetch')}
-                description={t('admin.webFetchHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.webFetch')}
-                    checked={settings.data.webFetch}
-                    onCheckedChange={(checked) => update.mutate({ webFetch: checked })}
-                  />
-                }
-              />
-              <Separator />
-              <SettingRow
-                label={t('admin.calculator')}
-                description={t('admin.calculatorHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.calculator')}
-                    checked={settings.data.calculator}
-                    onCheckedChange={(checked) => update.mutate({ calculator: checked })}
-                  />
-                }
-              />
-              <Separator />
-              <SettingRow
-                label={t('admin.memory')}
-                description={t('admin.memoryHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.memory')}
-                    checked={settings.data.memory}
-                    onCheckedChange={(checked) => update.mutate({ memory: checked })}
-                  />
-                }
-              />
-              <Separator />
-              <SettingRow
-                label={t('admin.progress')}
-                description={t('admin.progressHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.progress')}
-                    checked={settings.data.progress}
-                    onCheckedChange={(checked) => update.mutate({ progress: checked })}
-                  />
-                }
-              />
-              <Separator />
               <DailyLimitRow current={settings.data.dailyCostLimit} onSave={(dailyCostLimit) => update.mutate({ dailyCostLimit })} />
-              <Separator />
-              <SettingRow
-                label={t('admin.openRouterCheapest')}
-                description={t('admin.openRouterCheapestHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.openRouterCheapest')}
-                    checked={settings.data.openRouterCheapest}
-                    onCheckedChange={(checked) => update.mutate({ openRouterCheapest: checked })}
-                  />
-                }
-              />
-              <Separator />
-              <SettingRow
-                label={t('admin.openRouterNoFourBit')}
-                description={t('admin.openRouterNoFourBitHint')}
-                control={
-                  <Switch
-                    aria-label={t('admin.openRouterNoFourBit')}
-                    checked={settings.data.openRouterNoFourBit}
-                    disabled={!settings.data.openRouterCheapest}
-                    onCheckedChange={(checked) => update.mutate({ openRouterNoFourBit: checked })}
-                  />
-                }
-              />
             </>
           ) : (
             <div className="flex flex-col gap-4 p-4">
