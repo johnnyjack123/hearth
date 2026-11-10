@@ -12,7 +12,7 @@
  * The condensing in `condense.ts` stays: it only shortens old pages and
  * search results and runs earlier and more cheaply.
  */
-import { type Compaction, type CompactSettings, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { type Compaction, type CompactSettings, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@hearth/shared';
 import { generateText, type LanguageModel, type LanguageModelUsage } from 'ai';
 import { type BilledCost, billedCost } from './pricing.ts';
 import type { ChatMessage } from './services/conversations.ts';
@@ -280,7 +280,7 @@ export function withCompaction(messages: ChatMessage[], latest: { through: strin
   if (index === -1 || first === -1) {
     return messages;
   }
-  const intro = `[LLM Harness: Summary of the earlier part of this chat, which you no longer see in full:]\n\n${latest.summary}\n\n[End of the summary.]`;
+  const intro = `[Hearth: Summary of the earlier part of this chat, which you no longer see in full:]\n\n${latest.summary}\n\n[End of the summary.]`;
   return rest.slice(first).map((message, position) =>
     position === 0 ? { ...message, parts: [{ type: 'text' as const, text: intro }, ...message.parts] } : message,
   );

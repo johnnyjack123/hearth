@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@hearth/shared';
 import type { LanguageModelUsage } from 'ai';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { callUsage, catalogProvider, parseCatalog, PricingCatalog, usageMetadata } from '../src/pricing.ts';

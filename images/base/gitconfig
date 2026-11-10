@@ -1,4 +1,4 @@
-# System-wide git settings for harness instances (/etc/gitconfig).
+# System-wide git settings for hearth instances (/etc/gitconfig).
 # Users and agents can override them in ~/.gitconfig (home volume).
 
 [core]
@@ -19,5 +19,5 @@
 
 [user]
 	# Makes agent commits recognisable when they arrive in the host repo.
-	name = harness agent
-	email = agent@harness.invalid
+	name = hearth agent
+	email = agent@hearth.invalid

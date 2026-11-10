@@ -1,4 +1,4 @@
-import { type Inspection, parseWebFetchError, type WebFetchGrep, type WebFetchOutput, type WebFetchSections } from '@harness/shared';
+import { type Inspection, parseWebFetchError, type WebFetchGrep, type WebFetchOutput, type WebFetchSections } from '@hearth/shared';
 import type { ToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, Globe, Info } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

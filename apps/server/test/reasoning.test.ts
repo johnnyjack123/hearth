@@ -1,4 +1,4 @@
-import type { ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { withReasoning } from '../src/condense.ts';
 import { type ChatMessage, saveMessage } from '../src/services/conversations.ts';

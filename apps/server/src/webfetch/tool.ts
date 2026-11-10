@@ -4,7 +4,7 @@
  * text, marked as untrusted data.
  */
 import { createHash } from 'node:crypto';
-import type { WebFetchOutput } from '@harness/shared';
+import type { WebFetchOutput } from '@hearth/shared';
 import { type InferUIMessageChunk, tool } from 'ai';
 import { z } from 'zod';
 import type { ChatMessage } from '../services/conversations.ts';

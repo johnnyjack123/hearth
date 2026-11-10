@@ -4,7 +4,7 @@
  * them; two endpoints need their own field. Nothing here touches the
  * prompt, so the provider's cache does not depend on the level.
  */
-import type { EffortLevel, ProviderKind } from '@harness/shared';
+import type { EffortLevel, ProviderKind } from '@hearth/shared';
 import type { streamText } from 'ai';
 
 type CallOptions = Parameters<typeof streamText>[0];

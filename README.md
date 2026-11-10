@@ -1,106 +1,103 @@
-# llm-harness
+# Hearth
 
-Selbst gehosteter Multi-User-LLM-Chat (Server + Web-App) mit eigenen Sandboxes auf dem Rechner jedes Nutzers. Coding-Agents wie [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) laufen dort in isolierten Containern einer Hyper-V-VM. Netzzugriffe gehen nur über ein Gateway mit Freigaben, und Änderungen des Agents kommen erst nach einer Prüfung ins eigene Repository.
+[Deutsch](README.de.md)
 
-- **Server und Web-App** (`apps/server`, `apps/web`): Chat mit eigenen API-Keys je Nutzer. Außerdem der LLM-Zugang für die Sandboxes, damit kein Key im Container liegt.
-- **`harness`** (`crates/`): CLI für Windows mit:
-  - VM-Dienst
-  - Projekten und Instanzen
-  - Netz-Gateway
-  - Git-Sync
-  - Merge-Prüfung
+Hearth is a self-hosted chat for large language models. Several people share one server, each with their own API keys. A chat can also hand its work to a coding agent that runs in an isolated sandbox on the user's own Windows PC, so the agent can build, test and commit code without access to the rest of the machine.
 
-Hintergrund und Entscheidungen stehen in [`ARCHITECTURE.md`](ARCHITECTURE.md), der Stand in [`docs/PROGRESS.md`](docs/PROGRESS.md).
+## Features
 
-## Quick Start: Server mit Docker
+**Chat (server and web app)**
+- Bring your own keys: Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter, Ollama and any OpenAI-compatible endpoint such as DeepSeek. Keys are stored encrypted and are only used for their owner's requests.
+- Research mode with web search (SearXNG, Brave or Tavily). The model reads only the relevant sections of long pages and cites its sources per paragraph.
+- Web pages from hosts the user did not mention load only after approval. Text that looks like a prompt injection is flagged with the exact location, and a helper model can rate the warning.
+- Images, PDF, Word, Excel and PowerPoint files in chats, with text recognition for scanned PDFs. Long documents are searched instead of sent in full.
+- Per-chat options: thinking effort, answer length and tone. Long chats are condensed and summarized automatically to keep the context affordable.
+- A memory the user controls, tags that group chats into folders, and costs per reply and per model call.
+- OpenRouter routing to the cheapest host, or to a fixed host chosen per model, with its country of operation shown.
+- Accounts with admin roles, closed registration by default, two-factor sign-in and a daily cost limit.
 
-Das Image gibt es für amd64 und arm64, es läuft also auch auf einem Raspberry Pi mit 64-Bit-System.
+**Agents on your PC (Windows client)**
+- The [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) coding agent runs in a hardened container inside a Linux VM (Hyper-V and Podman). The VM has no access to the host's files.
+- All network traffic of the sandbox goes through a gateway with per-project rules. Unknown hosts need approval in the chat or terminal.
+- API keys never enter the sandbox. The gateway forwards model requests to the server, which adds the key.
+- The agent works on a copy of the repository. Its commits come back only after a review with fixed rules, a check of new dependencies against the OSV database and an optional AI assessment.
+- Toolchains such as C/C++, Rust, Go, Java, Deno and Bun can be switched on per project, as can your own programs.
+- A tray icon shows the state of the VM and asks for approvals. The VM stops on its own when idle.
 
-1. `docker-compose.yml` in einen Ordner legen und dort den Datenordner für den Container-Nutzer (uid 1000) anlegen: `mkdir -p data && sudo chown 1000:1000 data`. Daneben eine `.env` mit diesem Inhalt anlegen und anpassen (dieselbe Vorlage wie `.env.example`):
+## How it fits together
 
-   ```sh
-   # Vorlage für .env neben docker-compose.yml: kopieren, anpassen, nie committen.
-
-   # Adresse, unter der Browser und harness-CLI den Server erreichen. Sie steht
-   # im Kopplungs-Link (harness login) und bestimmt, für welche Adresse die
-   # Login-Cookies gelten; der Port ist der aus HARNESS_PORT. Beispiel Raspberry
-   # Pi im Heimnetz:
-   PUBLIC_URL=http://192.168.1.50:8080
-
-   # Port auf dem Host.
-   HARNESS_PORT=8080
-
-   # Image-Version: latest (Stand von main), sha-<commit> oder eine Versionsnummer.
-   HARNESS_IMAGE_TAG=latest
-
-   # Geheimnis für Sitzungen und die Verschlüsselung der API-Keys, mindestens
-   # 32 Zeichen (z. B. `openssl rand -base64 48`). Leer lassen: Der Server
-   # erzeugt eins und legt es im Ordner data ab. Geht es verloren, sind die
-   # gespeicherten Keys nicht mehr lesbar; den Ordner also sichern.
-   HARNESS_SECRET=
-
-   # Weitere Adressen der Web-App, kommagetrennt, z. B. wenn der Server auch
-   # unter einem Namen erreichbar ist: http://raspberrypi:8080
-   TRUSTED_ORIGINS=
-
-   # Postgres statt SQLite: Passwort setzen und die beiden Zeilen darunter
-   # einkommentieren. COMPOSE_PROFILES startet den Postgres-Container mit.
-   # Das Passwort steht auch in DATABASE_URL, deshalb nur Buchstaben und
-   # Ziffern (z. B. `openssl rand -hex 32`). Sonst müssen / + = usw. dort
-   # URL-kodiert sein (%2F, %2B, %3D). POSTGRES_PASSWORD gilt nur beim ersten
-   # Start mit leerem Ordner postgres; danach ändert es nichts mehr.
-   POSTGRES_PASSWORD=
-   # DATABASE_URL=postgres://harness:<POSTGRES_PASSWORD>@postgres:5432/harness
-   # COMPOSE_PROFILES=postgres
-   ```
-
-2. Solange das Repository privat ist, ist auch das Image privat. Einmal anmelden, mit einem GitHub-Token mit `read:packages`:
-
-   ```sh
-   docker login ghcr.io -u <github-name>
-   ```
-
-3. Starten und `PUBLIC_URL` im Browser öffnen. Der erste registrierte Nutzer wird Admin.
-
-   ```sh
-   docker compose up -d
-   ```
-
-4. In den Einstellungen API-Keys hinterlegen, etwa für DeepSeek, OpenAI oder Anthropic, und losschreiben.
-
-Updates, Postgres und die Grenzen beim Betrieb im Netz: [`docs/deploy.md`](docs/deploy.md).
-
-## Quick Start: Sandbox auf Windows
-
-Voraussetzungen:
-- Windows 11 Pro mit Hyper-V
-- Podman mit einer Machine `harness`; die Einrichtung steht in [`docs/spikes/phase-0.md`](docs/spikes/phase-0.md) §12
-- Rust
-- Git
-
-```powershell
-cargo build
-target\debug\harness.exe vmd install          # VM-Dienst einrichten (einmal, fragt per UAC)
-target\debug\harness.exe image build          # Base- und Gateway-Image in der VM bauen
-target\debug\harness.exe login http://<server>:8080   # Rechner mit deinem Konto koppeln, richtet den Hintergrunddienst ein
-cd <dein-projektordner>
-<pfad>\harness.exe init                      # Projekt anlegen (mit Git, falls nötig); erscheint im Web-Chat
+```
+Browser ──HTTPS──► Server (API, web app, SQLite or Postgres)
+                     ▲
+                     │ WebSocket tunnel, device token
+                     │
+Windows PC: hearth background service ──► Hyper-V VM (Podman)
+                                            ├─ gateway (network rules, approvals)
+                                            └─ sandbox with the agent and a copy of the project
 ```
 
-- **Im Web-Chat:** unten im Eingabefeld „Umgebung“, dann Rechner und Projekt wählen. Der Hintergrunddienst startet VM und Sandbox bei der ersten Nachricht selbst, jeder Schritt erscheint im Chat.
-- **Im Terminal:** `harness` im Projektordner startet pi direkt.
-- **Commits übernehmen:** `harness sync` und `harness merge` holen die Commits des Agents ins eigene Repository, `merge` prüft sie vorher.
+[`docs/how-it-works.md`](docs/how-it-works.md) explains the parts and the reasoning behind them (German).
 
-Alle Befehle stehen in [`CLAUDE.md`](CLAUDE.md#befehle).
+## Requirements
 
-## Entwicklung
+- **Server:** Docker with Compose 2.24 or newer, on amd64 or arm64. A Raspberry Pi 5 with 4 GB is enough.
+- **Client (optional, for agents):** Windows 11 Pro, Enterprise or Education (Hyper-V is required, Windows Home does not have it), x64 or ARM64, 16 GB of RAM recommended. Git and Podman are installed by the setup program.
+
+## Quick start
+
+### Server
+
+```sh
+mkdir hearth && cd hearth
+curl -LO https://raw.githubusercontent.com/johnnyjack123/hearth/main/docker-compose.yml
+mkdir -p data && sudo chown 1000:1000 data
+echo "PUBLIC_URL=http://<address-of-this-machine>:8080" > .env
+docker compose up -d
+docker compose logs server | grep "setup code"
+```
+
+Open `PUBLIC_URL`, create the first account with the setup code from the log (it becomes the admin) and add an API key under Settings → API keys.
+
+Postgres, web search, HTTPS and running the server on the internet are covered in [`docs/deploy.md`](docs/deploy.md).
+
+### Windows client
+
+1. Download `hearth-setup-x64.exe` or `hearth-setup-arm64.exe` from the [latest release](https://github.com/johnnyjack123/hearth/releases/latest) and run it. It checks Hyper-V, installs Git and Podman if needed, creates the VM and pairs the PC with your server.
+2. In a project folder, run `hearth init`. The project then appears in the web chat under the gear menu → Environment.
+3. Alternatively, run `hearth` in the project folder to work with the agent in the terminal.
+
+Details and troubleshooting: [`docs/client.md`](docs/client.md).
+
+## Documentation
+
+The detailed documentation is in German.
+
+| Document | Contents |
+|---|---|
+| [`docs/deploy.md`](docs/deploy.md) | Server: installation, configuration, updates, backups, HTTPS, internet exposure |
+| [`docs/client.md`](docs/client.md) | Windows client: setup, projects, web chat and terminal, updates, troubleshooting |
+| [`docs/how-it-works.md`](docs/how-it-works.md) | How the parts work and why they were built this way |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | The original design document |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phases and what comes next |
+
+## Development
 
 ```sh
 pnpm install
-pnpm --filter @harness/server dev    # API auf :8080
-pnpm --filter @harness/web dev       # Web-App auf :5173
-pnpm --filter @harness/server test
+pnpm --filter @hearth/server dev     # API on :8080
+pnpm --filter @hearth/web dev        # web app on :5173
+pnpm --filter @hearth/server test
+pnpm --filter @hearth/web e2e        # browser test against an isolated stack
+cargo build
 cargo test
 ```
 
-Hinweise für Agents und Stolpersteine: [`CLAUDE.md`](CLAUDE.md).
+The server and web app are TypeScript (Hono, React, AI SDK); the client, the VM service and the network gateway are Rust.
+
+## Status
+
+Hearth is in active development and has not reached 1.0. The Windows programs are not code-signed yet, so SmartScreen and Microsoft Defender may warn about them.
+
+## License
+
+No license has been chosen yet. Until one is added, all rights are reserved.

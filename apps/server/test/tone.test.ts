@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, ProviderCredential, Tone } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, ProviderCredential, Tone } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chatNote } from '../src/routes/chat.ts';
 import { agentToneNote } from '../src/routes/conversations.ts';
@@ -13,10 +13,10 @@ describe('tone notes', () => {
   const today = { date: '2026-11-08', research: null, verbosity: 'medium' as const };
 
   it('name a tone other than neutral with every message, and neutral once after it', () => {
-    expect(chatNote([], { ...today, tone: 'neutral' })).toBe('[LLM Harness: Today is 2026-11-08.]');
-    expect(chatNote([], { ...today, tone: 'scientific' })).toBe('[LLM Harness: Today is 2026-11-08. Tone: scientific.]');
-    expect(chatNote([sent('scientific')], { ...today, tone: 'scientific' })).toBe('[LLM Harness: Tone: scientific.]');
-    expect(chatNote([sent('formal')], { ...today, tone: 'neutral' })).toBe('[LLM Harness: Tone: neutral.]');
+    expect(chatNote([], { ...today, tone: 'neutral' })).toBe('[Hearth: Today is 2026-11-08.]');
+    expect(chatNote([], { ...today, tone: 'scientific' })).toBe('[Hearth: Today is 2026-11-08. Tone: scientific.]');
+    expect(chatNote([sent('scientific')], { ...today, tone: 'scientific' })).toBe('[Hearth: Tone: scientific.]');
+    expect(chatNote([sent('formal')], { ...today, tone: 'neutral' })).toBe('[Hearth: Tone: neutral.]');
     expect(chatNote([sent()], { ...today, tone: 'neutral' })).toBeNull();
     // Without a tone it is neutral, as for older callers.
     expect(chatNote([sent()], today)).toBeNull();
@@ -27,7 +27,7 @@ describe('tone notes', () => {
     expect(agentToneNote([], 'scientific')).toMatch(/Never invent facts/);
     expect(agentToneNote([], 'scientific')).toMatch(/label it explicitly as your guess/);
     expect(agentToneNote([sent('critical')], 'critical')).toMatch(/critical/);
-    expect(agentToneNote([sent('relaxed')], 'neutral')).toBe('[LLM Harness: Write in your usual tone again.]');
+    expect(agentToneNote([sent('relaxed')], 'neutral')).toBe('[Hearth: Write in your usual tone again.]');
   });
 });
 

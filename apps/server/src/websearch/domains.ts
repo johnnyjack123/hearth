@@ -3,7 +3,7 @@
  * a preferred hit moves up a few places, nothing is removed, and the model
  * still sees and may read everything. Without a kind nothing moves.
  */
-import type { SearchKind, WebSearchResult } from '@harness/shared';
+import type { SearchKind, WebSearchResult } from '@hearth/shared';
 
 /**
  * Domains per kind. An entry matches the domain and its subdomains; an

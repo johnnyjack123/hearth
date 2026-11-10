@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
 # Smoke test of Phase 4 against the real VM, from Git Bash:
 #
-#   throwaway server + tool-calling mock LLM -> harness setup (pairs) -> project
-#   -> harness connect in the foreground refuses a chat the project wants
-#   confirmed -> the background service (harness daemon start) takes over
+#   throwaway server + tool-calling mock LLM -> hearth setup (pairs) -> project
+#   -> hearth connect in the foreground refuses a chat the project wants
+#   confirmed -> the background service (hearth daemon start) takes over
 #   -> a web chat linked to the project over the API -> progress steps,
 #   pi in RPC mode runs a command that commits and asks the gateway for
 #   example.com -> the question is answered over the chat API -> the reply
-#   with tool call and text is streamed and stored -> harness sync brings
+#   with tool call and text is streamed and stored -> hearth sync brings
 #   the commit home -> "save progress" commits, checks and merges the
 #   agent's work, autosync does it after a reply, a git hook holds the merge
 #   for the terminal -> pi's web_fetch: the gateway asks for the host in the
 #   chat, the server loads the page -> VM activity and idle time in the web app, a terminal
-#   command keeps the VM busy -> the tray icon of harnessd and its status
-#   file -> harness daemon stop -> harness project remove
+#   command keeps the VM busy -> the tray icon of hearthd and its status
+#   file -> hearth daemon stop -> hearth project remove
 #
 # VM_STOP=1 also stops the VM: from the browser (API), from the tray icon
 # (its named event) and because it sat idle for a minute. Takes about four
 # minutes longer (three VM starts).
 #
 # Needs the running VM, both images, `cargo build` and `pnpm install`. Uses
-# ports 8095/8096 and a temporary HARNESS_HOME; pi's config lives in the
-# test project's own volume (harness-cfg-<project>_pi), so the user's pi
+# ports 8095/8096 and a temporary HEARTH_HOME; pi's config lives in the
+# test project's own volume (hearth-cfg-<project>_pi), so the user's pi
 # setup stays untouched. KEEP_LOGS=<folder> keeps the logs.
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-H="$REPO/target/debug/harness"
+H="$REPO/target/debug/hearth"
 PM="$REPO/spikes/phase-0/pm.sh"
 SERVER_PORT=8095
 MOCK_PORT=8096
 URL="http://127.0.0.1:$SERVER_PORT"
 WORK="$(mktemp -d)"
 NAME="connect-$$"
-export HARNESS_HOME="$WORK/home"
+export HEARTH_HOME="$WORK/home"
 # The checks below look for German output, whatever language Windows shows.
-export HARNESS_LANG=de
+export HEARTH_LANG=de
 # Its tray would otherwise show the test's questions on the desktop.
-export HARNESS_TRAY_QUIET=1
+export HEARTH_TRAY_QUIET=1
 J='Content-Type: application/json'
 O="Origin: $URL"
 CONNECT=""
@@ -73,7 +73,7 @@ json() { # json <expression> (reads stdin)
   node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s);console.log(eval(process.argv[1]))})" "$1"
 }
 in_container() { # in_container <command> (in /workspace of the test's instance)
-  "$PM" exec "harness-$NAME" sh -c "cd /workspace && $1" | tr -d '\r'
+  "$PM" exec "hearth-$NAME" sh -c "cd /workspace && $1" | tr -d '\r'
 }
 say_in_chat() { # say_in_chat <id> <text>: one message, the reply's stream in $WORK/<id>.log
   printf '%s' "{\"message\":{\"id\":\"$1\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"$2\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\"}" \
@@ -88,14 +88,14 @@ vm_is() { test "$(device 'v[0].vm')" = "$1"; }
 terminals_are() { test "$(device 'v[0].activity && v[0].activity.terminals')" = "$1"; }
 # Minutes until the idle stop as the web app shows them; -1 if none is due.
 stop_minutes() { device 'v[0].activity && v[0].activity.stopsAt ? Math.round((v[0].activity.stopsAt - Date.now()) / 60000) : -1'; }
-# Suffix of the service's named objects, as harness computes it (FNV-1a of
-# the lower-case configuration folder as harness.exe sees it).
+# Suffix of the service's named objects, as hearth computes it (FNV-1a of
+# the lower-case configuration folder as hearth.exe sees it).
 object_suffix() {
   node -e "let h=0xcbf29ce484222325n;for(const b of Buffer.from(process.argv[1].toLowerCase())){h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn}console.log(h.toString(16).padStart(16,'0'))" \
-    "$(cygpath -m "$HARNESS_HOME")"
+    "$(cygpath -m "$HEARTH_HOME")"
 }
 status_file() { # status_file <expression on daemon-status.json>
-  json "$1" < "$HARNESS_HOME/daemon-status.json"
+  json "$1" < "$HEARTH_HOME/daemon-status.json"
 }
 status_connected() { test "$(status_file v.connection 2> /dev/null)" = connected; }
 stops_in_40_to_45() {
@@ -105,7 +105,7 @@ stops_in_40_to_45() {
 }
 
 cleanup() {
-  [ -n "${KEEP_LOGS:-}" ] && mkdir -p "$KEEP_LOGS" && cp "$WORK"/*.log "$HARNESS_HOME"/daemon.log "$KEEP_LOGS"/ 2> /dev/null
+  [ -n "${KEEP_LOGS:-}" ] && mkdir -p "$KEEP_LOGS" && cp "$WORK"/*.log "$HEARTH_HOME"/daemon.log "$KEEP_LOGS"/ 2> /dev/null
   [ -n "$CONNECT" ] && kill "$CONNECT" 2> /dev/null
   [ -n "$WATCH" ] && kill "$WATCH" 2> /dev/null
   "$H" daemon stop > /dev/null 2>&1
@@ -113,10 +113,10 @@ cleanup() {
   [ -n "${VM_STOP:-}" ] && "$H" vmd start > /dev/null 2>&1
   "$H" logout > /dev/null 2>&1
   (cd "$WORK/$NAME" 2> /dev/null && "$H" stop > /dev/null 2>&1)
-  "$PM" rm -f "harness-$NAME" "harness-gw-$NAME" "harness-install-$NAME" > /dev/null 2>&1
-  "$PM" volume rm "harness-ws-$NAME" "harness-home-$NAME" > /dev/null 2>&1
+  "$PM" rm -f "hearth-$NAME" "hearth-gw-$NAME" "hearth-install-$NAME" > /dev/null 2>&1
+  "$PM" volume rm "hearth-ws-$NAME" "hearth-home-$NAME" > /dev/null 2>&1
   "$H" app remove smoke-hello smoke-file > /dev/null 2>&1
-  "$PM" network rm "harness-net-$NAME" > /dev/null 2>&1
+  "$PM" network rm "hearth-net-$NAME" > /dev/null 2>&1
   powershell.exe -NoProfile -Command "foreach (\$p in $SERVER_PORT,$MOCK_PORT) { Get-NetTCPConnection -LocalPort \$p -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force } }" > /dev/null 2>&1
   rm -rf "$WORK"
 }
@@ -137,8 +137,8 @@ CREDENTIAL=$(api POST /api/providers \
   "{\"kind\":\"openai-compatible\",\"label\":\"Mock\",\"baseUrl\":\"http://127.0.0.1:$MOCK_PORT/v1\",\"apiKey\":\"sk-mock-key\"}" |
   json v.id)
 
-echo "== harness setup (koppelt mit dem Testserver)"
-# The assistant only reports system steps under HARNESS_HOME; on this
+echo "== hearth setup (koppelt mit dem Testserver)"
+# The assistant only reports system steps under HEARTH_HOME; on this
 # machine everything else is there, so it ends in the pairing.
 "$H" setup --yes --server "$URL" > "$WORK/login.log" 2>&1 &
 LOGIN=$!
@@ -148,7 +148,7 @@ api POST "/api/devices/pairing/$CODE" '{"approve":true}' > /dev/null
 check "Rechner gekoppelt" wait "$LOGIN"
 check "setup prüft Hyper-V, Podman und VM-Dienst" bash -c   "grep -q 'Hyper-V ist eingeschaltet' '$WORK/login.log' && grep -q '✓ Podman' '$WORK/login.log' && grep -q 'VM-Dienst' '$WORK/login.log'"
 
-echo "== harness init in einem Test-Repo $NAME"
+echo "== hearth init in einem Test-Repo $NAME"
 mkdir -p "$WORK/$NAME" && cd "$WORK/$NAME" || exit 1
 git init -q -b main
 git config user.name "Connect User"
@@ -163,7 +163,7 @@ check "Umgebung im Konto, Rechner offline" test \
 "$H" project remote on --confirm > "$WORK/remote.log" 2>&1
 check "Bestätigung verlangt" grep -q "bestätigst du im Terminal" "$WORK/remote.log"
 
-echo "== harness connect im Vordergrund"
+echo "== hearth connect im Vordergrund"
 # stdin is no terminal here, so nobody can confirm a new chat.
 "$H" connect < /dev/null > "$WORK/connect.log" 2>&1 &
 CONNECT=$!
@@ -189,13 +189,13 @@ CONNECT=""
 echo "== Hintergrunddienst"
 "$H" daemon start > "$WORK/daemon-start.log" 2>&1
 check "Dienst läuft" grep -q "Hintergrunddienst läuft" "$WORK/daemon-start.log"
-check "Dienst verbunden" wait_for 30 grep -q "Verbunden" "$HARNESS_HOME/daemon.log"
+check "Dienst verbunden" wait_for 30 grep -q "Verbunden" "$HEARTH_HOME/daemon.log"
 "$H" connect < /dev/null > "$WORK/second.log" 2>&1
 check "zweite Verbindung abgelehnt" grep -q "Hintergrunddienst hält die Verbindung" "$WORK/second.log"
 check "VM-Status gemeldet" test "$(api GET /api/devices | json "v[0].online && v[0].vm !== null")" = true
 check "Statusdatei für das Tray-Symbol" wait_for 10 status_connected
 TRAY=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$REPO/scripts/tray-check.ps1")" -DaemonPid "$(status_file v.pid)" | tr -d '\r')
-check "Tray-Symbol von harnessd" test "${TRAY#* }" = tray
+check "Tray-Symbol von hearthd" test "${TRAY#* }" = tray
 TRAY_PID=${TRAY%% *}
 
 echo "== Programme im Browser"
@@ -205,7 +205,7 @@ check "Katalog des Rechners im Konto" wait_for 20 apps_reported
 check "C/C++ standardmäßig an" test "$(apps_of)" = c
 SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","sqlite"]}')
 check "aus dem Browser geschaltet" test "$(echo "$SWITCHED" | json v.ok)" = true
-check "Projektdatei geändert" grep -q '"sqlite"' "$HARNESS_HOME/projects/$NAME.toml"
+check "Projektdatei geändert" grep -q '"sqlite"' "$HEARTH_HOME/projects/$NAME.toml"
 check "neuer Stand im Konto" test "$(apps_of)" = "c,sqlite"
 SWITCHED=$(api PUT "/api/devices/$DEVICE/projects/$NAME/apps" '{"enabled":["c","cobol"]}')
 check "unbekannte App vom Rechner abgelehnt" test "$(echo "$SWITCHED" | json v.ok)" = false
@@ -213,10 +213,10 @@ check "Projektdatei unverändert" test "$(apps_of)" = "c,sqlite"
 
 echo "== Eigene Programme"
 # A script program needs no download: the session start installs it for real.
-OWN=$(api POST /api/app-templates '{"name":"smoke-hello","title":"Smoke Hello","description":null,"kind":"script","packages":[],"script":"mkdir -p \"$PREFIX/bin\" && echo \"echo smoke hallo\" > \"$PREFIX/bin/smoke-hello\" && chmod 755 \"$PREFIX/bin/smoke-hello\" && harness_version 1.0","hosts":[],"path":["bin"],"requires":[]}')
+OWN=$(api POST /api/app-templates '{"name":"smoke-hello","title":"Smoke Hello","description":null,"kind":"script","packages":[],"script":"mkdir -p \"$PREFIX/bin\" && echo \"echo smoke hallo\" > \"$PREFIX/bin/smoke-hello\" && chmod 755 \"$PREFIX/bin/smoke-hello\" && hearth_version 1.0","hosts":[],"path":["bin"],"requires":[]}')
 OWN_ID=$(echo "$OWN" | json v.id)
 check "eigenes Programm im Konto" test "$(echo "$OWN" | json v.name)" = smoke-hello
-check "Rechner hat die Vorlage gespeichert" wait_for 20 grep -q smoke-hello "$HARNESS_HOME/server-apps.json"
+check "Rechner hat die Vorlage gespeichert" wait_for 20 grep -q smoke-hello "$HEARTH_HOME/server-apps.json"
 own_reported() { test "$(api GET /api/devices | json "v[0].apps?.catalog.find((a) => a.name === 'smoke-hello')?.source")" = server; }
 check "im Katalog des Rechners, als eigenes" wait_for 20 own_reported
 
@@ -233,7 +233,7 @@ APPROVAL=$(echo "$ASKED" | json v.approval)
 check "Programmdatei angefragt, wartet auf Freigabe" test "$(echo "$ASKED" | json v.ok)" = true
 file_pending() { test "$(api GET /api/devices | json "v[0].apps?.pending?.[0]?.id")" = "$APPROVAL"; }
 check "wartend im Konto" wait_for 20 file_pending
-check "ohne Freigabe nichts kopiert" test ! -e "$HARNESS_HOME/app-files/smoke-file"
+check "ohne Freigabe nichts kopiert" test ! -e "$HEARTH_HOME/app-files/smoke-file"
 "$H" app approve "$APPROVAL" --yes > "$WORK/approve.log" 2>&1
 check "am Rechner freigegeben" grep -q "Freigegeben" "$WORK/approve.log"
 file_reported() { test "$(api GET /api/devices | json "(v[0].apps?.catalog.find((a) => a.name === 'smoke-file')?.source ?? '') + (v[0].apps?.pending?.length ?? 0)")" = local0; }
@@ -276,10 +276,10 @@ check "eigenes Programm in der Instanz" own_in_instance
 file_in_instance() { in_container smoke-file | grep -q 'datei hallo'; }
 check "Programmdatei in der Instanz" file_in_instance
 api DELETE "/api/app-templates/$OWN_ID" > /dev/null
-own_switched_off() { ! grep -q smoke-hello "$HARNESS_HOME/projects/$NAME.toml"; }
+own_switched_off() { ! grep -q smoke-hello "$HEARTH_HOME/projects/$NAME.toml"; }
 check "gelöschtes Programm im Projekt ausgeschaltet" wait_for 20 own_switched_off
 
-echo "== harness sync"
+echo "== hearth sync"
 "$H" sync > "$WORK/sync.log" 2>&1
 check "Commit des Agents auf agent/$NAME" test "$(git log -1 --format=%s "agent/$NAME" 2> /dev/null)" = "agent: add agent.txt"
 
@@ -317,7 +317,7 @@ check "Ordner unverändert" test "$(git rev-parse HEAD)" = "$BEFORE" -a ! -e .hu
 check "angehaltener Commit als nicht übernommen gemeldet" grep -q '"type":"data-workspace","id":"workspace","data":{"commits":1,"changes":0}' "$WORK/m3.log"
 "$H" merge --approve "$REQUEST" < /dev/null > "$WORK/approve.log" 2>&1
 check "Freigabe nur mit Terminal" grep -q "braucht ein Terminal" "$WORK/approve.log"
-check "Freigabe bleibt offen" test -f "$HARNESS_HOME/merge-requests/$REQUEST.json"
+check "Freigabe bleibt offen" test -f "$HEARTH_HOME/merge-requests/$REQUEST.json"
 check "unbekannte ID abgelehnt" bash -c "! '$H' merge --approve ZZZZZZ < /dev/null > /dev/null 2>&1"
 api PATCH "/api/conversations/$CONVERSATION/link" '{"autosync":false}' > /dev/null
 
@@ -350,7 +350,7 @@ check "Erinnerung beim Server, vom Agent" test "$(api GET /api/memories | json '
 check "Erinnerung des Agents ist ein Vorschlag" test "$(api GET /api/memories | json 'v[0].pending')" = true
 api POST "/api/memories/$(api GET /api/memories | json 'v[0].id')/confirm" > /dev/null
 say_in_chat m6f '!echo weiter'
-check "Erinnerung mit der nächsten Nachricht bei pi" grep -q 'LLM Harness memory: background the user saved' "$WORK/mock-requests.log"
+check "Erinnerung mit der nächsten Nachricht bei pi" grep -q 'Hearth memory: background the user saved' "$WORK/mock-requests.log"
 printf '%s' "{\"message\":{\"id\":\"m6g\",\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"text\":\"?read kaffee\"}]},\"credentialId\":\"$CREDENTIAL\",\"modelId\":\"mock-model\",\"research\":true}" > "$WORK/m6g.json"
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6g.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m6g.log"
 check "Treffer ohne Rückfrage gelesen" bash -c "grep -q 'Example Domain' '$WORK/m6g.log' && ! grep -q '\"host\":\"example.org\"' '$WORK/m6g.log'"
@@ -370,7 +370,7 @@ printf '%s' "{\"message\":{\"id\":\"m6c\",\"role\":\"user\",\"parts\":[{\"type\"
 curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6c.json" "$URL/api/conversations/$CONVERSATION/chat" > "$WORK/m6c.log"
 check "Datei in ~/uploads der Instanz" grep -q 'Bohnen kaufen' "$WORK/m6c.log"
 check "Hinweis an den Agent mit dem Pfad" grep -q 'saved outside the project' "$WORK/mock-requests.log"
-check "Datei nicht im Projekt" bash -c "! '$PM' exec 'harness-$NAME' test -e /workspace/notiz.txt"
+check "Datei nicht im Projekt" bash -c "! '$PM' exec 'hearth-$NAME' test -e /workspace/notiz.txt"
 check "Hinweis nennt read_document" grep -q "search it with read_document, file " "$WORK/mock-requests.log"
 say_in_chat m6h "%doc ${FILE: -8} Was steht auf der Liste?"
 check "Werkzeug read_document in pi geladen" grep -q '"toolName":"read_document"' "$WORK/m6h.log"
@@ -383,7 +383,7 @@ curl -sN -b "$WORK/cookies" -H "$J" -H "$O" --data-binary "@$WORK/m6d.json" "$UR
 check "pi lernt das Modell und startet neu" grep -q 'pi kannte das Modell mock-unknown noch nicht' "$WORK/m6d.log"
 check "Anfrage mit dem gewählten Modell" grep -q '"model":"mock-unknown"' "$WORK/mock-requests.log"
 check "Antwort trotz Neustart" grep -q '"delta":"fertig"' "$WORK/m6d.log"
-check "Modell in models.json" bash -c "'$PM' exec 'harness-$NAME' cat /home/agent/.pi/agent/models.json | grep -q mock-unknown"
+check "Modell in models.json" bash -c "'$PM' exec 'hearth-$NAME' cat /home/agent/.pi/agent/models.json | grep -q mock-unknown"
 check "Kosten wie vom Anbieter abgerechnet" test "$(api GET "/api/conversations/$CONVERSATION" | json 'v.messages.at(-1).metadata.usage.billed + " " + v.messages.at(-1).metadata.usage.calls.every((c) => c.cost.total === 0.000123)')" = "true true"
 
 echo "== Denktiefe und Zusammenfassen bei pi (Protokoll 4)"
@@ -406,7 +406,7 @@ check "pi antwortet nach dem Zusammenfassen" grep -q '"delta":"fertig"' "$WORK/m
 
 echo "== Verknüpfung lösen"
 api DELETE "/api/conversations/$CONVERSATION/link" > /dev/null
-check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HARNESS_HOME/daemon.log"
+check "Sitzung auf dem Rechner beendet" wait_for 30 grep -q "Sitzung beendet" "$HEARTH_HOME/daemon.log"
 
 echo "== VM in der Web-App"
 check "Aktivität gemeldet (Protokoll 2)" test \
@@ -431,34 +431,34 @@ if [ -n "${VM_STOP:-}" ]; then
   "$H" vmd start > "$WORK/vm-start-tray.log" 2>&1
   check "VM läuft wieder" wait_for 40 vm_is running
   powershell.exe -NoProfile -Command \
-    "[System.Threading.EventWaitHandle]::OpenExisting('Local\llm-harness-daemon-vmstop-$(object_suffix)').Set()" > /dev/null
+    "[System.Threading.EventWaitHandle]::OpenExisting('Local\hearth-daemon-vmstop-$(object_suffix)').Set()" > /dev/null
   check "VM aus (Taskleiste)" wait_for 60 vm_is stopped
-  check "Protokoll nennt die Taskleiste" grep -q "aus der Taskleiste" "$HARNESS_HOME/daemon.log"
+  check "Protokoll nennt die Taskleiste" grep -q "aus der Taskleiste" "$HEARTH_HOME/daemon.log"
 
   echo "== Stopp nach einer Minute Leerlauf"
   "$H" vmd start > "$WORK/vm-start.log" 2>&1
   api PATCH "/api/devices/$DEVICE" '{"idleMinutes":1}' > /dev/null
-  check "Dienst stoppt die unbenutzte VM" wait_for 150 grep -q "unbenutzt, wird gestoppt" "$HARNESS_HOME/daemon.log"
+  check "Dienst stoppt die unbenutzte VM" wait_for 150 grep -q "unbenutzt, wird gestoppt" "$HEARTH_HOME/daemon.log"
   check "VM nach dem Leerlauf aus" wait_for 90 vm_is stopped
 fi
 
 echo "== Hintergrunddienst beenden"
 STOP_AT=$(date +%s); "$H" daemon stop > "$WORK/daemon-stop.log" 2>&1; echo "  (daemon stop: $(( $(date +%s) - STOP_AT )) s, $(date -u +%H:%M:%S)Z)"
 check "Dienst beendet" grep -q "Hintergrunddienst beendet" "$WORK/daemon-stop.log"
-check "Statusdatei aufgeräumt" test ! -e "$HARNESS_HOME/daemon-status.json"
-check "harnessd samt Tray-Symbol beendet" wait_for 10 bash -c \
-  "! tasklist //FI 'PID eq $TRAY_PID' | grep -q harnessd"
+check "Statusdatei aufgeräumt" test ! -e "$HEARTH_HOME/daemon-status.json"
+check "hearthd samt Tray-Symbol beendet" wait_for 10 bash -c \
+  "! tasklist //FI 'PID eq $TRAY_PID' | grep -q hearthd"
 
 echo "== Projekt entfernen"
 "$H" project remove --yes > "$WORK/remove.log" 2>&1
 check "Projekt entfernt" grep -q "Projekt $NAME entfernt" "$WORK/remove.log"
 check "Container und Volumes in der VM weg" bash -c \
-  "! '$PM' container exists 'harness-$NAME' && ! '$PM' volume exists 'harness-ws-$NAME'"
+  "! '$PM' container exists 'hearth-$NAME' && ! '$PM' volume exists 'hearth-ws-$NAME'"
 check "nicht mehr im Konto" test "$(api GET /api/devices | json "v[0].projects.length")" = 0
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures Prüfung(en) fehlgeschlagen. Protokolle:"
-  for log in "$WORK"/*.log "$HARNESS_HOME/daemon.log"; do
+  for log in "$WORK"/*.log "$HEARTH_HOME/daemon.log"; do
     echo "--- $(basename "$log")"
     tail -25 "$log"
   done

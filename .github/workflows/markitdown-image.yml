@@ -1,7 +1,7 @@
 # Builds the document converter (apps/markitdown) for amd64 and arm64 on
 # native runners, runs its self-test in each image without network, and
 # publishes one multi-arch image to GHCR:
-# ghcr.io/<owner>/llm-harness-markitdown:{latest,sha-<commit>,<version>}.
+# ghcr.io/<owner>/hearth-markitdown:{latest,sha-<commit>,<version>}.
 name: Markitdown-Image
 
 on:
@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/llm-harness-markitdown
+  IMAGE: ghcr.io/${{ github.repository_owner }}/hearth-markitdown
 
 jobs:
   build:

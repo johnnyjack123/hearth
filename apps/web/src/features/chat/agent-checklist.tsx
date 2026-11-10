@@ -10,7 +10,7 @@ import { transitions } from '@/lib/motion.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 
-/** Name of pi's progress tool (`crates/harness-core/pi/progress.ts`). */
+/** Name of pi's progress tool (`crates/hearth-core/pi/progress.ts`). */
 export const PROGRESS_TOOL = 'progress';
 
 /** State of one step of an agent's checklist. */
@@ -90,7 +90,7 @@ export function currentChecklist(conversationId: string, messages: ChatMessage[]
   return null;
 }
 
-const HIDDEN_KEY = 'harness.hiddenChecklists';
+const HIDDEN_KEY = 'hearth.hiddenChecklists';
 
 /** Lists remembered as hidden; older ones belong to long finished tasks. */
 const MAX_HIDDEN = 200;

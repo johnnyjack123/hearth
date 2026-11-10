@@ -3,14 +3,14 @@
 (function () {
   try {
     var root = document.documentElement;
-    var theme = localStorage.getItem('harness.theme') || 'system';
+    var theme = localStorage.getItem('hearth.theme') || 'system';
     var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     root.classList.toggle('dark', dark);
-    var density = localStorage.getItem('harness.density');
+    var density = localStorage.getItem('hearth.density');
     if (density === 'compact' || density === 'comfortable') {
       root.dataset.density = density;
     }
-    var locale = localStorage.getItem('harness.locale');
+    var locale = localStorage.getItem('hearth.locale');
     if (locale === 'de' || locale === 'en') {
       root.lang = locale;
     }

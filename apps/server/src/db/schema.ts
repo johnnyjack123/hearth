@@ -1,4 +1,4 @@
-import type { ProviderKind } from '@harness/shared';
+import type { ProviderKind } from '@hearth/shared';
 import type { Generated } from 'kysely';
 
 /**
@@ -109,7 +109,7 @@ export interface DeviceTable {
   jevReview: Generated<number>;
   /** The device's last apps report (`AppsReport` as JSON), or null. */
   apps: string | null;
-  /** harness version the device reported at its last connection, or null. */
+  /** hearth version the device reported at its last connection, or null. */
   harnessVersion: string | null;
 }
 

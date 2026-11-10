@@ -2,7 +2,7 @@
 //   mock LLM (OpenAI format) :8091, API server :8090 with a throwaway data
 //   directory, Vite dev server :5174 proxying to it (dev mode = React
 //   StrictMode, which is where lifecycle bugs show up).
-// Usage: pnpm --filter @harness/web e2e    Screenshots: apps/web/e2e/.output/
+// Usage: pnpm --filter @hearth/web e2e    Screenshots: apps/web/e2e/.output/
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(here, '..');
 const serverDir = path.resolve(here, '../../server');
 const outDir = path.join(here, '.output');
-const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-e2e-'));
+const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-e2e-'));
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
@@ -71,12 +71,12 @@ try {
       // The mock stands in for markitdown, too.
       MARKITDOWN_URL: 'http://127.0.0.1:8091',
       // Known instead of random, so the test can type it like a person from the log.
-      HARNESS_SETUP_CODE: 'E2E-SETUP',
+      HEARTH_SETUP_CODE: 'E2E-SETUP',
     },
   });
   const viteLog = start('vite', [path.join(webDir, 'node_modules/vite/bin/vite.js'), '--host', '127.0.0.1', '--port', '5174'], {
     cwd: webDir,
-    env: { ...process.env, HARNESS_API_URL: 'http://127.0.0.1:8090' },
+    env: { ...process.env, HEARTH_API_URL: 'http://127.0.0.1:8090' },
   });
   await waitFor('mock', mockLog, /listening/);
   await waitFor('server', serverLog, /listening/);

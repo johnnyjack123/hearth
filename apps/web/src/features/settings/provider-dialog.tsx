@@ -1,4 +1,4 @@
-import { PROVIDER_KINDS, PROVIDERS, type ProviderCredential, type ProviderKind } from '@harness/shared';
+import { PROVIDER_KINDS, PROVIDERS, type ProviderCredential, type ProviderKind } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { toast } from 'sonner';

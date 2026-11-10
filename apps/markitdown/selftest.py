@@ -218,7 +218,7 @@ def main() -> None:
             run = subprocess.run(
                 [sys.executable, "-I", os.path.join(HERE, "convert.py"), path],
                 capture_output=True,
-                env={**os.environ, "HARNESS_OCR_SECONDS": "0"},
+                env={**os.environ, "HEARTH_OCR_SECONDS": "0"},
             )
             markdown = run.stdout.decode("utf-8", "replace")
             expect(

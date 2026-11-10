@@ -1,4 +1,4 @@
-import type { AppInfo, DeviceSummary, RemoteProject } from '@harness/shared';
+import type { AppInfo, DeviceSummary, RemoteProject } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ChevronRight, Package } from 'lucide-react';

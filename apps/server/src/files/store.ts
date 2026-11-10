@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ChatFile, ChatFileKind } from '@harness/shared';
+import type { ChatFile, ChatFileKind } from '@hearth/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB, FileTable } from '../db/schema.ts';

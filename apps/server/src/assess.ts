@@ -4,7 +4,7 @@
  * is stored with the tool's output, which the model never sees: its text
  * comes from `modelText` and friends, which leave it out.
  */
-import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL, type AgentToolOutput, type InjectionAssessment, type WebFetchOutput, type WebSearchOutput } from '@harness/shared';
+import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL, type AgentToolOutput, type InjectionAssessment, type WebFetchOutput, type WebSearchOutput } from '@hearth/shared';
 import { assessInjection, type WarnedContent } from './helpers/injection.ts';
 import type { Helpers } from './helpers/openrouter.ts';
 import type { ChatMessage } from './services/conversations.ts';

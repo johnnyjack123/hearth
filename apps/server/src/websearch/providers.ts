@@ -3,7 +3,7 @@
  * Search API and Tavily. Each returns plain-text hits; the tool decides what
  * the model sees.
  */
-import type { SearchProvider, WebSearchErrorCode, WebSearchResult } from '@harness/shared';
+import type { SearchProvider, WebSearchErrorCode, WebSearchResult } from '@hearth/shared';
 
 /**
  * A web search that did not happen or failed. Like `WebFetchError`, the

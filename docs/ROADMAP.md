@@ -8,9 +8,9 @@
 | 0 | Spike Podman WSL und Hyper-V (I/O, Netz, Sicherheit) | ✅ erledigt, [`spikes/phase-0.md`](spikes/phase-0.md) |
 | 0b | Spike Windows Sandbox | ✅ abgebrochen und verworfen, [`spikes/phase-0b-windows-sandbox.md`](spikes/phase-0b-windows-sandbox.md) |
 | 1 | Server + Web-Chat (Multi-User, Keys pro Nutzer, Streaming) | ✅ im Kern fertig, Reste siehe unten |
-| **2** | **Sandbox-Kern + `harness`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
-| 2b | Windows-Dienst `harness-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
-| 2c | Merge-Prüfung: Diff des Agents vor `harness merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
+| **2** | **Sandbox-Kern + `hearth`-CLI (Terminal-Modus mit pi)** | **✅ im Kern fertig**: Pakete 1–10, Rückfragen im selben Terminal, Hinweise an den Agent. Vom Nutzer in Windows Terminal geprüft (16.10.) |
+| 2b | Windows-Dienst `hearth-vmd` (VM-Lebenszyklus ohne Admin-Fenster) | ✅ eingerichtet (17.10.), Stopp im Leerlauf (23.10.), Aufräumen und Verkleinern der Festplatte (25./26.10., beim Nutzer geprüft am 27.10.: 9,1 → 6,7 GB) |
+| 2c | Merge-Prüfung: Diff des Agents vor `hearth merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
 | 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser und Programmdateien vom Rechner ✅ (30.10.), Gateway fertig gebaut ✅ (30.10.), offen: signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
@@ -18,9 +18,9 @@
 
 ## Weg zu 1.0 (Stand 5.11.2026)
 
-1. ✅ Versionen sichtbar (Server-Version im Image, harness-Version im Tunnel-Protokoll 10, Hinweise in Einstellungen → Geräte und im Tray).
-2. ✅ Kostendeckel pro Tag (Admin für alle, eigenes Limit je Nutzer, Agents und `harness run` stoppen am Limit).
-3. Backup, Wiederherstellung und Umzug des Servers dokumentieren (passt zum Umzug auf den Heimserver; `HARNESS_SECRET` gehört zur Datenbank).
+1. ✅ Versionen sichtbar (Server-Version im Image, hearth-Version im Tunnel-Protokoll 10, Hinweise in Einstellungen → Geräte und im Tray).
+2. ✅ Kostendeckel pro Tag (Admin für alle, eigenes Limit je Nutzer, Agents und `hearth run` stoppen am Limit).
+3. Backup, Wiederherstellung und Umzug des Servers dokumentieren (passt zum Umzug auf den Heimserver; `HEARTH_SECRET` gehört zur Datenbank).
 4. ✅ Funde der Sicherheitsprüfung behoben (`docs/security/review-2026-11-03.md`): H1–H3 und M1–M8 (v0.1.17). Offen: die niedrigen Funde je nach Aufwand, und eine zweite Prüfung des neuen Stands durch einen frischen Agenten vor dem RC.
 5. Neuinstallation auf frischem Windows, auch x64 (keine Windows Sandbox).
 6. Release-Kandidat v1.0.0-rc.1, ein bis zwei Wochen Alltag nur mit Fehlerbehebungen, dann 1.0.
@@ -36,21 +36,21 @@ Nach 1.0: signierte Programme und Auto-Update, Scanner für die Merge-Prüfung, 
 - [ ] Bundle-Größe der Web-App: Haupt-Chunk ~955 kB (295 kB gzip), per `manualChunks` aufteilen.
 - [x] Branch `feat/phase-1-chat` nach `main` gemergt (12.10.).
 
-## Phase 2 – Sandbox-Kern und `harness`-CLI
+## Phase 2 – Sandbox-Kern und `hearth`-CLI
 
-**Ziel:** Im Ordner eines Git-Repos auf dem Host `harness run pi` aufrufen. pi läuft dann in einem Container in der Linux-VM, auf einer Arbeitskopie im Volume, mit Netz nur über das Gateway. Danach holt `harness sync` die Commits als Branch `agent/<projekt>` ins Host-Repo, und `harness merge` führt sie automatisch zusammen, wenn es konfliktfrei geht.
+**Ziel:** Im Ordner eines Git-Repos auf dem Host `hearth run pi` aufrufen. pi läuft dann in einem Container in der Linux-VM, auf einer Arbeitskopie im Volume, mit Netz nur über das Gateway. Danach holt `hearth sync` die Commits als Branch `agent/<projekt>` ins Host-Repo, und `hearth merge` führt sie automatisch zusammen, wenn es konfliktfrei geht.
 
-**Abnahme:** In einem Test-Repo legt `harness run pi` die Instanz an und startet pi interaktiv. pi committet eine Änderung, `harness sync` und `harness merge` bringen sie konfliktfrei in den Host-Branch. Ein `curl example.com` im Container wird vom Gateway geblockt, `npm view react version` geht durch. Alles läuft **ohne** Admin-Rechte, solange die VM läuft.
+**Abnahme:** In einem Test-Repo legt `hearth run pi` die Instanz an und startet pi interaktiv. pi committet eine Änderung, `hearth sync` und `hearth merge` bringen sie konfliktfrei in den Host-Branch. Ein `curl example.com` im Container wird vom Gateway geblockt, `npm view react version` geht durch. Alles läuft **ohne** Admin-Rechte, solange die VM läuft.
 
 Arbeitspakete in sinnvoller Reihenfolge:
 
-1. ✅ **Cargo-Workspace:** `Cargo.toml` im Repo-Root, `crates/harness-core` (Bibliothek) und `crates/harness-cli` (Binary `harness`). Toolchain `aarch64-pc-windows-msvc` ist installiert. RAM ist knapp, deshalb `jobs = 2` in `.cargo/config.toml` und `debug = "line-tables-only"`. Im Spike stürzte rustc bei Release-Builds ab, vermutlich wegen RAM. Der Debug-Build braucht ~22 s.
-2. ✅ **Provider-Schnittstelle** in `harness-core` (`provider.rs`), zunächst nur `PodmanProvider` (`podman/`). Verifiziert mit `tests/podman_vm.rs` gegen die echte VM. **Offen:** exec mit TTY ist gebaut, aber noch nicht interaktiv getestet. Das muss der Nutzer mit `harness shell` und `harness run pi` in Windows Terminal ausprobieren.
+1. ✅ **Cargo-Workspace:** `Cargo.toml` im Repo-Root, `crates/hearth-core` (Bibliothek) und `crates/hearth-cli` (Binary `hearth`). Toolchain `aarch64-pc-windows-msvc` ist installiert. RAM ist knapp, deshalb `jobs = 2` in `.cargo/config.toml` und `debug = "line-tables-only"`. Im Spike stürzte rustc bei Release-Builds ab, vermutlich wegen RAM. Der Debug-Build braucht ~22 s.
+2. ✅ **Provider-Schnittstelle** in `hearth-core` (`provider.rs`), zunächst nur `PodmanProvider` (`podman/`). Verifiziert mit `tests/podman_vm.rs` gegen die echte VM. **Offen:** exec mit TTY ist gebaut, aber noch nicht interaktiv getestet. Das muss der Nutzer mit `hearth shell` und `hearth run pi` in Windows Terminal ausprobieren.
    - ruft die `podman`-CLI mit expliziter SSH-Verbindung auf, nach dem Muster von `spikes/phase-0/pm.sh`
    - eigene `known_hosts`, die des Nutzers **nicht** anfassen
-   - Port und Key aus `%USERPROFILE%\.config\containers\podman\machine\hyperv\harness.json` lesen (`SSH.Port`, `SSH.IdentityPath`)
+   - Port und Key aus `%USERPROFILE%\.config\containers\podman\machine\hyperv\hearth.json` lesen (`SSH.Port`, `SSH.IdentityPath`)
    - Methoden: VM erreichbar?, Image bauen, Volume, Netz, Container anlegen, starten und stoppen, exec (mit TTY), Dateien in den Container und heraus (`copy_into`, `copy_out`)
-3. ✅ **Base-Image** `images/base/Containerfile` (Debian trixie-slim, Node 24 aus dem offiziellen Image, uv 0.12.24, ~680 MB). Der Kontext ist ins Binary eingebettet, gebaut wird mit `harness image build`. Verifiziert mit `tests/base_image_vm.rs`, dazu pnpm und Proxy-Verhalten von Node von Hand:
+3. ✅ **Base-Image** `images/base/Containerfile` (Debian trixie-slim, Node 24 aus dem offiziellen Image, uv 0.12.24, ~680 MB). Der Kontext ist ins Binary eingebettet, gebaut wird mit `hearth image build`. Verifiziert mit `tests/base_image_vm.rs`, dazu pnpm und Proxy-Verhalten von Node von Hand:
    - Debian stable slim, multi-arch
    - git, ca-certificates, curl, Python 3 + uv, Node LTS + pnpm (corepack), ripgrep, fd, jq (build-essential bis 27.10., seitdem App „C/C++“)
    - Nutzer `agent` (UID 1000)
@@ -58,26 +58,26 @@ Arbeitspakete in sinnvoller Reihenfolge:
    - `HTTP(S)_PROXY` zeigt auf das Gateway
 
    Gebaut wird per `podman build` remote, der Kontext wird vom Host hochgeladen.
-4. ✅ **Konfiguration** unter `%USERPROFILE%\.harness\` (oder `HARNESS_HOME`) als TOML (`config.toml`, `projects/<name>.toml`, `harnesses/<name>.toml`), Modul `harness-core/src/config/`, Vorlagen in `harness-core/defaults/`. Das Format folgt ARCHITECTURE.md §3.8, aber mit `mode = "isolated"`. Gelesen wird mit `serde`, geschrieben mit `toml_edit`, damit Kommentare erhalten bleiben. **Sicherheitsrelevantes nie im Projektordner:** Projekte, die den Konfigurationsordner enthalten oder in ihm liegen, werden abgelehnt, beim Anlegen und bei jedem Laden.
+4. ✅ **Konfiguration** unter `%USERPROFILE%\.hearth\` (oder `HEARTH_HOME`) als TOML (`config.toml`, `projects/<name>.toml`, `harnesses/<name>.toml`), Modul `hearth-core/src/config/`, Vorlagen in `hearth-core/defaults/`. Das Format folgt ARCHITECTURE.md §3.8, aber mit `mode = "isolated"`. Gelesen wird mit `serde`, geschrieben mit `toml_edit`, damit Kommentare erhalten bleiben. **Sicherheitsrelevantes nie im Projektordner:** Projekte, die den Konfigurationsordner enthalten oder in ihm liegen, werden abgelehnt, beim Anlegen und bei jedem Laden.
    - Unbekannte Schlüssel sind ein Fehler, damit Tippfehler wie `[netwrok]` nicht still auf weniger strenge Standards zurückfallen.
    - Jeder Schreibvorgang wird vorher geparst und validiert und dann atomar geschrieben.
-   - Projektname: aus dem Ordnernamen abgeleitet (`[a-z0-9-]`, ≤ 40 Zeichen, Umlaute transliteriert, bei Kollision `-2` usw.). Daraus folgen Container `harness-<name>`, Netz `harness-net-<name>`, Volumes `harness-ws-<name>`/`harness-home-<name>`, Branch `agent/<name>` (`project.rs`).
-   - CLI: `harness project [show|add|list]`. `doctor` prüft die Konfiguration mit. Die Machine kommt aus `config.toml`, `--machine` überschreibt sie.
+   - Projektname: aus dem Ordnernamen abgeleitet (`[a-z0-9-]`, ≤ 40 Zeichen, Umlaute transliteriert, bei Kollision `-2` usw.). Daraus folgen Container `hearth-<name>`, Netz `hearth-net-<name>`, Volumes `hearth-ws-<name>`/`hearth-home-<name>`, Branch `agent/<name>` (`project.rs`).
+   - CLI: `hearth project [show|add|list]`. `doctor` prüft die Konfiguration mit. Die Machine kommt aus `config.toml`, `--machine` überschreibt sie.
    - Domain-Muster (`api.example.com`, `*.example.com`, keine IP-Literale) werden schon beim Laden geprüft. `DomainPattern::matches` ist für das Gateway vorbereitet.
-5. ✅ **Git-Sync im Isoliert-Modus** (`harness-core/src/sync/`) mit Git-Bundles. Bis zum 16.10. lief das über einen 9p-Austauschordner. Seitdem kopiert harness die Bundles per `podman cp` bzw. `podman exec cat` in die Instanz und zurück. Die VM sieht dadurch keinen Host-Ordner mehr, das ist Voraussetzung für Phase 2b. Verifiziert mit 13 Unit-Tests gegen temporäre Repos und `tests/sync_vm.rs` mit den echten Skripten in der VM (Klonen ~0,8 s, Rückweg ~1,1 s):
-   - **Host → VM** (`push_to_workspace`): `git bundle create <temp>/in.bundle HEAD --branches --tags`, dann `podman cp` nach `~/.harness-sync-in.bundle`. Bewusst nicht `--all`, damit Stash und Remote-Tracking-Refs auf dem Host bleiben. Im Container beim ersten Mal `git clone --origin host`, danach `git fetch host`. Der Agent-Branch setzt den Agent-Branch des Hosts fort, falls es ihn gibt, sonst beginnt er am HEAD des Hosts.
+5. ✅ **Git-Sync im Isoliert-Modus** (`hearth-core/src/sync/`) mit Git-Bundles. Bis zum 16.10. lief das über einen 9p-Austauschordner. Seitdem kopiert hearth die Bundles per `podman cp` bzw. `podman exec cat` in die Instanz und zurück. Die VM sieht dadurch keinen Host-Ordner mehr, das ist Voraussetzung für Phase 2b. Verifiziert mit 13 Unit-Tests gegen temporäre Repos und `tests/sync_vm.rs` mit den echten Skripten in der VM (Klonen ~0,8 s, Rückweg ~1,1 s):
+   - **Host → VM** (`push_to_workspace`): `git bundle create <temp>/in.bundle HEAD --branches --tags`, dann `podman cp` nach `~/.hearth-sync-in.bundle`. Bewusst nicht `--all`, damit Stash und Remote-Tracking-Refs auf dem Host bleiben. Im Container beim ersten Mal `git clone --origin host`, danach `git fetch host`. Der Agent-Branch setzt den Agent-Branch des Hosts fort, falls es ihn gibt, sonst beginnt er am HEAD des Hosts.
    - **VM → Host** (`pull_from_workspace`): Der Container bündelt nur `agent/<projekt> --not --remotes=host`, also nur, was dem Host fehlt. Fehlen dem Host die Voraussetzungen (Kopf selbst gelesen, `BundleHeader`), folgt automatisch ein vollständiges Bundle. Der Host holt die Objekte und setzt den Branch per Compare-and-swap (`update-ref`), nur als Fast-Forward (sonst `--force`) und nie, solange der Branch ausgecheckt ist.
    - **Merge** (`HostRepo::merge`): Fast-Forward, falls möglich, sonst `git merge --no-edit`. Abgelehnt werden detached HEAD, laufende Merges oder Rebases und uncommittete Änderungen an getrackten Dateien. Konflikte erkennt vorher `git merge-tree --write-tree` trocken. Bei Konflikt bleibt alles unangetastet, und die Dateien werden gemeldet.
    - **Härtung auf dem Host:** Jeder Git-Aufruf läuft mit `core.hooksPath` auf einen leeren Ordner, `core.fsmonitor=false`, `submodule.recurse=false` und `fetch.fsckObjects`/`transfer.fsckObjects`. Ein Test beweist, dass weder `.git/hooks` noch ein Hook-Ordner im Arbeitsbaum (husky) ausgeführt werden. Container-Ausgaben werden vor der Anzeige von Steuerzeichen befreit.
    - **Offen:** `in.bundle` ist jedes Mal vollständig, bei großen Repos ggf. inkrementell machen.
-6. ✅ **Netzwerk-Gateway** (`crates/harness-gateway`, Image `images/gateway`, Host-Seite `harness-core/src/gateway.rs`, CLI `harness net`). Statt tinyproxy gleich ein eigener kleiner Proxy in Rust (aus Phase 3 vorgezogen): Nur er kann „open“ sicher machen und Anfragen festhalten, bis der Nutzer entscheidet. Nur Standardbibliothek außer TLS zum Server (rustls, Feature `tls`), ein Thread pro Verbindung. Gebaut wird in der VM aus den eingebetteten Quellen (`rust:1.97-slim-trixie`) mit dem gepinnten `images/gateway/Cargo.lock` (Crates von crates.io, ~34 s). Verifiziert mit 28 Tests im Crate (6 davon über echtes TCP), `tests/gateway_vm.rs` und einem Probelauf der CLI mit `harness net watch`:
-   - **Ein Gateway pro Projekt** (`harness-gw-<projekt>`), im internen Projektnetz unter dem Alias `gateway` (Port 8888) und zusätzlich im normalen Netz `harness-egress`. Es hat eine eigene Provider-Methode `create_gateway`: gehärtet wie Instanzen, Nutzer `nobody`, keine Mounts, 128 MB. Sie prüft, dass das erste Netz intern ist und das zweite nicht. Instanzen bleiben **nur** im internen Netz.
+6. ✅ **Netzwerk-Gateway** (`crates/hearth-gateway`, Image `images/gateway`, Host-Seite `hearth-core/src/gateway.rs`, CLI `hearth net`). Statt tinyproxy gleich ein eigener kleiner Proxy in Rust (aus Phase 3 vorgezogen): Nur er kann „open“ sicher machen und Anfragen festhalten, bis der Nutzer entscheidet. Nur Standardbibliothek außer TLS zum Server (rustls, Feature `tls`), ein Thread pro Verbindung. Gebaut wird in der VM aus den eingebetteten Quellen (`rust:1.97-slim-trixie`) mit dem gepinnten `images/gateway/Cargo.lock` (Crates von crates.io, ~34 s). Verifiziert mit 28 Tests im Crate (6 davon über echtes TCP), `tests/gateway_vm.rs` und einem Probelauf der CLI mit `hearth net watch`:
+   - **Ein Gateway pro Projekt** (`hearth-gw-<projekt>`), im internen Projektnetz unter dem Alias `gateway` (Port 8888) und zusätzlich im normalen Netz `hearth-egress`. Es hat eine eigene Provider-Methode `create_gateway`: gehärtet wie Instanzen, Nutzer `nobody`, keine Mounts, 128 MB. Sie prüft, dass das erste Netz intern ist und das zweite nicht. Instanzen bleiben **nur** im internen Netz.
    - **Entscheidung pro Host**, in dieser Reihenfolge:
      1. Die deny-Liste gewinnt immer.
      2. Modus `open` erlaubt jeden Host.
      3. Sonst gelten die allow-Liste und Freigaben zur Laufzeit.
      4. Bei `ask = true` wird nachgefragt, falls jemand zuschaut.
-     5. Sonst kommt 403 mit Begründung, auch im Header `X-Harness-Gateway`.
+     5. Sonst kommt 403 mit Begründung, auch im Header `X-Hearth-Gateway`.
    - **Ziel-IP-Prüfung in jedem Modus:** Das Gateway löst Namen selbst auf und verbindet sich nur mit öffentlichen Adressen (`address.rs`). Gesperrt sind:
      - Loopback und RFC 1918, inklusive gvproxy `192.168.127.0/24`
      - CGNAT (Tailscale) sowie Link-Local inklusive Cloud-Metadaten
@@ -87,55 +87,55 @@ Arbeitspakete in sinnvoller Reihenfolge:
 
      Numerische Sonderformen wie `127.1` oder `0x7f000001` sind als Host ungültig.
    - **Voreinstellungen:** `off` = nur `llm_apis` aus `config.toml` (Standard `api.deepseek.com`). `development` = Paketquellen (npm, PyPI, crates.io, Go), GitHub, GitLab, Bitbucket und die allow-Liste. `open` = das ganze öffentliche Internet. `custom` = nur die allow-Liste. Die LLM-APIs sind in jeder Voreinstellung erreichbar, weil keine Harness ohne Modell arbeitet.
-   - **Nachfragen wie bei Claude Code:** Bei `ask = true` (Standard) wartet eine Anfrage an einen unbekannten Host bis zu 2 Minuten, solange `harness net watch` läuft. Gleichzeitige Anfragen an denselben Host teilen sich eine Frage. Antworten:
+   - **Nachfragen wie bei Claude Code:** Bei `ask = true` (Standard) wartet eine Anfrage an einen unbekannten Host bis zu 2 Minuten, solange `hearth net watch` läuft. Gleichzeitige Anfragen an denselben Host teilen sich eine Frage. Antworten:
      - einmal
      - 15 Minuten
      - bis das Gateway stoppt
      - immer (schreibt die Domain in die allow-Liste der Projektdatei)
      - nein (gesperrt bis zum Stopp)
 
-     Ohne Zuschauer wird sofort abgelehnt, mit dem Hinweis auf `harness net allow <host>`.
-   - **Steuerung** nur über `podman exec harness-gw-<projekt> harness-gateway ctl` zu einem Unix-Socket im Gateway-Container (Zeilenprotokoll, `control.rs`). Instanzen erreichen nur Port 8888. `watch` ist ein dauerhaftes `podman exec -i`, pingt alle 15 s und gilt nach 45 s Stille als beendet.
-   - **CLI:** `harness net [status|watch|allow|deny|preset|start|stop]` und `harness image build [base|gateway]`. `doctor` prüft beide Images.
+     Ohne Zuschauer wird sofort abgelehnt, mit dem Hinweis auf `hearth net allow <host>`.
+   - **Steuerung** nur über `podman exec hearth-gw-<projekt> hearth-gateway ctl` zu einem Unix-Socket im Gateway-Container (Zeilenprotokoll, `control.rs`). Instanzen erreichen nur Port 8888. `watch` ist ein dauerhaftes `podman exec -i`, pingt alle 15 s und gilt nach 45 s Stille als beendet.
+   - **CLI:** `hearth net [status|watch|allow|deny|preset|start|stop]` und `hearth image build [base|gateway]`. `doctor` prüft beide Images.
    - Geprüft: corepack holt pnpm von `registry.npmjs.org`, GitHub ist dafür nicht nötig.
-   - `harness run`/`shell` starten das Gateway mit, `harness stop` stoppt es (Paket 8).
+   - `hearth run`/`shell` starten das Gateway mit, `hearth stop` stoppt es (Paket 8).
 7. ✅ **Harness pi und LLM-Zugang:**
    - ✅ **LLM-Zugang über den Server** (Entscheidung des Nutzers am 13.10.: Keys nur im Server, auch für Agent-Läufe aus dem Terminal). Damit sind Teile von Phase 4 vorgezogen:
-     - **Kopplung:** `harness login` startet einen Device-Flow (`/api/pairing`). Der Nutzer bestätigt den Code auf `/device` der Web-App. Das Token liegt in der Windows-Anmeldeinformationsverwaltung (`keyring`). Geräte stehen in den Einstellungen unter „Geräte“ und lassen sich dort widerrufen, ebenso mit `harness logout`.
+     - **Kopplung:** `hearth login` startet einen Device-Flow (`/api/pairing`). Der Nutzer bestätigt den Code auf `/device` der Web-App. Das Token liegt in der Windows-Anmeldeinformationsverwaltung (`keyring`). Geräte stehen in den Einstellungen unter „Geräte“ und lassen sich dort widerrufen, ebenso mit `hearth logout`.
      - **Durchgang im Server** `/api/llm/proxy/<Anbieter-ID>/…`: Anfragen gehen 1:1 im Protokoll des Anbieters durch, nur an die Chat-Endpunkte. Der Key wird je nach Anbieter gesetzt (Bearer, `x-api-key`, `x-goog-api-key`). `/api/llm/providers` liefert die Anbieter ohne Keys.
-     - **Gateway:** Die virtuelle Adresse `http://llm.harness/…` führt zum Server. Das Gateway verwirft Zugangsdaten des Clients und setzt das Geräte-Token ein, das der Host per stdin übergibt. Der lokale Server ist über `192.168.127.254` erreichbar, als einzige Ausnahme vom Adressfilter.
+     - **Gateway:** Die virtuelle Adresse `http://llm.hearth/…` führt zum Server. Das Gateway verwirft Zugangsdaten des Clients und setzt das Geräte-Token ein, das der Host per stdin übergibt. Der lokale Server ist über `192.168.127.254` erreichbar, als einzige Ausnahme vom Adressfilter.
      - Verifiziert:
        - Server-Tests 64/64 (SQLite und Postgres)
        - E2E 9/9, mit Kopplung im Browser
-       - `gateway_vm` mit `llm.harness` bis zu einem Test-Server auf Windows
-       - Probelauf: `harness login`, dann `net start`, dann `curl http://llm.harness/…` im Container, Antwort des Mock-LLM über den echten Server, dann `logout`
+       - `gateway_vm` mit `llm.hearth` bis zu einem Test-Server auf Windows
+       - Probelauf: `hearth login`, dann `net start`, dann `curl http://llm.hearth/…` im Container, Antwort des Mock-LLM über den echten Server, dann `logout`
    - ✅ **pi in der Instanz** (`instance.rs`, `pi.rs`):
-     - **Installation:** pi kommt per `npm install -g @earendil-works/pi-coding-agent` in das gemeinsame Tools-Volume `harness-tools`. Das läuft im kurzlebigen Container `harness-install-<projekt>`, nur dort ist das Volume beschreibbar, Instanzen lesen es nur. Erlauben die Regeln des Projekts npm nicht, bekommt der Installer eine Freigabe für 15 Minuten.
-     - **`~/.pi`** liegt im Volume `harness-cfg-pi`, das alle Projekte teilen.
-     - **`models.json`** entsteht bei jedem `harness run` aus `/api/llm/providers`:
-       - Eingebaute Anbieter von pi (`deepseek`, `openai`, `anthropic`, `google`, `openrouter`) bekommen nur `baseUrl: http://llm.harness/<id>` und den Dummy-Key `harness`. So bleiben pis Modelldaten erhalten.
-       - Eigene Endpunkte (Ollama, OpenAI-kompatibel) werden eigene Anbieter `harness-<name>` mit der Modellliste vom Server.
-       - harness ersetzt nur seine eigenen Einträge, erkennbar an `llm.harness` mit Dummy-Key. Einträge des Nutzers bleiben und haben bei gleicher ID Vorrang.
-       - Nach `harness logout` entfernt `harness run` die Umleitung, und pi nutzt wieder seine eigene Anmeldung.
-     - **Gateway:** Es nimmt `CONNECT llm.harness:80` an, weil undici auch `http://` tunnelt.
+     - **Installation:** pi kommt per `npm install -g @earendil-works/pi-coding-agent` in das gemeinsame Tools-Volume `hearth-tools`. Das läuft im kurzlebigen Container `hearth-install-<projekt>`, nur dort ist das Volume beschreibbar, Instanzen lesen es nur. Erlauben die Regeln des Projekts npm nicht, bekommt der Installer eine Freigabe für 15 Minuten.
+     - **`~/.pi`** liegt im Volume `hearth-cfg-pi`, das alle Projekte teilen.
+     - **`models.json`** entsteht bei jedem `hearth run` aus `/api/llm/providers`:
+       - Eingebaute Anbieter von pi (`deepseek`, `openai`, `anthropic`, `google`, `openrouter`) bekommen nur `baseUrl: http://llm.hearth/<id>` und den Dummy-Key `hearth`. So bleiben pis Modelldaten erhalten.
+       - Eigene Endpunkte (Ollama, OpenAI-kompatibel) werden eigene Anbieter `hearth-<name>` mit der Modellliste vom Server.
+       - hearth ersetzt nur seine eigenen Einträge, erkennbar an `llm.hearth` mit Dummy-Key. Einträge des Nutzers bleiben und haben bei gleicher ID Vorrang.
+       - Nach `hearth logout` entfernt `hearth run` die Umleitung, und pi nutzt wieder seine eigene Anmeldung.
+     - **Gateway:** Es nimmt `CONNECT llm.hearth:80` an, weil undici auch `http://` tunnelt.
      - **Offen:** Mistral. pi spricht dort `mistral-conversations`, das der Server-Durchgang nicht erlaubt.
-8. ✅ **CLI-Befehle** (`harness-cli/src/run.rs`):
+8. ✅ **CLI-Befehle** (`hearth-cli/src/run.rs`):
    - `run [harness] [-- args]`: Gateway, Instanz, Klon bzw. Fetch, Installation, `models.json`, dann pi
    - `shell`: Login-Shell in der Instanz
    - `sync [--force]`, `merge`, `stop`, `status`
 
-   Ein Terminal wird nur durchgereicht, wenn stdin und stdout eines sind. Der Nutzer hat `harness run pi` am 15.10. in Windows Terminal mit DeepSeek genutzt.
-   - ✅ **Rückfragen im selben Terminal** (`harness-cli/src/terminal/`, `harness-core/src/pty.rs`): podman läuft auf einer eigenen Pseudo-Konsole (ConPTY), die harness ans Terminal weiterreicht. Fragt das Gateway, hält harness die Ausgabe an, zeigt die Frage (e/m/s/i/n, Esc lehnt ab) und gibt das Terminal danach zurück. Das funktioniert auch über pis Vollbild-Oberfläche. Ohne Terminal oder mit `HARNESS_DIRECT_TERMINAL=1` bleibt es beim direkten Anschluss und `harness net watch`.
+   Ein Terminal wird nur durchgereicht, wenn stdin und stdout eines sind. Der Nutzer hat `hearth run pi` am 15.10. in Windows Terminal mit DeepSeek genutzt.
+   - ✅ **Rückfragen im selben Terminal** (`hearth-cli/src/terminal/`, `hearth-core/src/pty.rs`): podman läuft auf einer eigenen Pseudo-Konsole (ConPTY), die hearth ans Terminal weiterreicht. Fragt das Gateway, hält hearth die Ausgabe an, zeigt die Frage (e/m/s/i/n, Esc lehnt ab) und gibt das Terminal danach zurück. Das funktioniert auch über pis Vollbild-Oberfläche. Ohne Terminal oder mit `HEARTH_DIRECT_TERMINAL=1` bleibt es beim direkten Anschluss und `hearth net watch`.
    - ✅ **Hinweise an den Agent** (`briefing.rs`, Wunsch des Nutzers vom 15.10.): Sie erklären Sandbox, Arbeitskopie, Commits und Netzregeln und hängen über `prompt_flag` an den System-Prompt der Harness. Der Nutzer muss das nicht in jeder Sitzung selbst erklären.
    - pi telefoniert nicht mehr nach Hause (`[env]` in `pi.toml`), sonst käme bei jedem Start eine Rückfrage zu `pi.dev`.
    - **Offen:** Rückmeldung des Nutzers zum Relay in Windows Terminal (Maus, Einfügen, Farben). Im simulierten Terminal sind Größe, Strg+C, Rückfragen und pi geprüft.
 9. ✅ **Tests:**
    - Unit-Tests: Konfiguration, Bundle- und Merge-Logik gegen temporäre Repos, Domain-Muster, Gateway, `models.json`, Pseudo-Konsole, Tasten und Bildschirmzustand
-   - VM-Tests: `podman_vm`, `base_image_vm`, `sync_vm`, `gateway_vm`, `instance_vm`, dazu `harness-cli/tests/terminal_vm.rs` (`harness shell` und `harness run pi` in einem simulierten Terminal)
+   - VM-Tests: `podman_vm`, `base_image_vm`, `sync_vm`, `gateway_vm`, `instance_vm`, dazu `hearth-cli/tests/terminal_vm.rs` (`hearth shell` und `hearth run pi` in einem simulierten Terminal)
    - Smoke-Skript `scripts/smoke-run.sh`, siehe CLAUDE.md
 10. ✅ **Doku:** `CLAUDE.md` (Befehle, Stolpersteine) und `PROGRESS.md`.
 
-## Phase 2b – `harness-vmd`
+## Phase 2b – `hearth-vmd`
 
 Anforderungen stehen in `spikes/phase-0.md` §12.3:
 - Konfiguration in `%ProgramData%`
@@ -146,26 +146,26 @@ Anforderungen stehen in `spikes/phase-0.md` §12.3:
 
 Der Installer richtet den Dienst einmal mit UAC ein.
 
-**Stand 17.10.:** gebaut und vom Nutzer eingerichtet. Die VM startete über den Dienst in 22 s, vorher entfernte er 4 Ignition-Reste. gvproxy läuft seitdem als SYSTEM, `harness` startet aus dem normalen Terminal. Details und Sicherheitsüberlegungen in CLAUDE.md („VM-Dienst“).
-- `crates/harness-vmd`: Windows-Dienst als SYSTEM. Pipe mit Status, Start, Stopp und Neustart. podman läuft dort in einer eigenen, nur für Admins beschreibbaren Umgebung.
+**Stand 17.10.:** gebaut und vom Nutzer eingerichtet. Die VM startete über den Dienst in 22 s, vorher entfernte er 4 Ignition-Reste. gvproxy läuft seitdem als SYSTEM, `hearth` startet aus dem normalen Terminal. Details und Sicherheitsüberlegungen in CLAUDE.md („VM-Dienst“).
+- `crates/hearth-vmd`: Windows-Dienst als SYSTEM. Pipe mit Status, Start, Stopp und Neustart. podman läuft dort in einer eigenen, nur für Admins beschreibbaren Umgebung.
 - **Vorbereitung:** Die VM sieht seit dem 16.10. keinen Host-Ordner mehr. Sonst liefe der 9p-Dateiserver als SYSTEM und würde Ordner servieren, die ein Nutzerprozess umbiegen kann.
-- `harness vmd install` (einmal UAC) übernimmt die bestehende Machine samt Images und Volumes. `uninstall` gibt sie zurück.
-- **Automatischer Start:** `harness`, `run`, `shell`, `net` und `image build` starten die VM selbst, wenn SSH nicht antwortet. Antwortet SSH bei laufender VM nicht, startet der Dienst sie neu.
-- `harness` ohne Argumente startet die Standard-Harness und legt beim ersten Mal nach Rückfrage Repository und Projekt an.
+- `hearth vmd install` (einmal UAC) übernimmt die bestehende Machine samt Images und Volumes. `uninstall` gibt sie zurück.
+- **Automatischer Start:** `hearth`, `run`, `shell`, `net` und `image build` starten die VM selbst, wenn SSH nicht antwortet. Antwortet SSH bei laufender VM nicht, startet der Dienst sie neu.
+- `hearth` ohne Argumente startet die Standard-Harness und legt beim ersten Mal nach Rückfrage Repository und Projekt an.
 - ✅ Stopp im Leerlauf (23.10., Belegt-Marker statt Leases), Verkleinern der Festplatte im Leerlauf (26.10.)
 - **Offen:**
   - Wiederanlauf nach Standby über den Leerlauf-Check hinaus
   - fehlende vsock-Registry-Einträge anlegen
 
-**Wunsch des Nutzers (15.10.):** Im Ordner nur noch `harness` sagen, den Rest erledigt harness im Hintergrund. Dazu:
-- `harness` ohne Argumente startet die Standard-Harness.
-- Die VM startet bei Bedarf über `harness-vmd` und stoppt nach einer Leerlaufzeit.
-- Ist der Ordner noch kein Projekt, fragt harness einmal nach und legt es an. Ohne Git-Repository bietet es `git init` an.
-- Nicht gekoppelt: Hinweis auf `harness login`.
+**Wunsch des Nutzers (15.10.):** Im Ordner nur noch `hearth` sagen, den Rest erledigt hearth im Hintergrund. Dazu:
+- `hearth` ohne Argumente startet die Standard-Harness.
+- Die VM startet bei Bedarf über `hearth-vmd` und stoppt nach einer Leerlaufzeit.
+- Ist der Ordner noch kein Projekt, fragt hearth einmal nach und legt es an. Ohne Git-Repository bietet es `git init` an.
+- Nicht gekoppelt: Hinweis auf `hearth login`.
 
 ## Phase 2c – Merge-Prüfung
 
-**Wunsch des Nutzers (16.10.):** Bei `harness merge` läuft automatisch eine Prüfung über den Diff des Agents. Sie sucht nach Verdächtigem, auch nach verschachtelten Tricks, und zeigt die Funde an. Hintergrund: Der realistischste Weg aus der Sandbox ist Code, den der Nutzer übernimmt und dann auf Windows ausführt.
+**Wunsch des Nutzers (16.10.):** Bei `hearth merge` läuft automatisch eine Prüfung über den Diff des Agents. Sie sucht nach Verdächtigem, auch nach verschachtelten Tricks, und zeigt die Funde an. Hintergrund: Der realistischste Weg aus der Sandbox ist Code, den der Nutzer übernimmt und dann auf Windows ausführt.
 
 Fertig gibt es das für Agent-Diffs nicht, wohl aber Bausteine:
 - GuardDog (Datadog, Semgrep- und YARA-Regeln für bösartige npm- und PyPI-Pakete)
@@ -176,7 +176,7 @@ Fertig gibt es das für Agent-Diffs nicht, wohl aber Bausteine:
 - Socket als kommerzieller Dienst mit KI-Prüfung von Paketen
 
 Geplant in drei Stufen:
-1. **Feste Regeln in harness** (schnell, nicht zu täuschen, wichtigste Stufe):
+1. **Feste Regeln in hearth** (schnell, nicht zu täuschen, wichtigste Stufe):
    - **Stellen, die auf dem Host von selbst Code ausführen:**
      - Git-Hooks (`.husky/`, `.githooks/`, `lefthook.yml`, `.pre-commit-config.yaml`)
      - `scripts` in `package.json` (`preinstall`, `postinstall`, `prepare`)
@@ -196,15 +196,15 @@ Geplant in drei Stufen:
    - Der Diff stammt vom Agent und kann Prompt-Injection enthalten („das ist sicher“). Die KI darf deshalb nur Funde hinzufügen, nie Funde der Regeln entkräften.
    - Sie hat keine Werkzeuge und antwortet in festem Format.
 
-Anzeige: `harness merge` listet die Funde nach Schwere (Datei, Zeile, Grund). Bei schweren Funden fragt es nach, mit `--force` ohne Rückfrage. Später auch in App und Web-Chat.
+Anzeige: `hearth merge` listet die Funde nach Schwere (Datei, Zeile, Grund). Bei schweren Funden fragt es nach, mit `--force` ohne Rückfrage. Später auch in App und Web-Chat.
 
 Grenze: Kein Scanner findet zuverlässig alles. Die Prüfung ist ein Sicherheitsnetz, der Blick in den Diff bleibt.
 
 **Stand 17.10.:** Stufe 1 ist gebaut.
-- `harness-core/src/review.rs`: Regeln mit Unit-Tests für Selbststarter, Muster, unsichtbare Zeichen, Modi und Binärdateien, ähnliche Paketnamen und fremde Quellen.
+- `hearth-core/src/review.rs`: Regeln mit Unit-Tests für Selbststarter, Muster, unsichtbare Zeichen, Modi und Binärdateien, ähnliche Paketnamen und fremde Quellen.
 - `HostRepo::incoming`: der Diff seit der Merge-Basis, ohne Diff-Treiber und textconv, höchstens 32 MB.
-- `harness review` zeigt die Funde. `harness merge` prüft immer zuerst und fragt bei schweren Funden nach. Ohne Terminal bricht es ab, außer mit `--ignore-findings`.
-- ✅ OSV-Abgleich neuer Abhängigkeiten (`harness-core/src/osv.rs`, 17.10.). Nur Schadpakete werden zum Fund: `MAL-`, CWE-506 oder „malware“ in der Zusammenfassung. Abschaltbar mit `[review] osv = false`.
+- `hearth review` zeigt die Funde. `hearth merge` prüft immer zuerst und fragt bei schweren Funden nach. Ohne Terminal bricht es ab, außer mit `--ignore-findings`.
+- ✅ OSV-Abgleich neuer Abhängigkeiten (`hearth-core/src/osv.rs`, 17.10.). Nur Schadpakete werden zum Fund: `MAL-`, CWE-506 oder „malware“ in der Zusammenfassung. Abschaltbar mit `[review] osv = false`.
 - **Offen:**
   - Lücken mit Versionsbezug (exakte Versionen aus den Lockfiles)
   - Stufe 2 (Scanner im Container)
@@ -222,7 +222,7 @@ Der Server-Durchgang erlaubt bisher nur Chat-Endpunkte, für Klassifikatoren kä
 
 **Frage des Nutzers (17.10.):** Lassen sich Prompt-Injections erkennen, etwa indem Jev den Text einer Webseite prüft?
 
-Grundsatz: **Erkennen hilft, verlassen kann man sich darauf nicht.** Angreifer formulieren um, bis ein Erkenner nichts merkt. Wichtiger ist, was eine gelungene Injection anrichten kann, und das begrenzt harness schon:
+Grundsatz: **Erkennen hilft, verlassen kann man sich darauf nicht.** Angreifer formulieren um, bis ein Erkenner nichts merkt. Wichtiger ist, was eine gelungene Injection anrichten kann, und das begrenzt hearth schon:
 - keine Secrets im Container
 - Netz nur nach Regeln; eine Reverse Shell bräuchte einen fremden Host, und das Gateway fragt nach
 - keine Host-Ordner
@@ -230,7 +230,7 @@ Grundsatz: **Erkennen hilft, verlassen kann man sich darauf nicht.** Angreifer f
 
 Bausteine:
 1. ✅ **Hinweis im System-Prompt** (`briefing.rs`, 17.10.): Gelesene Inhalte sind Daten, keine Anweisungen. Der Agent soll nie deswegen Installations-Skripte, Hooks oder Tasks anlegen, an Zugangsdaten gehen, andere Hosts ansprechen oder Prüfungen abschwächen. Verdächtigen Text meldet er dem Nutzer.
-2. ✅ **Warnungen bei verdächtigen Inhalten** (17.10., `harness-core/pi/guard.ts`): eine harness-Erweiterung für pi, die harness aus dem schreibgeschützten Tools-Volume lädt (`-e`), damit der Agent sie nicht ändern kann. Sie hängt sich an `tool_result` (Ausgaben von `bash`/`curl`, gelesene Dateien) und sucht mit festen Mustern:
+2. ✅ **Warnungen bei verdächtigen Inhalten** (17.10., `hearth-core/pi/guard.ts`): eine hearth-Erweiterung für pi, die hearth aus dem schreibgeschützten Tools-Volume lädt (`-e`), damit der Agent sie nicht ändern kann. Sie hängt sich an `tool_result` (Ausgaben von `bash`/`curl`, gelesene Dateien) und sucht mit festen Mustern:
    - unsichtbare Unicode-Tag-Zeichen (U+E0000–E007F, „ASCII smuggling“), Richtungs- und Nullbreitenzeichen
    - Wendungen wie „ignore previous instructions“, „you are now“, „system prompt“, „as an AI“
    - gefälschte Rollenmarken (`<|im_start|>`, `</system>`) und Anweisungen in HTML-Kommentaren
@@ -271,74 +271,74 @@ Im Browser eine Übersicht der Programme, die in der VM bereitstehen, pro Projek
   - Eigene Anwendungen sind beides: Paketnamen oder ein Installationsbefehl (apt, npm, pip, Skript) **und** Linux-Programmdateien vom Rechner per Dateipfad (Binary, AppImage, `.deb`). Das passt auch zu einem späteren Linux-Build der App.
   - Katalog-Programme und Paketnamen gehen direkt aus dem Browser. Eigene Dateien vom Rechner bestätigt der Nutzer einmal am Rechner (Terminal oder Tray): Sonst könnte jemand mit Zugriff auf das Konto beliebige Dateien des Rechners (z. B. SSH-Schlüssel) in die Reichweite des Agents holen.
   - Kein eigenes Image pro Projekt (Platz, Neuinstallation bei jedem Umschalten). Stattdessen die Idee des Nutzers, angepasst: **ein gemeinsamer Programm-Speicher in der VM** (Volume wie das Tools-Volume, in dem pi liegt), nicht ein Host-Ordner. Host-Ordner in der VM sind langsam und eine Sicherheitslücke (9p, siehe Stolpersteine). Jedes Programm liegt dort einmal; ein Projekt sieht nur die eingeschalteten, ihre Pfade kommen über Umgebungsvariablen (`PATH` usw.) in die Instanz. Umschalten legt nur die Instanz neu an (Sekunden), installiert wird einmal.
-- **Offen beim Bau:** Programme, die nur als apt-Paket existieren, brauchen ein eigenes Präfix (`dpkg -x` plus `LD_LIBRARY_PATH`) oder statische Builds. Katalog-Einträge deshalb als Rezept, das ein in sich geschlossenes Verzeichnis `/opt/harness-apps/<app>/<version>` erzeugt. Vorlagen speichert der Server pro Konto, die Einstellungen gelten pro Projekt. Der Browser bekommt unter Einstellungen eine Ansicht aller Projekte mit ihren Programmen.
+- **Offen beim Bau:** Programme, die nur als apt-Paket existieren, brauchen ein eigenes Präfix (`dpkg -x` plus `LD_LIBRARY_PATH`) oder statische Builds. Katalog-Einträge deshalb als Rezept, das ein in sich geschlossenes Verzeichnis `/opt/hearth-apps/<app>/<version>` erzeugt. Vorlagen speichert der Server pro Konto, die Einstellungen gelten pro Projekt. Der Browser bekommt unter Einstellungen eine Ansicht aller Projekte mit ihren Programmen.
 - **Verwandt:** `build-essential` (~250 MB) aus dem Base-Image in den Katalog verschieben, das Gateway fertig gebaut ausliefern statt in der VM zu kompilieren (spart das Rust-Image und beim ersten Einrichten den Download).
 
 **Plan in Schritten (27.10.):**
 1. ✅ **Kern und CLI** (27.10.):
-   - Rezepte als TOML mit Installationsskript, eingebaut wie pi (`crates/harness-core/defaults/apps/`), eigene in `~/.harness/apps/`. Katalog: C/C++, Rust, Go, Java, Deno, Bun, SQLite.
-   - Jede Installation ist ein eigenes Volume `harness-app-<app>-<id>`, eingehängt unter `/opt/harness-apps/<app>`, beim Installieren beschreibbar, in Instanzen schreibgeschützt. Eine fertige Installation erkennt man an einem zweiten, leeren Volume mit der Version (Quittung).
+   - Rezepte als TOML mit Installationsskript, eingebaut wie pi (`crates/hearth-core/defaults/apps/`), eigene in `~/.hearth/apps/`. Katalog: C/C++, Rust, Go, Java, Deno, Bun, SQLite.
+   - Jede Installation ist ein eigenes Volume `hearth-app-<app>-<id>`, eingehängt unter `/opt/hearth-apps/<app>`, beim Installieren beschreibbar, in Instanzen schreibgeschützt. Eine fertige Installation erkennt man an einem zweiten, leeren Volume mit der Version (Quittung).
    - apt-Pakete: ohne root aufgelöst und mit `dpkg-deb -x` in ein eigenes Präfix entpackt, Programme über Wrapper mit `LD_LIBRARY_PATH`. gcc läuft mit `--sysroot` auf dieses Präfix.
-   - `[apps] enabled` in der Projektdatei, `harness app list|on|off|install|update|remove`. Der Start (`harness`, `shell`, Web-Chat) installiert, was fehlt.
+   - `[apps] enabled` in der Projektdatei, `hearth app list|on|off|install|update|remove`. Der Start (`hearth`, `shell`, Web-Chat) installiert, was fehlt.
    - **`build-essential` ist aus dem Base-Image raus** (698 → 454 MB). C/C++ ist dafür standardmäßig an, auch in Projekten ohne `[apps]`.
    - Hinweise an den Agent nennen die eingeschalteten Apps und dass der Nutzer weitere einschalten kann.
-   - Dazu (Wunsch des Nutzers): `vmd clean` behält die Quell-Images des Base-Images (node, uv), entfernt alte App-Stände und sichert Arbeit gelöschter Projekte vorher als Git-Bundle; `harness project remove` ebenso.
+   - Dazu (Wunsch des Nutzers): `vmd clean` behält die Quell-Images des Base-Images (node, uv), entfernt alte App-Stände und sichert Arbeit gelöschter Projekte vorher als Git-Bundle; `hearth project remove` ebenso.
 2. ✅ **Browser** (28.10.): Programme pro Projekt schalten unter Einstellungen → Geräte („Programme je Projekt“, aufklappbar je Projekt) und im Umgebungs-Popover eines Chats („Programme: …“ öffnet die Schalter). Mitgebrachte Apps sind gesperrt („an, weil Rust es braucht“), installierte Versionen stehen als Badge daneben. Tunnel-Protokoll 5: Das Gerät meldet Katalog und Stand (`apps`), der Browser schaltet (`apps.set`), das Gerät prüft und antwortet (`apps.result`). Der Server hält den letzten Bericht auch offline.
 3. **Eigene Programme:**
-   - ✅ **Aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“, je Programm Pakete aus Debian (apt), npm oder pip oder ein Installationsskript, dazu „Braucht“ (andere Apps). Der Server speichert sie pro Konto (Tabelle `appTemplate`) und schickt sie an alle Rechner des Kontos (Tunnel-Protokoll 6, `apps.templates`). Der Rechner hält eine Kopie in `~/.harness/server-apps.json` (auch für Starts im Terminal) und macht daraus Rezepte; für Pakete schreibt er das Skript selbst. Im Katalog des Rechners stehen sie mit Herkunft (`source`), pro Projekt schaltbar wie Katalog-Apps.
-     - Was auf dem Rechner liegt (Katalog, Datei in `~/.harness/apps`), geht vor; der Server lehnt solche Namen ab.
+   - ✅ **Aus dem Browser** (30.10.): Einstellungen → Geräte → „Eigene Programme“, je Programm Pakete aus Debian (apt), npm oder pip oder ein Installationsskript, dazu „Braucht“ (andere Apps). Der Server speichert sie pro Konto (Tabelle `appTemplate`) und schickt sie an alle Rechner des Kontos (Tunnel-Protokoll 6, `apps.templates`). Der Rechner hält eine Kopie in `~/.hearth/server-apps.json` (auch für Starts im Terminal) und macht daraus Rezepte; für Pakete schreibt er das Skript selbst. Im Katalog des Rechners stehen sie mit Herkunft (`source`), pro Projekt schaltbar wie Katalog-Apps.
+     - Was auf dem Rechner liegt (Katalog, Datei in `~/.hearth/apps`), geht vor; der Server lehnt solche Namen ab.
      - Eine geänderte Vorlage wird beim nächsten Start neu installiert; scheitert das, bleibt der alte Stand. Eine gelöschte wird in allen Projekten ausgeschaltet.
      - pip installiert Programme wie pipx (`uv tool install`, je eine Umgebung), keine Bibliotheken fürs Projekt.
-   - ✅ **Programmdateien vom Rechner** (30.10.): Programm (ELF), AppImage, `.deb` oder Archiv (tar.gz, tar.xz, zip). Im Browser unter Einstellungen → Geräte „Programmdatei dieses Rechners hinzufügen“ (Pfad, Name), Tunnel-Protokoll 7. Der Rechner lehnt alles ab, was kein Linux-Programm für seine Architektur ist, und legt sonst einen Antrag an; freigeben geht nur am Rechner (Tray-Symbol mit Ja/Nein-Frage oder `harness app approve <ID>`), weil sonst ein Konto beliebige Dateien des Rechners in die Reichweite des Agents holen könnte. Die Freigabe kopiert die Datei in die Konfiguration, installiert wird nur diese Kopie. Im Terminal direkt: `harness app add <datei>`, entfernen mit `harness app forget`. Offen: Löschen aus dem Browser.
-4. ✅ **Gateway fertig gebaut ausliefern** (30.10.): Der Release-Workflow baut das Programm unter Linux mit der Build-Stufe des Containerfiles, `harness.exe` bettet das passende ein, die VM packt es auf `debian:trixie-slim` (`Containerfile.prebuilt`, ~2 s). Kein Rust-Image (859 MB) mehr beim Einrichten; Entwicklungs-Builds kompilieren weiter in der VM.
+   - ✅ **Programmdateien vom Rechner** (30.10.): Programm (ELF), AppImage, `.deb` oder Archiv (tar.gz, tar.xz, zip). Im Browser unter Einstellungen → Geräte „Programmdatei dieses Rechners hinzufügen“ (Pfad, Name), Tunnel-Protokoll 7. Der Rechner lehnt alles ab, was kein Linux-Programm für seine Architektur ist, und legt sonst einen Antrag an; freigeben geht nur am Rechner (Tray-Symbol mit Ja/Nein-Frage oder `hearth app approve <ID>`), weil sonst ein Konto beliebige Dateien des Rechners in die Reichweite des Agents holen könnte. Die Freigabe kopiert die Datei in die Konfiguration, installiert wird nur diese Kopie. Im Terminal direkt: `hearth app add <datei>`, entfernen mit `hearth app forget`. Offen: Löschen aus dem Browser.
+4. ✅ **Gateway fertig gebaut ausliefern** (30.10.): Der Release-Workflow baut das Programm unter Linux mit der Build-Stufe des Containerfiles, `hearth.exe` bettet das passende ein, die VM packt es auf `debian:trixie-slim` (`Containerfile.prebuilt`, ~2 s). Kein Rust-Image (859 MB) mehr beim Einrichten; Entwicklungs-Builds kompilieren weiter in der VM.
 
 **Entscheidung des Nutzers (23.10.):** keine Tauri-App, weil die WebView viel RAM kostet. Stattdessen eine schlanke Tray-App in Rust als Brücke zwischen Browser und Rechner. Eingestellt wird alles im Browser.
 
 Ablauf aus Sicht des Nutzers:
 1. Installer einmal ausführen. Er richtet Podman, VM, VM-Dienst und Tray-App ein.
-2. Einmal im Terminal koppeln (`harness login <Server>`). Danach läuft alles im Browser.
-3. **Eine Umgebung entsteht nur im Terminal:** `harness init` im Ordner gibt ihn frei und meldet ihn beim Server. Die Web-App kann keine Umgebung anlegen, keinen Ordner wählen und keine Freigabe erweitern (Sicherheit, ausdrücklicher Wunsch des Nutzers). „Projekte direkt aus dem Web anlegen“ (Phase 4) entfällt damit.
+2. Einmal im Terminal koppeln (`hearth login <Server>`). Danach läuft alles im Browser.
+3. **Eine Umgebung entsteht nur im Terminal:** `hearth init` im Ordner gibt ihn frei und meldet ihn beim Server. Die Web-App kann keine Umgebung anlegen, keinen Ordner wählen und keine Freigabe erweitern (Sicherheit, ausdrücklicher Wunsch des Nutzers). „Projekte direkt aus dem Web anlegen“ (Phase 4) entfällt damit.
 4. Chat mit der Umgebung verknüpfen und eine Nachricht schicken: Der Dienst startet die VM, legt die Instanz an, bringt den Stand des Ordners per Git hinein und meldet jeden Schritt. Der Agent startet erst, wenn alles bereit ist. (Gibt es seit Phase 4.)
 5. **„Fortschritt sichern“ im Chat:** Der Dienst committet offene Änderungen im Container, holt die Commits per sync, zeigt das Ergebnis der Merge-Prüfung im Chat und übernimmt sie per Knopf in den Ordner.
 6. **Im Browser:** Zustand der VM, VM sofort beenden, Leerlaufzeit bis zum automatischen Stopp.
 
 Bausteine:
-- **Tray-App:** `harnessd.exe` bekommt ein Tray-Symbol (Crates `tray-icon` und `muda`, reines Win32, kein WebView, wenige MB RAM). Menü: Zustand (verbunden, VM an oder aus), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden. Optional Windows-Benachrichtigungen für Rückfragen des Gateways. Offen: Tunnel weiter im Kindprozess `harness daemon run` oder im selben Prozess.
-- **Installer (Setup-Assistent, ARCHITECTURE.md §5):** Virtualisierung prüfen, Hyper-V einschalten (Neustart), Podman installieren (winget oder mitgeliefert), `harness vmd install`, Machine über den Dienst anlegen, Images bauen (große Downloads vorher ansagen), Autostart. Windows Home ohne Hyper-V kommt später (WSL als Rückfall).
+- **Tray-App:** `hearthd.exe` bekommt ein Tray-Symbol (Crates `tray-icon` und `muda`, reines Win32, kein WebView, wenige MB RAM). Menü: Zustand (verbunden, VM an oder aus), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden. Optional Windows-Benachrichtigungen für Rückfragen des Gateways. Offen: Tunnel weiter im Kindprozess `hearth daemon run` oder im selben Prozess.
+- **Installer (Setup-Assistent, ARCHITECTURE.md §5):** Virtualisierung prüfen, Hyper-V einschalten (Neustart), Podman installieren (winget oder mitgeliefert), `hearth vmd install`, Machine über den Dienst anlegen, Images bauen (große Downloads vorher ansagen), Autostart. Windows Home ohne Hyper-V kommt später (WSL als Rückfall).
 - **Server und Web:** Zustand des Geräts im Tunnel (VM, letzte Aktivität), Befehl „VM stoppen“ und Einstellung „Leerlaufzeit“ pro Gerät. **Das Gerät nimmt vom Server nur harmlose Befehle an** (VM stoppen, Leerlaufzeit, Sichern, Übernehmen eines schon freigegebenen Projekts), nie neue Ordner, Projekte oder Freigaben.
 - **Sichern und Übernehmen:** neue Tunnel-Nachrichten, die Merge-Prüfung als Datenteil im Chat, Konflikte und ein unsauberer Arbeitsbaum als verständliche Meldung.
-- Nicht mehr geplant: eigene Oberfläche für Netzregeln, Git-Regeln und Harnesse in einer App. Was davon im Browser gebraucht wird, kommt dorthin. Die Dateien in `~/.harness` bleiben die Quelle.
+- Nicht mehr geplant: eigene Oberfläche für Netzregeln, Git-Regeln und Harnesse in einer App. Was davon im Browser gebraucht wird, kommt dorthin. Die Dateien in `~/.hearth` bleiben die Quelle.
 
 **Stand 23.10. (Branch `feat/environment-ux`), Block „Umgebung im Web-Chat“:**
 1. ✅ **Zustand von Gerät und VM, Stopp und Leerlaufzeit im Browser.**
    - Tunnel-Protokoll 2 mit Aushandlung: Server und Rechner lassen sich nacheinander aktualisieren.
-   - Das Gerät meldet VM-Zustand (auch „wird gestoppt“), laufende Agent-Antworten und harness-Befehle im Terminal sowie die Sekunden bis zum Stopp im Leerlauf.
+   - Das Gerät meldet VM-Zustand (auch „wird gestoppt“), laufende Agent-Antworten und hearth-Befehle im Terminal sowie die Sekunden bis zum Stopp im Leerlauf.
    - Im Umgebungs-Popover des Chats und unter Einstellungen → Geräte: Zustand, „In Benutzung: …“ bzw. „Stoppt um 14:35“, Knopf „VM stoppen“ (fragt nach, wenn etwas läuft), Menü „Automatisch stoppen nach 15 min / 30 min / 1 h / 2 h / nie“ (Standard 30 min, pro Gerät auf dem Server gespeichert).
-   - Der Hintergrunddienst stoppt die VM nach der Leerlaufzeit. Leerlauf heißt: keine Antwort eines Agents, kein harness-Befehl im Terminal (Belegt-Marker) und keine fremden Container in der VM.
+   - Der Hintergrunddienst stoppt die VM nach der Leerlaufzeit. Leerlauf heißt: keine Antwort eines Agents, kein hearth-Befehl im Terminal (Belegt-Marker) und keine fremden Container in der VM.
    - Geprüft: Server-Tests, Browser-E2E, `VM_STOP=1 bash scripts/smoke-connect.sh` gegen die echte VM (Stopp aus dem Browser und nach 1 min Leerlauf).
 2. ✅ **Neuer Chat direkt mit Umgebung:** Umgebungs-Knopf auf der Startseite, der Chat entsteht schon verknüpft (`POST /api/conversations` mit `link`), „Neuer Chat in dieser Umgebung“ im Popover eines verknüpften Chats.
 3. ✅ **„Fortschritt sichern“ und Autosync** (23./24.10.):
    - Commit im Container, holen, prüfen (feste Regeln, OSV, Jev), Merge in den ausgecheckten Branch. Danach steht der Agent-Branch in VM und Host auf dem gemergten Stand.
-   - Schwere Funde halten den Merge an, die Freigabe geht nur mit `harness merge --approve <ID>`.
+   - Schwere Funde halten den Merge an, die Freigabe geht nur mit `hearth merge --approve <ID>`.
    - Autosync-Schalter pro Chat.
    - Jev bewertet die hinzugefügten Zeilen je Datei über den Server, mit dem OpenRouter-Zugang des Nutzers (Phase 2c, Stufe 3, für Diffs gebaut).
-4. ✅ **Tray-Symbol für `harnessd`** (24.10.):
+4. ✅ **Tray-Symbol für `hearthd`** (24.10.):
    - Zustand von Verbindung und VM (mit Stopp im Leerlauf), Web-App öffnen, VM stoppen, Protokoll öffnen, Beenden.
-   - Benachrichtigungen bei Rückfragen des Gateways (Klick öffnet den Chat) und bei angehaltenen Merges (Menü kopiert `harness merge --approve <ID>`).
-   - Der Tunnel bleibt im Kindprozess `harness daemon run`, das war die offene Frage. Der Tray liest dessen Statusdatei und steuert ihn über benannte Ereignisse.
+   - Benachrichtigungen bei Rückfragen des Gateways (Klick öffnet den Chat) und bei angehaltenen Merges (Menü kopiert `hearth merge --approve <ID>`).
+   - Der Tunnel bleibt im Kindprozess `hearth daemon run`, das war die offene Frage. Der Tray liest dessen Statusdatei und steuert ihn über benannte Ereignisse.
 5. ✅ **Installer** (24.10.):
-   - `harness setup` als Assistent: Hyper-V (einschalten, Neustart), git und Podman über winget, VM-Dienst samt neuer Machine, Images, Kopplung, Autostart, PATH.
+   - `hearth setup` als Assistent: Hyper-V (einschalten, Neustart), git und Podman über winget, VM-Dienst samt neuer Machine, Images, Kopplung, Autostart, PATH.
    - Er tut nur, was fehlt, und fragt vor Admin-Schritten und großen Downloads.
    - Windows-Builds (x64, ARM64) im Workflow `windows.yml`, Tags veröffentlichen ein Release.
    - `scripts/install.ps1` installiert ohne Admin und startet setup.
    - Offen: signierte Programme, Windows Home über WSL, Download der Programme vom eigenen Server statt aus dem privaten Repo.
 6. `web_fetch` für pi, fortsetzbare Streams
-   - ✅ **`web_fetch` für pi** (24.10.): pi-Erweiterung `pi/web.ts` → `http://llm.harness/_web/fetch`. Das Gateway prüft den Host nach den Netzregeln (Rückfrage wie bei direkten Verbindungen) und reicht ihn als geprüft weiter. Der Server lädt nur diesen Host, Weiterleitungen auf andere Hosts gehen zurück an pi und durchs Gateway. Verarbeitung wie im Web-Chat. Nebenbei behoben: Beantwortete Rückfragen zeigten im Chat „?:1“ statt Host und Port.
+   - ✅ **`web_fetch` für pi** (24.10.): pi-Erweiterung `pi/web.ts` → `http://llm.hearth/_web/fetch`. Das Gateway prüft den Host nach den Netzregeln (Rückfrage wie bei direkten Verbindungen) und reicht ihn als geprüft weiter. Der Server lädt nur diesen Host, Weiterleitungen auf andere Hosts gehen zurück an pi und durchs Gateway. Verarbeitung wie im Web-Chat. Nebenbei behoben: Beantwortete Rückfragen zeigten im Chat „?:1“ statt Host und Port.
    - ✅ **fortsetzbare Antworten** (25.10.): Neuladen oder Schließen der Seite beendet eine Antwort nicht mehr (Modell wie Agent). Der Server liest sie selbst zu Ende und speichert sie, die Seite holt die laufende Antwort ab ihrem Anfang wieder ab (`GET …/stream`), offene Rückfragen bleiben offen. Nur „Stopp“ bricht ab (`POST …/stop`). Im Speicher, ein Neustart des Servers beendet laufende Antworten.
 
 **Entschieden vom Nutzer (23.10. nachts)** – vorher „Offen“:
-- **Übernehmen mergt direkt in den ausgecheckten Branch** (wie `harness merge`, nur bei sauberem Arbeitsbaum).
-- **Schwere Funde der Merge-Prüfung nur im Terminal freigeben.** Ablauf: Der Browser beantragt den Merge und bekommt eine ID. Auf dem Rechner gibt ein Befehl mit dieser ID ihn frei (etwa `harness merge --approve <ID>`). So entscheidet nie der Browser allein über Funde.
+- **Übernehmen mergt direkt in den ausgecheckten Branch** (wie `hearth merge`, nur bei sauberem Arbeitsbaum).
+- **Schwere Funde der Merge-Prüfung nur im Terminal freigeben.** Ablauf: Der Browser beantragt den Merge und bekommt eine ID. Auf dem Rechner gibt ein Befehl mit dieser ID ihn frei (etwa `hearth merge --approve <ID>`). So entscheidet nie der Browser allein über Funde.
 - **„Immer erlauben“ aus dem Browser schreibt weiter die allow-Liste** des Projekts. Allgemein sollen Einstellungen zwischen pi und Web-Chat gleich sein.
 - **Autosync als Schalter:** Ist er an, mergt der Dienst nach jeder fertigen Antwort eines Agents den Stand in den ausgecheckten Branch auf dem Host, sofern alle Prüfungen grün sind. Sonst mergt er nicht und zeigt die Funde. Nach dem Merge macht er vom aktuellen Stand einen neuen Branch und gibt ihn wieder in die VM, damit es übersichtlich bleibt. Inhaltlich ändert sich in der VM dabei nichts, außer der Nutzer hat inzwischen selbst etwas geändert.
 
@@ -349,36 +349,36 @@ Bausteine:
 ## Phase 4 – Chat ↔ Umgebung
 
 **Ziel des Nutzers (14.10.):** Im Web-Chat einem Agent mit wenigen Klicks einen Container auf dem eigenen Rechner zuweisen. Der Agent arbeitet dort und bearbeitet Dateien. Ablauf:
-1. Einmalig auf dem Rechner harness installieren und „Gerät verbinden“. Die Kopplung gibt es schon.
+1. Einmalig auf dem Rechner hearth installieren und „Gerät verbinden“. Die Kopplung gibt es schon.
 2. Im Chat „Mit Umgebung verbinden“ wählen, dann Gerät, Projekt und Harness.
 3. Die erste Verknüpfung eines Chats mit einem Projekt bestätigt der Nutzer lokal. Optional: „eigene Chats automatisch erlauben“.
 4. Der Agent arbeitet in der Instanz. Der Chat zeigt Dateiänderungen und Befehle, übernehmen geht per Knopf (sync/merge).
 
-~~**Projekte direkt aus dem Web anlegen**~~: verworfen am 23.10. Umgebungen entstehen nur per `harness init` im Terminal (Sicherheit, Entscheidung des Nutzers, siehe Phase 3).
+~~**Projekte direkt aus dem Web anlegen**~~: verworfen am 23.10. Umgebungen entstehen nur per `hearth init` im Terminal (Sicherheit, Entscheidung des Nutzers, siehe Phase 3).
 
-Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`, Instanz und pi-Anbindung aus Phase 2 wiederverwendet), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Für „wenige Klicks“ müssen außerdem der VM-Start ohne Admin-Fenster (Phase 2b) und der Setup-Assistent (Phase 3) stehen. Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). TLS im Gateway gibt es seit dem 17.10. (`https://`-Server, eigene CA über `[server] ca`). Offen dazu: Verbrauch pro Gerät erfassen.
+Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Bestätigung, **pi-RPC-Adapter** (`pi --mode rpc` über `podman exec -i`, Instanz und pi-Anbindung aus Phase 2 wiederverwendet), `AgentEvent`-Rendering im Chat (ARCHITECTURE.md §6). Für „wenige Klicks“ müssen außerdem der VM-Start ohne Admin-Fenster (Phase 2b) und der Setup-Assistent (Phase 3) stehen. Kopplung und LLM-Durchgang des Servers gibt es schon seit Phase 2 (Paket 7, eigene Geräte-Tokens statt Better-Auth-`deviceAuthorization`). TLS im Gateway gibt es seit dem 17.10. (`https://`-Server, eigene CA über `[server] ca`). Offen dazu: Verbrauch pro Gerät erfassen.
 
 **Stand 17.10.: gebaut und gegen die echte VM geprüft.**
 - **Server** (`apps/server/src/tunnel/`, `routes/agent.ts`):
   - WebSocket `/api/device/tunnel` mit Geräte-Token und `DeviceHub` (Online-Status, Projekte, laufende Antworten).
   - Tabelle `chatLink`; `PUT/DELETE /api/conversations/:id/link`, `POST …/approvals/:id`.
   - Ein verknüpfter Chat schickt Nachrichten ans Gerät statt ans Modell. Die Agent-Ereignisse werden als AI-SDK-Stream gestreamt und gespeichert.
-- **Gerät** (`harness connect`, `harness project remote on|off`):
+- **Gerät** (`hearth connect`, `hearth project remote on|off`):
   - nur freigegebene Projekte, neue Chats mit Bestätigung im Terminal
   - pi im RPC-Modus mit einer Sitzung pro Chat (`--session-id`)
   - Übersetzung in neutrale Agent-Ereignisse (`pi_rpc.rs`)
   - Rückfragen des Gateways in den Chat und Antworten zurück
 - **Web:**
   - Umgebung-Knopf im Composer, Dialog Gerät → Projekt
-  - Werkzeugaufrufe als Blöcke, Hinweise, Rückfragen als Karte mit den Antworten aus `harness net watch`
+  - Werkzeugaufrufe als Blöcke, Hinweise, Rückfragen als Karte mit den Antworten aus `hearth net watch`
   - Online-Status; Fehlercodes werden übersetzt
 - **Geprüft:**
   - Server-Tests (Hub, Verknüpfung, Stream, WebSocket mit Token)
   - Browser-E2E mit simuliertem Gerät
-  - `scripts/smoke-connect.sh` gegen die VM: Ablehnung ohne Bestätigung, pi per RPC, `bash` mit Commit, Rückfrage zu example.com im Chat beantwortet, Antwort gespeichert, `harness sync`
+  - `scripts/smoke-connect.sh` gegen die VM: Ablehnung ohne Bestätigung, pi per RPC, `bash` mit Commit, Rückfrage zu example.com im Chat beantwortet, Antwort gespeichert, `hearth sync`
 - **18.10., nach dem ersten Test des Nutzers:**
-  - Hintergrunddienst statt `harness connect` im Terminal (`harness daemon`, `harnessd.exe`, Autostart bei der Anmeldung)
-  - `harness init` meldet das Projekt sofort; Umgebungen bleiben beim Server gespeichert und sind auch bei ausgeschaltetem Rechner wählbar
+  - Hintergrunddienst statt `hearth connect` im Terminal (`hearth daemon`, `hearthd.exe`, Autostart bei der Anmeldung)
+  - `hearth init` meldet das Projekt sofort; Umgebungen bleiben beim Server gespeichert und sind auch bei ausgeschaltetem Rechner wählbar
   - keine Bestätigung pro Chat mehr als Standard
   - Fortschritt jedes Schritts im Chat; VM-Status im Dialog
   - Kontext-Füllstand und Kosten pro Chat (models.dev bzw. pi)
@@ -397,7 +397,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - **Offen:**
     - echter Suchlauf gegen SearXNG auf dem Pi (Nutzer)
     - Suche für Agents in der VM (über denselben Weg wie `web_fetch` für pi)
-    - ✅ **`web_fetch` für pi** (Frage des Nutzers, 23.10., gebaut 24.10.): eine pi-Erweiterung (wie der Guard per `-e`) bringt ein Werkzeug `web_fetch` mit `focus`, `grep`, `sections` und `fullPage`. Es ruft über `http://llm.harness/…` einen neuen Server-Pfad mit dem Geräte-Token. Der Server lädt die Seite wie im Web-Chat (Adressfilter, Readability, Abschnitte, Embeddings mit dem OpenRouter-Key des Nutzers, Prompt-Injection-Funde). Das Gateway prüft den Ziel-Host der Anfrage gegen die Netzregeln des Projekts und fragt wie bei direkten Verbindungen, sonst wäre der Server ein Umweg um die Regeln.
+    - ✅ **`web_fetch` für pi** (Frage des Nutzers, 23.10., gebaut 24.10.): eine pi-Erweiterung (wie der Guard per `-e`) bringt ein Werkzeug `web_fetch` mit `focus`, `grep`, `sections` und `fullPage`. Es ruft über `http://llm.hearth/…` einen neuen Server-Pfad mit dem Geräte-Token. Der Server lädt die Seite wie im Web-Chat (Adressfilter, Readability, Abschnitte, Embeddings mit dem OpenRouter-Key des Nutzers, Prompt-Injection-Funde). Das Gateway prüft den Ziel-Host der Anfrage gegen die Netzregeln des Projekts und fragt wie bei direkten Verbindungen, sonst wäre der Server ein Umweg um die Regeln.
     - **DeepSeek als weiterer Suchanbieter prüfen** (Hinweis des Nutzers vom 18.10.): DeepSeek bietet laut seiner Website neuerdings eine Websuche unter `https://api.deepseek.com/v1/tools/search` an, vermutlich auf Sprachmodelle zugeschnitten. Noch ungeprüft:
       - Antwortformat und Preis
       - ob der normale API-Key reicht
@@ -472,7 +472,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
     - *Embeddings auf dem Pi* (geschätzt, nicht gemessen; ONNX, int8): kleines englisches Modell (MiniLM, 22 Mio. Parameter) etwa 1–2 s pro Seite à 5 000 Token, mehrsprachig (`multilingual-e5-small`) etwa 4–7 s, auf einem älteren Pi rund doppelt so lange, dazu 150–500 MB RAM neben SearXNG und Postgres. Die API ist schneller, besser und kostet ~0,005 Cent pro Seite. Lokal nur, wenn nichts nach außen soll.
     - *Llama Guard passt nicht:* Es erkennt schädliche Inhalte nach festen Kategorien (Gewalt, Hass …), keine Prompt-Injection, und prüft keinen Code. Mit 0,18 $ je Mio. Ein- und Ausgabe ist es zudem teurer als Jev. Für Injection gibt es Metas **Prompt Guard 2** (22 Mio. bzw. 86 Mio. Parameter, mehrsprachig), aber nicht auf OpenRouter; er könnte lokal auf dem Pi laufen. `gpt-oss-safeguard-20b` arbeitet nach einer selbst geschriebenen Richtlinie mit Begründung, kostet aber mehr als Jev (0,075 $ ein, 0,30 $ aus plus Denken). Für die Merge-Prüfung eignen sich eher Jev mit gezielten Fragen pro Änderung oder ein Code-Modell mit festem Antwortformat.
     - *Reihenfolge* (alle fünf erledigt am 20./21.10., Details in CLAUDE.md unter „Websuche und Recherche-Modus“):
-      1. ✅ cache-fester Prompt: Hinweise `[LLM Harness: …]` in `metadata.note`, Werkzeugliste nur von den Server-Einstellungen abhängig
+      1. ✅ cache-fester Prompt: Hinweise `[Hearth: …]` in `metadata.note`, Werkzeugliste nur von den Server-Einstellungen abhängig
       2. ✅ Domain-Listen als Vorgewicht und Rückfall: fünf Arten, 20 Treffer holen, 10 weitergeben
       3. ✅ Jev-Anbindung samt Reihung und Kosten je Modell: Key des Nutzers, Modelle in den Sucheinstellungen änderbar
       4. ✅ Abschnittsauswahl mit `focus` (oder `sections`): BM25 plus Embeddings, RRF, ~8 000 Zeichen plus Gliederung. Das Hauptmodell entscheidet selbst; für genaue Zahlen, Tabellen und Zitate lässt es `focus` weg (Wunsch des Nutzers).
@@ -498,7 +498,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
       - Gefälschte Rollenmarken: Der Text tut so, als käme er vom System oder von dir.
 
       Die Texte stehen in den i18n-Dateien. pi bekommt sie in der Meldung auf Deutsch.
-  - **Windows-Builds auf GitHub** (Frage des Nutzers): Bisher baut GitHub nur das Server-Image und prüft das Gateway. `harness.exe`/`harnessd.exe` entstehen lokal mit `cargo build`. Ein Workflow auf `windows-11-arm` und `windows-latest` mit Artefakten bei Tags gehört zum Installer in Phase 3.
+  - **Windows-Builds auf GitHub** (Frage des Nutzers): Bisher baut GitHub nur das Server-Image und prüft das Gateway. `hearth.exe`/`hearthd.exe` entstehen lokal mit `cargo build`. Ein Workflow auf `windows-11-arm` und `windows-latest` mit Artefakten bei Tags gehört zum Installer in Phase 3.
 - **Offen:**
   - neuer Chat direkt mit Umgebung (heute erst verknüpfen, wenn der Chat existiert)
   - Übernehmen per Knopf (sync/merge mit Anzeige der Merge-Prüfung)
@@ -511,12 +511,12 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
 - ✅ **Fortschrittsliste des Agents im Chat** (Idee des Nutzers 30.10., gebaut 31.10.): pi bekommt in Web-Chats das Werkzeug `progress` (`pi/progress.ts`) und schickt jedes Mal die ganze Liste; der Chat zeigt die aktuelle über dem Eingabefeld mit Balken, jede Aktualisierung als eine Zeile in der Antwort. Kosten: Beschreibung ~150 Token im Cache, je Aktualisierung einige Dutzend Ausgabe-Token.
   - ✅ Dasselbe Werkzeug für das Chat-Modell in normalen Chats (2.11., Admin-Schalter „Fortschrittsliste“; die Beschreibung kostet in jedem Chat ~150 Token im Cache).
 - ✅ **Dauer je Werkzeugaufruf** (31.10.): jede Werkzeugkarte zeigt die Laufzeit, live hochzählend, danach gespeichert (`metadata.toolMs`).
-- **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.harness/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
+- **Taschenrechner für pi** (vorgemerkt 28.10., nach hinten geschoben am 30.10.: der Nutzer hält ihn für pi nicht für nötig, pi kann selbst rechnen lassen): `calculate` als pi-Erweiterung über `llm.hearth/_calc`, wie `web_fetch`. Im Web-Chat gibt es den Rechner seit dem 28.10.
 - ✅ **Gedächtnis für Agents und Chats** (Wunsch des Nutzers, 25.10., gebaut 2.11.; Umsetzung in CLAUDE.md, Stolpersteine „Gedächtnis“): Agents (pi und das Chat-Modell) schreiben selbst Erinnerungen, die in allen Chats gelten, etwa Vorlieben („antworte knapp“, „Deutsch“, „pnpm statt npm“). Der Nutzer sieht sie in der Web-App und kann sie bearbeiten und löschen.
-  - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.harness` wie `web_fetch`.
+  - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.hearth` wie `web_fetch`.
   - Einbinden: als Block vor der ersten Nutzernachricht oder im System-Prompt. Für den Cache muss der Block fest bleiben, bis sich eine Erinnerung ändert.
   - Vorsicht Prompt-Injection: Eine gekaperte Seite könnte das Modell dazu bringen, sich etwas „zu merken“, das dann in jedem Chat wirkt. Neue Erinnerungen deshalb sichtbar im Chat anzeigen (wie eine Rückfrage, mit Bestätigung oder wenigstens Hinweis) und den Text vor dem Speichern auf Injection-Muster prüfen.
-- **Englische Texte in CLI und Einrichtung** (Frage des Nutzers, 25.10.): `harness`, `harness setup` und das Einrichtungsprogramm sprechen nur Deutsch, die Web-App Deutsch und Englisch. Sprache nach Windows-Einstellung (`GetUserDefaultUILanguage`), Texte in einer Tabelle wie `apps/web/src/i18n`.
+- **Englische Texte in CLI und Einrichtung** (Frage des Nutzers, 25.10.): `hearth`, `hearth setup` und das Einrichtungsprogramm sprechen nur Deutsch, die Web-App Deutsch und Englisch. Sprache nach Windows-Einstellung (`GetUserDefaultUILanguage`), Texte in einer Tabelle wie `apps/web/src/i18n`.
 - ✅ **Recherche für Agents ohne Rückfrage je Treffer** (gebaut 2.11., CLAUDE.md „web_search für pi“): Im Web-Chat laden Suchtreffer ohne Frage, beim Agent prüft das Gateway jeden Host. Idee: Das Gateway fragt den Server (mit dem Geräte-Token), ob eine URL ein Treffer einer laufenden Recherche-Antwort ist, und lässt sie dann ohne Rückfrage durch; die deny-Liste gilt weiter.
 
 - **ponytail als optionaler Skill in pi** (Idee des Nutzers, 24.10., vorgemerkt): ponytail ist ein pi-Paket („lazy senior dev“), das den Agent zu weniger und einfacherem Code drängt. Es arbeitet eine Checkliste ab: Braucht es den Code überhaupt? Deckt das die Standardbibliothek, die Plattform oder eine vorhandene Abhängigkeit schon ab? Dazu kommen Befehle wie `/ponytail lite|full|ultra|off`, `/ponytail-review` und `/ponytail-audit`.
@@ -534,13 +534,13 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - kein „immer erlauben“ für Befehle, die Agent-Code ausführen (`python x.py`, `npm test`, `make`)
 
   Wichtig: Wer bestätigt, führt Agent-Code mit vollen Rechten aus. Die Befehlszeile sieht harmlos aus, das Skript dahinter kann alles.
-- **Secrets mit dem Passwort des Nutzers verschlüsseln** (Idee des Nutzers vom 23.10.; am 23.10. entschieden: wird gebaut, aber erst am Ende, nach den anderen Blöcken). Heute: AES-256-GCM (`SecretBox`), Schlüssel per HKDF aus dem Server-Secret (`HARNESS_SECRET` oder `data/server-secret`). Datenbank allein reicht also nicht, Datenbank plus Secret schon; beides liegt auf derselben SSD.
+- **Secrets mit dem Passwort des Nutzers verschlüsseln** (Idee des Nutzers vom 23.10.; am 23.10. entschieden: wird gebaut, aber erst am Ende, nach den anderen Blöcken). Heute: AES-256-GCM (`SecretBox`), Schlüssel per HKDF aus dem Server-Secret (`HEARTH_SECRET` oder `data/server-secret`). Datenbank allein reicht also nicht, Datenbank plus Secret schon; beides liegt auf derselben SSD.
   - Vorschlag: pro Nutzer ein zufälliger Datenschlüssel, verpackt mit einem Schlüssel aus dem Passwort (Argon2id). Beim Login entpackt, nur im RAM gehalten, an die Sitzung gebunden. Passwortwechsel verpackt nur neu.
   - Folgen: Nach einem Neustart des Servers funktionieren Keys erst wieder, wenn sich der Nutzer anmeldet. Gekoppelte Rechner (LLM-Durchgang, Hintergrunddienst) bräuchten einen eigenen, mit dem Geräte-Token verpackten Schlüssel, sonst gehen sie nur, solange der Nutzer im Web angemeldet ist. Passwort vergessen heißt Keys neu eintragen (Admin-Reset kann sie nicht retten). Serverweite Keys (Brave, Tavily) bleiben beim Server-Secret. Swap kann RAM-Inhalte auf die SSD schreiben (auf dem Pi abschalten oder zram).
   - Schützt gegen: gestohlene SSD oder Backup. Nicht gegen: Angreifer auf dem laufenden Server (der sieht den RAM und jede Anmeldung).
 - **Sync-Modus** (Live-Spiegelung des Volumes in einen Host-Ordner)
 - **pi auf dem Host, Werkzeuge in der Sandbox** (Idee des Nutzers vom 16.10., für später vorgemerkt; vorerst bleibt pi im Container). pi unterstützt das selbst: Seine Doku nennt es „tool-only isolation“, die Beispiele sind `examples/extensions/ssh.ts` und Gondolin.
-  - So ginge es: Eine harness-Erweiterung ersetzt `read`, `write`, `edit` und `bash` durch Varianten mit eigenen Operations (`createBashTool` usw.), die über eine gehaltene `podman exec`-Verbindung in der Instanz arbeiten. `user_bash` leitet pis `!`-Befehle ebenso um. Ein `tool_call`-Handler blockiert jedes andere Werkzeug, so führen Fehler zur Ablehnung statt zur Ausführung auf dem Host. Rückfragen des Gateways erscheinen als pi-Dialog (`ctx.ui.select`).
+  - So ginge es: Eine hearth-Erweiterung ersetzt `read`, `write`, `edit` und `bash` durch Varianten mit eigenen Operations (`createBashTool` usw.), die über eine gehaltene `podman exec`-Verbindung in der Instanz arbeiten. `user_bash` leitet pis `!`-Befehle ebenso um. Ein `tool_call`-Handler blockiert jedes andere Werkzeug, so führen Fehler zur Ablehnung statt zur Ausführung auf dem Host. Rückfragen des Gateways erscheinen als pi-Dialog (`ctx.ui.select`).
   - Vorteile: pis Oberfläche läuft ohne Relay direkt im Terminal (Maus, Zwischenablage, Abfragen), und Rückfragen sind echte pi-Dialoge.
   - Risiken:
     - Der vertrauenswürdige Teil wächst um pi und seine ~120 npm-Pakete, dazu Erweiterungen und MCP-Server des Nutzers, alles mit vollen Rechten auf Windows.
@@ -553,7 +553,7 @@ Bausteine: WSS-Tunnel von `harnessd` zum Server, Projektfreigabe mit lokaler Bes
   - Texterkennung (OCR) für gescannte PDFs
   - Bilder an pi direkt per RPC (`images` im `prompt`), heute liest der Agent sie mit seinem `read`-Werkzeug
   - das markitdown-Image verkleinern (440 MB; pandas, numpy und Magikas ONNX-Laufzeit sind der größte Teil)
-- **Harnesses aktualisieren** (`harness update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.
+- **Harnesses aktualisieren** (`hearth update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.
 - Git-Worker mit Shim und Richtlinien wie in ARCHITECTURE.md §3.6, Checkpoints
 - weitere Harnesse (opencode, Claude Code, Codex) und Adapter
 - weitere Provider: Docker/Podman nativ unter Linux mit gVisor/krun, macOS, Windows Sandbox für Windows-Builds auf Rechnern mit mehr RAM

@@ -1,4 +1,4 @@
-import type { ChatFeatures, UpdateChatFeatures } from '@harness/shared';
+import type { ChatFeatures, UpdateChatFeatures } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment } from 'react';
 import { toast } from 'sonner';

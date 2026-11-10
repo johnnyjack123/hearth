@@ -1,4 +1,4 @@
-import type { WebFetchOutput } from '@harness/shared';
+import type { WebFetchOutput } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
 import { grepMatcher, grepPage, grepTerms } from '../src/webfetch/grep.ts';
 import { modelText } from '../src/webfetch/tool.ts';

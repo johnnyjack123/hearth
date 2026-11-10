@@ -429,7 +429,7 @@ export interface MessageMetadata {
    */
   memoryHash?: string;
   /**
-   * Note of LLM Harness the model reads in front of a user message, such as
+   * Note of Hearth the model reads in front of a user message, such as
    * the date or a change of research mode; stored, so it never changes.
    */
   note?: string;

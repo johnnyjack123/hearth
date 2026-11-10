@@ -394,12 +394,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-cli"
-version = "0.1.22"
+name = "hashbrown"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "hearth-cli"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "harness-core",
+ "hearth-core",
  "native-tls",
  "serde",
  "serde_json",
@@ -409,11 +415,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-core"
-version = "0.1.22"
+name = "hearth-core"
+version = "0.2.0"
 dependencies = [
  "getrandom 0.4.3",
- "harness-gateway",
+ "hearth-gateway",
  "hmac",
  "keyring",
  "serde",
@@ -428,7 +434,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-gateway"
+name = "hearth-gateway"
 version = "0.1.0"
 dependencies = [
  "rustls",
@@ -436,29 +442,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-setup"
-version = "0.1.22"
+name = "hearth-setup"
+version = "0.2.0"
 dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
-name = "harness-vmd"
-version = "0.1.22"
+name = "hearth-vmd"
+version = "0.2.0"
 dependencies = [
- "harness-core",
+ "hearth-core",
  "serde",
  "serde_json",
  "toml",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "heck"

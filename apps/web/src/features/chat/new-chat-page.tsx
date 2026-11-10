@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput, Tone, Verbosity } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, EffortLevel, LinkConversationInput, Tone, Verbosity } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FileUIPart } from 'ai';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';

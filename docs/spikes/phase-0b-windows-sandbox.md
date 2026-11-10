@@ -1,5 +1,7 @@
 # Phase 0b – Windows Sandbox (abgebrochen)
 
+> Historischer Bericht: Pfade, Programm- und Paketnamen beziehen sich auf den Stand vor der Umbenennung von „LLM Harness“ in **Hearth** (0.2.0), z. B. `crates/harness-cli` statt `crates/hearth-cli`.
+
 > 12.10.2026, Windows 11 Pro ARM64 (Build 26200). Ergebnis: **als Provider verworfen**, siehe ARCHITECTURE.md §3.
 
 ## Befunde

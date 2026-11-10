@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ModelInfo } from '@harness/shared';
+import type { ModelInfo } from '@hearth/shared';
 import { simulateReadableStream } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { sql } from 'kysely';
@@ -166,7 +166,7 @@ export async function createTestServer(
     hostProber?: HostProber;
   } = {},
 ): Promise<TestServer> {
-  const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-test-'));
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-test-'));
   const databaseUrl = kind === 'postgres' ? (process.env.TEST_POSTGRES_URL as string) : 'sqlite::memory:';
   const config: ServerConfig = {
     host: '127.0.0.1',

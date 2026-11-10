@@ -1,0 +1,19 @@
+[package]
+name = "hearth-setup"
+description = "One-file installer of hearth for Windows: unpacks hearth and runs `hearth setup`"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "hearth-setup"
+path = "src/main.rs"
+
+# The UI language of Windows (German or English texts).
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

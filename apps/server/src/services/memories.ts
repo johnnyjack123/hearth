@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { MAX_MEMORIES, MAX_MEMORY_CHARS, type Memory, type MemorySource, memoryRef } from '@harness/shared';
+import { MAX_MEMORIES, MAX_MEMORY_CHARS, type Memory, type MemorySource, memoryRef } from '@hearth/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { DB, MemoryTable } from '../db/schema.ts';
@@ -182,7 +182,7 @@ export function memoryContext(memories: Memory[]): { hash: string; block: string
     // Agents read this without the chat's system prompt, so the note says
     // itself how to treat it. Models answered to it as if the user had just
     // written it, when it only said what the user wants them to know.
-    '[LLM Harness memory: background the user saved, not part of what they write now. Follow its preferences on how to answer without ' +
+    '[Hearth memory: background the user saved, not part of what they write now. Follow its preferences on how to answer without ' +
       'mentioning them; use its facts only when they matter for the request. Do not bring these notes up unless asked. ' +
       'It replaces earlier memory notes; the ids are for the forget tool.',
     ...lines,
@@ -204,5 +204,5 @@ export function memoryNote(lastHash: string | undefined, context: { hash: string
   if ((lastHash ?? '') === context.hash) {
     return null;
   }
-  return context.block || '[LLM Harness memory: the user removed all memories; earlier memory notes no longer apply.]';
+  return context.block || '[Hearth memory: the user removed all memories; earlier memory notes no longer apply.]';
 }

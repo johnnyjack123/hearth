@@ -8,7 +8,7 @@ import type {
   PairingPoll,
   PairingStart,
   ProviderCredential,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestServer, DIALECTS, type TestServer } from './helpers.ts';
 
@@ -28,7 +28,7 @@ describe.each(DIALECTS)('devices on %s', (kind) => {
     await server.close();
   });
 
-  async function start(name = 'harness auf TEST'): Promise<PairingStart> {
+  async function start(name = 'hearth auf TEST'): Promise<PairingStart> {
     const response = await server.request('POST', '/api/pairing', { body: { name }, headers: CLI });
     expect(response.status).toBe(201);
     return (await response.json()) as PairingStart;
@@ -67,7 +67,7 @@ describe.each(DIALECTS)('devices on %s', (kind) => {
     // Typed by a person: lower case, without the dash.
     const typed = pairing.userCode.toLowerCase().replace('-', '');
     const info = await server.request('GET', `/api/devices/pairing/${typed}`, { cookie });
-    expect((await info.json()) as PairingInfo).toMatchObject({ name: 'harness auf TEST', status: 'pending' });
+    expect((await info.json()) as PairingInfo).toMatchObject({ name: 'hearth auf TEST', status: 'pending' });
     expect((await decide(typed, true)).status).toBe(200);
 
     const approved = await poll(pairing.deviceCode);
@@ -79,7 +79,7 @@ describe.each(DIALECTS)('devices on %s', (kind) => {
 
     const devices = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
     expect(devices).toHaveLength(1);
-    expect(devices[0]).toMatchObject({ name: 'harness auf TEST', lastUsedAt: null });
+    expect(devices[0]).toMatchObject({ name: 'hearth auf TEST', lastUsedAt: null });
   });
 
   it('never hands out a token for denied, expired or unknown pairings', async () => {
@@ -187,7 +187,7 @@ describe.each(DIALECTS)('devices on %s', (kind) => {
       const { token } = await pair();
       const response = await server.request('POST', `/api/llm/proxy/${deepseek.id}/chat/completions?stream=1`, {
         body: { model: 'deepseek-chat', stream: true },
-        headers: { ...asDevice(token), 'x-api-key': 'agent-made-up', cookie: 'harness.session=stolen' },
+        headers: { ...asDevice(token), 'x-api-key': 'agent-made-up', cookie: 'hearth.session=stolen' },
       });
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('text/event-stream');

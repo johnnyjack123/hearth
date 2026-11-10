@@ -4,7 +4,7 @@ import {
   type ProviderKind,
   updateProviderCredentialSchema,
   usesCustomEndpoint,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { Hono } from 'hono';
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/schema.ts';

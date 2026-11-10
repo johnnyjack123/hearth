@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentToolOutput, ChatLink, Compaction, MessageMetadata, ModelCallUsage } from '@harness/shared';
+import type { AgentEvent, AgentToolOutput, ChatLink, Compaction, MessageMetadata, ModelCallUsage } from '@hearth/shared';
 import { createUIMessageStream, createUIMessageStreamResponse, type InferUIMessageChunk } from 'ai';
 import type { Kysely } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';

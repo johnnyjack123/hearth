@@ -1,6 +1,6 @@
 # Design-System
 
-Verbindliche Regeln für alle Oberflächen von LLM Harness, also Web-App und Desktop-App. Ziel ist eine UI, die **ruhig, schnell und hochwertig** wirkt und dabei konsistent bleibt, egal wer oder was gerade Code schreibt.
+Verbindliche Regeln für alle Oberflächen von Hearth, also Web-App und Desktop-App. Ziel ist eine UI, die **ruhig, schnell und hochwertig** wirkt und dabei konsistent bleibt, egal wer oder was gerade Code schreibt.
 
 > Quelle der Wahrheit für Werte ist [`apps/web/src/styles/tokens.css`](../../apps/web/src/styles/tokens.css). Motion-Werte gibt es zusätzlich für JavaScript in [`apps/web/src/lib/motion.ts`](../../apps/web/src/lib/motion.ts). Dieses Dokument erklärt, **wie** die Tokens zu verwenden sind.
 

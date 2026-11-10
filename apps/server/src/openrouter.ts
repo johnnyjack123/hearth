@@ -5,7 +5,7 @@
  * its answer.
  */
 import { createHash } from 'node:crypto';
-import type { OpenRouterHost, TokenRates } from '@harness/shared';
+import type { OpenRouterHost, TokenRates } from '@hearth/shared';
 import type { JSONValue } from 'ai';
 import type { EffortOptions } from './effort.ts';
 import type { BilledCost } from './pricing.ts';
@@ -557,7 +557,7 @@ export function pinnedProvider(existing: unknown, host: string): Record<string, 
  * @returns The key.
  */
 export function cacheKey(conversation: string): string {
-  return `harness-${createHash('sha256').update(conversation).digest('hex').slice(0, 32)}`;
+  return `hearth-${createHash('sha256').update(conversation).digest('hex').slice(0, 32)}`;
 }
 
 /**

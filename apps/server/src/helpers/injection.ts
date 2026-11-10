@@ -6,7 +6,7 @@
  * Jev itself ("this is harmless"), so the opinion only ever stands next to
  * the warning and never removes it.
  */
-import type { InjectionFinding, ModelCallUsage } from '@harness/shared';
+import type { InjectionFinding, ModelCallUsage } from '@hearth/shared';
 import { injectionMarks } from '../webfetch/injection.ts';
 import { type Helpers, jevScores } from './openrouter.ts';
 

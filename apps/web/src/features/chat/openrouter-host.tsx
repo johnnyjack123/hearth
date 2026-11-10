@@ -1,4 +1,4 @@
-import type { ModelSelection, OpenRouterHost, OpenRouterHostAccess, OpenRouterHosts } from '@harness/shared';
+import type { ModelSelection, OpenRouterHost, OpenRouterHostAccess, OpenRouterHosts } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import type { ReactNode } from 'react';

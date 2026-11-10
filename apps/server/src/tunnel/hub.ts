@@ -23,7 +23,7 @@ import {
   VERSION_VM_CONTROL,
   type VmState,
   type VmStopResult,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { HttpError } from '../http/errors.ts';
 import { AgentBills } from '../openrouter.ts';
 import { SERVER_VERSION } from '../version.ts';
@@ -77,7 +77,7 @@ export interface HubListener {
   apps?(deviceId: string, report: AppsReport): void | Promise<void>;
   /** The own programs of an account, for its devices after their hello. */
   templates?(userId: string): DeviceAppTemplate[] | Promise<DeviceAppTemplate[]>;
-  /** A device said which harness it runs (protocol 10). */
+  /** A device said which version of hearth it runs (protocol 10). */
   version?(deviceId: string, harness: string): void | Promise<void>;
 }
 
@@ -233,7 +233,7 @@ function ofScope(active: ActiveRun, deviceId: string, project: string | null): b
 }
 
 /**
- * Connected devices (`harness connect`) and the agent replies running on
+ * Connected devices (`hearth connect`) and the agent replies running on
  * them. Lives in memory: after a server restart devices reconnect and the
  * next message starts a new reply.
  */
@@ -369,7 +369,7 @@ export class DeviceHub {
       return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
     }
     if (connection.version < VERSION_VM_CONTROL) {
-      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot stop its VM yet; update harness'));
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot stop its VM yet; update hearth'));
     }
     return this.#ask(connection, VM_STOP_TIMEOUT_MS, (request) => ({ type: 'vm.stop', request }));
   }
@@ -392,7 +392,7 @@ export class DeviceHub {
       return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
     }
     if (connection.version < VERSION_APPS) {
-      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot switch apps yet; update harness'));
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot switch apps yet; update hearth'));
     }
     return this.#ask(connection, APPS_SET_TIMEOUT_MS, (request) => ({ type: 'apps.set', request, project, enabled }));
   }
@@ -400,7 +400,7 @@ export class DeviceHub {
   /**
    * Asks a device for a program file as a new app. The device checks the
    * file and stores a request that only the user can approve there (tray
-   * icon or `harness app approve`); nothing of the file moves before.
+   * icon or `hearth app approve`); nothing of the file moves before.
    *
    * @param deviceId - Device id.
    * @param file - Path on the device, app name and title.
@@ -414,7 +414,7 @@ export class DeviceHub {
       return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
     }
     if (connection.version < VERSION_APP_FILES) {
-      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot take program files yet; update harness'));
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device cannot take program files yet; update hearth'));
     }
     return this.#ask(connection, APP_FILE_TIMEOUT_MS, (request) => ({ type: 'apps.file', request, ...file })).then((result) => ({
       ok: result.ok,
@@ -484,7 +484,7 @@ export class DeviceHub {
   assertFiles(deviceId: string): void {
     const connection = this.#devices.get(deviceId);
     if (connection?.greeted && connection.version < VERSION_FILES) {
-      throw new HttpError(409, 'device_outdated', 'The device cannot take files yet; update harness');
+      throw new HttpError(409, 'device_outdated', 'The device cannot take files yet; update hearth');
     }
   }
 
@@ -576,7 +576,7 @@ export class DeviceHub {
   startTakeover(deviceId: string, message: TakeoverMessage): AgentRun {
     const connection = this.#devices.get(deviceId);
     if (connection?.greeted && connection.version < VERSION_TAKEOVER) {
-      throw new HttpError(409, 'device_outdated', 'The device cannot take work over yet; update harness');
+      throw new HttpError(409, 'device_outdated', 'The device cannot take work over yet; update hearth');
     }
     return this.#start(deviceId, message);
   }
@@ -594,7 +594,7 @@ export class DeviceHub {
   startCompaction(deviceId: string, message: CompactMessage): AgentRun {
     const connection = this.#devices.get(deviceId);
     if (connection?.greeted && connection.version < VERSION_PI_SETTINGS) {
-      throw new HttpError(409, 'device_outdated', 'The device cannot summarize the agent yet; update harness');
+      throw new HttpError(409, 'device_outdated', 'The device cannot summarize the agent yet; update hearth');
     }
     return this.#start(deviceId, message);
   }

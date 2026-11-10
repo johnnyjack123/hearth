@@ -9,7 +9,7 @@ import {
   domainPatternSchema,
   type UpdateAppTemplateInput,
   validPackage,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ellipsis, Package, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -163,7 +163,7 @@ function TemplateRow({ template, onEdit }: { template: AppTemplate; onEdit: () =
 }
 
 /**
- * A short name from a title: what `harness app` and project files use.
+ * A short name from a title: what `hearth app` and project files use.
  *
  * @param title - The program's name for people.
  * @returns Lowercase letters, digits and dashes, at most 30 characters.
@@ -497,8 +497,8 @@ function OwnAppForm({ template, others, onDone }: { template: AppTemplate | unde
 
 /** Placeholder of the script field: the usual shape of an install. */
 const SCRIPT_EXAMPLE = [
-  'harness_download https://example.com/tool-$ARCH.tar.gz "$WORK/tool.tar.gz"',
+  'hearth_download https://example.com/tool-$ARCH.tar.gz "$WORK/tool.tar.gz"',
   'mkdir -p "$PREFIX/bin"',
   'tar -xzf "$WORK/tool.tar.gz" -C "$PREFIX/bin"',
-  'harness_version "$("$PREFIX/bin/tool" --version)"',
+  'hearth_version "$("$PREFIX/bin/tool" --version)"',
 ].join('\n');

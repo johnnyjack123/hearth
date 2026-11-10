@@ -1,4 +1,4 @@
-import type { CredentialModels, ModelSelection } from '@harness/shared';
+import type { CredentialModels, ModelSelection } from '@hearth/shared';
 import { Link } from '@tanstack/react-router';
 import { Check, ChevronDown, CircleAlert, Settings2, Sparkles } from 'lucide-react';
 import { useState } from 'react';

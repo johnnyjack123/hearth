@@ -1,4 +1,4 @@
-import type { AgentDataParts, ConversationSummary, MessageMetadata } from '@harness/shared';
+import type { AgentDataParts, ConversationSummary, MessageMetadata } from '@hearth/shared';
 import type { UIMessage } from 'ai';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';

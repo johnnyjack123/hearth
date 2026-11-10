@@ -1,4 +1,4 @@
-import type { WebFetchErrorCode } from '@harness/shared';
+import type { WebFetchErrorCode } from '@hearth/shared';
 
 /**
  * A web fetch that did not happen or failed. The message goes to the model

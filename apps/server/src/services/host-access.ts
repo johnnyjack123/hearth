@@ -1,4 +1,4 @@
-import { type HostCheckStatus, type OpenRouterHostAccess, PROVIDERS } from '@harness/shared';
+import { type HostCheckStatus, type OpenRouterHostAccess, PROVIDERS } from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import type { SecretBox } from '../crypto.ts';
 import type { DB } from '../db/schema.ts';

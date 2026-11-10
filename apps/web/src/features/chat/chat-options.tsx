@@ -7,7 +7,7 @@ import {
   TONES,
   type Verbosity,
   VERBOSITY_LEVELS,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { AlignLeft, ArrowLeft, Brain, ChevronDown, ChevronRight, Container, MessageCircle, Server, Settings, Telescope } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Button } from '@/components/ui/button.tsx';

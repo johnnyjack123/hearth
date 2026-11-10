@@ -1,4 +1,4 @@
-import { type PublicSettings, type SearchTestResult, updateServerSettingsSchema } from '@harness/shared';
+import { type PublicSettings, type SearchTestResult, updateServerSettingsSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import { type AppDeps, type AppEnv, requireAdmin } from '../http/context.ts';
 import {

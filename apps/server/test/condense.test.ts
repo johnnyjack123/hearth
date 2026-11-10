@@ -1,4 +1,4 @@
-import type { CondenseSettings, WebFetchOutput, WebSearchOutput } from '@harness/shared';
+import type { CondenseSettings, WebFetchOutput, WebSearchOutput } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
 import { condensedPages, condenseHistory, shouldCondense } from '../src/condense.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';

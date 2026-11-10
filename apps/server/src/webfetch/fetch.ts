@@ -86,7 +86,7 @@ export function isTextual(type: string): boolean {
 }
 
 const HEADERS = {
-  'user-agent': 'LLM-Harness-WebFetch/1.0 (self-hosted chat; fetches pages a user asked about)',
+  'user-agent': 'Hearth-WebFetch/1.0 (self-hosted chat; fetches pages a user asked about)',
   accept: 'text/html,application/xhtml+xml,text/markdown,text/plain;q=0.9,application/json;q=0.8,application/xml;q=0.8,*/*;q=0.1',
   'accept-encoding': 'gzip, deflate, br',
 };

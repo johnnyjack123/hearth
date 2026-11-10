@@ -12,8 +12,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     // The API runs separately in dev; the proxy keeps cookies same-origin.
-    // HARNESS_API_URL lets a second instance (e.g. end-to-end tests) use another server.
-    proxy: { '/api': { target: process.env.HARNESS_API_URL ?? 'http://127.0.0.1:8080' } },
+    // HEARTH_API_URL lets a second instance (e.g. end-to-end tests) use another server.
+    proxy: { '/api': { target: process.env.HEARTH_API_URL ?? 'http://127.0.0.1:8080' } },
   },
   build: {
     target: 'es2022',

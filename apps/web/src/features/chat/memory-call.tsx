@@ -1,4 +1,4 @@
-import { FORGET_TOOL, MEMORY_PENDING_NOTE, memoryRef } from '@harness/shared';
+import { FORGET_TOOL, MEMORY_PENDING_NOTE, memoryRef } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { BookMarked, CircleAlert } from 'lucide-react';

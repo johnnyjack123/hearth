@@ -1,0 +1,60 @@
+# hearth: globale Einstellungen
+#
+# Projekte stehen in projects/<name>.toml. Harness-Definitionen (pi) sind
+# eingebaut; eine Datei harnesses/<name>.toml ersetzt sie, nur anlegen, wenn
+# du sie bewusst ändern willst. Dieser Ordner enthält sicherheitsrelevante
+# Einstellungen (Netzwerk, Ressourcen) und darf deshalb nie in einem
+# Projektordner liegen.
+
+# Podman-Machine, in der die Container laufen
+machine = "hearth"
+
+# Domains der LLM-Anbieter, die die Harnesse direkt ansprechen (pi:
+# DeepSeek). Sie sind in jedem Projekt erreichbar, auch bei network = "off".
+# Nach `hearth login` laufen LLM-Anfragen über den hearth-Server und
+# brauchen diese Liste nicht. Weitere z. B. "api.anthropic.com",
+# "api.openai.com" oder "openrouter.ai".
+llm_apis = ["api.deepseek.com"]
+
+# Der hearth-Server mit deinen API-Keys. `hearth login` trägt ihn ein und
+# legt das Geräte-Token in der Windows-Anmeldeinformationsverwaltung ab.
+# [server]
+# url = "http://localhost:8080"
+#
+# Nutzt der Server per https:// ein Zertifikat einer eigenen CA (z. B. Caddy
+# mit `tls internal`), hier das Wurzelzertifikat als PEM-Datei angeben,
+# absoluter Pfad in einfachen Anführungszeichen. hearth vertraut dem Server
+# dann nur über diese CA, auf diesem Rechner und im Gateway. `hearth logout`
+# lässt den Eintrag stehen.
+# ca = 'C:\Users\name\hearth-root.crt'
+
+# Prüfung vor `hearth merge`. Die festen Regeln laufen immer.
+[review]
+# Neue Abhängigkeiten mit der OSV-Datenbank bekannter Schadpakete abgleichen.
+# Schickt dafür die Paketnamen an api.osv.dev; false schaltet das ab.
+osv = true
+# Jev (über OpenRouter) bewertet die Änderungen des Agents zusätzlich, über den
+# gekoppelten Server mit deinem OpenRouter-Zugang. Schickt dafür die
+# hinzugefügten Zeilen dorthin; false schaltet das ab. Jev kann Funde nur
+# hinzufügen, nie Funde der festen Regeln aufheben.
+jev = true
+
+[defaults]
+# Harness für `hearth run` ohne Angabe
+harness = "pi"
+
+# Netzwerk-Voreinstellung für neue Projekte. Host, lokales Netz, Tailnet und
+# VM sind immer gesperrt, auch bei "open".
+#   off          nur die LLM-APIs
+#   development  Paketquellen (npm, PyPI, crates.io, Go), GitHub, GitLab,
+#                Bitbucket, die LLM-APIs und die allow-Liste des Projekts
+#   open         gesamtes öffentliches Internet, z. B. für Recherche
+#   custom       nur die LLM-APIs und die allow-Liste des Projekts
+network = "development"
+
+[defaults.resources]
+# Grenzen pro Instanz. Mehr als der Speicher der VM minus 384 MB für das
+# System bekommt eine Instanz nie, damit die VM ansprechbar bleibt, wenn ein
+# Programm darin zu viel Speicher braucht.
+memory = "3g"
+# cpus = 2

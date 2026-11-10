@@ -7,7 +7,7 @@ import {
   REMEMBER_TOOL,
   WEB_FETCH_TOOL,
   WEB_SEARCH_TOOL,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { Brain, Check, ChevronRight, CircleAlert, Container, Copy, FoldVertical, Receipt, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, Suspense, useMemo, useState } from 'react';

@@ -1,4 +1,4 @@
-import type { ServerActivity } from '@harness/shared';
+import type { ServerActivity } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ActivityTracker } from '../src/http/activity.ts';
 import { ActiveStreams } from '../src/streams.ts';

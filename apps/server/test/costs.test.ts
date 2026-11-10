@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, CostStatus, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, CostStatus, ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { costGuard } from '../src/services/costs.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';

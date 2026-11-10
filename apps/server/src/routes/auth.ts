@@ -9,7 +9,7 @@ import { RateLimiter } from '../http/rate-limit.ts';
 import { countUsers, getServerSettings } from '../services/settings.ts';
 
 /** Header with the setup code when the first account signs up. */
-export const SETUP_CODE_HEADER = 'x-harness-setup-code';
+export const SETUP_CODE_HEADER = 'x-hearth-setup-code';
 
 /** Sign-up and sign-in forms are small; nothing else of Better Auth takes more. */
 const MAX_AUTH_BODY = 64 * 1024;

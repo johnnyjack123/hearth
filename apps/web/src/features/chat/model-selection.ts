@@ -1,4 +1,4 @@
-import type { ConversationSummary, CredentialModels, ModelSelection } from '@harness/shared';
+import type { ConversationSummary, CredentialModels, ModelSelection } from '@hearth/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { useConversations, useModels } from '@/lib/queries.ts';
 
@@ -34,7 +34,7 @@ export function recentModels(
   return recent;
 }
 
-const LAST_MODEL_KEY = 'harness.lastModel';
+const LAST_MODEL_KEY = 'hearth.lastModel';
 
 function readLastModel(): ModelSelection | null {
   try {

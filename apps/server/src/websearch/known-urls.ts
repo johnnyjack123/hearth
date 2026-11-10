@@ -11,7 +11,7 @@
  * page's parameters to keep (or how to spell them) could spell out the chat
  * a bit at a time (security review H3, 3.11.).
  */
-import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@hearth/shared';
 import type { ChatMessage } from '../services/conversations.ts';
 
 // Links as turndown writes them, including one level of parentheses in the

@@ -1,4 +1,4 @@
-import { type ConversationDetail, type ConversationSummary, MAX_MEMORIES, type Memory, type ProviderCredential } from '@harness/shared';
+import { type ConversationDetail, type ConversationSummary, MAX_MEMORIES, type Memory, type ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { memoryContext, memoryNote } from '../src/services/memories.ts';
@@ -12,7 +12,7 @@ describe('memory notes', () => {
     expect(context.block).toContain('- [abcd1234] Antwortet auf Deutsch.');
     // Background, not something the user just said: models answered to it
     // in every chat.
-    expect(context.block).toMatch(/^\[LLM Harness memory: background the user saved, not part of what they write now\./);
+    expect(context.block).toMatch(/^\[Hearth memory: background the user saved, not part of what they write now\./);
     expect(context.block).toContain('Do not bring these notes up unless asked.');
     expect(memoryNote(undefined, context)).toBe(context.block);
     expect(memoryNote(context.hash, context)).toBeNull();
@@ -107,13 +107,13 @@ describe('memory', () => {
     script = [{ tool: 'remember', input: { text: 'Antwortet knapp.' } }, { text: 'Gemerkt.' }];
     await chat(id, 'Merk dir: antworte knapp.');
     expect(llm.calls[0]?.tools).toEqual(expect.arrayContaining(['remember', 'forget']));
-    expect(llm.calls[0]?.system).toContain('LLM Harness memory');
+    expect(llm.calls[0]?.system).toContain('Hearth memory');
     const [suggested] = await memories();
     expect(suggested).toMatchObject({ text: 'Antwortet knapp.', source: 'chat', conversationId: id, pending: true });
     // A suggestion reaches no chat before the user confirms it.
     script = [{ text: 'Ok.' }];
     await chat(id, 'Noch nicht bestätigt.');
-    expect(JSON.stringify(llm.calls.at(-1)?.prompt)).not.toContain('[LLM Harness memory:');
+    expect(JSON.stringify(llm.calls.at(-1)?.prompt)).not.toContain('[Hearth memory:');
     const confirmed = await server.request('POST', `/api/memories/${suggested?.id}/confirm`, { cookie });
     expect(confirmed.status).toBe(200);
     const [stored] = await memories();
@@ -122,12 +122,12 @@ describe('memory', () => {
     // The next message carries the memories, the one after that not again.
     await chat(id, 'Weiter.');
     const second = JSON.stringify(llm.calls.at(-1)?.prompt);
-    expect(second).toContain('[LLM Harness memory:');
+    expect(second).toContain('[Hearth memory:');
     expect(second).toContain('Antwortet knapp.');
     await chat(id, 'Und weiter.');
     const third = JSON.stringify(llm.calls.at(-1)?.prompt);
     // The note of the second message stays in the history, no new one comes.
-    expect(third.split('[LLM Harness memory:').length - 1).toBe(1);
+    expect(third.split('[Hearth memory:').length - 1).toBe(1);
 
     // A new chat starts with them.
     const other = (await (await server.request('POST', '/api/conversations', { cookie, body: {} })).json()) as ConversationSummary;

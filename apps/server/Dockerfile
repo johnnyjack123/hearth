@@ -1,6 +1,6 @@
-# Server of llm-harness with the web app, for amd64 and arm64 (Raspberry Pi).
+# Server of hearth with the web app, for amd64 and arm64 (Raspberry Pi).
 # Build from the repository root:
-#   docker build -f apps/server/Dockerfile -t llm-harness-server .
+#   docker build -f apps/server/Dockerfile -t hearth-server .
 # Settings come from environment variables, see .env.example.
 
 FROM docker.io/library/node:24-trixie-slim AS build
@@ -18,9 +18,9 @@ RUN pnpm install --frozen-lockfile
 COPY packages/shared packages/shared
 COPY apps/server apps/server
 COPY apps/web apps/web
-RUN pnpm --filter @harness/web build \
- && pnpm --filter @harness/server build \
- && pnpm --filter @harness/server deploy --prod /out
+RUN pnpm --filter @hearth/web build \
+ && pnpm --filter @hearth/server build \
+ && pnpm --filter @hearth/server deploy --prod /out
 
 FROM docker.io/library/node:24-trixie-slim
 ENV NODE_ENV=production \
@@ -37,11 +37,11 @@ COPY --from=build /src/apps/web/dist ./web
 # as the unprivileged `node` user of the base image.
 RUN mkdir -p /data && chown node:node /data
 # The workspace version (Cargo.toml) and commit, from the workflow; the web
-# app and paired computers compare it with harness's (`src/version.ts`).
-ARG HARNESS_VERSION=dev
-ARG HARNESS_COMMIT=
-ENV HARNESS_VERSION=${HARNESS_VERSION} \
-    HARNESS_COMMIT=${HARNESS_COMMIT}
+# app and paired computers compare it with hearth's (`src/version.ts`).
+ARG HEARTH_VERSION=dev
+ARG HEARTH_COMMIT=
+ENV HEARTH_VERSION=${HEARTH_VERSION} \
+    HEARTH_COMMIT=${HEARTH_COMMIT}
 USER node
 VOLUME /data
 EXPOSE 8080

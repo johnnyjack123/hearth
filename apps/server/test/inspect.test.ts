@@ -1,4 +1,4 @@
-import type { ConversationSummary, Inspection, WebFetchOutput } from '@harness/shared';
+import type { ConversationSummary, Inspection, WebFetchOutput } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { jevContent } from '../src/helpers/injection.ts';
 import { keepToolContent } from '../src/inspect.ts';

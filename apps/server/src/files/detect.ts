@@ -1,4 +1,4 @@
-import type { ChatFileKind } from '@harness/shared';
+import type { ChatFileKind } from '@hearth/shared';
 
 /** What a file is, decided from its first bytes and, for containers, its name. */
 export interface DetectedFile {
@@ -62,7 +62,7 @@ export function decodeText(bytes: Uint8Array): string | null {
  *
  * @param name - File name as uploaded.
  * @param bytes - The contents.
- * @returns What it is, or null if harness cannot use it.
+ * @returns What it is, or null if hearth cannot use it.
  */
 export function detectFile(name: string, bytes: Uint8Array): DetectedFile | null {
   const extension = extensionOf(name);

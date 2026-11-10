@@ -4,7 +4,7 @@
  * hits, marked as untrusted data.
  */
 import { createHash } from 'node:crypto';
-import { SEARCH_KINDS, type SearchKind, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
+import { SEARCH_KINDS, type SearchKind, type WebSearchOutput, type WebSearchResult } from '@hearth/shared';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { type Helpers, jevScores } from '../helpers/openrouter.ts';

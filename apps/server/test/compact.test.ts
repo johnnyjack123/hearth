@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { simulateReadableStream } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -47,7 +47,7 @@ describe('compaction rules', () => {
     expect(seen.map((m) => m.id)).toEqual(['u2', 'a2', 'u3', 'a3']);
     const first = seen[0]?.parts[0];
     expect(first).toMatchObject({ type: 'text' });
-    expect((first as { text: string }).text).toMatch(/^\[LLM Harness: Summary of the earlier part of this chat.*\]\n\nKurz gesagt\n\n\[End of the summary\.\]$/s);
+    expect((first as { text: string }).text).toMatch(/^\[Hearth: Summary of the earlier part of this chat.*\]\n\nKurz gesagt\n\n\[End of the summary\.\]$/s);
     // A summary whose last message is gone no longer counts.
     expect(latestCompaction(summarized.filter((m) => m.id !== 'a1'))).toBeNull();
     expect(withCompaction(chat)).toBe(chat);

@@ -1,16 +1,16 @@
-# Base image for harness instances (docs/ROADMAP.md, Phase 2, package 3).
+# Base image for hearth instances (docs/ROADMAP.md, Phase 2, package 3).
 #
-# Built inside the VM by `harness image build`; this directory is embedded into
+# Built inside the VM by `hearth image build`; this directory is embedded into
 # the CLI binary, so every file COPY'd below must also be listed in
-# crates/harness-core/src/image.rs.
+# crates/hearth-core/src/image.rs.
 #
 # Multi-arch: every source image below is published for linux/amd64 and
 # linux/arm64, and nothing here hard-codes an architecture.
 #
 # Harnesses (pi, ...) are not part of the image. They live in the shared tools
-# volume at /opt/harness-tools, so they can be updated without a rebuild
+# volume at /opt/hearth-tools, so they can be updated without a rebuild
 # (ARCHITECTURE.md 3.2). Compilers and other languages are not either: they
-# come from the app catalog, one volume each (crates/harness-core/src/apps.rs);
+# come from the app catalog, one volume each (crates/hearth-core/src/apps.rs);
 # C/C++ (gcc, g++, make) is switched on by default.
 
 # Node 24 is the current LTS and still ships corepack (removed from Node 25+).
@@ -57,15 +57,15 @@ COPY --from=uv /uv /uvx /usr/local/bin/
 # volumes belong to the unprivileged VM user. The mount points exist in the
 # image so fresh volumes inherit agent ownership on first mount.
 RUN useradd --uid 1000 --user-group --create-home --shell /bin/bash agent \
- && mkdir -p /workspace /opt/harness-tools/bin \
- && chown agent:agent /workspace /opt/harness-tools /opt/harness-tools/bin
+ && mkdir -p /workspace /opt/hearth-tools/bin \
+ && chown agent:agent /workspace /opt/hearth-tools /opt/hearth-tools/bin
 
 COPY gitconfig /etc/gitconfig
-COPY profile.sh /etc/profile.d/harness.sh
+COPY profile.sh /etc/profile.d/hearth.sh
 
 # The gateway is reachable under this name in every project network
 # (network alias of the gateway container). Instances have no other route out.
-ARG HARNESS_PROXY=http://gateway:8888
+ARG HEARTH_PROXY=http://gateway:8888
 
 # - The root filesystem is read-only at runtime, so `npm install -g` goes to the
 #   home volume and pnpm is fetched by corepack into ~/.cache on first use.
@@ -78,22 +78,22 @@ ARG HARNESS_PROXY=http://gateway:8888
 # - uv's cache and the project venv sit on different volumes, so hardlinks
 #   fail anyway; copying avoids a warning on every install.
 ENV LANG=C.UTF-8 \
-    PATH=/opt/harness-tools/bin:/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PATH=/opt/hearth-tools/bin:/home/agent/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     NPM_CONFIG_PREFIX=/home/agent/.local \
     NPM_CONFIG_UPDATE_NOTIFIER=false \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     COREPACK_ENABLE_AUTO_PIN=0 \
     UV_LINK_MODE=copy \
     NODE_USE_ENV_PROXY=1 \
-    HTTP_PROXY=${HARNESS_PROXY} \
-    HTTPS_PROXY=${HARNESS_PROXY} \
-    http_proxy=${HARNESS_PROXY} \
-    https_proxy=${HARNESS_PROXY} \
+    HTTP_PROXY=${HEARTH_PROXY} \
+    HTTPS_PROXY=${HEARTH_PROXY} \
+    http_proxy=${HEARTH_PROXY} \
+    https_proxy=${HEARTH_PROXY} \
     NO_PROXY=localhost,127.0.0.1,::1 \
     no_proxy=localhost,127.0.0.1,::1
 
-LABEL org.opencontainers.image.title="harness-base" \
-      org.opencontainers.image.description="Base image for llm-harness instances"
+LABEL org.opencontainers.image.title="hearth-base" \
+      org.opencontainers.image.description="Base image for hearth instances"
 
 USER agent
 WORKDIR /workspace

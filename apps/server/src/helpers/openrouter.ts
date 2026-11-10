@@ -4,7 +4,7 @@
  * the sections of a page. A failing helper never breaks a reply; callers
  * fall back to what they had.
  */
-import type { ModelCallUsage } from '@harness/shared';
+import type { ModelCallUsage } from '@hearth/shared';
 
 /** What a request may use; null when the user has no OpenRouter key or an admin switched helpers off. */
 export interface Helpers {

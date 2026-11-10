@@ -1,4 +1,4 @@
-import { PROVIDERS, type ProviderCredential } from '@harness/shared';
+import { PROVIDERS, type ProviderCredential } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ellipsis, KeyRound, Pencil, Plus, Server, Trash2, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

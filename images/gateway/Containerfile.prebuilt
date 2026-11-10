@@ -1,21 +1,21 @@
-# Egress gateway of llm-harness projects, with the program the release
+# Egress gateway of hearth projects, with the program the release
 # workflow built (.github/workflows/windows.yml, the build stage of
 # Containerfile in this directory, embedded into the CLI): the VM only packs
 # it, without a Rust image to download or anything to compile. Builds of the
 # CLI without it use Containerfile and compile in the VM.
 #
 # Everything below the FROM line matches the last stage of Containerfile
-# (checked by a test in crates/harness-core/src/image.rs).
+# (checked by a test in crates/hearth-core/src/image.rs).
 
 # Same base as the instances, already in the VM; glibc for the resolver. No
 # CA bundle needed: the gateway brings Mozilla's roots itself.
 FROM docker.io/library/debian:trixie-slim
-COPY --chmod=755 harness-gateway /usr/local/bin/harness-gateway
+COPY --chmod=755 hearth-gateway /usr/local/bin/hearth-gateway
 
-LABEL org.opencontainers.image.title="harness-gateway" \
-      org.opencontainers.image.description="Egress gateway for llm-harness instances"
+LABEL org.opencontainers.image.title="hearth-gateway" \
+      org.opencontainers.image.description="Egress gateway for hearth instances"
 
 # nobody; the provider sets the same user explicitly.
 USER 65534:65534
 EXPOSE 8888
-CMD ["harness-gateway", "serve"]
+CMD ["hearth-gateway", "serve"]

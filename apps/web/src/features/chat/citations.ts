@@ -1,4 +1,4 @@
-import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@hearth/shared';
 import type { ChatMessage } from '@/lib/api.ts';
 
 /**

@@ -1,4 +1,4 @@
-import { PROVIDERS, type ProviderKind } from '@harness/shared';
+import { PROVIDERS, type ProviderKind } from '@hearth/shared';
 import type { TranslateFn } from '@/i18n/index.ts';
 
 /**

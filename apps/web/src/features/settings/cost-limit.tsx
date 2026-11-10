@@ -1,4 +1,4 @@
-import type { CostStatus } from '@harness/shared';
+import type { CostStatus } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';

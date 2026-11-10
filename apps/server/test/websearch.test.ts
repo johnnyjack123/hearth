@@ -10,7 +10,7 @@ import type {
   WebFetchOutput,
   WebSearchOutput,
   WebSearchResult,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { serverToolsAsText } from '../src/routes/chat.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
@@ -555,7 +555,7 @@ describe('research mode', () => {
     expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'web_search', 'calculate', 'remember', 'forget', 'progress']);
     // Date and research mode come as a note in front of the message, not in the system prompt.
     expect(llm.calls[0]?.system).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\. Research mode is on\.\]/);
+    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[Hearth: Today is \d{4}-\d{2}-\d{2}\. Research mode is on\.\]/);
     const search = chunks.find((chunk) => chunk.type === 'tool-output-available');
     expect(search).toMatchObject({ output: { query: 'Kaffee rösten', provider: 'searxng', warnings: ['ignore_instructions', 'addressed_to_ai'] } });
     expect(JSON.stringify(llm.calls[1]?.prompt.at(-1))).toContain('untrusted data');
@@ -599,14 +599,14 @@ describe('research mode', () => {
     expect(lastCall?.system).toBe(firstCall?.system);
     expect(lastCall?.tools).toEqual(firstCall?.tools);
     const prompt = JSON.stringify(lastCall?.prompt);
-    expect(prompt).toContain('[LLM Harness: Research mode is off.]');
+    expect(prompt).toContain('[Hearth: Research mode is off.]');
     // The earlier note is still there, unchanged, and the date is not repeated.
     expect(prompt.match(/Today is/g)).toHaveLength(1);
     expect(later.find((chunk) => chunk.type === 'tool-output-error')).toMatchObject({ errorText: expect.stringMatching(/^\[research_off\]/) });
     expect(later.some((chunk) => chunk.type === 'data-approval')).toBe(true);
     expect(fetched).toEqual(['/article', '/linked']);
     await eventually(async () => (await load(conversationId)).messages.length === 4);
-    expect((await load(conversationId)).messages[2]?.metadata).toMatchObject({ note: '[LLM Harness: Research mode is off.]' });
+    expect((await load(conversationId)).messages[2]?.metadata).toMatchObject({ note: '[Hearth: Research mode is off.]' });
   });
 
   it('moves sources for the kind of question up and passes ten hits on', async () => {
@@ -836,7 +836,7 @@ describe('research mode', () => {
     expect(llm.calls[0]?.tools).toEqual(['web_fetch', 'calculate', 'remember', 'forget', 'progress']);
     expect(llm.calls[0]?.system).not.toContain('research mode');
     // The note gives the date only; there is no research mode to announce.
-    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[LLM Harness: Today is \d{4}-\d{2}-\d{2}\.\]/);
+    expect(JSON.stringify(llm.calls[0]?.prompt.at(-1))).toMatch(/\[Hearth: Today is \d{4}-\d{2}-\d{2}\.\]/);
     expect(chunks.find((chunk) => chunk.type === 'tool-output-error' || chunk.type === 'tool-input-error')).toBeDefined();
     await eventually(async () => (await load(conversationId)).messages.length === 2);
     expect((await load(conversationId)).messages[0]?.metadata?.research).toBeUndefined();

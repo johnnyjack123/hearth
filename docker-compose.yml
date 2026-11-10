@@ -1,4 +1,4 @@
-# Server und Web-App von llm-harness. Einstellungen stehen in .env neben
+# Server und Web-App von hearth. Einstellungen stehen in .env neben
 # dieser Datei (Vorlage: .env.example). Die Daten liegen in ./data (SQLite,
 # erzeugtes Geheimnis, Dateien aus Chats) und ./postgres; beide Ordner sichern.
 # markitdown wandelt Dokumente (PDF, Word, Excel, PowerPoint) für das Modell
@@ -18,12 +18,12 @@
 
 services:
   server:
-    image: ghcr.io/johnnyjack123/llm-harness-server:${HARNESS_IMAGE_TAG:-latest}
-    container_name: llm-harness-server
+    image: ghcr.io/johnnyjack123/hearth-server:${HEARTH_IMAGE_TAG:-${HARNESS_IMAGE_TAG:-latest}}
+    container_name: hearth-server
     restart: unless-stopped
     ports:
-      - "${HARNESS_PORT:-8080}:8080"
-    # PUBLIC_URL, HARNESS_SECRET, TRUSTED_ORIGINS, TRUSTED_PROXIES und
+      - "${HEARTH_PORT:-${HARNESS_PORT:-8080}}:8080"
+    # PUBLIC_URL, HEARTH_SECRET, TRUSTED_ORIGINS, TRUSTED_PROXIES und
     # DATABASE_URL gehen direkt an den Server.
     env_file:
       - path: .env
@@ -38,8 +38,8 @@ services:
   # Angriffsfläche, deshalb ohne Netz (nur der Server erreicht es), mit
   # schreibgeschütztem Dateisystem, ohne Rechte und mit Speichergrenze.
   markitdown:
-    image: ghcr.io/johnnyjack123/llm-harness-markitdown:${HARNESS_IMAGE_TAG:-latest}
-    container_name: llm-harness-markitdown
+    image: ghcr.io/johnnyjack123/hearth-markitdown:${HEARTH_IMAGE_TAG:-${HARNESS_IMAGE_TAG:-latest}}
+    container_name: hearth-markitdown
     restart: unless-stopped
     networks: [documents]
     read_only: true
@@ -51,12 +51,12 @@ services:
 
   postgres:
     image: docker.io/library/postgres:17-alpine
-    container_name: llm-harness-db
+    container_name: hearth-db
     profiles: [postgres]
     restart: unless-stopped
     environment:
-      POSTGRES_USER: harness
-      POSTGRES_DB: harness
+      POSTGRES_USER: hearth
+      POSTGRES_DB: hearth
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
     volumes:
       - ./postgres:/var/lib/postgresql/data
@@ -66,14 +66,14 @@ services:
   # hier an Google, Bing, DuckDuckGo usw.
   searxng:
     image: docker.io/searxng/searxng:latest
-    container_name: llm-harness-searxng
+    container_name: hearth-searxng
     profiles: [search]
     restart: unless-stopped
     environment:
       # Eigenes Geheimnis in .env (openssl rand -hex 32). Ohne gilt dieses
       # öffentliche; es schützt nur Einstellungs-Cookies und den Bild-Proxy,
       # und beides nutzt hier niemand.
-      SEARXNG_SECRET: ${SEARXNG_SECRET:-llm-harness-searxng-change-me}
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-hearth-searxng-change-me}
     configs:
       - source: searxng-settings
         target: /etc/searxng/settings.yml

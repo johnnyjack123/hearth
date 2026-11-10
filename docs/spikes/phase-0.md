@@ -1,5 +1,7 @@
 # Phase 0 – Spike: Sandbox-Grundlagen unter Windows
 
+> Historischer Bericht: Pfade, Programm- und Paketnamen beziehen sich auf den Stand vor der Umbenennung von „LLM Harness“ in **Hearth** (0.2.0), z. B. `crates/harness-cli` statt `crates/hearth-cli`.
+
 > Durchgeführt am 10./11.10.2026 auf einem Rechner (Windows 11 Pro ARM64, Podman 5.8 mit WSL2-Provider).
 > Bezug: ARCHITECTURE.md, Abschnitte 3.1–3.5 und 9. Skripte liegen in `spikes/phase-0/`, Rohdaten in `spikes/phase-0/work/` (gitignored).
 

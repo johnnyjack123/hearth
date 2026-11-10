@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { PairingPoll, PairingStart } from '@harness/shared';
+import type { PairingPoll, PairingStart } from '@hearth/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import { createTestServer, type TestServer } from './helpers.ts';
@@ -49,7 +49,7 @@ describe('web fetch for agents', () => {
   beforeEach(async () => {
     server = await createTestServer('sqlite', { webFetch: config() });
     cookie = await server.signUp('owner@example.com');
-    const started = await server.request('POST', '/api/pairing', { body: { name: 'harness auf TEST' }, headers: CLI });
+    const started = await server.request('POST', '/api/pairing', { body: { name: 'hearth auf TEST' }, headers: CLI });
     const pairing = (await started.json()) as PairingStart;
     await server.request('POST', `/api/devices/pairing/${pairing.userCode}`, { cookie, body: { approve: true } });
     const polled = await server.request('POST', '/api/pairing/token', { body: { deviceCode: pairing.deviceCode }, headers: CLI });
@@ -71,8 +71,8 @@ describe('web fetch for agents', () => {
       headers: {
         ...CLI,
         authorization: auth,
-        'x-harness-url': url,
-        ...(approved ? { 'x-harness-approved-host': approved } : {}),
+        'x-hearth-url': url,
+        ...(approved ? { 'x-hearth-approved-host': approved } : {}),
       },
     });
   }
@@ -115,7 +115,7 @@ describe('web fetch for agents', () => {
     const asUser = await server.request('POST', ROUTE, {
       cookie,
       body: {},
-      headers: { 'x-harness-url': `http://site.test:${port}/page`, 'x-harness-approved-host': 'site.test' },
+      headers: { 'x-hearth-url': `http://site.test:${port}/page`, 'x-hearth-approved-host': 'site.test' },
     });
     expect(asUser.status).toBe(401);
     expect((await agentFetch(`http://site.test:${port}/page`, 'site.test', {}, 'Bearer hd_wrong')).status).toBe(401);

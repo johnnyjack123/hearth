@@ -144,11 +144,11 @@ describe('cheapest OpenRouter host', () => {
     expect(
       withOpenRouter(
         { providerOptions: { openrouter: { reasoning: { effort: 'high' } } } },
-        { provider: cheapestProvider(undefined, ['a']), cacheKey: 'harness-k' },
+        { provider: cheapestProvider(undefined, ['a']), cacheKey: 'hearth-k' },
       ),
     ).toEqual({
       providerOptions: {
-        openrouter: { reasoning: { effort: 'high' }, provider: { order: ['a'], allow_fallbacks: true }, prompt_cache_key: 'harness-k' },
+        openrouter: { reasoning: { effort: 'high' }, provider: { order: ['a'], allow_fallbacks: true }, prompt_cache_key: 'hearth-k' },
       },
     });
     expect(withOpenRouter({ reasoning: 'low' }, {})).toEqual({ reasoning: 'low' });
@@ -166,7 +166,7 @@ describe('cheapest OpenRouter host', () => {
 
   it('names a conversation for the cache without giving its id away', () => {
     const key = cacheKey('0190a3c2-0000-7000-8000-000000000001');
-    expect(key).toMatch(/^harness-[0-9a-f]{32}$/);
+    expect(key).toMatch(/^hearth-[0-9a-f]{32}$/);
     expect(key).not.toContain('0190a3c2');
     expect(cacheKey('0190a3c2-0000-7000-8000-000000000001')).toBe(key);
     expect(cacheKey('another')).not.toBe(key);

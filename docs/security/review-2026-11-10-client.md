@@ -1,5 +1,7 @@
 # Sicherheitsprüfung des Windows-Clients gegen einen feindlichen Server (10.11.2026)
 
+> Historischer Bericht: Pfade, Programm- und Paketnamen beziehen sich auf den Stand vor der Umbenennung von „LLM Harness“ in **Hearth** (0.2.0), z. B. `crates/harness-cli` statt `crates/hearth-cli`.
+
 Statische Prüfung des Stands `b406ad3` (v0.1.21) durch einen eigenen Agenten, nur lesend. Frage: Was kann jemand, der den harness-Server kontrolliert (kompromittiert, Mann in der Mitte bei `http://`, falscher DNS-Eintrag bei `harness login`), auf dem Rechner des Nutzers **außerhalb** der Sandbox auslösen? Die Prüfung vom 3.11. (`review-2026-11-03.md`) war breiter, hatte dieses Szenario aber nicht im Mittelpunkt. Ergebnis: 1 hoch, 3 mittel, 6 niedrig. Code direkt auf dem Host ausführen kann der Server nicht; der gefährlichste Weg führt über Autosync in den Projektordner.
 
 ## Stand der Behebung

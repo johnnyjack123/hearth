@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ConversationSummary, InjectionAssessment, WebFetchOutput } from '@harness/shared';
+import type { ConversationSummary, InjectionAssessment, WebFetchOutput } from '@hearth/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { type ChatMessage, saveMessage } from '../src/services/conversations.ts';
 import { createTestServer, type TestServer } from './helpers.ts';

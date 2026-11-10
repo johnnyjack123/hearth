@@ -1,4 +1,4 @@
-import { type AppFileResult, appNameSchema, type DeviceSummary } from '@harness/shared';
+import { type AppFileResult, appNameSchema, type DeviceSummary } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, FileUp, Hourglass } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -13,7 +13,7 @@ import { shortName } from './own-apps.tsx';
 
 /**
  * The app name a file suggests, without extension and version, like
- * `suggested_name` in harness-core: `rg`, `tool` for `tool-1.2.tar.gz`,
+ * `suggested_name` in hearth-core: `rg`, `tool` for `tool-1.2.tar.gz`,
  * `fd` for `fd_10.2.0_arm64.deb`.
  *
  * @param path - A Windows or Linux path.
@@ -38,7 +38,7 @@ export function nameFromPath(path: string): string {
  * Program files of one computer for Settings → Devices: the requests still
  * waiting for approval there, and asking for a new one. The browser only
  * asks; the file goes into the VM once the user approves it on the
- * computer (tray icon or `harness app approve`).
+ * computer (tray icon or `hearth app approve`).
  *
  * @param props - The device.
  * @returns The section.
@@ -58,7 +58,7 @@ export function DeviceFiles({ device }: { device: DeviceSummary }) {
               {file.kind} · {file.path}
             </span>
             <span className="text-muted-foreground">
-              {t('devices.files.pendingHow')} <code className="font-mono text-foreground">harness app approve {file.id}</code>
+              {t('devices.files.pendingHow')} <code className="font-mono text-foreground">hearth app approve {file.id}</code>
             </span>
           </span>
         </div>
@@ -217,7 +217,7 @@ function AppFileForm({ device, onDone }: { device: DeviceSummary; onDone: () => 
 function Waiting({ approval, title, onDone }: { approval: string; title: string; onDone: () => void }) {
   const { t } = usePreferences();
   const [copied, setCopied] = useState(false);
-  const command = `harness app approve ${approval}`;
+  const command = `hearth app approve ${approval}`;
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 rounded-lg bg-muted p-4">

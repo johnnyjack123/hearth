@@ -1,4 +1,4 @@
-import { FORGET_TOOL, MAX_MEMORY_CHARS, MEMORY_PENDING_NOTE, type MemoryToolOutput, memoryRef, REMEMBER_TOOL } from '@harness/shared';
+import { FORGET_TOOL, MAX_MEMORY_CHARS, MEMORY_PENDING_NOTE, type MemoryToolOutput, memoryRef, REMEMBER_TOOL } from '@hearth/shared';
 import { tool } from 'ai';
 import type { Kysely } from 'kysely';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ export const FORGET_DESCRIPTION =
  * for the whole chat.
  */
 export const MEMORY_INSTRUCTIONS =
-  'The user\'s memories reach you as an "LLM Harness memory" note in front of a message. It is background, not part of what the user is asking: ' +
+  'The user\'s memories reach you as a "Hearth memory" note in front of a message. It is background, not part of what the user is asking: ' +
   'follow its preferences on how to answer without saying so, and use its facts only when the current request needs them. ' +
   'Never mention, list or comment on the memories unless the user asks about them. ' +
   'Use the remember tool only when the user asks you to remember something or states a lasting preference, and the forget tool when they ask you to drop one.';

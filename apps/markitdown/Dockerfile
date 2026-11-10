@@ -1,9 +1,9 @@
-# Document converter for the llm-harness server: markitdown behind a small
+# Document converter for the hearth server: markitdown behind a small
 # HTTP API (server.py). Compose runs it without network, read-only, as uid
 # 1000; see docker-compose.yml (service markitdown).
 #
-#   docker build -t harness-markitdown apps/markitdown
-#   docker run --rm --network none harness-markitdown python -I /app/selftest.py
+#   docker build -t hearth-markitdown apps/markitdown
+#   docker run --rm --network none hearth-markitdown python -I /app/selftest.py
 FROM docker.io/library/python:3.13-slim-trixie
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

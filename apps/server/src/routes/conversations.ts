@@ -21,7 +21,7 @@ import {
   type Verbosity,
   WEB_FETCH_DECISIONS,
   type WebFetchDecision,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { UI_MESSAGE_STREAM_HEADERS } from 'ai';
 import { Hono } from 'hono';
 import type { Kysely } from 'kysely';
@@ -134,27 +134,27 @@ async function attachTakeover(
 
 /** Put in front of a message to an agent while research mode is on. */
 const AGENT_RESEARCH_NOTE =
-  '[LLM Harness: Research mode is on. Search the web with web_search for current or uncertain facts, ' +
+  '[Hearth: Research mode is on. Search the web with web_search for current or uncertain facts, ' +
   'read the most promising results with web_fetch and name your sources.]';
 
 /** What an agent reads about the answer length; it has none of the chat's system prompt. */
 const AGENT_VERBOSITY_NOTES: Record<Verbosity, string> = {
-  short: '[LLM Harness: Keep your answers short: a few sentences on what you did or found. This does not limit the work itself.]',
-  medium: '[LLM Harness: Answer at your usual length again.]',
-  detailed: '[LLM Harness: Answer in detail: explain what you did and why, the options you weighed, and what to watch out for.]',
+  short: '[Hearth: Keep your answers short: a few sentences on what you did or found. This does not limit the work itself.]',
+  medium: '[Hearth: Answer at your usual length again.]',
+  detailed: '[Hearth: Answer in detail: explain what you did and why, the options you weighed, and what to watch out for.]',
 };
 
 /** What an agent reads about the tone; agents search only in research mode. */
 const AGENT_TONE_NOTES: Record<Tone, string> = {
-  neutral: '[LLM Harness: Write in your usual tone again.]',
+  neutral: '[Hearth: Write in your usual tone again.]',
   scientific:
-    '[LLM Harness: Write precisely and soberly. Never invent facts, figures or sources. Check what you are not sure of, with web_search while research mode is on. ' +
+    '[Hearth: Write precisely and soberly. Never invent facts, figures or sources. Check what you are not sure of, with web_search while research mode is on. ' +
     'If you cannot verify something, say that you do not know; an own assessment is fine when you label it explicitly as your guess.]',
-  formal: '[LLM Harness: Write politely and formally, without slang, jokes or emojis, with the formal address where the language has one (German "Sie").]',
-  friendly: '[LLM Harness: Write warmly and encouragingly, with the informal address (German "du").]',
-  relaxed: '[LLM Harness: Write casually, like talking to a friend: short sentences, light humor is fine, informal address.]',
+  formal: '[Hearth: Write politely and formally, without slang, jokes or emojis, with the formal address where the language has one (German "Sie").]',
+  friendly: '[Hearth: Write warmly and encouragingly, with the informal address (German "du").]',
+  relaxed: '[Hearth: Write casually, like talking to a friend: short sentences, light humor is fine, informal address.]',
   critical:
-    '[LLM Harness: Be candid and critical: question assumptions, point out weaknesses, risks and better alternatives, no flattery. Stay fair and constructive.]',
+    '[Hearth: Be candid and critical: question assumptions, point out weaknesses, risks and better alternatives, no flattery. Stay fair and constructive.]',
 };
 
 /**

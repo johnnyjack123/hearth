@@ -1,4 +1,4 @@
-import { type ChatFile, chatFileId, chatFileUrl, MAX_FILE_BYTES, MAX_FILES_PER_MESSAGE } from '@harness/shared';
+import { type ChatFile, chatFileId, chatFileUrl, MAX_FILE_BYTES, MAX_FILES_PER_MESSAGE } from '@hearth/shared';
 import type { FileUIPart } from 'ai';
 import { CircleAlert, FileText, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';

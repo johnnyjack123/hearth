@@ -1,5 +1,5 @@
 /**
- * Program versions of the server and of harness on the computers, so either
+ * Program versions of the server and of hearth on the computers, so either
  * side can say when the other is older (2.11.2026: the server on the Pi was
  * forgotten in an update, and the new display it brought never showed).
  */

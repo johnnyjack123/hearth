@@ -1,4 +1,4 @@
-import { DEFAULT_TONE, DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Tone, TONES, type Verbosity, VERBOSITY_LEVELS } from '@harness/shared';
+import { DEFAULT_TONE, DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Tone, TONES, type Verbosity, VERBOSITY_LEVELS } from '@hearth/shared';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { detectLocale, type Locale, translate, type TranslateFn } from '@/i18n/index.ts';
 
@@ -50,15 +50,15 @@ interface PreferencesValue {
 // Keys and values of theme, density and locale must match public/theme-init.js,
 // which applies them before first paint.
 const STORAGE = {
-  theme: 'harness.theme',
-  density: 'harness.density',
-  locale: 'harness.locale',
-  research: 'harness.research',
-  effort: 'harness.effort',
-  verbosity: 'harness.verbosity',
-  tone: 'harness.tone',
-  autoAssess: 'harness.autoAssess',
-  showThinking: 'harness.showThinking',
+  theme: 'hearth.theme',
+  density: 'hearth.density',
+  locale: 'hearth.locale',
+  research: 'hearth.research',
+  effort: 'hearth.effort',
+  verbosity: 'hearth.verbosity',
+  tone: 'hearth.tone',
+  autoAssess: 'hearth.autoAssess',
+  showThinking: 'hearth.showThinking',
 } as const;
 
 const PreferencesContext = createContext<PreferencesValue | null>(null);
@@ -72,6 +72,28 @@ const PreferencesContext = createContext<PreferencesValue | null>(null);
  */
 export function autoAssessEnabled(): boolean {
   return read(STORAGE.autoAssess, ['on', 'off'], 'on') === 'on';
+}
+
+/**
+ * Copies the browser's preferences from before the rename (`harness.*`,
+ * until 0.2.0) to their new keys (`hearth.*`), once, so theme, language and
+ * the other choices stay. Keys already set under the new name win.
+ */
+export function adoptOldPreferences(): void {
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith('harness.')) {
+        const next = `hearth.${key.slice('harness.'.length)}`;
+        const value = localStorage.getItem(key);
+        if (value !== null && localStorage.getItem(next) === null) {
+          localStorage.setItem(next, value);
+        }
+      }
+    }
+  } catch {
+    // Storage blocked (private window): nothing to keep.
+  }
 }
 
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {

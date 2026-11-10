@@ -76,7 +76,7 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable('setting').execute();
     },
   },
-  // Paired computers (harness CLI, desktop app). Tokens and device codes are
+  // Paired computers (hearth CLI, desktop app). Tokens and device codes are
   // stored as SHA-256 hashes; a pairing keeps the issued token encrypted only
   // until the device has picked it up.
   '0002_devices': {

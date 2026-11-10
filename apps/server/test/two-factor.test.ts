@@ -58,7 +58,7 @@ describe.each(DIALECTS)('two-factor sign-in on %s', (kind) => {
 
   it('asks for the app’s code after the password once it is on', async () => {
     const { uri } = await enable();
-    expect(uri).toMatch(/^otpauth:\/\/totp\/LLM%20Harness:owner%40example\.com\?/);
+    expect(uri).toMatch(/^otpauth:\/\/totp\/Hearth:owner%40example\.com\?/);
 
     const first = await signIn();
     expect(await first.json()).toMatchObject({ twoFactorRedirect: true });

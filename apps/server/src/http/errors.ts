@@ -1,4 +1,4 @@
-import type { ApiErrorBody, ApiErrorCode } from '@harness/shared';
+import type { ApiErrorBody, ApiErrorCode } from '@hearth/shared';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';

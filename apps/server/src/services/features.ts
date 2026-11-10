@@ -1,4 +1,4 @@
-import { type ChatFeatures, DEFAULT_CHAT_FEATURES, type UpdateChatFeatures } from '@harness/shared';
+import { type ChatFeatures, DEFAULT_CHAT_FEATURES, type UpdateChatFeatures } from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from '../db/schema.ts';
 

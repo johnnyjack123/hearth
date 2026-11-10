@@ -1,4 +1,4 @@
-import type { AgentDataParts, AgentToolOutput, ApprovalDecision, Inspection, WebFetchDecision } from '@harness/shared';
+import type { AgentDataParts, AgentToolOutput, ApprovalDecision, Inspection, WebFetchDecision } from '@hearth/shared';
 import type { DynamicToolUIPart } from 'ai';
 import { Check, ChevronRight, CircleAlert, FilePen, FileText, Globe, Info, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -215,7 +215,7 @@ export function AgentProgress({ progress }: { progress: AgentDataParts['progress
 }
 
 /**
- * A message of harness or the harness in an agent reply. The first line is
+ * A message of hearth or the harness in an agent reply. The first line is
  * the message; further lines are details shown on demand, such as where the
  * pi guard found a possible prompt injection and why it matters.
  *

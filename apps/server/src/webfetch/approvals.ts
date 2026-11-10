@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import type { ApprovalDecision, WebFetchAnswer } from '@harness/shared';
+import type { ApprovalDecision, WebFetchAnswer } from '@hearth/shared';
 
 /**
  * How an open question ended for the tool that asked: an answer, or the

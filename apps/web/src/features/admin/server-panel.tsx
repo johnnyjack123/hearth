@@ -1,4 +1,4 @@
-import type { CompactSettings, CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@harness/shared';
+import type { CompactSettings, CondenseSettings, SearchProvider, SearchSettings, SearchTestResult, ServerSettings, UpdateServerSettings } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, CircleCheck } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';

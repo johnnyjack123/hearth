@@ -1,4 +1,4 @@
-import type { EffortLevel, OpenRouterHosts } from '@harness/shared';
+import type { EffortLevel, OpenRouterHosts } from '@hearth/shared';
 import { Bell, Copy, Inbox, Moon, Plus, Settings, Sun, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
@@ -335,7 +335,7 @@ export function DesignPage() {
           </Row>
           <Row label="QrCode">
             {/* Dark on light in both themes: scanners rarely read inverted codes. */}
-            <QrCode value="otpauth://totp/LLM%20Harness:erika%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=LLM%20Harness" label="QR" className="size-32" />
+            <QrCode value="otpauth://totp/Hearth:erika%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Hearth" label="QR" className="size-32" />
           </Row>
           <Row label="Skeleton">
             <div className="flex w-full max-w-sm flex-col gap-2">

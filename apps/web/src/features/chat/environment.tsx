@@ -7,7 +7,7 @@ import {
   harnessNameSchema,
   type LinkConversationInput,
   projectNameSchema,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { useNavigate } from '@tanstack/react-router';
 import { Check, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
