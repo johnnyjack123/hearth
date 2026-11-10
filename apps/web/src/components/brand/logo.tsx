@@ -2,8 +2,8 @@ import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 
 /**
- * Product mark: two rails joined by a hub, a nod to a harness connecting
- * chats with environments. Colors come from the primary token pair.
+ * Product mark: an H whose crossbar meets a hub, the hearth that chats and
+ * computers gather around. Colors come from the primary token pair.
  *
  * @param props - Optional classes (size via `size-*`) and whether to show the wordmark.
  * @returns The logo.

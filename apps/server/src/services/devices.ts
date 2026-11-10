@@ -9,7 +9,7 @@ import {
   type PairingStart,
   type RemoteProject,
   type UpdateDeviceInput,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { SecretBox } from '../crypto.ts';
@@ -121,12 +121,12 @@ function toSummary(row: DeviceRow): DeviceSummary {
 }
 
 /**
- * Keeps the version of harness a device reported, for the hint when it or
+ * Keeps the version of hearth a device reported, for the hint when it or
  * the server is older.
  *
  * @param db - Open database.
  * @param deviceId - The device.
- * @param version - Its harness version.
+ * @param version - Its hearth version.
  */
 export async function saveDeviceVersion(db: Kysely<DB>, deviceId: string, version: string): Promise<void> {
   await db.updateTable('device').set({ harnessVersion: version }).where('id', '=', deviceId).execute();

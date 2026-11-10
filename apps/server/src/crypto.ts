@@ -37,7 +37,7 @@ export interface SecretBox {
  * @returns 32 bytes of derived key material.
  */
 export function deriveKey(secret: string, purpose: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', secret, 'llm-harness', purpose, 32));
+  return Buffer.from(hkdfSync('sha256', secret, 'hearth', purpose, 32));
 }
 
 /**

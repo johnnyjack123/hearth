@@ -1,4 +1,4 @@
-import { compareVersions, type DeviceSummary } from '@harness/shared';
+import { compareVersions, type DeviceSummary } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Laptop, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -17,7 +17,7 @@ import { DeviceVm } from '../devices/device-vm.tsx';
 import { Section } from '../shell/page.tsx';
 
 /**
- * Lists the computers paired via `harness login` and lets the user revoke
+ * Lists the computers paired via `hearth login` and lets the user revoke
  * them.
  *
  * @returns The devices panel.
@@ -60,10 +60,10 @@ export function DevicesPanel() {
 }
 
 /**
- * The hint when harness on a computer and the server are not the same
+ * The hint when hearth on a computer and the server are not the same
  * version, saying which side to update.
  *
- * @param props - harness's and the server's version.
+ * @param props - hearth's and the server's version.
  * @returns The hint, or nothing when both match or either is unknown.
  */
 export function VersionHint({ harness, server }: { harness: string | null; server: string | undefined }) {

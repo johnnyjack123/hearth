@@ -2,7 +2,7 @@
  * Which helper models a chat request may use: the admin's choice of models
  * and an OpenRouter key of the user who chats.
  */
-import { PROVIDERS } from '@harness/shared';
+import { PROVIDERS } from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import type { SecretBox } from '../crypto.ts';
 import type { DB } from '../db/schema.ts';

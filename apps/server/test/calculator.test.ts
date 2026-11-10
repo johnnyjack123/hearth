@@ -1,4 +1,4 @@
-import type { CalculatorOutput, ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { CalculatorOutput, ConversationDetail, ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Calculator, CalculatorError } from '../src/calculator/engine.ts';
 import { calculatorText } from '../src/calculator/tool.ts';

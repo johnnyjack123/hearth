@@ -1,4 +1,4 @@
-import { type OpenRouterHostAccess, type OpenRouterHosts, pinOpenRouterHostSchema } from '@harness/shared';
+import { type OpenRouterHostAccess, type OpenRouterHosts, pinOpenRouterHostSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { HttpError, notFound } from '../http/errors.ts';

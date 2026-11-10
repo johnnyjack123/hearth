@@ -1,4 +1,4 @@
-"""Converts documents to Markdown for the llm-harness server.
+"""Converts documents to Markdown for the hearth server.
 
 The server sends the bytes of an uploaded file (PDF, Word, Excel,
 PowerPoint, HTML, EPUB ...) and gets Markdown back, which the model reads
@@ -90,7 +90,7 @@ def convert(data: bytes, suffix: str) -> tuple[int, dict]:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    server_version = "harness-markitdown"
+    server_version = "hearth-markitdown"
     sys_version = ""
 
     def reply(self, status: int, body: dict | str) -> None:

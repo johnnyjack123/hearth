@@ -1,4 +1,4 @@
-import { type DeviceCredential, memoryRef, memoryTextSchema, projectNameSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@harness/shared';
+import { type DeviceCredential, memoryRef, memoryTextSchema, projectNameSchema, PROVIDERS, type ProviderKind, SEARCH_KINDS } from '@hearth/shared';
 import { createHash } from 'node:crypto';
 import { type Context, Hono } from 'hono';
 import { z } from 'zod';
@@ -38,7 +38,7 @@ const searchRequestSchema = z
   .strict();
 
 /** Set by the gateway on every request: the agent's project (`PROJECT_HEADER` in `llm.rs`). */
-const PROJECT_HEADER = 'x-harness-project';
+const PROJECT_HEADER = 'x-hearth-project';
 
 /**
  * The project an agent's request comes from. The gateway sets it and drops
@@ -178,7 +178,7 @@ export function llmRoutes(deps: AppDeps) {
       return c.json(credentials);
     })
     // `web_fetch` of agents. Under the proxy path because that is all the
-    // gateway reaches (`http://llm.harness/_web/fetch`); credential ids are
+    // gateway reaches (`http://llm.hearth/_web/fetch`); credential ids are
     // UUIDs, never `_web`. Only the gateway sets the approved host, see
     // `webfetch/agent.ts`.
     .post('/proxy/_web/fetch', async (c) => {
@@ -188,7 +188,7 @@ export function llmRoutes(deps: AppDeps) {
         throw new HttpError(400, 'validation', `${URL_HEADER} and ${APPROVED_HOST_HEADER} are required`);
       }
       if (!(await chatFeatures(db, c.get('owner').id)).webFetch) {
-        return c.json({ error: 'Loading web pages is switched off in the settings of the harness web app.' }, 403);
+        return c.json({ error: 'Loading web pages is switched off in the settings of the hearth web app.' }, 403);
       }
       const request = pageRequestSchema.strict().parse(await c.req.json());
       const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
@@ -215,7 +215,7 @@ export function llmRoutes(deps: AppDeps) {
       }
       const backend = await loadSearchBackend(db, secretBox, searchEndpoints);
       if (!backend) {
-        return c.json({ error: '[not_configured] No search provider is set up on the harness server.' }, 403);
+        return c.json({ error: '[not_configured] No search provider is set up on the hearth server.' }, 403);
       }
       const helpers = await loadHelpers(db, secretBox, c.get('owner').id, null, deps.helpers);
       try {
@@ -245,7 +245,7 @@ export function llmRoutes(deps: AppDeps) {
     // the memories belong to the device's owner.
     .post('/proxy/_memory', async (c) => {
       if (!(await chatFeatures(db, c.get('owner').id)).memory) {
-        return c.json({ error: '[memory_off] The memory is switched off in the settings of the harness web app.' }, 403);
+        return c.json({ error: '[memory_off] The memory is switched off in the settings of the hearth web app.' }, 403);
       }
       const input = memoryRequestSchema.parse(await c.req.json());
       const owner = c.get('owner').id;
@@ -305,7 +305,7 @@ export function llmRoutes(deps: AppDeps) {
       }
       await assertEndpointAllowed(db, owner, row.kind, row.baseUrl);
       // Model calls stop at the owner's daily cost limit, also those of
-      // `harness run`, whose cost the limit cannot see; listing models is free.
+      // `hearth run`, whose cost the limit cannot see; listing models is free.
       if (c.req.method !== 'GET') {
         try {
           await costGuard(db).assert(owner.id);

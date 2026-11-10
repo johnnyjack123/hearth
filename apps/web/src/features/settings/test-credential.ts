@@ -1,4 +1,4 @@
-import type { ProviderCredential } from '@harness/shared';
+import type { ProviderCredential } from '@hearth/shared';
 import { toast } from 'sonner';
 import type { TranslateFn } from '@/i18n/index.ts';
 import { api, errorMessage } from '@/lib/api.ts';

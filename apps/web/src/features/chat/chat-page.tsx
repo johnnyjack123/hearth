@@ -1,6 +1,6 @@
 import { useChat } from '@ai-sdk/react';
 import type { FileUIPart } from 'ai';
-import type { ConversationDetail, EffortLevel, Tone, Verbosity } from '@harness/shared';
+import type { ConversationDetail, EffortLevel, Tone, Verbosity } from '@hearth/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import { ArrowDown, MessageSquareOff } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

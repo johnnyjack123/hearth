@@ -1,4 +1,4 @@
-import { updateCostLimitSchema } from '@harness/shared';
+import { updateCostLimitSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { costGuard, setOwnLimit } from '../services/costs.ts';

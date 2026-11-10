@@ -1,0 +1,32 @@
+# App „Java“ für den App-Katalog (hearth app, Einstellungen im Browser)
+name = "java"
+title = "Java"
+description = "JDK von Eclipse Temurin (aktuelle LTS-Version)"
+
+# Die Archive liegen in den GitHub-Releases von Adoptium.
+hosts = ["api.adoptium.net", "github.com", "*.githubusercontent.com"]
+
+path = ["jdk/bin"]
+
+install = '''
+hearth_download "https://api.adoptium.net/v3/info/available_releases" "$WORK/releases.json"
+lts=$(jq -r .most_recent_lts "$WORK/releases.json")
+case "$MACHINE" in
+  x86_64) arch=x64 ;;
+  *) arch=$MACHINE ;;
+esac
+hearth_download \
+  "https://api.adoptium.net/v3/assets/latest/$lts/hotspot?architecture=$arch&image_type=jdk&os=linux&vendor=eclipse" \
+  "$WORK/assets.json"
+link=$(jq -r '.[0].binary.package.link' "$WORK/assets.json")
+checksum=$(jq -r '.[0].binary.package.checksum' "$WORK/assets.json")
+version=$(jq -r '.[0].version.semver' "$WORK/assets.json")
+hearth_download "$link" "$WORK/jdk.tar.gz"
+hearth_sha256 "$WORK/jdk.tar.gz" "$checksum"
+mkdir "$PREFIX/jdk"
+tar -xzf "$WORK/jdk.tar.gz" -C "$PREFIX/jdk" --strip-components=1
+hearth_version "$version"
+'''
+
+[env]
+JAVA_HOME = "{prefix}/jdk"

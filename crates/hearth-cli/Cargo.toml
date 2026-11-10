@@ -1,0 +1,34 @@
+[package]
+name = "hearth-cli"
+description = "The `hearth` command: run coding agents in sandboxed containers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "hearth"
+path = "src/main.rs"
+
+# Starts `hearth daemon run` without a console window at logon.
+[[bin]]
+name = "hearthd"
+path = "src/hearthd.rs"
+
+[dependencies]
+hearth-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tungstenite.workspace = true
+native-tls.workspace = true
+tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+# Tests expect German texts, also from hearth-core (lang.rs).
+hearth-core = { workspace = true, features = ["test-german"] }

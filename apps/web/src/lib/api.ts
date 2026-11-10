@@ -39,7 +39,7 @@ import type {
   UpdateProviderCredentialInput,
   UpdateServerSettings,
   VmStopResult,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { UIMessage } from 'ai';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 

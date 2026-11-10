@@ -7,20 +7,20 @@
  * another host goes back to the agent, and the gateway checks its next
  * request like any other.
  */
-import type { WebFetchOutput } from '@harness/shared';
+import type { WebFetchOutput } from '@hearth/shared';
 import type { Helpers } from '../helpers/openrouter.ts';
 import { WebFetchError } from './errors.ts';
 import { parseTarget } from './target.ts';
 import { loadPage, modelText, type PageRequest, type WebFetchConfig } from './tool.ts';
 
 /** Header with the URL the agent wants to load; the gateway checks its host. */
-export const URL_HEADER = 'x-harness-url';
+export const URL_HEADER = 'x-hearth-url';
 
 /**
  * Header with the host the gateway allowed. The gateway sets it itself and
  * drops any copy the agent sends.
  */
-export const APPROVED_HOST_HEADER = 'x-harness-approved-host';
+export const APPROVED_HOST_HEADER = 'x-hearth-approved-host';
 
 /** What the agent learns about a loaded page besides the model's text. */
 export type AgentPage = Pick<WebFetchOutput, 'url' | 'status' | 'contentType' | 'title' | 'truncated' | 'warnings' | 'findings'>;

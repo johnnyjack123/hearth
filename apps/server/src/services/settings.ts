@@ -6,7 +6,7 @@ import {
   type SearchSettings,
   type ServerSettings,
   type UpdateSearchSettings,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import { keyHint, type SecretBox } from '../crypto.ts';
 import type { DB } from '../db/schema.ts';

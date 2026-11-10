@@ -12,7 +12,7 @@ import {
   setProjectAppsSchema,
   startPairingSchema,
   updateDeviceSchema,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { rateKey } from '../http/client-ip.ts';
@@ -86,7 +86,7 @@ export function pairingRoutes(deps: AppDeps) {
       const { deviceCode } = pairingTokenSchema.parse(await c.req.json());
       return c.json(await pollPairing(db, deps.secretBox, deviceCode));
     })
-    // `harness login` with a new address of this server keeps its device,
+    // `hearth login` with a new address of this server keeps its device,
     // once the server proved it holds it (see `proveDevice`).
     .post('/prove', async (c) => {
       polls.check(rateKey(c.get('clientIp')));
@@ -248,7 +248,7 @@ export function deviceSelfRoutes(deps: AppDeps) {
       return c.json(body);
     })
     .put('/projects', async (c) => {
-      // `harness init` reports a new project right away, also when the
+      // `hearth init` reports a new project right away, also when the
       // background service is not connected.
       const { projects } = deviceProjectsSchema.parse(await c.req.json());
       await saveDeviceProjects(db, c.get('device').id, projects);

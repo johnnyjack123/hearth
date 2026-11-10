@@ -32,7 +32,7 @@ OCR_DPI = "200"
 # No page starts after this many seconds of the conversion (the self-test
 # sets it lower), and one still running at OCR_HARD_SECONDS is dropped:
 # server.py gives the whole conversion 240 s.
-OCR_SECONDS = float(os.environ.get("HARNESS_OCR_SECONDS", "180"))
+OCR_SECONDS = float(os.environ.get("HEARTH_OCR_SECONDS", "180"))
 OCR_HARD_SECONDS = 225
 # Pages read side by side, each tesseract on one thread: one process per
 # page uses the cores better than threads inside one page, and two

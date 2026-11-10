@@ -1,4 +1,4 @@
-import { ACCEPTED_FILE_EXTENSIONS } from '@harness/shared';
+import { ACCEPTED_FILE_EXTENSIONS } from '@hearth/shared';
 import type { FileUIPart } from 'ai';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
 import { type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';

@@ -1,4 +1,4 @@
-import { type CalculatorOutput, MAX_CALCULATIONS, MAX_EXPRESSION_LENGTH } from '@harness/shared';
+import { type CalculatorOutput, MAX_CALCULATIONS, MAX_EXPRESSION_LENGTH } from '@hearth/shared';
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { Calculator } from './engine.ts';

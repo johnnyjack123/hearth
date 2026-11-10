@@ -73,10 +73,10 @@ export const VERSION_WORKSPACE = 8;
 /** First protocol with files in prompts. */
 export const VERSION_FILES = 9;
 
-/** First protocol with program versions: the server's in `welcome`, harness's in `hello`. */
+/** First protocol with program versions: the server's in `welcome`, hearth's in `hello`. */
 export const VERSION_APP_VERSION = 10;
 
-/** Ids of requests the user approves on the computer (`harness app approve`). */
+/** Ids of requests the user approves on the computer (`hearth app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
 
 /** Idle minutes until a device stops its VM, unless the user chose otherwise. */
@@ -88,15 +88,15 @@ export const MAX_IDLE_MINUTES = 24 * 60;
 /** Path of the device tunnel (WebSocket, device token as bearer). */
 export const TUNNEL_PATH = '/api/device/tunnel';
 
-/** Project names as harness allows them (`ProjectName` in harness-core). */
+/** Project names as hearth allows them (`ProjectName` in hearth-core). */
 export const projectNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
 
-/** Harness names as harness allows them (`validate_harness_name`). */
+/** Harness names as hearth allows them (`validate_harness_name`). */
 export const harnessNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,29}$/);
 
 /**
  * A project a device offers to web chats: only projects the user released
- * with `harness project remote on`, and only harnesses with a machine
+ * with `hearth project remote on`, and only harnesses with a machine
  * interface (adapter).
  */
 export const remoteProjectSchema = z
@@ -109,11 +109,11 @@ export const remoteProjectSchema = z
 /** See {@link remoteProjectSchema}. */
 export type RemoteProject = z.infer<typeof remoteProjectSchema>;
 
-/** App names as harness allows them (`validate_app_name`, same rules as harnesses). */
+/** App names as hearth allows them (`validate_app_name`, same rules as harnesses). */
 export const appNameSchema = harnessNameSchema;
 
 /**
- * Where an app of a device comes from: the catalog shipped with harness, a
+ * Where an app of a device comes from: the catalog shipped with hearth, a
  * recipe file on that computer, or an own program of the account.
  */
 export const APP_SOURCES = ['builtin', 'local', 'server'] as const;
@@ -346,7 +346,7 @@ export const VM_STATES = ['running', 'stopped', 'starting', 'stopping', 'unknown
 export type VmState = (typeof VM_STATES)[number];
 
 /**
- * Validates the projects a device reports through the API (`harness init`),
+ * Validates the projects a device reports through the API (`hearth init`),
  * so they appear in the account even while it is offline.
  */
 export const deviceProjectsSchema = z
@@ -365,7 +365,7 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
       type: z.literal('hello'),
       version: z.number().int(),
       projects: z.array(remoteProjectSchema).max(200),
-      // From protocol 10 on: the version of harness on the computer.
+      // From protocol 10 on: the version of hearth on the computer.
       harness: z
         .string()
         .max(40)
@@ -413,7 +413,7 @@ export type DeviceMessage = z.infer<typeof deviceMessageSchema>;
 
 /**
  * How the user answers a question of a project's gateway (a host that is not
- * allowed yet): the same choices as in `harness net watch`.
+ * allowed yet): the same choices as in `hearth net watch`.
  */
 export const APPROVAL_DECISIONS = ['once', 'minutes', 'session', 'always', 'deny'] as const;
 
@@ -618,7 +618,7 @@ export const approvalDecisionSchema = z
  */
 export type AgentDataParts = {
   /**
-   * A message of harness or the harness itself (warnings, progress). Lines
+   * A message of hearth or of the harness itself (warnings, progress). Lines
    * after the first are details the web app shows on demand. With a `code`
    * (an `ApiErrorCode`), the web app shows its own text in the user's
    * language instead.

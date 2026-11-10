@@ -267,7 +267,7 @@ export function RegisterPage() {
         email,
         password,
         // The server checks it only for the first account.
-        ...(needsCode ? { fetchOptions: { headers: { 'x-harness-setup-code': setupCode } } } : {}),
+        ...(needsCode ? { fetchOptions: { headers: { 'x-hearth-setup-code': setupCode } } } : {}),
       });
       if (result.error) {
         setError(authErrorKey(result.error.code, result.error.status));

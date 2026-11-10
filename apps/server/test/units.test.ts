@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -70,27 +70,39 @@ describe('agentToolsAsText', () => {
 
 describe('loadConfig', () => {
   it('treats empty variables as unset, as Docker Compose passes them', () => {
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-config-'));
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-config-'));
     const config = loadConfig({
       DATA_DIR: dataDir,
       DATABASE_URL: '',
-      HARNESS_SECRET: '',
+      HEARTH_SECRET: '',
       TRUSTED_ORIGINS: '',
       WEB_DIST: '',
       NODE_ENV: 'production',
     });
-    expect(config.databaseUrl).toBe(`sqlite:${path.join(dataDir, 'harness.db')}`);
+    expect(config.databaseUrl).toBe(`sqlite:${path.join(dataDir, 'hearth.db')}`);
     expect(config.secret.length).toBeGreaterThanOrEqual(32);
     expect(config.trustedOrigins).toEqual(['http://localhost:8080']);
   });
 
+  it('reads the variables and the SQLite file of a server from before the rename', () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-config-'));
+    writeFileSync(path.join(dataDir, 'harness.db'), '');
+    const secret = 'an-old-secret-that-is-long-enough-0123456789';
+    const config = loadConfig({ DATA_DIR: dataDir, HARNESS_SECRET: secret, HARNESS_SETUP_CODE: 'OLDC-ODE1' });
+    expect(config.secret).toBe(secret);
+    expect(config.setupCode).toBe('OLDC-ODE1');
+    expect(config.databaseUrl).toBe(`sqlite:${path.join(dataDir, 'harness.db')}`);
+    // The new name wins when both are set.
+    expect(loadConfig({ DATA_DIR: dataDir, HARNESS_SECRET: secret, HEARTH_SECRET: `${secret}-new` }).secret).toBe(`${secret}-new`);
+  });
+
   it('explains a Postgres URL with an unencoded password without repeating it', () => {
-    const base64Password = 'postgres://harness:Ab/cd+ef=@postgres:5432/harness';
+    const base64Password = 'postgres://hearth:Ab/cd+ef=@postgres:5432/hearth';
     expect(() => checkDatabaseUrl(base64Password)).toThrow(/percent-encoded/);
     expect(() => checkDatabaseUrl(base64Password)).not.toThrow(/Ab\/cd/);
-    expect(() => checkDatabaseUrl('postgres://harness:Ab%2Fcd%2Bef%3D@postgres:5432/harness')).not.toThrow();
-    expect(() => checkDatabaseUrl('postgres://harness:0a1b2c3d@postgres:5432/harness')).not.toThrow();
-    expect(() => checkDatabaseUrl('sqlite:./data/harness.db')).not.toThrow();
+    expect(() => checkDatabaseUrl('postgres://hearth:Ab%2Fcd%2Bef%3D@postgres:5432/hearth')).not.toThrow();
+    expect(() => checkDatabaseUrl('postgres://hearth:0a1b2c3d@postgres:5432/hearth')).not.toThrow();
+    expect(() => checkDatabaseUrl('sqlite:./data/hearth.db')).not.toThrow();
   });
 
   it('points at the compose profile when the Postgres service is missing', () => {
@@ -105,9 +117,9 @@ describe('parseDatabaseUrl', () => {
   it.each([
     ['postgres://u:p@host:5432/db', { kind: 'postgres', url: 'postgres://u:p@host:5432/db' }],
     ['postgresql://host/db', { kind: 'postgres', url: 'postgresql://host/db' }],
-    ['sqlite:./data/harness.db', { kind: 'sqlite', file: './data/harness.db' }],
-    ['sqlite:/data/harness.db', { kind: 'sqlite', file: '/data/harness.db' }],
-    ['file:C:/data/harness.db', { kind: 'sqlite', file: 'C:/data/harness.db' }],
+    ['sqlite:./data/hearth.db', { kind: 'sqlite', file: './data/hearth.db' }],
+    ['sqlite:/data/hearth.db', { kind: 'sqlite', file: '/data/hearth.db' }],
+    ['file:C:/data/hearth.db', { kind: 'sqlite', file: 'C:/data/hearth.db' }],
     ['sqlite::memory:', { kind: 'sqlite', file: ':memory:' }],
   ])('parses %s', (url, expected) => {
     expect(parseDatabaseUrl(url)).toEqual(expected);

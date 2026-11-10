@@ -7,7 +7,7 @@ import {
   type ModelSelection,
   type Tone,
   type Verbosity,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { DefaultChatTransport } from 'ai';
 import { api, type ChatMessage } from '@/lib/api.ts';
 import { autoAssessEnabled } from '@/lib/preferences.tsx';

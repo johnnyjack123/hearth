@@ -8,21 +8,21 @@
 # (created with ssh-keyscan) and pass the connection explicitly.
 #
 # Machine selection (env):
-#   default: Hyper-V machine "harness"; port and user are read from its machine JSON
+#   default: Hyper-V machine "hearth"; port and user are read from its machine JSON
 #   PODMAN_MACHINE=<name> picks another Hyper-V machine,
 #   PODMAN_SSH_PORT / PODMAN_SSH_USER override both explicitly.
 # Container commands over SSH need no admin rights, even for Hyper-V machines.
 set -euo pipefail
 
 SPIKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MACHINE_JSON="$USERPROFILE/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-harness}.json"
-# Once the VM service (harness vmd install) owns the machine, its JSON lives
+MACHINE_JSON="$USERPROFILE/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-hearth}.json"
+# Once the VM service (hearth vmd install) owns the machine, its JSON lives
 # in the service's directory; the user may read it.
-SERVICE_JSON="${SYSTEMDRIVE:-C:}/ProgramData/llm-harness/vmd/home/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-harness}.json"
+SERVICE_JSON="${SYSTEMDRIVE:-C:}/ProgramData/hearth/vmd/home/.config/containers/podman/machine/hyperv/${PODMAN_MACHINE:-hearth}.json"
 [[ -f "$SERVICE_JSON" ]] && MACHINE_JSON="$SERVICE_JSON"
 if [[ -z "${PODMAN_SSH_PORT:-}" && -f "$MACHINE_JSON" ]]; then
   # The port changes with every `machine init`, so never hard-code it.
-  read -r PODMAN_SSH_PORT PODMAN_SSH_USER < <(node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(c.SSH.Port, c.SSH.RemoteUsername)" "$MACHINE_JSON")
+  read -r PODMAN_SSH_PORT PODMAN_SSH_USER PODMAN_SSH_KEY < <(node -e "const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));console.log(c.SSH.Port, c.SSH.RemoteUsername, c.SSH.IdentityPath)" "$MACHINE_JSON")
 fi
 PORT="${PODMAN_SSH_PORT:?no machine config found; set PODMAN_SSH_PORT}"
 SSH_USER="${PODMAN_SSH_USER:-core}"
@@ -37,7 +37,7 @@ fi
 WIN_HOME="$(cygpath -w "$FAKE_HOME")"
 export USERPROFILE="$WIN_HOME" HOME="$WIN_HOME"
 export CONTAINER_HOST="ssh://$SSH_USER@127.0.0.1:$PORT/run/user/1000/podman/podman.sock"
-export CONTAINER_SSHKEY='C:\Users\<user>\.local\share\containers\podman\machine\machine'
+export CONTAINER_SSHKEY="${PODMAN_SSH_KEY:?no SSH key in the machine config; set PODMAN_SSH_KEY}"
 export MSYS_NO_PATHCONV=1
 
 exec "/c/Program Files/RedHat/Podman/podman.exe" "$@"

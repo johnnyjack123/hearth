@@ -1,4 +1,4 @@
-import type { AgentModelInfo, MessageMetadata, ModelCallUsage, ProviderKind, TokenRates } from '@harness/shared';
+import type { AgentModelInfo, MessageMetadata, ModelCallUsage, ProviderKind, TokenRates } from '@hearth/shared';
 import type { LanguageModelUsage, ProviderMetadata } from 'ai';
 
 /**
@@ -41,7 +41,7 @@ const LOOKUP_WAIT_MS = 3_000;
 /** Catalog providers kept in memory; the full file has hundreds. */
 const PROVIDERS = ['openai', 'anthropic', 'google', 'mistral', 'openrouter', 'deepseek'] as const;
 
-/** A provider of the catalog harness keeps. */
+/** A provider of the catalog hearth keeps. */
 export type CatalogProvider = (typeof PROVIDERS)[number];
 
 /**
@@ -85,7 +85,7 @@ function number(value: unknown): number | undefined {
 }
 
 /**
- * Reduces the catalog file to the providers and fields harness uses.
+ * Reduces the catalog file to the providers and fields hearth uses.
  *
  * @param raw - Parsed `api.json` of models.dev.
  * @returns Prices per provider and model id.

@@ -1,0 +1,36 @@
+# App „Rust“ für den App-Katalog (hearth app, Einstellungen im Browser)
+name = "rust"
+title = "Rust"
+description = "rustc und cargo (stable) mit clippy und rustfmt"
+
+# rustc linkt über cc, Build-Skripte (cc-Crate) kompilieren C.
+requires = ["c"]
+
+hosts = ["static.rust-lang.org"]
+
+# ~/.cargo/bin: was der Agent mit `cargo install` installiert
+path = ["cargo/bin", "~/.cargo/bin"]
+
+install = '''
+url="https://static.rust-lang.org/rustup/dist/$MACHINE-unknown-linux-gnu/rustup-init"
+hearth_download "$url" "$WORK/rustup-init"
+hearth_download "$url.sha256" "$WORK/rustup-init.sha256"
+hearth_sha256 "$WORK/rustup-init" "$(cut -d' ' -f1 "$WORK/rustup-init.sha256")"
+chmod +x "$WORK/rustup-init"
+# rustup unpacks with as much memory as it likes; in a VM with 1 GB it broke
+# off halfway through rustc. It complains unless HOME is the user's home
+# from passwd; it writes nothing there with --no-modify-path.
+RUSTUP_UNPACK_RAM=134217728 RUSTUP_IO_THREADS=1 HOME=/home/agent \
+  RUSTUP_HOME="$PREFIX/rustup" CARGO_HOME="$PREFIX/cargo" \
+  "$WORK/rustup-init" -y --no-modify-path --profile minimal \
+  --component clippy --component rustfmt --default-toolchain stable
+rm -rf "$PREFIX/rustup/downloads/"* "$PREFIX/rustup/tmp/"*
+hearth_version "$(RUSTUP_HOME="$PREFIX/rustup" "$PREFIX/cargo/bin/rustc" --version | cut -d' ' -f2)"
+'''
+
+[env]
+# In Instanzen schreibgeschützt: rustup kann dort keine weiteren Toolchains
+# holen (`hearth app update rust` holt die neueste stabile). cargo legt
+# seine Caches im Home ab.
+RUSTUP_HOME = "{prefix}/rustup"
+CARGO_HOME = "~/.cargo"

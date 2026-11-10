@@ -1,7 +1,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { generateText, type LanguageModelUsage, streamText } from 'ai';
-import type { ConversationSummary, OpenRouterHosts, ProviderCredential } from '@harness/shared';
+import type { ConversationSummary, OpenRouterHosts, ProviderCredential } from '@hearth/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createLlmGateway } from '../src/llm.ts';
 import { OpenRouterRouting } from '../src/openrouter.ts';
@@ -175,7 +175,7 @@ describe('OpenRouter hosts in an ordinary chat', () => {
       // The cache of the conversation is where the first call ran.
       expect(chatCalls[1]?.provider).toEqual({ order: ['no-cache', 'cached/fp8'], allow_fallbacks: true });
       // One cache key for every call of the chat.
-      expect(chatCalls[0]?.prompt_cache_key).toMatch(/^harness-[0-9a-f]{32}$/);
+      expect(chatCalls[0]?.prompt_cache_key).toMatch(/^hearth-[0-9a-f]{32}$/);
       expect(chatCalls[1]?.prompt_cache_key).toBe(chatCalls[0]?.prompt_cache_key);
 
       // The user pins the model to a host: the chat goes there and nowhere else.

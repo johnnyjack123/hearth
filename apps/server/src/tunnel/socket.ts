@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { DEFAULT_IDLE_MINUTES, TUNNEL_PATH } from '@harness/shared';
+import { DEFAULT_IDLE_MINUTES, TUNNEL_PATH } from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import { type WebSocket, WebSocketServer } from 'ws';
 import type { DB } from '../db/schema.ts';
@@ -27,7 +27,7 @@ function reject(socket: Duplex, status: 401 | 404): void {
 }
 
 /**
- * Accepts device tunnels (`harness connect`) on {@link TUNNEL_PATH}. Devices
+ * Accepts device tunnels (`hearth connect`) on {@link TUNNEL_PATH}. Devices
  * authenticate with their token as bearer, like on `/api/llm`; the session
  * cookie of the web app does not count here.
  *

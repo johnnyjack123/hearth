@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-gateway"
+name = "hearth-gateway"
 version = "0.1.0"
 dependencies = [
  "rustls",

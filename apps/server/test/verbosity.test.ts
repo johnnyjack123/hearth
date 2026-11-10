@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, ProviderCredential, Verbosity } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, ProviderCredential, Verbosity } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chatNote } from '../src/routes/chat.ts';
 import { agentVerbosityNote } from '../src/routes/conversations.ts';
@@ -13,20 +13,20 @@ describe('answer length notes', () => {
   const today = { date: '2026-11-06', research: null };
 
   it('name a length other than medium with every message, and medium once after it', () => {
-    expect(chatNote([], { ...today, verbosity: 'medium' })).toBe('[LLM Harness: Today is 2026-11-06.]');
-    expect(chatNote([], { ...today, verbosity: 'short' })).toBe('[LLM Harness: Today is 2026-11-06. Answer length: short.]');
+    expect(chatNote([], { ...today, verbosity: 'medium' })).toBe('[Hearth: Today is 2026-11-06.]');
+    expect(chatNote([], { ...today, verbosity: 'short' })).toBe('[Hearth: Today is 2026-11-06. Answer length: short.]');
     // Repeated while it holds: models drift back when the setting lies far behind.
-    expect(chatNote([sent('short')], { ...today, verbosity: 'short' })).toBe('[LLM Harness: Answer length: short.]');
-    expect(chatNote([sent('short')], { ...today, verbosity: 'medium' })).toBe('[LLM Harness: Answer length: medium.]');
+    expect(chatNote([sent('short')], { ...today, verbosity: 'short' })).toBe('[Hearth: Answer length: short.]');
+    expect(chatNote([sent('short')], { ...today, verbosity: 'medium' })).toBe('[Hearth: Answer length: medium.]');
     expect(chatNote([sent()], { ...today, verbosity: 'medium' })).toBeNull();
-    expect(chatNote([sent()], { ...today, verbosity: 'detailed' })).toBe('[LLM Harness: Answer length: detailed.]');
+    expect(chatNote([sent()], { ...today, verbosity: 'detailed' })).toBe('[Hearth: Answer length: detailed.]');
   });
 
   it('tell an agent the same way, in words it understands without the chat prompt', () => {
     expect(agentVerbosityNote([], 'medium')).toBeNull();
-    expect(agentVerbosityNote([], 'short')).toMatch(/^\[LLM Harness: Keep your answers short/);
+    expect(agentVerbosityNote([], 'short')).toMatch(/^\[Hearth: Keep your answers short/);
     expect(agentVerbosityNote([sent('short')], 'short')).toMatch(/short/);
-    expect(agentVerbosityNote([sent('detailed')], 'medium')).toBe('[LLM Harness: Answer at your usual length again.]');
+    expect(agentVerbosityNote([sent('detailed')], 'medium')).toBe('[Hearth: Answer at your usual length again.]');
     expect(agentVerbosityNote([sent()], 'medium')).toBeNull();
   });
 });

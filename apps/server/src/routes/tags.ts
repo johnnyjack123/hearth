@@ -1,4 +1,4 @@
-import { removeTagSchema, renameTagSchema } from '@harness/shared';
+import { removeTagSchema, renameTagSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { notFound } from '../http/errors.ts';

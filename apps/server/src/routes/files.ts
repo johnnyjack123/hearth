@@ -1,4 +1,4 @@
-import { MAX_FILE_BYTES, MAX_FILE_TEXT_CHARS } from '@harness/shared';
+import { MAX_FILE_BYTES, MAX_FILE_TEXT_CHARS } from '@hearth/shared';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { type DocumentConverter, markitdownConverter } from '../files/convert.ts';

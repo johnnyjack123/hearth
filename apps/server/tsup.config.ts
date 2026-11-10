@@ -10,5 +10,5 @@ export default defineConfig({
   sourcemap: true,
   // Workspace packages ship TypeScript sources, so they are bundled; npm
   // dependencies stay external and are installed in the production image.
-  noExternal: [/^@harness\//],
+  noExternal: [/^@hearth\//],
 });

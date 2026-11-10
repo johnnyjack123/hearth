@@ -1,0 +1,14 @@
+# App „SQLite“ für den App-Katalog (hearth app, Einstellungen im Browser)
+name = "sqlite"
+title = "SQLite"
+description = "Kommandozeile sqlite3 aus Debian"
+
+hosts = ["deb.debian.org"]
+
+path = ["bin"]
+
+install = '''
+hearth_apt sqlite3
+hearth_wrap usr/bin
+hearth_version "$("$PREFIX/bin/sqlite3" --version | cut -d' ' -f1)"
+'''

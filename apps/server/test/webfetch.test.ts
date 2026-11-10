@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { parseWebFetchError, type WebFetchOutput } from '@harness/shared';
+import { parseWebFetchError, type WebFetchOutput } from '@hearth/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { agentToolsAsText, webFetchAsText } from '../src/routes/chat.ts';
 import type { ChatMessage } from '../src/services/conversations.ts';
@@ -228,7 +228,7 @@ describe('URL checks', () => {
 });
 
 describe('injection patterns', () => {
-  const guardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../crates/harness-core/pi/guard.ts');
+  const guardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../crates/hearth-core/pi/guard.ts');
 
   it('match the pi guard', async () => {
     const guard = readFileSync(guardPath, 'utf8');

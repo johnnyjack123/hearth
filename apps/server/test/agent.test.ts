@@ -21,7 +21,7 @@ import {
   TUNNEL_VERSION,
   VERSION_APPS,
   VERSION_TEMPLATES,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { OpenRouterRouting } from '../src/openrouter.ts';
@@ -351,7 +351,7 @@ describe('DeviceHub', () => {
     };
     const old = connect(hub, 'd2');
     old.say({ type: 'hello', version: 2, projects: [] });
-    expect(() => hub.startTakeover('d2', takeover)).toThrow(/update harness/);
+    expect(() => hub.startTakeover('d2', takeover)).toThrow(/update hearth/);
     // Older devices never see autosync, they would not act on it.
     hub.startRun('d2', { ...takeover, session: 's0', type: 'session.prompt', text: 'hi', history: null, model: null, autosync: true });
     expect(old.received.at(-1)).toMatchObject({ type: 'session.prompt', autosync: false });
@@ -389,7 +389,7 @@ describe('DeviceHub', () => {
     hub.startRun('d1', prompt);
     expect(old.received.at(-1)).toEqual({ ...prompt, thinking: undefined });
     expect(old.received.at(-1)).not.toHaveProperty('thinking');
-    expect(() => hub.startCompaction('d1', compact)).toThrow(/update harness/);
+    expect(() => hub.startCompaction('d1', compact)).toThrow(/update hearth/);
 
     const device = connect(hub, 'd2');
     device.hello();
@@ -566,7 +566,7 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
 
   async function pair(as = cookie): Promise<{ token: string; deviceId: string; userId: string }> {
     const start = (await (
-      await server.request('POST', '/api/pairing', { body: { name: 'harness auf TEST' }, headers: CLI })
+      await server.request('POST', '/api/pairing', { body: { name: 'hearth auf TEST' }, headers: CLI })
     ).json()) as PairingStart;
     await server.request('POST', `/api/devices/pairing/${start.userCode}`, { cookie: as, body: { approve: true } });
     const poll = (await (
@@ -627,7 +627,7 @@ describe.each(DIALECTS)('linked chats on %s', (kind) => {
     expect(linked.status).toBe(200);
     expect(((await linked.json()) as ConversationSummary).link).toEqual({
       ...link,
-      deviceName: 'harness auf TEST',
+      deviceName: 'hearth auf TEST',
       autosync: false,
     });
 
@@ -809,7 +809,7 @@ data: [DONE]
       await call('Etwas anderes');
       expect(bodies[2]?.provider).toEqual({ order: ['cached/fp8', 'no-cache'], allow_fallbacks: true });
       // The conversation's calls share a cache key, the other conversation has its own.
-      expect(bodies[0]?.prompt_cache_key).toMatch(/^harness-[0-9a-f]{32}$/);
+      expect(bodies[0]?.prompt_cache_key).toMatch(/^hearth-[0-9a-f]{32}$/);
       expect(bodies[1]?.prompt_cache_key).toBe(bodies[0]?.prompt_cache_key);
       expect(bodies[2]?.prompt_cache_key).not.toBe(bodies[0]?.prompt_cache_key);
       // A model pinned to a host goes there only, whatever the agent asks for.
@@ -915,7 +915,7 @@ data: [DONE]
       });
       device.onPrompt = (message) => prompted(message.text);
       const reply = chat(conversation.id, 'Wie röstet man Kaffee?', undefined, true);
-      expect(await prompt).toMatch(/^\[LLM Harness: Research mode is on\..*\]\n\nWie röstet man Kaffee\?$/s);
+      expect(await prompt).toMatch(/^\[Hearth: Research mode is on\..*\]\n\nWie röstet man Kaffee\?$/s);
       const found = await search();
       expect(found.status).toBe(200);
       const body = (await found.json()) as { text: string; results: number };
@@ -930,10 +930,10 @@ data: [DONE]
       expect((await known('https://kaffee.example/anderes')).status).toBe(404);
       // Research mode and hits belong to the chat's project: an agent of
       // another project on the computer gets neither.
-      const elsewhere = { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': 'anderes' };
+      const elsewhere = { ...CLI, authorization: `Bearer ${token}`, 'x-hearth-project': 'anderes' };
       expect((await server.request('POST', '/api/llm/proxy/_web/search', { body: { query: 'x' }, headers: elsewhere })).status).toBe(403);
       expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: elsewhere })).status).toBe(404);
-      const own = { ...elsewhere, 'x-harness-project': 'demo' };
+      const own = { ...elsewhere, 'x-hearth-project': 'demo' };
       expect((await server.request('POST', '/api/llm/proxy/_web/known', { body: { url: 'https://kaffee.example/roesten' }, headers: own })).status).toBe(204);
 
       device.emit(conversation.id, { type: 'done', aborted: false });
@@ -1033,7 +1033,7 @@ data: [DONE]
     });
     expect(created.status).toBe(201);
     const conversation = (await created.json()) as ConversationSummary;
-    expect(conversation.link).toEqual({ ...link, deviceName: 'harness auf TEST', autosync: false });
+    expect(conversation.link).toEqual({ ...link, deviceName: 'hearth auf TEST', autosync: false });
     expect((await load(conversation.id)).link).toEqual(conversation.link);
 
     // The first message goes to the device, not to the model.
@@ -1067,7 +1067,7 @@ data: [DONE]
     });
   }
 
-  it('keeps the version of harness a device says, so either side can tell the other is older', async () => {
+  it('keeps the version of hearth a device says, so either side can tell the other is older', async () => {
     const { deviceId, userId } = await pair();
     const device = connect(server.hub, deviceId, userId);
     device.say({ type: 'hello', version: TUNNEL_VERSION, projects: [PROJECT], harness: '0.1.14' });
@@ -1144,7 +1144,7 @@ data: [DONE]
     const inProject = (project: string) =>
       server.request('POST', '/api/llm/proxy/_documents', {
         body: { file: file.id.slice(-8) },
-        headers: { ...CLI, authorization: `Bearer ${token}`, 'x-harness-project': project },
+        headers: { ...CLI, authorization: `Bearer ${token}`, 'x-hearth-project': project },
       });
     expect((await inProject('demo')).status).toBe(200);
     expect((await inProject('anderes')).status).toBe(404);
@@ -1291,7 +1291,7 @@ data: [DONE]
     device.onCompact = (request) =>
       device.emit(
         request.session,
-        { type: 'progress', id: 'instance', label: 'Instanz harness-demo', state: 'done' },
+        { type: 'progress', id: 'instance', label: 'Instanz hearth-demo', state: 'done' },
         { type: 'compaction', state: 'running', trigger: 'manual' },
         {
           type: 'compaction',
@@ -1479,11 +1479,11 @@ data: [DONE]
     // A script keeps only what scripts use.
     const changed = await server.request('PUT', `/api/app-templates/${template.id}`, {
       cookie,
-      body: { ...tree, name: undefined, kind: 'script', script: 'harness_version 1', hosts: ['GitHub.com'], path: ['bin'] },
+      body: { ...tree, name: undefined, kind: 'script', script: 'hearth_version 1', hosts: ['GitHub.com'], path: ['bin'] },
     });
     expect(changed.status).toBe(200);
     expect(await changed.json()).toMatchObject({ name: 'tree', kind: 'script', packages: [], hosts: ['github.com'] });
-    expect(sent()).toMatchObject({ templates: [{ name: 'tree', kind: 'script', packages: [], script: 'harness_version 1' }] });
+    expect(sent()).toMatchObject({ templates: [{ name: 'tree', kind: 'script', packages: [], script: 'hearth_version 1' }] });
 
     // A device that connects later gets them after its hello.
     const again = connect(server.hub, deviceId, userId);
@@ -1505,7 +1505,7 @@ data: [DONE]
 
   it('keeps reported projects while the device is offline and links to them', async () => {
     const { token, deviceId } = await pair();
-    // What `harness init` does without a running service.
+    // What `hearth init` does without a running service.
     const reported = await server.request('PUT', '/api/device/projects', {
       headers: { ...CLI, authorization: `Bearer ${token}` },
       body: { projects: [{ name: 'neu', harnesses: ['pi'] }] },

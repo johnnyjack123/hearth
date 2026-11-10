@@ -10,11 +10,12 @@ import { router } from './app/router.tsx';
 import { Toaster } from './components/ui/toaster.tsx';
 import { TooltipProvider } from './components/ui/menu.tsx';
 import { installClipboardFallback } from './lib/clipboard.ts';
-import { PreferencesProvider } from './lib/preferences.tsx';
+import { adoptOldPreferences, PreferencesProvider } from './lib/preferences.tsx';
 import { queryClient } from './lib/query-client.ts';
 
 // Before anything renders a copy button.
 installClipboardFallback();
+adoptOldPreferences();
 
 const container = document.getElementById('root');
 if (!container) {

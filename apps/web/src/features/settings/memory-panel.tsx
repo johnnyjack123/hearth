@@ -1,4 +1,4 @@
-import { MAX_MEMORIES, MAX_MEMORY_CHARS, type Memory } from '@harness/shared';
+import { MAX_MEMORIES, MAX_MEMORY_CHARS, type Memory } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookMarked, Check, Pencil, Trash2, X } from 'lucide-react';
 import { type FormEvent, useState } from 'react';

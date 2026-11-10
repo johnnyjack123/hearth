@@ -1,4 +1,4 @@
-import type { WebFetchOutput } from '@harness/shared';
+import type { WebFetchOutput } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
 import { bm25Scores, chooseSections, fuseRankings, selectSections, SHORT_PAGE_CHARS, splitSections } from '../src/webfetch/sections.ts';
 import { modelText } from '../src/webfetch/tool.ts';

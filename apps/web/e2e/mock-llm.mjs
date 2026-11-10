@@ -161,7 +161,7 @@ function memoryStep(payload) {
     return { text: 'Gemerkt, das gilt ab jetzt in jedem Chat.' };
   }
   if (last?.role === 'user' && textOf(last.content).includes('Was weißt du über mich?')) {
-    const note = /\[LLM Harness memory:[\s\S]*?\n\]/.exec(textOf(last.content))?.[0];
+    const note = /\[Hearth memory:[\s\S]*?\n\]/.exec(textOf(last.content))?.[0];
     return { text: note ? `Laut Gedächtnis: ${note.split('\n').slice(1, -1).join(' ')}` : 'Nichts.' };
   }
   return null;

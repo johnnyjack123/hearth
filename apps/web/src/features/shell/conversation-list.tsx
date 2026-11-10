@@ -1,4 +1,4 @@
-import { type ConversationSummary, MAX_CHAT_TAGS } from '@harness/shared';
+import { type ConversationSummary, MAX_CHAT_TAGS } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, Ellipsis, Folder, FolderOpen, MessagesSquare, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
@@ -21,7 +21,7 @@ import { disposeChat } from '../chat/chat-store.ts';
 const DAY_MS = 86_400_000;
 
 /** Which tag folders are open, per browser. */
-const OPEN_FOLDERS_KEY = 'harness.openTagFolders';
+const OPEN_FOLDERS_KEY = 'hearth.openTagFolders';
 
 function readOpenFolders(): string[] {
   try {

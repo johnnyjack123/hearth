@@ -1,11 +1,11 @@
-# Egress gateway of llm-harness projects (crates/harness-gateway).
+# Egress gateway of hearth projects (crates/hearth-gateway).
 #
-# Built inside the VM by `harness image build`. The context is this file,
+# Built inside the VM by `hearth image build`. The context is this file,
 # Cargo.lock from this directory and the gateway crate's Cargo.toml and src/,
-# all embedded into the CLI binary (crates/harness-core/src/image.rs).
+# all embedded into the CLI binary (crates/hearth-core/src/image.rs).
 #
 # The crate's only dependencies are the TLS stack (rustls, ring, Mozilla's
-# roots) for an https:// harness server. They come from crates.io, pinned
+# roots) for an https:// hearth server. They come from crates.io, pinned
 # and checksum-verified by Cargo.lock, which is the workspace lock pruned to
 # the gateway (scripts/gateway-lock.sh); `--locked` refuses to build if it
 # does not fit. ring compiles C and assembly with the gcc of the Rust image.
@@ -28,17 +28,17 @@ COPY src ./src
 ENV CARGO_PROFILE_RELEASE_LTO=true \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
     CARGO_PROFILE_RELEASE_STRIP=true
-RUN cargo build --release --locked --offline --features tls --bin harness-gateway
+RUN cargo build --release --locked --offline --features tls --bin hearth-gateway
 
 # Same base as the instances, already in the VM; glibc for the resolver. No
 # CA bundle needed: the gateway brings Mozilla's roots itself.
 FROM docker.io/library/debian:trixie-slim
-COPY --from=build /src/target/release/harness-gateway /usr/local/bin/harness-gateway
+COPY --from=build /src/target/release/hearth-gateway /usr/local/bin/hearth-gateway
 
-LABEL org.opencontainers.image.title="harness-gateway" \
-      org.opencontainers.image.description="Egress gateway for llm-harness instances"
+LABEL org.opencontainers.image.title="hearth-gateway" \
+      org.opencontainers.image.description="Egress gateway for hearth instances"
 
 # nobody; the provider sets the same user explicitly.
 USER 65534:65534
 EXPOSE 8888
-CMD ["harness-gateway", "serve"]
+CMD ["hearth-gateway", "serve"]

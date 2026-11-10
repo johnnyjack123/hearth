@@ -1,0 +1,25 @@
+# App „Bun“ für den App-Katalog (hearth app, Einstellungen im Browser)
+name = "bun"
+title = "Bun"
+description = "Laufzeit, Paketmanager und Bundler für JavaScript (aktuelle Version)"
+
+hosts = ["github.com", "*.githubusercontent.com"]
+
+# ~/.bun/bin: was der Agent mit `bun add -g` installiert
+path = ["bin", "~/.bun/bin"]
+
+install = '''
+case "$MACHINE" in
+  x86_64) target=bun-linux-x64 ;;
+  *) target=bun-linux-$MACHINE ;;
+esac
+base=https://github.com/oven-sh/bun/releases/latest/download
+hearth_download "$base/$target.zip" "$WORK/$target.zip"
+hearth_download "$base/SHASUMS256.txt" "$WORK/SHASUMS256.txt"
+hearth_sha256 "$WORK/$target.zip" "$(grep " $target.zip\$" "$WORK/SHASUMS256.txt" | cut -d' ' -f1)"
+unzip -q "$WORK/$target.zip" -d "$WORK"
+mkdir -p "$PREFIX/bin"
+mv "$WORK/$target/bun" "$PREFIX/bin/bun"
+ln -s bun "$PREFIX/bin/bunx"
+hearth_version "$("$PREFIX/bin/bun" --version)"
+'''

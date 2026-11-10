@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { PairingInfo, PairingStart } from '@harness/shared';
+import type { PairingInfo, PairingStart } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { parseTrustedProxies, rateKey, resolveClientIp } from '../src/http/client-ip.ts';
@@ -89,15 +89,15 @@ describe('small pieces', () => {
   });
 
   it('refuses a stored secret that is too short', () => {
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-secret-'));
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-secret-'));
     writeFileSync(path.join(dataDir, 'server-secret'), 'short\n');
     expect(() => loadConfig({ DATA_DIR: dataDir })).toThrow(/at least 32/);
   });
 
   it('makes a setup code unless one is given', () => {
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-setup-'));
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-setup-'));
     expect(loadConfig({ DATA_DIR: dataDir }).setupCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
-    expect(loadConfig({ DATA_DIR: dataDir, HARNESS_SETUP_CODE: 'my-own-code' }).setupCode).toBe('my-own-code');
+    expect(loadConfig({ DATA_DIR: dataDir, HEARTH_SETUP_CODE: 'my-own-code' }).setupCode).toBe('my-own-code');
     expect(() => loadConfig({ DATA_DIR: dataDir, TRUSTED_PROXIES: 'proxy' })).toThrow(/TRUSTED_PROXIES/);
   });
 });
@@ -151,7 +151,7 @@ describe.each(DIALECTS)('server on the internet (%s)', (kind) => {
     const cookie = await server.signUp('owner@example.com');
     // Through the proxy (10.0.0.0/8 in tests): its header names the client.
     const started = await server.request('POST', '/api/pairing', {
-      body: { name: 'harness auf PC' },
+      body: { name: 'hearth auf PC' },
       headers: { ...CLI, 'x-forwarded-for': '198.51.100.9' },
       peer: '10.0.0.2',
     });
@@ -164,7 +164,7 @@ describe.each(DIALECTS)('server on the internet (%s)', (kind) => {
 
     // Straight to the server, the header counts for nothing.
     const direct = await server.request('POST', '/api/pairing', {
-      body: { name: 'harness auf PC' },
+      body: { name: 'hearth auf PC' },
       headers: { ...CLI, 'x-forwarded-for': '198.51.100.9' },
       peer: '203.0.113.66',
     });
@@ -200,11 +200,11 @@ describe.each(DIALECTS)('server on the internet (%s)', (kind) => {
     expect((await asDevice()).status).toBe(200);
   });
 
-  it('proves it holds a device without the token travelling, as harness computes it', async () => {
+  it('proves it holds a device without the token travelling, as hearth computes it', async () => {
     const cookie = await server.signUp('owner@example.com');
     const started = (await (await server.request('POST', '/api/pairing', { body: { name: 'PC' }, headers: CLI })).json()) as PairingStart;
     await server.request('POST', `/api/devices/pairing/${started.userCode}`, { cookie, body: { approve: true } });
-    // The token of the fixed values in `harness-core/src/server.rs`.
+    // The token of the fixed values in `hearth-core/src/server.rs`.
     await server.database.db.updateTable('device').set({ tokenHash: 'a71e718f66da4e3bde5b7756f407734208d50d07f5e67f411329e17883285433' }).execute();
     const prove = (lookup: string) =>
       server.request('POST', '/api/pairing/prove', { body: { lookup, nonce: '00112233445566778899aabbccddeeff' }, headers: CLI });

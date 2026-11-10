@@ -1,4 +1,4 @@
-import type { ChatFile, ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ChatFile, ConversationDetail, ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -42,7 +42,7 @@ describe('detectFile', () => {
 describe('FileStore', () => {
   it('lets the server start without a writable data directory and says so on upload', async () => {
     // A file where the directory should be: it cannot be created.
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-files-'));
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-files-'));
     writeFileSync(path.join(dataDir, 'files'), 'in the way');
     const store = new FileStore({} as Kysely<DB>, dataDir);
     const upload = { userId: 'u1', name: 'a.txt', mediaType: 'text/plain', kind: 'text' as const, text: 'a', truncated: false };

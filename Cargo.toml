@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/harness-core", "crates/harness-cli", "crates/harness-gateway", "crates/harness-setup", "crates/harness-vmd"]
+members = ["crates/hearth-core", "crates/hearth-cli", "crates/hearth-gateway", "crates/hearth-setup", "crates/hearth-vmd"]
 
 [workspace.package]
 version = "0.1.22"
@@ -10,8 +10,8 @@ license = "UNLICENSED"
 publish = false
 
 [workspace.dependencies]
-harness-core = { path = "crates/harness-core" }
-harness-gateway = { path = "crates/harness-gateway" }
+hearth-core = { path = "crates/hearth-core" }
+hearth-gateway = { path = "crates/hearth-gateway" }
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 # OS credential store for the device token (Windows: Credential Manager).
@@ -25,20 +25,20 @@ toml_edit = "0.25.17"
 # Native TLS (SChannel on Windows) instead of rustls/ring, which would need a
 # C toolchain for aarch64-pc-windows-msvc.
 ureq = { version = "3.4.2", default-features = false, features = ["native-tls", "json"] }
-# WebSocket to the server for `harness connect`, TLS through native-tls like
+# WebSocket to the server for `hearth connect`, TLS through native-tls like
 # ureq (SChannel on Windows, the system's trust store).
 tungstenite = { version = "0.30.0", features = ["native-tls"] }
 # For the tunnel to a server with its own CA (already in the lock file
 # through ureq and tungstenite).
 native-tls = "0.2.18"
-# A server proves it holds a device before `harness login` moves the
+# A server proves it holds a device before `hearth login` moves the
 # token to a new address of it. Pure Rust (RustCrypto); digest and
 # getrandom are already in the lock file through tungstenite and tempfile.
 sha2 = "0.11"
 hmac = "0.13"
 getrandom = "0.4"
-# Pseudo consoles and raw console input for `harness run`, the tray icon of
-# harnessd (already in the lock file through keyring and native-tls).
+# Pseudo consoles and raw console input for `hearth run`, the tray icon of
+# hearthd (already in the lock file through keyring and native-tls).
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Globalization",

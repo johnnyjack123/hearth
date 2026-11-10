@@ -11,7 +11,7 @@ export const APP_KINDS = ['apt', 'npm', 'pip', 'script'] as const;
 export type AppKind = (typeof APP_KINDS)[number];
 
 /**
- * Apps of the catalog shipped with harness (`BUILTIN_APPS` in harness-core
+ * Apps of the catalog shipped with hearth (`BUILTIN_APPS` in hearth-core
  * config/mod.rs, checked by a test there). An own program cannot take
  * their names: the computer's app would always win.
  */
@@ -26,7 +26,7 @@ export const MAX_TEMPLATE_PACKAGES = 20;
 /** Longest install script. */
 export const MAX_TEMPLATE_SCRIPT = 20_000;
 
-// Package names as the device accepts them (harness-core
+// Package names as the device accepts them (hearth-core
 // config/template.rs): registry names with an optional version, nothing a
 // shell or package manager would read as a URL, path or option.
 const PACKAGE_PATTERNS: Record<Exclude<AppKind, 'script'>, RegExp> = {
@@ -50,7 +50,7 @@ const label = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
 
 /**
  * A domain like the gateway's rules take it: `example.com` or
- * `*.example.com`, no IP addresses (`DomainPattern` in harness-gateway).
+ * `*.example.com`, no IP addresses (`DomainPattern` in hearth-gateway).
  */
 export const domainPatternSchema = z
   .string()

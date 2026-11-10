@@ -3,7 +3,7 @@ import {
   PROVIDERS,
   type ProviderCredential,
   type UpdateProviderCredentialInput,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import { keyHint, type SecretBox } from '../crypto.ts';

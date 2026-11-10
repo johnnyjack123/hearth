@@ -14,7 +14,7 @@ import {
   WEB_SEARCH_TOOL,
   type WebFetchOutput,
   type WebSearchOutput,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { Kysely } from 'kysely';
 import type { DB } from './db/schema.ts';
 import type { ChatMessage } from './services/conversations.ts';

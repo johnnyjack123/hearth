@@ -1,4 +1,4 @@
-import type { ConversationSummary } from '@harness/shared';
+import type { ConversationSummary } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestServer, DIALECTS, type TestServer } from './helpers.ts';
 

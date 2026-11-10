@@ -1,6 +1,6 @@
-# For scripts/smoke-connect.sh: finds the harnessd that started the
+# For scripts/smoke-connect.sh: finds the hearthd that started the
 # background service with process id -DaemonPid and tells whether it shows
-# its tray window. Prints "<harnessd pid> tray" or "<harnessd pid> none".
+# its tray window. Prints "<hearthd pid> tray" or "<hearthd pid> none".
 # ASCII only: Windows PowerShell 5.1 reads scripts without BOM as ANSI.
 # EnumWindows rather than FindWindowEx: PowerShell passes $null for a string
 # as "", which would only match windows without a title.
@@ -27,7 +27,7 @@ public static class TrayWindows {
             if (processId == owner) {
                 var name = new StringBuilder(256);
                 GetClassName(window, name, name.Capacity);
-                if (name.ToString() == "llm-harness-tray") { found = true; }
+                if (name.ToString() == "hearth-tray") { found = true; }
             }
             return true;
         }, IntPtr.Zero);

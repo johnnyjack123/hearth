@@ -1,5 +1,5 @@
 {
-  "name": "@harness/server",
+  "name": "@hearth/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -33,7 +33,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@harness/shared": "workspace:*",
+    "@hearth/shared": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",

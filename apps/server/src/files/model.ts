@@ -1,4 +1,4 @@
-import { chatFileId, MAX_FILE_TEXT_CHARS } from '@harness/shared';
+import { chatFileId, MAX_FILE_TEXT_CHARS } from '@hearth/shared';
 import type { ChatMessage } from '../services/conversations.ts';
 import { isLongDocument, longDocumentText } from './read.ts';
 import type { FileRow, FileStore } from './store.ts';

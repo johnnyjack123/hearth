@@ -5,7 +5,7 @@ import {
   type Inspection,
   WEB_FETCH_WARNINGS,
   type WebFetchWarning,
-} from '@harness/shared';
+} from '@hearth/shared';
 import { ChevronDown, ChevronRight, ChevronUp, ScanSearch, Scale, TriangleAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';

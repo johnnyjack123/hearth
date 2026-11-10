@@ -1,4 +1,4 @@
-import { type Inspection, parseWebSearchError, SEARCH_KINDS, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@harness/shared';
+import { type Inspection, parseWebSearchError, SEARCH_KINDS, WEB_FETCH_TOOL, type WebSearchOutput, type WebSearchResult } from '@hearth/shared';
 import type { ToolUIPart } from 'ai';
 import { BookOpenCheck, ChevronRight, CircleAlert, Search, Star } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

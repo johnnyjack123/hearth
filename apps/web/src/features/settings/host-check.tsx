@@ -1,4 +1,4 @@
-import type { HostCheckStatus } from '@harness/shared';
+import type { HostCheckStatus } from '@hearth/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { useState } from 'react';

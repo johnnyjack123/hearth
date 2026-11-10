@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import { createScriptedLlm, createTestServer, ORIGIN, readChunks, type Step, type TestServer } from './helpers.ts';

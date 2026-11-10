@@ -1,4 +1,4 @@
-import { memoryInputSchema } from '@harness/shared';
+import { memoryInputSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { notFound } from '../http/errors.ts';

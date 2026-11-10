@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { DeviceSummary, DiffAssessment, PairingPoll, PairingStart } from '@harness/shared';
+import type { DeviceSummary, DiffAssessment, PairingPoll, PairingStart } from '@hearth/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestServer, DIALECTS, type TestServer } from './helpers.ts';
 
@@ -52,7 +52,7 @@ describe.each(DIALECTS)('Jev for the merge check on %s', (kind) => {
     server = await createTestServer(kind, { helpers: { apiUrl: `http://127.0.0.1:${port}/api/v1`, timeoutMs: 2_000 } });
     cookie = await server.signUp('owner@example.com');
     const start = (await (
-      await server.request('POST', '/api/pairing', { body: { name: 'harness auf TEST' }, headers: CLI })
+      await server.request('POST', '/api/pairing', { body: { name: 'hearth auf TEST' }, headers: CLI })
     ).json()) as PairingStart;
     await server.request('POST', `/api/devices/pairing/${start.userCode}`, { cookie, body: { approve: true } });
     const poll = (await (

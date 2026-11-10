@@ -6,7 +6,7 @@
  * later request builds exactly the same prompt and the provider's cache
  * keeps working until the chat grows past the threshold again.
  */
-import { type CondenseSettings, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@harness/shared';
+import { type CondenseSettings, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from '@hearth/shared';
 import type { ChatMessage } from './services/conversations.ts';
 
 /** Less text than this (~2,000 tokens) is not worth voiding the provider's cache for. */

@@ -1,4 +1,4 @@
-import { type ChatFeatures, DEFAULT_CHAT_FEATURES } from '@harness/shared';
+import { type ChatFeatures, DEFAULT_CHAT_FEATURES } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getServerSettings } from '../src/services/settings.ts';
 import { createTestServer, DIALECTS, SETUP_CODE, type TestServer } from './helpers.ts';
@@ -60,7 +60,7 @@ describe.each(DIALECTS)('chat features and registration on %s', (kind) => {
     await server.signUp('first@example.com');
     const second = await server.request('POST', '/api/auth/sign-up/email', {
       body: { email: 'second@example.com', name: 'second', password: 'correct-horse-battery' },
-      headers: { 'x-harness-setup-code': SETUP_CODE },
+      headers: { 'x-hearth-setup-code': SETUP_CODE },
     });
     expect(second.status).toBe(403);
     expect(((await second.json()) as { code: string }).code).toBe('REGISTRATION_CLOSED');

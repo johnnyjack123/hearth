@@ -4,13 +4,13 @@ import type { ModelInfo } from './api.ts';
 import type { ProviderKind } from './providers.ts';
 
 /**
- * A computer paired with an account (the `harness` CLI or desktop app). Its
+ * A computer paired with an account (the `hearth` CLI). Its
  * token only grants LLM access through the server, never the rest of the API.
  */
 export interface DeviceSummary {
   /** Device id. */
   id: string;
-  /** Name the device reported when pairing, e.g. `harness auf LAPTOP`. */
+  /** Name the device reported when pairing, e.g. `hearth auf LAPTOP`. */
   name: string;
   /** Pairing time, epoch milliseconds. */
   createdAt: number;
@@ -40,7 +40,7 @@ export interface DeviceSummary {
    */
   apps: AppsReport | null;
   /**
-   * The version of harness on the computer at its last connection
+   * The version of hearth on the computer at its last connection
    * (protocol 10); null for devices that never said.
    */
   harnessVersion: string | null;
@@ -52,7 +52,7 @@ export interface DeviceSummary {
 export interface DeviceActivity {
   /** Agent replies running on it right now. */
   replies: number;
-  /** harness commands in a terminal that use the VM (`harness run`, `shell` …). */
+  /** hearth commands in a terminal that use the VM (`hearth run`, `shell` …). */
   terminals: number;
   /**
    * When the device stops the idle VM, epoch milliseconds (server clock);
@@ -122,7 +122,7 @@ export interface AppFileResult {
   ok: boolean;
   /** What happened, in German, from the device. */
   message: string;
-  /** Id to approve with on the computer (`harness app approve <id>`), if it waits. */
+  /** Id to approve with on the computer (`hearth app approve <id>`), if it waits. */
   approval: string | null;
 }
 
@@ -175,7 +175,7 @@ export const pairingTokenSchema = z
 
 /**
  * Asks a server to prove it holds a device, before the device sends its
- * token to a new address of it (`harness login` behind a reverse proxy).
+ * token to a new address of it (`hearth login` behind a reverse proxy).
  * `lookup` is SHA-256 of the token's stored hash, in hex; the server answers
  * with HMAC-SHA-256 of `nonce`, keyed with that stored hash. Neither tells a
  * stranger anything that would let them sign in.

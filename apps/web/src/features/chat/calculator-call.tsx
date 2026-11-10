@@ -1,4 +1,4 @@
-import type { CalculationResult, CalculatorOutput } from '@harness/shared';
+import type { CalculationResult, CalculatorOutput } from '@hearth/shared';
 import type { ToolUIPart } from 'ai';
 import { Calculator, CircleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';

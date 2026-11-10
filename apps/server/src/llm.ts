@@ -3,7 +3,7 @@ import { createGoogle } from '@ai-sdk/google';
 import { createMistral } from '@ai-sdk/mistral';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible, type MetadataExtractor } from '@ai-sdk/openai-compatible';
-import { type ModelInfo, PROVIDERS, type ProviderKind } from '@harness/shared';
+import { type ModelInfo, PROVIDERS, type ProviderKind } from '@hearth/shared';
 import type { LanguageModel, ProviderMetadata } from 'ai';
 
 /**

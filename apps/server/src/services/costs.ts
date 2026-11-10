@@ -5,10 +5,10 @@
  * every user and the user's own.
  *
  * Counted are the replies of the web chat (chat models, agents, helper
- * calls). `harness run` in a terminal goes past the chat and is not counted;
+ * calls). `hearth run` in a terminal goes past the chat and is not counted;
  * once the limit is reached, its model calls are refused as well.
  */
-import type { CostStatus } from '@harness/shared';
+import type { CostStatus } from '@hearth/shared';
 import type { Kysely, Transaction } from 'kysely';
 import type { DB } from '../db/schema.ts';
 import { HttpError } from '../http/errors.ts';

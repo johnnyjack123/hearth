@@ -12,11 +12,11 @@ import { countUsers, getServerSettings } from './services/settings.ts';
  * `http/client-ip.ts`); Better Auth reads only this one, never a
  * client's own `X-Forwarded-For`.
  */
-export const CLIENT_IP_HEADER = 'x-harness-client-ip';
+export const CLIENT_IP_HEADER = 'x-hearth-client-ip';
 
 function authOptions(config: ServerConfig, database: Database) {
   return {
-    appName: 'LLM Harness',
+    appName: 'Hearth',
     baseURL: config.publicUrl,
     basePath: '/api/auth',
     secret: deriveKey(config.secret, 'auth:v1').toString('base64url'),
@@ -42,7 +42,7 @@ function authOptions(config: ServerConfig, database: Database) {
       },
     },
     advanced: {
-      cookiePrefix: 'harness',
+      cookiePrefix: 'hearth',
       useSecureCookies: config.publicUrl.startsWith('https://'),
       ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },

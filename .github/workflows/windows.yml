@@ -1,8 +1,8 @@
-# Builds harness for Windows (x64 and arm64):
-# - llm-harness-setup-<arch>.exe, the one file to download: it carries the
-#   programs below, installs them for the user and runs `harness setup`;
-# - llm-harness-windows-<arch>.zip with harness.exe, harnessd.exe (tray and
-#   launcher of the background service), harness-vmd.exe (VM service) and
+# Builds hearth for Windows (x64 and arm64):
+# - hearth-setup-<arch>.exe, the one file to download: it carries the
+#   programs below, installs them for the user and runs `hearth setup`;
+# - hearth-windows-<arch>.zip with hearth.exe, hearthd.exe (tray and
+#   launcher of the background service), hearth-vmd.exe (VM service) and
 #   install.ps1, for scripted installs.
 #
 # Runs on version tags, which also publish a release with all four files, and by
@@ -10,7 +10,7 @@
 # arm64 is cross-compiled on the x64 runner: the MSVC ARM64 tools are part
 # of its Visual Studio, and no dependency compiles C code.
 #
-# harness.exe carries the egress gateway for the VM (x64 Windows runs an
+# hearth.exe carries the egress gateway for the VM (x64 Windows runs an
 # x86_64 VM, arm64 an aarch64 one), built first on Linux with the build stage
 # of images/gateway/Containerfile, exactly as the VM would build it. The VM
 # then only packs it (images/gateway/Containerfile.prebuilt) and needs
@@ -51,22 +51,22 @@ jobs:
 
       - name: Build like the VM
         run: |
-          # The context harness writes for `harness image build gateway`.
+          # The context hearth writes for `hearth image build gateway`.
           context="$RUNNER_TEMP/gateway"
           mkdir -p "$context"
-          cp images/gateway/Containerfile images/gateway/Cargo.lock crates/harness-gateway/Cargo.toml "$context/"
-          cp -r crates/harness-gateway/src "$context/"
-          docker build --file "$context/Containerfile" --target build --tag harness-gateway-build "$context"
-          container=$(docker create harness-gateway-build)
-          docker cp "$container:/src/target/release/harness-gateway" harness-gateway
+          cp images/gateway/Containerfile images/gateway/Cargo.lock crates/hearth-gateway/Cargo.toml "$context/"
+          cp -r crates/hearth-gateway/src "$context/"
+          docker build --file "$context/Containerfile" --target build --tag hearth-gateway-build "$context"
+          container=$(docker create hearth-gateway-build)
+          docker cp "$container:/src/target/release/hearth-gateway" hearth-gateway
           docker rm "$container"
-          file harness-gateway
-          ./harness-gateway --version
+          file hearth-gateway
+          ./hearth-gateway --version
 
       - uses: actions/upload-artifact@v7
         with:
           name: gateway-${{ matrix.vm }}
-          path: harness-gateway
+          path: hearth-gateway
           retention-days: 30
 
   build:
@@ -95,38 +95,38 @@ jobs:
 
       - name: Build
         env:
-          # Embedded by crates/harness-core/build.rs, which checks the architecture.
-          HARNESS_GATEWAY_BINARY: ${{ github.workspace }}/gateway/harness-gateway
-        run: cargo build --release --locked --target ${{ matrix.target }} -p harness-cli -p harness-vmd
+          # Embedded by crates/hearth-core/build.rs, which checks the architecture.
+          HEARTH_GATEWAY_BINARY: ${{ github.workspace }}/gateway/hearth-gateway
+        run: cargo build --release --locked --target ${{ matrix.target }} -p hearth-cli -p hearth-vmd
 
       - name: Build the installer with these programs inside
         shell: pwsh
         run: |
-          $env:HARNESS_BUNDLE_DIR = Join-Path $env:GITHUB_WORKSPACE "target/${{ matrix.target }}/release"
-          cargo build --release --locked --target ${{ matrix.target }} -p harness-setup
+          $env:HEARTH_BUNDLE_DIR = Join-Path $env:GITHUB_WORKSPACE "target/${{ matrix.target }}/release"
+          cargo build --release --locked --target ${{ matrix.target }} -p hearth-setup
 
       - name: Starts on the runner
         if: matrix.arch == 'x64'
-        run: target/${{ matrix.target }}/release/harness.exe --help
+        run: target/${{ matrix.target }}/release/hearth.exe --help
 
       - name: Package
         shell: pwsh
         run: |
-          $name = "llm-harness-windows-${{ matrix.arch }}"
+          $name = "hearth-windows-${{ matrix.arch }}"
           New-Item -ItemType Directory $name | Out-Null
-          foreach ($exe in 'harness.exe', 'harnessd.exe', 'harness-vmd.exe') {
+          foreach ($exe in 'hearth.exe', 'hearthd.exe', 'hearth-vmd.exe') {
             Copy-Item "target/${{ matrix.target }}/release/$exe" $name
           }
           Copy-Item scripts/install.ps1 $name
           Compress-Archive -Path "$name/*" -DestinationPath "$name.zip"
-          Copy-Item "target/${{ matrix.target }}/release/llm-harness-setup.exe" "llm-harness-setup-${{ matrix.arch }}.exe"
+          Copy-Item "target/${{ matrix.target }}/release/hearth-setup.exe" "hearth-setup-${{ matrix.arch }}.exe"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: llm-harness-windows-${{ matrix.arch }}
+          name: hearth-windows-${{ matrix.arch }}
           path: |
-            llm-harness-windows-${{ matrix.arch }}.zip
-            llm-harness-setup-${{ matrix.arch }}.exe
+            hearth-windows-${{ matrix.arch }}.zip
+            hearth-setup-${{ matrix.arch }}.exe
           retention-days: 30
 
   release:

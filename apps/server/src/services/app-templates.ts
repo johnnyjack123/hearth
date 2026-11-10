@@ -5,7 +5,7 @@ import {
   type DeviceAppTemplate,
   MAX_APP_TEMPLATES,
   type UpdateAppTemplateInput,
-} from '@harness/shared';
+} from '@hearth/shared';
 import type { Kysely, Selectable } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { AppTemplateTable, DB } from '../db/schema.ts';

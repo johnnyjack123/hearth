@@ -1,4 +1,4 @@
-import type { DeviceSummary } from '@harness/shared';
+import type { DeviceSummary } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Power, Timer } from 'lucide-react';
 import { useState } from 'react';
@@ -31,7 +31,7 @@ function duration(t: TranslateFn, minutes: number): string {
  *
  * @param t - Translation.
  * @param activity - The device's report.
- * @returns E.g. "ein Agent antwortet · harness im Terminal".
+ * @returns E.g. "ein Agent antwortet · hearth im Terminal".
  */
 function busyWith(t: TranslateFn, activity: NonNullable<DeviceSummary['activity']>): string | null {
   const parts: string[] = [];
@@ -58,7 +58,7 @@ export function DeviceVm({ device }: { device: DeviceSummary }) {
   const [stopping, setStopping] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const { activity, vm } = device;
-  // Online without a report: harness on the computer predates protocol 2.
+  // Online without a report: hearth on the computer predates protocol 2.
   const outdated = device.online && vm !== null && activity === null;
   const busy = activity ? busyWith(t, activity) : null;
 

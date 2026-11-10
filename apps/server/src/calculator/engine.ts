@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
-import type { CalculationResult } from '@harness/shared';
+import type { CalculationResult } from '@hearth/shared';
 
 /** Longest result text; a huge matrix would otherwise fill the context. */
 const MAX_RESULT_LENGTH = 4_000;

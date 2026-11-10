@@ -1,4 +1,4 @@
-import { updateChatFeaturesSchema } from '@harness/shared';
+import { updateChatFeaturesSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { chatFeatures, setChatFeatures } from '../services/features.ts';

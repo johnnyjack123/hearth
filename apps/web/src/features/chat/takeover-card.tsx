@@ -1,4 +1,4 @@
-import type { ReportedFinding, TakeoverReport } from '@harness/shared';
+import type { ReportedFinding, TakeoverReport } from '@hearth/shared';
 import { Check, ChevronRight, CircleAlert, Copy, GitMerge, ShieldAlert, TriangleAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
@@ -192,7 +192,7 @@ function Conflicts({ files }: { files: string[] }) {
 function ApproveCommand({ id }: { id: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const command = `harness merge --approve ${id}`;
+  const command = `hearth merge --approve ${id}`;
   return (
     <div className="flex flex-col gap-1.5 ps-6">
       <span className="text-xs text-muted-foreground">{t('takeover.heldBody')}</span>

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ConversationDetail, ConversationSummary, Inspection, ProviderCredential } from '@harness/shared';
+import type { ConversationDetail, ConversationSummary, Inspection, ProviderCredential } from '@hearth/shared';
 import { simulateReadableStream } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';

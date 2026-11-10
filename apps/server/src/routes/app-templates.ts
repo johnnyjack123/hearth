@@ -1,4 +1,4 @@
-import { BUILTIN_APP_NAMES, createAppTemplateSchema, updateAppTemplateSchema } from '@harness/shared';
+import { BUILTIN_APP_NAMES, createAppTemplateSchema, updateAppTemplateSchema } from '@hearth/shared';
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { createAppTemplate, deleteAppTemplate, forDevice, listAppTemplates, updateAppTemplate } from '../services/app-templates.ts';

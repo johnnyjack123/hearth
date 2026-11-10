@@ -1,4 +1,4 @@
-import type { MessageMetadata, ModelCallUsage, TokenRates } from '@harness/shared';
+import type { MessageMetadata, ModelCallUsage, TokenRates } from '@hearth/shared';
 import type { ReactNode } from 'react';
 import { usePreferences } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';

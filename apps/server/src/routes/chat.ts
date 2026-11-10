@@ -16,7 +16,7 @@ import {
   parseWebSearchError,
   WEB_FETCH_TOOL,
   WEB_SEARCH_TOOL,
-} from '@harness/shared';
+} from '@hearth/shared';
 import {
   APICallError,
   convertToModelMessages,
@@ -63,7 +63,7 @@ import { createMemoryTools, MEMORY_INSTRUCTIONS, MemoryError, memoryText } from 
 import { createProgressTool, PROGRESS_INSTRUCTIONS, PROGRESS_TOOL, type ProgressOutput, progressText } from '../progress/tool.ts';
 
 const INSTRUCTIONS = [
-  'You are a helpful assistant inside LLM Harness, a self-hosted chat application.',
+  'You are a helpful assistant inside Hearth, a self-hosted chat application.',
   'Answer in the language the user writes in.',
   'Use Markdown for structure and fenced code blocks with a language tag for code.',
   // The web app renders these as formulas (KaTeX); a single $ stays text,
@@ -94,13 +94,13 @@ const WEB_FETCH_INSTRUCTIONS = [
 ].join(' ');
 
 /**
- * Notes of LLM Harness at the start of user messages carry what changes
+ * Notes of Hearth at the start of user messages carry what changes
  * during a chat (the date, research mode). The system prompt and the tool
  * list stay the same for the whole chat, so providers can serve everything
  * before the newest message from their prompt cache.
  */
 const NOTE_INSTRUCTIONS =
-  'User messages can start with a note from LLM Harness in square brackets, such as today\'s date; the latest note applies.';
+  'User messages can start with a note from Hearth in square brackets, such as today\'s date; the latest note applies.';
 
 /**
  * The answer length the user picks per chat. Only its name travels in the
@@ -580,7 +580,7 @@ export function chatNote(
   if (tone !== DEFAULT_TONE || (last !== undefined && (last.tone ?? DEFAULT_TONE) !== tone)) {
     parts.push(`Tone: ${tone}.`);
   }
-  return parts.length > 0 ? `[LLM Harness: ${parts.join(' ')}]` : null;
+  return parts.length > 0 ? `[Hearth: ${parts.join(' ')}]` : null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { PairingInfo } from '@harness/shared';
+import type { PairingInfo } from '@hearth/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { CircleAlert, CircleCheck, CircleX, Clock, Globe, Laptop, ShieldAlert } from 'lucide-react';
@@ -14,7 +14,7 @@ import { queryKeys } from '@/lib/queries.ts';
 import { Page } from '../shell/page.tsx';
 
 /**
- * Confirmation page for `harness login` (`/device?code=ABCD-EFGH`): shows
+ * Confirmation page for `hearth login` (`/device?code=ABCD-EFGH`): shows
  * which device asks for access and lets the user connect or deny it.
  *
  * @returns The pairing page.

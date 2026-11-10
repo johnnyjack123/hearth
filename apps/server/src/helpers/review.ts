@@ -6,7 +6,7 @@
  * so the computer only ever adds findings from these scores and never drops
  * one of its fixed rules.
  */
-import type { DiffAssessmentFile, DiffFileDanger } from '@harness/shared';
+import type { DiffAssessmentFile, DiffFileDanger } from '@hearth/shared';
 import { type Helpers, jevScores } from './openrouter.ts';
 
 /** Text per Jev call; above ~32 KB Jev switches to a slower, coarser mode. */

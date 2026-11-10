@@ -10,12 +10,12 @@ const envSchema = z.object({
   PUBLIC_URL: z.url().default('http://localhost:8080'),
   DATA_DIR: z.string().default('./data'),
   DATABASE_URL: z.string().optional(),
-  HARNESS_SECRET: z.string().min(32, 'HARNESS_SECRET must be at least 32 characters').optional(),
+  HEARTH_SECRET: z.string().min(32, 'HEARTH_SECRET must be at least 32 characters').optional(),
   TRUSTED_ORIGINS: z.string().optional(),
   WEB_DIST: z.string().optional(),
   MARKITDOWN_URL: z.url().optional(),
   TRUSTED_PROXIES: z.string().optional(),
-  HARNESS_SETUP_CODE: z.string().min(8, 'HARNESS_SETUP_CODE must be at least 8 characters').optional(),
+  HEARTH_SETUP_CODE: z.string().min(8, 'HEARTH_SETUP_CODE must be at least 8 characters').optional(),
 });
 
 /**
@@ -57,7 +57,39 @@ export interface ServerConfig {
 
 const SECRET_FILE = 'server-secret';
 
-/** Shortest secret the server accepts, from the file as from `HARNESS_SECRET`. */
+/**
+ * Variables the server read before it was renamed (llm-harness → hearth,
+ * 0.2.0). A `.env` that still names them keeps working; above all
+ * `HARNESS_SECRET`, without which the stored API keys could not be read.
+ *
+ * @param env - The environment, empty values removed.
+ * @returns The old values under their new names.
+ */
+function legacyVariables(env: Record<string, string | undefined>): Record<string, string> {
+  const renamed: Record<string, string> = {};
+  for (const name of ['SECRET', 'SETUP_CODE']) {
+    const old = env[`HARNESS_${name}`];
+    if (old !== undefined) {
+      renamed[`HEARTH_${name}`] = old;
+    }
+  }
+  return renamed;
+}
+
+/**
+ * The SQLite file without `DATABASE_URL`: `hearth.db`, or `harness.db` of a
+ * server from before the rename, so its accounts and chats stay.
+ *
+ * @param dataDir - The data directory.
+ * @returns The file's path.
+ */
+function sqliteFile(dataDir: string): string {
+  const current = path.join(dataDir, 'hearth.db');
+  const legacy = path.join(dataDir, 'harness.db');
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
+}
+
+/** Shortest secret the server accepts, from the file as from `HEARTH_SECRET`. */
 const MIN_SECRET_LENGTH = 32;
 
 // Without 0/O and 1/I, like the pairing codes: read off a log, typed by hand.
@@ -113,7 +145,7 @@ export function checkDatabaseUrl(url: string): void {
 /**
  * Reads the server configuration from environment variables.
  *
- * Without `HARNESS_SECRET`, a random secret is generated once and stored in the
+ * Without `HEARTH_SECRET`, a random secret is generated once and stored in the
  * data directory, so a fresh install works without any configuration. Losing
  * that file invalidates sessions and makes stored API keys unreadable.
  *
@@ -124,9 +156,8 @@ export function checkDatabaseUrl(url: string): void {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   // Docker Compose passes unset `${VAR:-}` as an empty string; empty means
   // "not set", never an empty database URL or secret.
-  const parsed = envSchema.parse(
-    Object.fromEntries(Object.entries(env).filter(([, value]) => value !== '')),
-  );
+  const given = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+  const parsed = envSchema.parse({ ...legacyVariables(given), ...given });
   if (parsed.DATABASE_URL) {
     checkDatabaseUrl(parsed.DATABASE_URL);
   }
@@ -148,13 +179,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: parsed.PORT,
     publicUrl,
     dataDir,
-    databaseUrl: parsed.DATABASE_URL ?? `sqlite:${path.join(dataDir, 'harness.db')}`,
-    secret: parsed.HARNESS_SECRET ?? readOrCreateSecret(dataDir),
+    databaseUrl: parsed.DATABASE_URL ?? `sqlite:${sqliteFile(dataDir)}`,
+    secret: parsed.HEARTH_SECRET ?? readOrCreateSecret(dataDir),
     trustedOrigins: [...new Set([new URL(publicUrl).origin, ...extraOrigins])],
     webDist: resolveWebDist(parsed.WEB_DIST),
     markitdownUrl: parsed.MARKITDOWN_URL?.replace(/\/+$/, '') ?? null,
     trustedProxies: parseTrustedProxies(parsed.TRUSTED_PROXIES),
-    setupCode: parsed.HARNESS_SETUP_CODE ?? newSetupCode(),
+    setupCode: parsed.HEARTH_SETUP_CODE ?? newSetupCode(),
   };
 }
 
@@ -180,7 +211,7 @@ function readOrCreateSecret(dataDir: string): string {
     if ((error as NodeJS.ErrnoException).code === 'EACCES') {
       throw new Error(
         `Cannot write ${file}: the data directory is not writable for uid ${process.getuid?.() ?? '?'}. ` +
-          'For a bind mount, give the folder to that user (chown 1000:1000 <folder>) or set HARNESS_SECRET.',
+          'For a bind mount, give the folder to that user (chown 1000:1000 <folder>) or set HEARTH_SECRET.',
       );
     }
     throw error;

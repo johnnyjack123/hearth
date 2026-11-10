@@ -1,6 +1,6 @@
 # Builds the server image for amd64 and arm64 on native runners, starts
 # each once as a smoke test, and publishes one multi-arch image to GHCR:
-# ghcr.io/<owner>/llm-harness-server:{latest,sha-<commit>,<version>}.
+# ghcr.io/<owner>/hearth-server:{latest,sha-<commit>,<version>}.
 name: Server-Image
 
 on:
@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/llm-harness-server
+  IMAGE: ghcr.io/${{ github.repository_owner }}/hearth-server
 
 jobs:
   build:
@@ -63,8 +63,8 @@ jobs:
           tags: smoke:${{ matrix.arch }}
           load: true
           build-args: |
-            HARNESS_VERSION=${{ steps.version.outputs.version }}
-            HARNESS_COMMIT=${{ steps.version.outputs.commit }}
+            HEARTH_VERSION=${{ steps.version.outputs.version }}
+            HEARTH_COMMIT=${{ steps.version.outputs.commit }}
           cache-from: type=gha,scope=server-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=server-${{ matrix.arch }}
 
@@ -80,7 +80,7 @@ jobs:
           curl -fsS http://127.0.0.1:8080/api/health | grep -q '"version":"${{ steps.version.outputs.version }}"'
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
           curl -fsS http://127.0.0.1:8080/device | grep -q '<div id="root">'
-          docker exec smoke ls /data | grep -q harness.db
+          docker exec smoke ls /data | grep -q hearth.db
           docker exec smoke sh -c 'test "$(id -u)" != 0'
           docker logs smoke
 
@@ -99,8 +99,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
-            HARNESS_VERSION=${{ steps.version.outputs.version }}
-            HARNESS_COMMIT=${{ steps.version.outputs.commit }}
+            HEARTH_VERSION=${{ steps.version.outputs.version }}
+            HEARTH_COMMIT=${{ steps.version.outputs.commit }}
           cache-from: type=gha,scope=server-${{ matrix.arch }}
 
       - name: Keep the digest for the manifest

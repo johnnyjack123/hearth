@@ -5,7 +5,7 @@
  * tool `read_document`, by focus, words or section numbers, the same way
  * `web_fetch` reads long pages.
  */
-import { chatFileId } from '@harness/shared';
+import { chatFileId } from '@hearth/shared';
 import { tool } from 'ai';
 import { z } from 'zod';
 import type { Helpers } from '../helpers/openrouter.ts';

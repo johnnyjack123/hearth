@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { ConversationSummary, HostCheckStatus, OpenRouterHostAccess, ProviderCredential } from '@harness/shared';
+import type { ConversationSummary, HostCheckStatus, OpenRouterHostAccess, ProviderCredential } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
 import { OpenRouterRouting } from '../src/openrouter.ts';
 import { accessFromAnswer, HostProber, type HostAccessState, probeHost } from '../src/openrouter-access.ts';

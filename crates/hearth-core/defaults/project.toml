@@ -1,0 +1,54 @@
+# Projekt „{name}“ für hearth
+#
+# Die Einstellungen stehen bewusst hier und nicht im Projektordner: Den kann
+# der Agent über seine Commits verändern, sonst könnte er seine eigenen
+# Regeln lockern.
+
+# Git-Repository auf dem Host
+path = ""
+
+# Harness für `hearth run` ohne Angabe (fehlt: Standard aus config.toml)
+# default_harness = "pi"
+
+[files]
+# isolated: Der Agent arbeitet auf einem eigenen Klon in der VM. Commits
+# kommen per `hearth sync` als Branch agent/<projekt> zurück.
+mode = "isolated"
+
+[network]
+# off | development | open | custom (siehe config.toml). Mit "open" kann der
+# Agent frei im Internet recherchieren, aber auch alles, was er im Container
+# sieht, nach außen schicken. Ändern: `hearth net preset <name>`.
+preset = "development"
+# Nicht freigegebene Domains nachfragen: Die Anfrage wartet, bis du sie in
+# `hearth net watch` erlaubst oder ablehnst. Läuft kein `hearth net watch`,
+# wird sofort blockiert.
+ask = true
+# Zusätzlich erlaubte bzw. gesperrte Domains, z. B. "api.example.com" oder
+# "*.example.com". deny gewinnt immer.
+allow = []
+deny = []
+
+[remote]
+# Für Web-Chats deines Kontos freigeben: Sie können den Agent dieses
+# Projekts in seiner Sandbox steuern, gestartet vom Hintergrunddienst
+# (hearth daemon). Umschalten mit `hearth project remote on|off`.
+enabled = true
+# Einen neuen Chat erst am Rechner bestätigen. Das geht nur, wenn
+# `hearth connect` im Terminal läuft, nicht mit dem Hintergrunddienst.
+confirm = false
+# Bestätigte Chats; hearth connect trägt sie ein.
+chats = []
+
+[apps]
+# Programme aus dem App-Katalog, die der Agent hier bekommt, z. B. "rust"
+# (`hearth app list` zeigt alle; was eine App braucht, kommt mit). Jede
+# liegt einmal in der VM, installiert beim ersten Start eines Projekts mit
+# ihr. Umschalten mit `hearth app on|off <name>`. Fehlt die Zeile, gilt
+# ["c"]: gcc, g++ und make, wie früher im Base-Image.
+enabled = ["c"]
+
+[resources]
+# Fehlt ein Wert, gilt der Standard aus config.toml.
+# memory = "2g"
+# cpus = 2

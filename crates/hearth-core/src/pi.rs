@@ -1,0 +1,730 @@
+//! Connecting pi to `llm.hearth`: its `~/.pi/agent/models.json` lists the
+//! account's providers with the gateway as base URL and a dummy key.
+//!
+//! Providers pi knows itself keep its model catalog (context windows,
+//! reasoning, prices); only their base URL changes. The path part of pi's
+//! own default stays, so the request paths match what the server's
+//! pass-through expects for that protocol (`apps/server/src/routes/llm.ts`).
+
+use std::collections::BTreeMap;
+
+use serde_json::{Map, Value, json};
+
+use crate::gateway::LLM_HOST;
+use crate::lang::tr;
+use crate::provider::{ExecOutput, ExecSpec, Provider};
+use crate::server::DeviceCredential;
+use crate::{Error, Result, tr};
+
+/// An extension hearth loads into pi with `-e`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extension {
+    /// Warns about prompt injection in tool output, see `pi/guard.ts`.
+    Guard,
+    /// The tool `web_fetch` through the hearth server, see `pi/web.ts`.
+    /// Needs a paired computer.
+    Web,
+    /// The tool `progress`, a checklist the web chat shows live, see
+    /// `pi/progress.ts`. Only for web chats.
+    Progress,
+    /// The tools `remember` and `forget` for the user's memories on the
+    /// server, see `pi/memory.ts`. Needs a paired computer.
+    Memory,
+    /// The tool `read_document`, a search in the documents attached in the
+    /// web chat, see `pi/documents.ts`. Only for web chats, needs a paired
+    /// computer.
+    Documents,
+}
+
+impl Extension {
+    fn name(self) -> &'static str {
+        match self {
+            Extension::Guard => "guard",
+            Extension::Web => "web",
+            Extension::Progress => "progress",
+            Extension::Memory => "memory",
+            Extension::Documents => "documents",
+        }
+    }
+
+    /// The extension's source.
+    pub fn source(self) -> &'static str {
+        match self {
+            Extension::Guard => include_str!("../pi/guard.ts"),
+            Extension::Web => include_str!("../pi/web.ts"),
+            Extension::Progress => include_str!("../pi/progress.ts"),
+            Extension::Memory => include_str!("../pi/memory.ts"),
+            Extension::Documents => include_str!("../pi/documents.ts"),
+        }
+    }
+
+    /// Where hearth puts it: in the tools volume, which instances can only
+    /// read, so an agent cannot change or remove it. The name follows the
+    /// contents, so each harness version brings its own copy and an old one
+    /// is never mistaken for it.
+    pub fn path(self) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in self.source().bytes() {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        format!(
+            "{}/hearth/pi-{}-{hash:016x}.ts",
+            crate::instance::TOOLS_DIR,
+            self.name()
+        )
+    }
+
+    /// Puts the extension into the tools volume unless this version is
+    /// there, and returns its path for `pi -e`.
+    pub fn ensure(
+        self,
+        provider: &dyn Provider,
+        project: &crate::config::Project,
+    ) -> Result<String> {
+        let path = self.path();
+        if !crate::instance::tool_file_exists(provider, &project.name, &path)? {
+            crate::instance::write_tool_file(provider, project, &path, self.source())?;
+        }
+        Ok(path)
+    }
+}
+
+/// Placeholder key; the gateway replaces it with the device token.
+pub const DUMMY_KEY: &str = "hearth";
+
+/// pi's file for custom providers and base URL overrides.
+pub const MODELS_FILE: &str = "/home/agent/.pi/agent/models.json";
+
+/// Result of [`models_json`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PiModels {
+    /// Contents of `models.json`.
+    pub json: Value,
+    /// pi provider ids, in the order of the credentials.
+    pub providers: Vec<String>,
+    /// pi provider id of each wired credential, by credential id; a web
+    /// chat names the credential, pi wants the provider.
+    pub by_credential: BTreeMap<String, String>,
+    /// Credentials that could not be wired up, with the reason (German).
+    pub skipped: Vec<String>,
+}
+
+/// pi's built-in provider for a credential, with the path of pi's default
+/// base URL, or `None` if pi has no matching provider.
+fn builtin(credential: &DeviceCredential) -> Option<(&'static str, &'static str)> {
+    let host = credential
+        .base_url
+        .as_deref()
+        .and_then(|url| url.split("://").nth(1))
+        .and_then(|rest| rest.split(['/', ':']).next())
+        .unwrap_or_default();
+    match credential.kind.as_str() {
+        "openai" => Some(("openai", "")),
+        "anthropic" => Some(("anthropic", "")),
+        // pi's default is …/v1beta and the server strips that version.
+        "google" => Some(("google", "/v1beta")),
+        "openrouter" => Some(("openrouter", "")),
+        "openai-compatible" if host == "api.deepseek.com" => Some(("deepseek", "")),
+        _ => None,
+    }
+}
+
+fn slug(label: &str) -> String {
+    let mut slug = String::new();
+    for c in label.chars().flat_map(char::to_lowercase) {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_matches('-').to_owned()
+}
+
+/// A model chosen in a web chat that pi's catalog lacks. hearth adds it to
+/// its provider in `models.json`: pi only switches to models it knows, and
+/// on 31.10. it kept its own default after `set_model` failed for
+/// OpenRouter's `deepseek/deepseek-v4.1-flash-1017`, billing another
+/// provider and model than the user chose.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraModel {
+    /// Credential on the server.
+    pub credential_id: String,
+    /// The provider's model id.
+    pub model_id: String,
+    /// What the server's catalog says about it (see [`model_entry`]).
+    pub info: Option<Value>,
+}
+
+/// The API pi speaks with a built-in provider, for models added to it.
+fn builtin_api(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" => "anthropic-messages",
+        "google" => "google-generative-ai",
+        "openai" => "openai-responses",
+        _ => "openai-completions",
+    }
+}
+
+/// pi's entry for an added model. `info` comes from the server's catalog
+/// (`AgentModelInfo`); only fields of the expected type are taken, and
+/// without a context window pi uses its default.
+pub fn model_entry(model_id: &str, api: Option<&str>, info: Option<&Value>) -> Value {
+    let field = |key: &str| info.and_then(|info| info.get(key));
+    let count = |key: &str| field(key).and_then(Value::as_u64).filter(|n| *n > 0);
+    let mut entry = Map::new();
+    entry.insert("id".into(), model_id.into());
+    if let Some(api) = api {
+        entry.insert("api".into(), api.into());
+    }
+    if let Some(name) = field("name").and_then(Value::as_str) {
+        entry.insert(
+            "name".into(),
+            name.chars().take(200).collect::<String>().into(),
+        );
+    }
+    if let Some(reasoning) = field("reasoning").and_then(Value::as_bool) {
+        entry.insert("reasoning".into(), reasoning.into());
+    }
+    if let Some(images) = field("images").and_then(Value::as_bool) {
+        let input: &[&str] = if images {
+            &["text", "image"]
+        } else {
+            &["text"]
+        };
+        entry.insert("input".into(), json!(input));
+    }
+    if let Some(window) = count("contextWindow") {
+        entry.insert("contextWindow".into(), window.into());
+    }
+    if let Some(max) = count("maxOutput") {
+        entry.insert("maxTokens".into(), max.into());
+    }
+    let price = |key: &str| {
+        field("cost")
+            .and_then(|cost| cost.get(key))
+            .and_then(Value::as_f64)
+            .filter(|price| price.is_finite() && *price >= 0.0)
+    };
+    if let (Some(input), Some(output)) = (price("input"), price("output")) {
+        // Without cache prices pi counts cached tokens at the input price.
+        entry.insert(
+            "cost".into(),
+            json!({
+                "input": input,
+                "output": output,
+                "cacheRead": price("cacheRead").unwrap_or(input),
+                "cacheWrite": price("cacheWrite").unwrap_or(input),
+            }),
+        );
+    }
+    Value::Object(entry)
+}
+
+fn extras_for<'a>(
+    extra: &'a [ExtraModel],
+    credential: &'a str,
+) -> impl Iterator<Item = &'a ExtraModel> {
+    extra
+        .iter()
+        .filter(move |model| model.credential_id == credential)
+}
+
+/// Builds `models.json` for the account's credentials, with `extra` models
+/// added to their providers.
+pub fn models_json(credentials: &[DeviceCredential], extra: &[ExtraModel]) -> PiModels {
+    let mut providers: BTreeMap<String, Value> = BTreeMap::new();
+    let mut order = Vec::new();
+    let mut by_credential = BTreeMap::new();
+    let mut skipped = Vec::new();
+    for credential in credentials {
+        let base = format!("http://{LLM_HOST}/{}", credential.id);
+        if let Some((id, path)) = builtin(credential).filter(|(id, _)| !providers.contains_key(*id))
+        {
+            let mut entry = json!({ "baseUrl": format!("{base}{path}"), "apiKey": DUMMY_KEY });
+            // Added to the built-in ones; pi's own models keep their entries.
+            let added: Vec<Value> = extras_for(extra, &credential.id)
+                .map(|model| {
+                    model_entry(&model.model_id, Some(builtin_api(id)), model.info.as_ref())
+                })
+                .collect();
+            if !added.is_empty() {
+                entry["models"] = Value::Array(added);
+            }
+            providers.insert(id.to_owned(), entry);
+            order.push(id.to_owned());
+            by_credential.insert(credential.id.clone(), id.to_owned());
+            continue;
+        }
+        let openai_style = matches!(credential.kind.as_str(), "ollama" | "openai-compatible");
+        let models = credential.models.as_deref().unwrap_or_default();
+        if !openai_style {
+            skipped.push(tr!(
+                "„{}“ ({}): wird für pi noch nicht über den Server angebunden",
+                "“{}” ({}): not yet connected for pi through the server",
+                credential.label,
+                credential.kind
+            ));
+            continue;
+        }
+        if models.is_empty() {
+            skipped.push(tr!(
+                "„{}“: der Server konnte keine Modelle abfragen",
+                "“{}”: the server could not fetch any models",
+                credential.label
+            ));
+            continue;
+        }
+        let stem = match slug(&credential.label) {
+            s if s.is_empty() => credential.kind.clone(),
+            s => s,
+        };
+        let mut id = format!("hearth-{stem}");
+        let mut n = 2;
+        while providers.contains_key(&id) {
+            id = format!("hearth-{stem}-{n}");
+            n += 1;
+        }
+        let mut models: Vec<Value> = models
+            .iter()
+            .map(|m| json!({ "id": m.id, "name": m.name }))
+            .collect();
+        for model in extras_for(extra, &credential.id) {
+            if !models.iter().any(|m| m["id"] == model.model_id.as_str()) {
+                models.push(model_entry(&model.model_id, None, model.info.as_ref()));
+            }
+        }
+        providers.insert(
+            id.clone(),
+            json!({
+                "baseUrl": base,
+                "api": "openai-completions",
+                "apiKey": DUMMY_KEY,
+                "models": models,
+            }),
+        );
+        by_credential.insert(credential.id.clone(), id.clone());
+        order.push(id);
+    }
+    PiModels {
+        json: json!({ "providers": providers }),
+        providers: order,
+        by_credential,
+        skipped,
+    }
+}
+
+/// Larger files are not read; the volume belongs to the agent, which could
+/// make the file arbitrarily large.
+const MAX_MODELS_BYTES: usize = 1 << 20;
+
+/// `models.json` as found in an instance.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Existing {
+    /// No file.
+    Missing,
+    /// Not a JSON object or too large.
+    Invalid,
+    /// The file's object.
+    Json(Map<String, Value>),
+}
+
+/// Whether a provider entry is one harness wrote: the gateway as base URL
+/// and the placeholder key. Nobody configures that by hand, so everything
+/// else in the file is the user's and stays.
+fn is_ours(entry: &Value) -> bool {
+    let prefix = format!("http://{LLM_HOST}/");
+    entry.get("apiKey").and_then(Value::as_str) == Some(DUMMY_KEY)
+        && entry
+            .get("baseUrl")
+            .and_then(Value::as_str)
+            .is_some_and(|url| url.starts_with(&prefix))
+}
+
+/// `file` without hearth's provider entries; `None` if nothing else is left.
+pub fn strip(file: &Map<String, Value>) -> Option<Map<String, Value>> {
+    let mut file = file.clone();
+    if let Some(Value::Object(providers)) = file.get_mut("providers") {
+        providers.retain(|_, entry| !is_ours(entry));
+        if providers.is_empty() {
+            file.remove("providers");
+        }
+    }
+    (!file.is_empty()).then_some(file)
+}
+
+/// `existing` with hearth's entries replaced by `models`. An entry of the
+/// user's with the same id wins; those ids are returned.
+pub fn merge(existing: &Existing, models: &PiModels) -> (Value, Vec<String>) {
+    let mut file = match existing {
+        Existing::Json(file) => strip(file).unwrap_or_default(),
+        Existing::Missing | Existing::Invalid => Map::new(),
+    };
+    let providers = file
+        .entry("providers")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !providers.is_object() {
+        // pi could not read such a file anyway.
+        *providers = Value::Object(Map::new());
+    }
+    let providers = providers.as_object_mut().expect("made an object above");
+    let mut own = Vec::new();
+    for (id, entry) in models.json["providers"].as_object().into_iter().flatten() {
+        if providers.contains_key(id) {
+            own.push(id.clone());
+        } else {
+            providers.insert(id.clone(), entry.clone());
+        }
+    }
+    (Value::Object(file), own)
+}
+
+fn run_script(
+    provider: &dyn Provider,
+    container: &str,
+    script: &str,
+    args: &[&str],
+) -> Result<ExecOutput> {
+    let mut command: Vec<String> = vec!["/bin/sh".into(), "-c".into(), script.into(), "sh".into()];
+    command.extend(args.iter().map(|&a| a.to_owned()));
+    provider.exec_output(&ExecSpec {
+        container: container.to_owned(),
+        command,
+        ..ExecSpec::default()
+    })
+}
+
+fn failed(action: &str, output: &ExecOutput) -> Error {
+    Error::Unsupported(tr!(
+        "{MODELS_FILE} {action} fehlgeschlagen: {}",
+        "{action} {MODELS_FILE} failed: {}",
+        crate::sync::sanitize(output.stderr.trim())
+    ))
+}
+
+/// Reads `models.json` in a running instance.
+pub fn read_models(provider: &dyn Provider, container: &str) -> Result<Existing> {
+    let limit = (MAX_MODELS_BYTES + 1).to_string();
+    let output = run_script(
+        provider,
+        container,
+        r#"[ -f "$1" ] || exit 3; head -c "$2" "$1""#,
+        &[MODELS_FILE, &limit],
+    )?;
+    Ok(match output.code {
+        0 if output.stdout.len() > MAX_MODELS_BYTES => Existing::Invalid,
+        0 => match serde_json::from_str(&output.stdout) {
+            Ok(Value::Object(file)) => Existing::Json(file),
+            _ => Existing::Invalid,
+        },
+        3 => Existing::Missing,
+        _ => return Err(failed(tr("lesen", "reading"), &output)),
+    })
+}
+
+/// Writes `models.json` in a running instance; an unreadable old file is
+/// kept as `models.json.bak`. The contents are no secret (the key is a
+/// placeholder), so they travel as an argument: `podman exec` does not
+/// reliably forward stdin's end.
+pub fn write_models(
+    provider: &dyn Provider,
+    container: &str,
+    file: &Value,
+    backup: bool,
+) -> Result<()> {
+    let text = serde_json::to_string_pretty(file)
+        .map_err(|e| Error::Unsupported(format!("models.json: {e}")))?;
+    let script = r#"set -e
+mkdir -p "$(dirname "$1")"
+if [ "$3" = backup ]; then cp -f "$1" "$1.bak"; fi
+printf '%s\n' "$2" > "$1.partial"
+mv -f "$1.partial" "$1""#;
+    let mode = if backup { "backup" } else { "" };
+    let output = run_script(provider, container, script, &[MODELS_FILE, &text, mode])?;
+    if output.code == 0 {
+        Ok(())
+    } else {
+        Err(failed(tr("schreiben", "writing"), &output))
+    }
+}
+
+/// Points pi at `llm.hearth`: replaces hearth's entries in `models.json`
+/// and keeps the user's. Returns the provider ids where the user's own
+/// entry wins.
+pub fn wire(provider: &dyn Provider, container: &str, models: &PiModels) -> Result<Vec<String>> {
+    let existing = read_models(provider, container)?;
+    let (file, own) = merge(&existing, models);
+    write_models(provider, container, &file, existing == Existing::Invalid)?;
+    Ok(own)
+}
+
+/// Removes hearth's entries from `models.json` after `hearth logout`, so
+/// pi uses its own logins again; deletes the file if nothing else is in it.
+/// Returns whether there was anything to remove.
+pub fn unwire(provider: &dyn Provider, container: &str) -> Result<bool> {
+    let Existing::Json(file) = read_models(provider, container)? else {
+        return Ok(false);
+    };
+    let wired = file
+        .get("providers")
+        .and_then(Value::as_object)
+        .is_some_and(|providers| providers.values().any(is_ours));
+    if !wired {
+        return Ok(false);
+    }
+    match strip(&file) {
+        Some(rest) => write_models(provider, container, &Value::Object(rest), false).map(|()| true),
+        None => {
+            let output = run_script(provider, container, r#"rm -f "$1""#, &[MODELS_FILE])?;
+            if output.code == 0 {
+                Ok(true)
+            } else {
+                Err(failed(tr("löschen", "deleting"), &output))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::ModelInfo;
+
+    fn credential(id: &str, kind: &str, label: &str, base_url: Option<&str>) -> DeviceCredential {
+        DeviceCredential {
+            id: id.into(),
+            kind: kind.into(),
+            label: label.into(),
+            base_url: base_url.map(Into::into),
+            models: None,
+        }
+    }
+
+    #[test]
+    fn guard_patterns() {
+        // pi/guard.test.ts, when Node is installed (it is for development).
+        let test = concat!(env!("CARGO_MANIFEST_DIR"), "/pi/guard.test.ts");
+        let Ok(output) = std::process::Command::new("node")
+            .args(["--test", test])
+            .output()
+        else {
+            eprintln!("node fehlt, {test} übersprungen");
+            return;
+        };
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(
+            Extension::Guard
+                .path()
+                .starts_with("/opt/hearth-tools/hearth/pi-guard-")
+        );
+        assert!(
+            Extension::Web
+                .path()
+                .starts_with("/opt/hearth-tools/hearth/pi-web-")
+        );
+        assert!(
+            Extension::Progress
+                .path()
+                .starts_with("/opt/hearth-tools/hearth/pi-progress-")
+        );
+        assert!(
+            Extension::Memory
+                .path()
+                .starts_with("/opt/hearth-tools/hearth/pi-memory-")
+        );
+        assert!(
+            Extension::Documents
+                .path()
+                .starts_with("/opt/hearth-tools/hearth/pi-documents-")
+        );
+    }
+
+    #[test]
+    fn builtin_providers_only_change_their_base_url() {
+        let models = models_json(
+            &[
+                credential(
+                    "c1",
+                    "openai-compatible",
+                    "DeepSeek",
+                    Some("https://api.deepseek.com"),
+                ),
+                credential("c2", "anthropic", "Claude", None),
+                credential("c3", "google", "Gemini", None),
+                credential("c4", "anthropic", "Second", None),
+            ],
+            &[],
+        );
+        assert_eq!(models.providers, ["deepseek", "anthropic", "google"]);
+        let providers = &models.json["providers"];
+        assert_eq!(
+            providers["deepseek"],
+            json!({ "baseUrl": "http://llm.hearth/c1", "apiKey": "hearth" })
+        );
+        assert_eq!(
+            providers["google"]["baseUrl"],
+            "http://llm.hearth/c3/v1beta"
+        );
+        assert!(providers["deepseek"].get("models").is_none());
+        // A second Anthropic key has no models list to become its own provider.
+        assert_eq!(models.skipped.len(), 1);
+        assert!(models.skipped[0].contains("Second"));
+    }
+
+    #[test]
+    fn own_endpoints_become_providers_with_the_servers_models() {
+        let mut ollama = credential(
+            "c5",
+            "ollama",
+            "Mein Ollama!",
+            Some("http://localhost:11434/v1"),
+        );
+        ollama.models = Some(vec![ModelInfo {
+            id: "qwen2.5-coder:7b".into(),
+            name: "Qwen".into(),
+        }]);
+        let mut empty = credential("c6", "openai-compatible", "Leer", Some("http://x/v1"));
+        empty.models = Some(vec![]);
+        let models = models_json(
+            &[
+                ollama.clone(),
+                ollama,
+                empty,
+                credential("c7", "mistral", "Mistral", None),
+            ],
+            &[],
+        );
+        assert_eq!(
+            models.providers,
+            ["hearth-mein-ollama", "hearth-mein-ollama-2"]
+        );
+        assert_eq!(
+            models.json["providers"]["hearth-mein-ollama"],
+            json!({
+                "baseUrl": "http://llm.hearth/c5",
+                "api": "openai-completions",
+                "apiKey": "hearth",
+                "models": [{ "id": "qwen2.5-coder:7b", "name": "Qwen" }],
+            })
+        );
+        assert_eq!(models.skipped.len(), 2);
+    }
+
+    fn object(value: Value) -> Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn models_pi_lacks_join_their_provider() {
+        let info = json!({
+            "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+            "contextWindow": 1_048_576,
+            "reasoning": true,
+            "images": false,
+            "cost": { "input": 0.15, "output": 0.6, "cacheRead": 0.003 },
+            "unexpected": "ignored",
+        });
+        let mut ollama = credential("c5", "ollama", "Ollama", Some("http://localhost:11434/v1"));
+        ollama.models = Some(vec![ModelInfo {
+            id: "known".into(),
+            name: "Known".into(),
+        }]);
+        let extra = [
+            ExtraModel {
+                credential_id: "c1".into(),
+                model_id: "deepseek/deepseek-v4.1-flash-1017".into(),
+                info: Some(info),
+            },
+            ExtraModel {
+                credential_id: "c5".into(),
+                model_id: "new".into(),
+                info: None,
+            },
+            ExtraModel {
+                credential_id: "c5".into(),
+                model_id: "known".into(),
+                info: None,
+            },
+        ];
+        let models = models_json(
+            &[credential("c1", "openrouter", "OpenRouter", None), ollama],
+            &extra,
+        );
+        assert_eq!(
+            models.json["providers"]["openrouter"],
+            json!({
+                "baseUrl": "http://llm.hearth/c1",
+                "apiKey": "hearth",
+                "models": [{
+                    "id": "deepseek/deepseek-v4.1-flash-1017",
+                    "api": "openai-completions",
+                    "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
+                    "reasoning": true,
+                    "input": ["text"],
+                    "contextWindow": 1_048_576,
+                    "cost": { "input": 0.15, "output": 0.6, "cacheRead": 0.003, "cacheWrite": 0.15 },
+                }],
+            })
+        );
+        assert_eq!(
+            models.json["providers"]["hearth-ollama"]["models"],
+            json!([{ "id": "known", "name": "Known" }, { "id": "new" }])
+        );
+    }
+
+    #[test]
+    fn the_users_own_entries_stay() {
+        let models = models_json(
+            &[
+                credential(
+                    "c1",
+                    "openai-compatible",
+                    "DeepSeek",
+                    Some("https://api.deepseek.com"),
+                ),
+                credential("c2", "anthropic", "Claude", None),
+            ],
+            &[],
+        );
+        let users = json!({
+            // Same id as one of hearth's: the user's entry wins.
+            "anthropic": { "baseUrl": "https://proxy.example.com", "apiKey": "own" },
+            "local": { "baseUrl": "http://localhost:1234/v1", "api": "openai-completions" },
+        });
+        // Left over from an earlier login with a credential that is gone.
+        let stale = json!({ "baseUrl": "http://llm.hearth/old", "apiKey": "hearth" });
+        let mut providers = object(users.clone());
+        providers.insert("openrouter".into(), stale);
+        let existing = object(json!({ "providers": providers, "other": 1 }));
+
+        let (file, own) = merge(&Existing::Json(existing.clone()), &models);
+        assert_eq!(own, ["anthropic"]);
+        assert_eq!(
+            file,
+            json!({
+                "providers": {
+                    "anthropic": users["anthropic"],
+                    "local": users["local"],
+                    "deepseek": { "baseUrl": "http://llm.hearth/c1", "apiKey": "hearth" },
+                },
+                "other": 1,
+            })
+        );
+
+        // Logging out removes exactly hearth's entries ...
+        assert_eq!(
+            strip(file.as_object().unwrap()),
+            Some(object(json!({ "providers": users, "other": 1 })))
+        );
+        // ... and the file disappears if nothing else was in it.
+        let (file, _) = merge(&Existing::Missing, &models);
+        assert_eq!(file, models.json);
+        assert_eq!(strip(file.as_object().unwrap()), None);
+        let (file, _) = merge(&Existing::Invalid, &models);
+        assert_eq!(file, models.json);
+    }
+}

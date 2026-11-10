@@ -1,4 +1,4 @@
-import type { ServerActivity, UserActivity } from '@harness/shared';
+import type { ServerActivity, UserActivity } from '@hearth/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, Ban, Ellipsis, Laptop, Plus, ShieldCheck, ShieldOff, Trash2, UserRoundCheck } from 'lucide-react';
 import { type FormEvent, useState } from 'react';

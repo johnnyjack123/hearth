@@ -1,11 +1,11 @@
 /**
  * Patterns of prompt injections in fetched content. Copied from the pi guard
- * (`crates/harness-core/pi/guard.ts`), which pi loads as a single file and
+ * (`crates/hearth-core/pi/guard.ts`), which pi loads as a single file and
  * therefore cannot import from here; a test runs both on the same texts.
  * Fixed patterns only catch the blunt cases, so a hit is a warning, never a
  * block.
  */
-import type { InjectionFinding, InjectionMark, WebFetchWarning } from '@harness/shared';
+import type { InjectionFinding, InjectionMark, WebFetchWarning } from '@hearth/shared';
 
 const RULES: readonly [id: WebFetchWarning, pattern: RegExp][] = [
   [
