@@ -447,19 +447,36 @@ export async function deleteDevice(db: Kysely<DB>, userId: string, id: string): 
   }
 }
 
+/** Prefix of the signed text of a device proof (see `proveDevice`). */
+export const DEVICE_PROOF_CONTEXT = 'hearth-device-proof';
+
+/** What `proveDevice` answers. */
+export interface DeviceProof {
+  /** The addresses (origins) this server answers under. */
+  origins: string[];
+  /** HMAC-SHA-256 (hex) over context, nonce and origins, keyed with the stored token hash. */
+  signature: string;
+}
+
 /**
  * Proves that this server holds a device, without the device's token
  * travelling: the device names it by SHA-256 of the stored token hash and
- * checks the answer, HMAC-SHA-256 of its nonce keyed with that hash. Only a
- * server that stores the hash can answer, and the answer gives nobody a
- * way to sign in.
+ * checks the answer, an HMAC-SHA-256 keyed with that hash. Only a server that
+ * stores the hash can answer, and the answer gives nobody a way to sign in.
+ *
+ * The signature covers the server's own addresses: a server that only relays
+ * the challenge to this one (a phishing address for `hearth login`) gets an
+ * answer naming this server's addresses, which the device compares with the
+ * address it dialled (client review of 10.11., finding 3). Answers without
+ * them, as before 0.2.2, no longer exist, so older clients pair anew.
  *
  * @param db - Open database.
  * @param lookup - SHA-256 (hex) of the device's stored token hash.
  * @param nonce - The device's challenge.
- * @returns The proof (hex), or null for no such device or a banned owner.
+ * @param origins - The server's addresses (`PUBLIC_URL` and `TRUSTED_ORIGINS`).
+ * @returns The proof, or null for no such device or a banned owner.
  */
-export async function proveDevice(db: Kysely<DB>, lookup: string, nonce: string): Promise<string | null> {
+export async function proveDevice(db: Kysely<DB>, lookup: string, nonce: string, origins: string[]): Promise<DeviceProof | null> {
   // Devices are few on a self-hosted server; the lookup is not stored.
   const devices = await db
     .selectFrom('device')
@@ -470,7 +487,10 @@ export async function proveDevice(db: Kysely<DB>, lookup: string, nonce: string)
   if (!device || isBanned(device.banned, device.banExpires)) {
     return null;
   }
-  return createHmac('sha256', device.tokenHash).update(nonce).digest('hex');
+  const signature = createHmac('sha256', device.tokenHash)
+    .update([DEVICE_PROOF_CONTEXT, nonce, ...origins].join('\n'))
+    .digest('hex');
+  return { origins, signature };
 }
 
 /**

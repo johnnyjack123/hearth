@@ -2,6 +2,7 @@
 //! server, so harnesses get LLM access through it without ever holding a key.
 
 use std::env;
+use std::io::IsTerminal as _;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -12,9 +13,10 @@ use hearth_core::config::ConfigDir;
 use hearth_core::gateway::LlmUpstream;
 use hearth_core::lang::tr;
 use hearth_core::server::{
-    self, DEFAULT_SERVER_URL, PairingPoll, ServerCa, ServerClient, delete_token, load_token,
-    save_token,
+    self, DEFAULT_SERVER_URL, DeviceProof, PairingPoll, ServerCa, ServerClient, delete_token,
+    load_token, save_token,
 };
+use hearth_core::sync::sanitize;
 use hearth_core::tr;
 
 /// Pairs this computer with a server (device flow).
@@ -43,9 +45,10 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
         )
     );
     println!();
-    println!("    {}", pairing.user_code);
+    // Server text: no escape sequences into the user's terminal.
+    println!("    {}", sanitize(&pairing.user_code));
     println!();
-    println!("    {}", pairing.verification_uri_complete);
+    println!("    {}", sanitize(&pairing.verification_uri_complete));
     println!();
     if open_browser && open(&pairing.verification_uri_complete) {
         println!(
@@ -98,9 +101,9 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
         tr!(
             "Angemeldet als {} ({}), Gerät „{}“.",
             "Signed in as {} ({}), device “{}”.",
-            me.user.name,
-            me.user.email,
-            me.device.name
+            sanitize(&me.user.name),
+            sanitize(&me.user.email),
+            sanitize(&me.device.name)
         )
     );
     // A re-login replaces the old token; it should not stay valid.
@@ -150,28 +153,61 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
 /// The same server under a new address, e.g. behind a reverse proxy now:
 /// the device keeps its token, so chats linked to it and its settings stay.
 /// The token goes to the new address only after the server there proved it
-/// holds this device ([`ServerClient::holds_device`]); otherwise this
-/// returns false and the computer pairs anew.
+/// holds this device and answers under that address
+/// ([`ServerClient::prove_device`]), and after the user agreed in a
+/// terminal; otherwise this returns false and the computer pairs anew. The
+/// old entry goes only once the new address accepted the token.
 fn move_device(config: &ConfigDir, old_url: &str, client: &ServerClient) -> anyhow::Result<bool> {
     let Some(token) = load_token(old_url)? else {
         return Ok(false);
     };
-    if !client.holds_device(&token)? {
-        return Ok(false);
+    match client.prove_device(&token)? {
+        DeviceProof::NotHeld => return Ok(false),
+        DeviceProof::Held => {}
+        DeviceProof::Elsewhere { origins } => bail!(tr!(
+            "Der Server, der dieses Gerät kennt, nennt als seine Adressen nur {}, nicht {}. \
+             Leitet {} nur weiter, wäre das ein Versuch, das Geräte-Token abzugreifen. Ist es \
+             dein Server: `hearth login` mit einer dieser Adressen, oder die Adresse in \
+             TRUSTED_ORIGINS des Servers eintragen.",
+            "The server that knows this device names only {} as its addresses, not {}. If {} \
+             only relays to it, this would be an attempt to grab the device token. If it is your \
+             server: `hearth login` with one of these addresses, or add the address to the \
+             server's TRUSTED_ORIGINS.",
+            origins.join(", "),
+            client.url(),
+            client.url()
+        )),
     }
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if interactive
+        && !crate::project::confirm(
+            &tr!(
+                "Derselbe Server unter neuer Adresse: {old_url} → {}. Gerät dorthin umziehen?",
+                "The same server at a new address: {old_url} → {}. Move the device there?",
+                client.url()
+            ),
+            true,
+        )?
+    {
+        bail!(tr(
+            "Nicht umgezogen; die alte Adresse bleibt eingerichtet.",
+            "Not moved; the old address stays set up."
+        ));
+    }
+    // Ask the new address first: only a token it accepts replaces the old one.
+    let me = client.device(&token)?;
     save_token(client.url(), &token)
         .context(tr("Geräte-Token speichern", "Saving the device token"))?;
     config.set_server_url(Some(client.url()))?;
     delete_token(old_url)?;
-    let me = client.device(&token)?;
     println!(
         "{}",
         tr!(
             "Derselbe Server unter neuer Adresse: {} bleibt gekoppelt als „{}“ ({}).",
             "The same server at a new address: {} stays paired as “{}” ({}).",
             client.url(),
-            me.device.name,
-            me.user.email
+            sanitize(&me.device.name),
+            sanitize(&me.user.email)
         )
     );
     announce_projects(config);

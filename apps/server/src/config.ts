@@ -89,6 +89,21 @@ function sqliteFile(dataDir: string): string {
   return !existsSync(current) && existsSync(legacy) ? legacy : current;
 }
 
+/**
+ * An address as its origin; a value that is no URL stays as written, so
+ * the CSRF check simply never matches it.
+ *
+ * @param address - E.g. `https://Hearth.example.org:443/`.
+ * @returns E.g. `https://hearth.example.org`.
+ */
+function asOrigin(address: string): string {
+  try {
+    return new URL(address).origin;
+  } catch {
+    return address;
+  }
+}
+
 /** Shortest secret the server accepts, from the file as from `HEARTH_SECRET`. */
 const MIN_SECRET_LENGTH = 32;
 
@@ -181,7 +196,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     dataDir,
     databaseUrl: parsed.DATABASE_URL ?? `sqlite:${sqliteFile(dataDir)}`,
     secret: parsed.HEARTH_SECRET ?? readOrCreateSecret(dataDir),
-    trustedOrigins: [...new Set([new URL(publicUrl).origin, ...extraOrigins])],
+    // As origins (lowercase, no default port), the form `hearth login`
+    // compares with the address it dialled.
+    trustedOrigins: [...new Set([publicUrl, ...extraOrigins].map(asOrigin))],
     webDist: resolveWebDist(parsed.WEB_DIST),
     markitdownUrl: parsed.MARKITDOWN_URL?.replace(/\/+$/, '') ?? null,
     trustedProxies: parseTrustedProxies(parsed.TRUSTED_PROXIES),

@@ -91,11 +91,11 @@ export function pairingRoutes(deps: AppDeps) {
     .post('/prove', async (c) => {
       polls.check(rateKey(c.get('clientIp')));
       const { lookup, nonce } = proveDeviceSchema.parse(await c.req.json());
-      const proof = await proveDevice(db, lookup, nonce);
+      const proof = await proveDevice(db, lookup, nonce, deps.config.trustedOrigins);
       if (proof === null) {
         throw notFound('Device');
       }
-      return c.json({ proof });
+      return c.json(proof);
     });
 }
 
