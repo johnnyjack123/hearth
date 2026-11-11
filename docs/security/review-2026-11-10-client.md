@@ -6,7 +6,20 @@ Statische Prüfung des Stands `b406ad3` (v0.1.21) durch einen eigenen Agenten, n
 
 ## Stand der Behebung
 
-Noch offen; die Entscheidung über die Funde, die das Verhalten ändern (1, 2, 7, 8), liegt beim Nutzer.
+Stand 11.11.2026 (Release 0.2.2), Entscheidungen des Nutzers vom 10./11.11.:
+
+| Fund | Stand |
+|---|---|
+| 1 (hoch) Server entscheidet über Merges | **Behoben.** Übernahmen aus dem Browser („Fortschritt sichern“, Autosync) brauchen die Erlaubnis `[remote] merge` am Rechner (`hearth project remote on --merge` oder die Frage in `hearth init`). Ohne sie legt jede Übernahme nur einen Antrag für `hearth merge --approve <ID>` an, und Autosync bleibt aus (der Chat bekommt einmal einen Hinweis). Mit Erlaubnis halten jetzt auch **mittlere** Funde an (Build-Skripte, CI, Editor-Einstellungen, Anweisungen für Agents). Nicht geändert: was die festen Regeln gar nicht kennen (Makefile, Konfigurationen von vite/eslint/jest usw.) geht bei erlaubten Projekten weiter ohne Fund durch. |
+| 2 (mittel) Jedes Projekt für den Server lesbar | **Behoben.** Ein fehlender `[remote]`-Eintrag heißt „aus“; nur `hearth init` (die Bestätigung am Rechner) oder `hearth project remote on` schalten ein. In die Sandbox kommen nur der ausgecheckte Branch, `agent/<projekt>` und die Tags in dessen Verlauf. Bestehende Klone behalten Objekte früherer Bundles, bis das Projekt neu angelegt wird. |
+| 3 (mittel) Umzug weiterreichbar | **Behoben.** Der Server signiert seine eigenen Adressen (`PUBLIC_URL`, `TRUSTED_ORIGINS`) mit; der Rechner zieht nur um, wenn die gewählte Adresse darunter ist, fragt vorher nach und löscht das alte Token erst, nachdem die neue Adresse es angenommen hat. Server unter 0.2.2 beantworten nur noch gebundene Beweise, ältere Clients koppeln dann neu. |
+| 4 (mittel) UNC-Pfade bei `apps.file` | **Behoben.** Nur Pfade auf lokalen Laufwerken (`C:\…`, fest oder wechselbar), geprüft ohne Dateizugriff; Netzwerkpfade, `\\?\`-Formen und Netzlaufwerke werden abgelehnt. Warum eine Datei nicht passt, steht nur im Protokoll des Rechners; der Browser bekommt eine allgemeine Meldung. |
+| 5 (niedrig) Dokumente als Archiv | **Behoben.** Archive brauchen ihre Endung (`.zip`, `.tar.gz`, `.tgz`, `.tar.xz`, `.txz`); Zips, deren erster Eintrag `mimetype` oder `[Content_Types].xml` ist, gelten als Dokument. Titel mit Steuer- oder Formatzeichen lehnt der Rechner ab. |
+| 6 (niedrig) Server-Text im Terminal | **Teilweise.** `hearth login` gibt Code, Link, Namen und E-Mail nur noch über `sanitize` aus; die übrigen Stellen sind offen. |
+| 7 (niedrig) „immer“ vom Server | Offen. |
+| 8 (niedrig) Vorlagen bleiben in der Sandbox | Offen. |
+| 9 (niedrig) Chat-IDs und Kopplungslink | **Teilweise.** Das Tray-Symbol nimmt nur Chat-IDs aus Buchstaben, Ziffern und `-` in URLs; der Kopplungslink bleibt bei der Prüfung auf `http(s)://`. |
+| 10 (niedrig) DoS und Auskünfte | Offen. |
 
 ## Bericht des Prüfers
 

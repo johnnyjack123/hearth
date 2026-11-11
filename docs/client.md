@@ -45,7 +45,7 @@ hearth login https://hearth.example.org
 Der Befehl zeigt einen Code und öffnet die Bestätigungsseite der Web-App. Dort steht, von welcher Adresse die Anfrage kommt; stimmt sie nicht mit der des Browsers überein, warnt die Seite. Nur bestätigen, wenn man den Befehl gerade selbst ausgeführt hat. Danach kann der Rechner über den Server Modelle mit den eigenen Keys nutzen. Die Keys selbst sieht er nie.
 
 - `hearth logout` widerruft die Kopplung sofort.
-- Bekommt der Server eine neue Adresse (etwa hinter einem Reverse-Proxy), genügt `hearth login <neue Adresse>`. Der Client erkennt denselben Server und behält das Gerät samt verknüpfter Chats.
+- Bekommt der Server eine neue Adresse (etwa hinter einem Reverse-Proxy), genügt `hearth login <neue Adresse>`. Der Client erkennt denselben Server, fragt einmal nach und behält das Gerät samt verknüpfter Chats. Die neue Adresse muss `PUBLIC_URL` des Servers sein oder in `TRUSTED_ORIGINS` stehen; sonst lehnt der Client den Umzug ab, weil eine fremde Adresse, die nur an den echten Server weiterleitet, so das Geräte-Token abgreifen könnte.
 - Einstellungen → Geräte in der Web-App zeigt alle gekoppelten Rechner, ihre Version und den Zustand der VM.
 
 ## Projekte
@@ -54,21 +54,25 @@ Ein Projekt ist ein Ordner mit Git-Repository, in dem ein Agent arbeiten darf.
 
 ```powershell
 cd C:\Projekte\mein-projekt
-hearth init                  # Projekt anlegen (bietet git init an), beim Server melden
+hearth init                  # Projekt anlegen (bietet git init an), für Web-Chats freigeben, beim Server melden
 hearth init . anderer-name   # mit eigenem Namen statt des Ordnernamens
 hearth project list          # alle Projekte
+hearth project remote off    # nicht mehr für Web-Chats anbieten (on: wieder anbieten)
 hearth project remove        # Projekt vergessen und seine Daten in der VM löschen
 ```
 
-Der Agent arbeitet nie direkt im Ordner, sondern auf einer Kopie in der VM. Was er committet, kommt erst nach einer Prüfung zurück (siehe unten).
+Der Agent arbeitet nie direkt im Ordner, sondern auf einer Kopie in der VM. Dorthin kommt nur der ausgecheckte Branch (mit den Tags in seinem Verlauf), andere Branches bleiben auf dem Rechner. Was der Agent committet, kommt erst nach einer Prüfung zurück (siehe unten).
+
+Web-Chats sehen nur Projekte, die mit `hearth init` angelegt oder mit `hearth project remote on` freigegeben wurden. Projekte, die anders entstanden sind (`hearth project add`, `hearth` in einem neuen Ordner, ältere Versionen ohne `[remote]`-Eintrag), bleiben für den Browser unsichtbar.
 
 ## Im Web-Chat
 
 1. Im Chat auf das Zahnrad → **Umgebung** → Rechner und Projekt wählen.
 2. Die erste Nachricht startet VM, Gateway und Sandbox, falls nötig. Jeder Schritt erscheint im Chat.
 3. Will der Agent einen Host erreichen, den die Regeln des Projekts nicht erlauben, fragt der Chat nach: einmal, für 15 Minuten, bis zum Stopp der Sandbox oder immer.
-4. **Fortschritt sichern** im Umgebungs-Menü übernimmt die Arbeit des Agents in den ausgecheckten Branch des Projektordners, nach der Prüfung. Mit **Autosync** passiert das nach jeder Antwort.
-5. Findet die Prüfung etwas Schweres, hält sie an. Freigeben geht dann nur im Terminal: `hearth merge --approve <ID>` (die ID steht im Chat).
+4. **Fortschritt sichern** im Umgebungs-Menü holt die Arbeit des Agents und prüft sie. Übernommen wird sie erst nach Freigabe am Rechner: `hearth merge --approve <ID>` im Terminal (die ID steht im Chat, das Tray-Symbol zeigt wartende Freigaben).
+5. Wer das nicht jedes Mal will, erlaubt es pro Projekt am Rechner: `hearth project remote on --merge` (oder Ja bei der Frage in `hearth init`). Dann übernimmt „Fortschritt sichern“ direkt in den ausgecheckten Branch, und **Autosync** tut es nach jeder Antwort. Ohne diese Erlaubnis bleibt Autosync aus.
+6. Findet die Prüfung etwas Mittleres oder Schweres (etwa Build-Skripte, CI-Dateien, Editor-Einstellungen, Anweisungen für KI-Werkzeuge, Git-Hooks), hält sie in jedem Fall an; freigeben geht dann ebenfalls nur mit `hearth merge --approve <ID>`.
 
 Die VM stoppt nach 30 Minuten ohne Agent und ohne `hearth`-Befehl im Terminal (einstellbar unter Einstellungen → Geräte, auch „nie“). Die nächste Nachricht startet sie wieder.
 
@@ -109,7 +113,7 @@ hearth app on rust go
 hearth app off java
 ```
 
-Dasselbe geht im Browser unter Einstellungen → Geräte. Dort lassen sich auch eigene Programme anlegen (apt-, npm- oder pip-Pakete oder ein Skript). Programmdateien vom Rechner (ein Linux-Programm, AppImage, `.deb` oder Archiv) fragt der Browser nur an; freigeben geht am Rechner über das Tray-Symbol oder mit `hearth app approve <ID>`.
+Dasselbe geht im Browser unter Einstellungen → Geräte. Dort lassen sich auch eigene Programme anlegen (apt-, npm- oder pip-Pakete oder ein Skript). Programmdateien vom Rechner (ein Linux-Programm, AppImage, `.deb` oder Archiv mit Endung `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` oder `.txz`) fragt der Browser nur an; freigeben geht am Rechner über das Tray-Symbol oder mit `hearth app approve <ID>`. Der Pfad muss auf einem Laufwerk des Rechners liegen, Netzwerkpfade und Netzlaufwerke nimmt der Rechner nicht an; Office- und OpenDocument-Dateien gelten nie als Archiv.
 
 ## VM und Speicherplatz
 
