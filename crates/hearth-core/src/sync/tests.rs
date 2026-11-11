@@ -158,7 +158,7 @@ impl Setup {
         let root = crate::paths::canonical(tmp.path()).unwrap();
         let host = host_repo(&root.join("host"));
         let in_bundle = root.join("in.bundle");
-        host.export_bundle(&in_bundle).unwrap();
+        host.export_bundle(&in_bundle, BRANCH).unwrap();
         let container = FakeContainer::clone_from(&in_bundle, &root.join("container"));
         Setup {
             _tmp: tmp,
@@ -225,7 +225,9 @@ fn round_trip_fast_forward() {
     assert_eq!(s.host.merge(BRANCH).unwrap(), MergeOutcome::UpToDate);
 
     // Next round: the container learns about the host's state first.
-    s.host.export_bundle(&s.root.join("in.bundle")).unwrap();
+    s.host
+        .export_bundle(&s.root.join("in.bundle"), BRANCH)
+        .unwrap();
     s.container.fetch();
     assert!(!s.container.export(&s.out(), false));
     s.agent_commit("second.txt", "2\n");
@@ -380,12 +382,57 @@ fn export_needs_a_commit() {
     git(tmp.path(), &["init", "--quiet"]);
     let repo = HostRepo::open(tmp.path()).unwrap();
     assert!(matches!(
-        repo.export_bundle(&tmp.path().join("x.bundle")),
+        repo.export_bundle(&tmp.path().join("x.bundle"), BRANCH),
         Err(Error::Sync(_))
     ));
     let plain = tempfile::tempdir().unwrap();
     // A folder outside any repository (the temp dir is not inside one).
     assert!(HostRepo::open(plain.path()).is_err());
+}
+
+/// Only the checked-out branch, the agent's own and the tags in its history
+/// reach the container; other work stays on the host.
+#[test]
+fn only_the_checked_out_branch_reaches_the_container() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = crate::paths::canonical(tmp.path()).unwrap();
+    let dir = root.join("host");
+    let host = host_repo(&dir);
+    git(&dir, &["tag", "-a", "v1", "-m", "release"]);
+    git(&dir, &["switch", "--quiet", "-c", "private"]);
+    commit(&dir, "secret.txt", "kept apart\n", "private work");
+    git(&dir, &["tag", "hidden"]);
+    git(&dir, &["switch", "--quiet", "main"]);
+    git(&dir, &["branch", BRANCH]);
+    let bundle = root.join("in.bundle");
+    host.export_bundle(&bundle, BRANCH).unwrap();
+    let heads = git(&root, &["bundle", "list-heads", &bundle.to_string_lossy()]);
+    let mut refs: Vec<&str> = heads
+        .lines()
+        .filter_map(|line| line.split_once(' ').map(|(_, name)| name))
+        .collect();
+    refs.sort_unstable();
+    assert_eq!(
+        refs,
+        [
+            "HEAD",
+            "refs/heads/agent/demo",
+            "refs/heads/main",
+            "refs/tags/v1"
+        ]
+    );
+    // Nothing of the private branch travels along.
+    let container = FakeContainer::clone_from(&bundle, &root.join("container"));
+    let all = git(&container.dir, &["log", "--all", "--format=%s"]);
+    assert!(!all.contains("private work"), "{all}");
+
+    // A detached HEAD goes alone (plus the agent's branch).
+    let head = git(&dir, &["rev-parse", "HEAD"]);
+    git(&dir, &["switch", "--quiet", "--detach", &head]);
+    host.export_bundle(&bundle, BRANCH).unwrap();
+    let heads = git(&root, &["bundle", "list-heads", &bundle.to_string_lossy()]);
+    assert_eq!(heads.lines().count(), 3, "{heads}");
+    assert!(!heads.contains("refs/heads/main"), "{heads}");
 }
 
 /// Agent-controlled files must never run on the host: neither hooks in
