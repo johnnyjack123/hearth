@@ -414,7 +414,7 @@ export const en: Messages = {
     },
     approval: {
       title: 'The agent wants to reach {host}',
-      body: 'This can be the agent, the harness itself or a program it started. Only allow what you expect.',
+      body: 'This can be the agent, the harness itself or a program it started. Only allow what you expect. To allow it for good, use the computer: hearth net allow {host} --always',
       once: 'Allow once',
       minutes: '15 minutes',
       session: 'Until stopped',

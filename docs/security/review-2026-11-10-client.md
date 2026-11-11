@@ -6,7 +6,7 @@ Statische Prüfung des Stands `b406ad3` (v0.1.21) durch einen eigenen Agenten, n
 
 ## Stand der Behebung
 
-Stand 11.11.2026 (Release 0.2.2), Entscheidungen des Nutzers vom 10./11.11.:
+Stand 11.11.2026 (Releases 0.2.2 und 0.3.0), Entscheidungen des Nutzers vom 10./11.11.:
 
 | Fund | Stand |
 |---|---|
@@ -15,11 +15,11 @@ Stand 11.11.2026 (Release 0.2.2), Entscheidungen des Nutzers vom 10./11.11.:
 | 3 (mittel) Umzug weiterreichbar | **Behoben.** Der Server signiert seine eigenen Adressen (`PUBLIC_URL`, `TRUSTED_ORIGINS`) mit; der Rechner zieht nur um, wenn die gewählte Adresse darunter ist, fragt vorher nach und löscht das alte Token erst, nachdem die neue Adresse es angenommen hat. Server unter 0.2.2 beantworten nur noch gebundene Beweise, ältere Clients koppeln dann neu. |
 | 4 (mittel) UNC-Pfade bei `apps.file` | **Behoben.** Nur Pfade auf lokalen Laufwerken (`C:\…`, fest oder wechselbar), geprüft ohne Dateizugriff; Netzwerkpfade, `\\?\`-Formen und Netzlaufwerke werden abgelehnt. Warum eine Datei nicht passt, steht nur im Protokoll des Rechners; der Browser bekommt eine allgemeine Meldung. |
 | 5 (niedrig) Dokumente als Archiv | **Behoben.** Archive brauchen ihre Endung (`.zip`, `.tar.gz`, `.tgz`, `.tar.xz`, `.txz`); Zips, deren erster Eintrag `mimetype` oder `[Content_Types].xml` ist, gelten als Dokument. Titel mit Steuer- oder Formatzeichen lehnt der Rechner ab. |
-| 6 (niedrig) Server-Text im Terminal | **Teilweise.** `hearth login` gibt Code, Link, Namen und E-Mail nur noch über `sanitize` aus; die übrigen Stellen sind offen. |
-| 7 (niedrig) „immer“ vom Server | Offen. |
-| 8 (niedrig) Vorlagen bleiben in der Sandbox | Offen. |
-| 9 (niedrig) Chat-IDs und Kopplungslink | **Teilweise.** Das Tray-Symbol nimmt nur Chat-IDs aus Buchstaben, Ziffern und `-` in URLs; der Kopplungslink bleibt bei der Prüfung auf `http(s)://`. |
-| 10 (niedrig) DoS und Auskünfte | Offen. |
+| 6 (niedrig) Server-Text im Terminal | **Behoben (0.3.0).** `hearth login`, die Browser-Zeilen im Protokoll des Dienstes, `hearth app approve|deny|list`, Titel eigener Programme und Jev-Hinweise in `hearth review` gehen über `sanitize`. |
+| 7 (niedrig) „immer“ vom Server | **Behoben (0.3.0).** Aus dem Browser gilt „immer“ nur bis zum Stopp der Sandbox; die Web-App bietet es nicht mehr an. Die Erlaubnisliste schreibt nur der Rechner (`hearth net allow … --always`, `hearth net watch`). `/_web/known` bleibt: Seiten lädt ohnehin der Server. |
+| 8 (niedrig) Vorlagen bleiben in der Sandbox | **Teilweise (0.3.0).** `hearth logout` und das Koppeln mit einem anderen Server vergessen die eigenen Programme des Servers und schalten sie in allen Projekten aus. Bleibt: Solange gekoppelt, kann ein Programm des Servers Befehle des Images in den Instanzen überdecken; ein vom Server gesteuerter Agent kann dasselbe über `~/.local/bin` im Home-Volume, die Grenze bleibt die Sandbox. |
+| 9 (niedrig) Chat-IDs und Kopplungslink | **Behoben (0.3.0).** Der Rechner nimmt Sitzungen und Übernahmen nur mit gültiger Chat-ID an (`valid_chat_id`), das Tray-Symbol ebenso; `hearth login` öffnet den Bestätigungslink nur, wenn er zur eingegebenen Adresse gehört, sonst zeigt es ihn nur. |
+| 10 (niedrig) DoS und Auskünfte | **Teilweise (0.3.0).** Höchstens 4 pi-Sitzungen (wartende werden für neue beendet, sonst lehnt der Rechner ab) und 10 Dateien je Nachricht; `hearth login` warnt bei `http://` außerhalb des Heimnetzes, `hearth setup` schlägt `https://` vor. Bleibt bewusst: Leerlaufzeit „nie“ ist eine Einstellung des Nutzers, Jev kann Übernahmen anhalten (gewollt), und der Rechner meldet Projektordner und geänderte Dateien in den Chat (Wunsch des Nutzers vom 4.11.). |
 
 ## Bericht des Prüfers
 

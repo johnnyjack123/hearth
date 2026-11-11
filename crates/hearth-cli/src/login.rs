@@ -28,6 +28,17 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
     // A server with its own CA needs it from the first request on.
     let ca = ServerCa::from_config(&server)?;
     let client = ServerClient::new(&url, ca.as_ref())?;
+    if !server::private_or_encrypted(client.url()) {
+        println!(
+            "{}",
+            tr(
+                "Achtung: unverschlüsselt (http://) zu einer Adresse außerhalb des Heimnetzes. Wer \
+                 die Verbindung mitliest, bekommt das Geräte-Token. Im Internet nur https:// nutzen.",
+                "Caution: unencrypted (http://) to an address outside the home network. Whoever \
+                 reads along gets the device token. On the internet, use https:// only."
+            )
+        );
+    }
     if let Some(old) = server.url.as_deref().filter(|old| *old != client.url())
         && move_device(config, old, &client)?
     {
@@ -50,7 +61,22 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
     println!();
     println!("    {}", sanitize(&pairing.verification_uri_complete));
     println!();
-    if open_browser && open(&pairing.verification_uri_complete) {
+    // The browser opens only a page of the address the user typed; the
+    // link is still there to open by hand (`PUBLIC_URL` may be another
+    // address of the same server).
+    let ours = server::same_origin(&pairing.verification_uri_complete, client.url());
+    if open_browser && !ours {
+        println!(
+            "{}",
+            tr(
+                "Der Link zeigt auf eine andere Adresse als die eingegebene. Öffne ihn selbst, wenn \
+                 er zu deinem Server gehört.",
+                "The link points to another address than the one you typed. Open it yourself if it \
+                 belongs to your server."
+            )
+        );
+    }
+    if open_browser && ours && open(&pairing.verification_uri_complete) {
         println!(
             "{}",
             tr(
@@ -94,6 +120,11 @@ pub fn login(config: &ConfigDir, url: Option<String>, open_browser: bool) -> any
 
     save_token(client.url(), &token)
         .context(tr("Geräte-Token speichern", "Saving the device token"))?;
+    // Programs another server defined do not belong to this one; it sends
+    // its own after connecting.
+    if server.url.as_deref() != Some(client.url()) {
+        forget_server_programs(config);
+    }
     config.set_server_url(Some(client.url()))?;
     let me = client.device(&token)?;
     println!(
@@ -241,6 +272,27 @@ fn move_device(config: &ConfigDir, old_url: &str, client: &ServerClient) -> anyh
     Ok(true)
 }
 
+/// Forgets the custom programs the server defined and switches them off in
+/// every project: they ran its scripts in the sandbox and should not outlive
+/// the pairing (client review of 10.11., finding 8). Installed copies stay
+/// until `hearth app remove`.
+fn forget_server_programs(config: &ConfigDir) {
+    if config.templates().is_empty() {
+        return;
+    }
+    match crate::app::apply_templates(config, Vec::new()) {
+        Ok(Some(message)) => println!("{message}"),
+        Ok(None) => {}
+        Err(error) => println!(
+            "{}",
+            tr!(
+                "Eigene Programme des Servers nicht entfernt: {error:#}",
+                "Custom programs of the server not removed: {error:#}"
+            )
+        ),
+    }
+}
+
 /// Tells the server which projects this computer offers, so they appear in
 /// the account right away; problems are only a note.
 pub fn announce_projects(config: &ConfigDir) {
@@ -308,6 +360,7 @@ pub fn logout(config: &ConfigDir) -> anyhow::Result<bool> {
         delete_token(&url)?;
     }
     config.set_server_url(None)?;
+    forget_server_programs(config);
     if revoked {
         println!(
             "{}",

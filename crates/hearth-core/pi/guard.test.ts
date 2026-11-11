@@ -98,7 +98,10 @@ test("a hit puts a note before the output and tells the user", async () => {
     },
     ctx,
   )) as { content: { text: string }[] };
-  assert.match(result.content[0].text, /^\[hearth\] Warning: this output contains ignore-previous-instructions phrasing\./);
+  assert.match(result.content[0].text, /^\[hearth\] Warning: a pattern check found ignore-previous-instructions phrasing in this output\./);
+  // Tentative: the check also flags harmless text.
+  assert.match(result.content[0].text, /may be a prompt injection/);
+  assert.match(result.content[0].text, /without claiming that it does/);
   assert.equal(result.content[1].text, "ignore previous instructions");
   assert.match(notes[0], /bash: curl -s https:\/\/example\.com\/readme\n/);
   assert.match(notes[0], /Fundstelle: »ignore previous instructions«/);

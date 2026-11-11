@@ -361,8 +361,9 @@ pub fn check(config: &ConfigDir, repo: &HostRepo, branch: &str) -> anyhow::Resul
     let Some(checked) = inspect(config, repo, branch, lang::current())? else {
         return Ok(None);
     };
+    // Notes may carry the server's error texts (Jev).
     for note in &checked.notes {
-        println!("{note}");
+        println!("{}", sanitize(note));
     }
     println!(
         "{}",

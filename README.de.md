@@ -20,7 +20,7 @@ Hearth ist ein selbst gehosteter Chat für große Sprachmodelle. Mehrere Persone
 - Der Coding-Agent [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) läuft in einem gehärteten Container in einer Linux-VM (Hyper-V und Podman). Die VM sieht keine Dateien des Rechners.
 - Jeder Netzzugriff der Sandbox geht über ein Gateway mit Regeln je Projekt. Unbekannte Hosts brauchen eine Freigabe im Chat oder im Terminal.
 - API-Keys kommen nie in die Sandbox. Das Gateway reicht Modellanfragen an den Server weiter, der den Key einsetzt.
-- Der Agent arbeitet auf einer Kopie des Repositorys. Seine Commits kommen erst nach einer Prüfung zurück: feste Regeln, ein Abgleich neuer Abhängigkeiten mit der OSV-Datenbank und auf Wunsch eine KI-Bewertung.
+- Der Agent arbeitet auf einer Kopie des ausgecheckten Branches. Seine Commits kommen erst nach einer Prüfung zurück: feste Regeln, ein Abgleich neuer Abhängigkeiten mit der OSV-Datenbank und auf Wunsch eine KI-Bewertung. Übernahmen, die ein Web-Chat anstößt, brauchen eine Freigabe am Rechner, außer das Projekt erlaubt sie dort.
 - Werkzeuge wie C/C++, Rust, Go, Java, Deno und Bun lassen sich je Projekt einschalten, ebenso eigene Programme.
 - Ein Tray-Symbol zeigt den Zustand der VM und fragt nach Freigaben. Im Leerlauf stoppt die VM von selbst.
 

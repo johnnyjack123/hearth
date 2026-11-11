@@ -8,6 +8,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { peerAddress, resolveClientIp } from './http/client-ip.ts';
 import { type AppDeps, type AppEnv, requireUser } from './http/context.ts';
 import { handleError, notFound } from './http/errors.ts';
+import { withHeartbeat } from './http/heartbeat.ts';
 import { appTemplateRoutes } from './routes/app-templates.ts';
 import { authRoutes } from './routes/auth.ts';
 import { conversationRoutes } from './routes/conversations.ts';
@@ -65,16 +66,16 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   // nginx, and with it Nginx Proxy Manager, buffers responses by default: a
   // streamed answer would reach the browser only at its end. This header
   // switches that off per response, without settings in the proxy.
+  // Long replies pause for longer than a proxy waits: comment lines keep
+  // them open (`withHeartbeat`). The LLM pass-through stays byte for byte as
+  // the provider sent it.
   app.use(async (c, next) => {
     await next();
     if (c.res.headers.get('content-type')?.startsWith('text/event-stream')) {
-      try {
-        c.res.headers.set('X-Accel-Buffering', 'no');
-      } catch {
-        // Headers of a fetched response are immutable; copy it.
-        c.res = new Response(c.res.body, c.res);
-        c.res.headers.set('X-Accel-Buffering', 'no');
-      }
+      const body = c.res.body && !c.req.path.startsWith('/api/llm/') ? withHeartbeat(c.res.body) : c.res.body;
+      // A new response: headers of a fetched one are immutable.
+      c.res = new Response(body, c.res);
+      c.res.headers.set('X-Accel-Buffering', 'no');
     }
   });
   const proxies = deps.config.trustedProxies;

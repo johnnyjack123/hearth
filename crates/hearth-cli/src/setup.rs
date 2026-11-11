@@ -448,8 +448,8 @@ fn server(assistant: &Assistant, config: &ConfigDir, url: Option<String>) -> any
     let url = match url {
         Some(url) => Some(url),
         None => assistant.ask(tr(
-            "Adresse deines hearth-Servers für Web-Chats (z. B. http://192.168.1.10:8080; leer: später)?",
-            "Address of your hearth server for web chats (e.g. http://192.168.1.10:8080; empty: later)?",
+            "Adresse deines hearth-Servers für Web-Chats (z. B. https://hearth.example.org oder im Heimnetz http://192.168.1.10:8080; leer: später)?",
+            "Address of your hearth server for web chats (e.g. https://hearth.example.org, or at home http://192.168.1.10:8080; empty: later)?",
         ))?,
     };
     let Some(url) = url else {
