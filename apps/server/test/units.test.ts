@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { checkDatabaseUrl, loadConfig, startupHint } from '../src/config.ts';
-import { createSecretBox, keyHint } from '../src/crypto.ts';
+import { createCipheriv, hkdfSync, randomBytes } from 'node:crypto';
+import { createSecretBox, deriveKey, keyHint } from '../src/crypto.ts';
 import { parseDatabaseUrl } from '../src/db/index.ts';
 import { agentToolsAsText, fallbackTitle } from '../src/routes/chat.ts';
 
@@ -65,6 +66,29 @@ describe('agentToolsAsText', () => {
       { type: 'text', text: 'Ich schaue nach.' },
       { type: 'text', text: '[The agent in the linked environment ran bash {"command":"ls"}; output: README.md]' },
     ]);
+  });
+});
+
+describe('key derivation', () => {
+  const secret = 'test-secret-that-is-long-enough-for-hkdf-0123456789';
+
+  it('derives the same keys as every release before, so stored API keys stay readable', () => {
+    // Pinned: a change here makes every stored key and the auth secret unreadable.
+    expect(deriveKey(secret, 'provider-api-keys:v1').toString('hex')).toBe('164cac5a8ac51387c7fb59b79a20720ec5d61294234151784542ec0d37652543');
+  });
+
+  it('still reads keys that 0.2.0 stored with its mistaken salt', () => {
+    const key = Buffer.from(hkdfSync('sha256', secret, 'hearth', 'provider-api-keys:v1', 32));
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    cipher.setAAD(Buffer.from('user:credential', 'utf8'));
+    const ciphertext = Buffer.concat([cipher.update('sk-or-v1-stored-by-0.2.0', 'utf8'), cipher.final()]);
+    const token = ['v1', iv, cipher.getAuthTag(), ciphertext].map((part) => (typeof part === 'string' ? part : part.toString('base64url'))).join('.');
+    const box = createSecretBox(secret);
+    expect(box.decrypt(token, 'user:credential')).toBe('sk-or-v1-stored-by-0.2.0');
+    expect(() => box.decrypt(token, 'other:credential')).toThrow();
+    // New keys use the original salt again.
+    expect(box.decrypt(box.encrypt('fresh', 'a:b'), 'a:b')).toBe('fresh');
   });
 });
 
