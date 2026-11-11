@@ -284,7 +284,8 @@ const DECISIONS: DecisionButton[] = [
   { decision: 'once', variant: 'primary' },
   { decision: 'minutes', variant: 'secondary' },
   { decision: 'session', variant: 'secondary' },
-  { decision: 'always', variant: 'outline' },
+  // No "always": the computer would take it as "until stopped" anyway. Only
+  // the computer itself writes a project's allow list (`hearth net allow`).
   { decision: 'deny', variant: 'outline' },
 ];
 
@@ -359,7 +360,7 @@ export function ApprovalCard({
             </code>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {fetchUrl ? (approval.research ? t('webFetch.approval.researchBody') : t('webFetch.approval.body')) : t('agent.approval.body')}
+            {fetchUrl ? (approval.research ? t('webFetch.approval.researchBody') : t('webFetch.approval.body')) : t('agent.approval.body', { host })}
           </p>
           {fetchUrl && approval.research?.similar ? (
             <>

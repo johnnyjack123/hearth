@@ -16,6 +16,10 @@ use hearth_core::tunnel::PromptFile;
 /// Where the files go in the instance.
 pub(crate) const UPLOADS_DIR: &str = "/home/agent/uploads";
 
+/// Files of one message placed at most, as the web app allows
+/// (`MAX_FILES_PER_MESSAGE` in `@hearth/shared`).
+const MAX_FILES: usize = 10;
+
 /// A file name usable as one path component in the instance: letters,
 /// digits and a few signs, never a dot or dash in front, at most 120
 /// characters. The server cleaned it already; this side does not rely on
@@ -82,6 +86,14 @@ pub(crate) fn place(
     container: &str,
     files: &[PromptFile],
 ) -> anyhow::Result<String> {
+    // The web app sends a handful; a server that sends hundreds would fill
+    // the VM's disk (client review of 10.11., finding 10).
+    if files.len() > MAX_FILES {
+        anyhow::bail!(
+            "{} Dateien in einer Nachricht, höchstens {MAX_FILES} kommen in die Umgebung.",
+            files.len()
+        );
+    }
     let made = provider.exec_output(&ExecSpec {
         container: container.to_owned(),
         command: vec![

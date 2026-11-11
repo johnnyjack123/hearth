@@ -402,7 +402,7 @@ fn approve(config: &ConfigDir, id: &str, yes: bool) -> anyhow::Result<bool> {
             "Der Browser möchte diese Datei als App {} („{}“) in die VM geben:",
             "The browser wants to put this file into the VM as app {} (“{}”):",
             request.name,
-            request.title
+            sanitize(&request.title)
         )
     );
     let info = app_file::inspect(&path).map_err(anyhow::Error::msg)?;
@@ -458,8 +458,8 @@ fn deny(config: &ConfigDir, id: &str) -> anyhow::Result<bool> {
         tr!(
             "Abgelehnt: {} ({}).",
             "Refused: {} ({}).",
-            request.title,
-            request.path
+            sanitize(&request.title),
+            sanitize(&request.path)
         )
     );
     Ok(true)
@@ -705,7 +705,7 @@ fn install_one(
         &tr!(in progress.lang();
             "{} installieren (einmalig, für alle Projekte)",
             "Installing {} (once, for all projects)",
-            app.title
+            sanitize(&app.title)
         ),
         || {
             // The recipe's output follows on the next lines.
@@ -781,7 +781,7 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
         println!(
             "  {:<8} {:<10} {:<16} {:<18} {}",
             app.name,
-            app.title,
+            sanitize(&app.title),
             state,
             installed,
             about.trim()
@@ -825,7 +825,11 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
         for request in pending {
             println!(
                 "  {}  {} ({}, {})  →  hearth app approve {}",
-                request.id, request.title, request.kind, request.path, request.id
+                request.id,
+                sanitize(&request.title),
+                request.kind,
+                sanitize(&request.path),
+                request.id
             );
         }
     }

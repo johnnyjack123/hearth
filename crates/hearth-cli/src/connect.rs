@@ -23,7 +23,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, bail};
 use hearth_core::apps::Inventory;
-use hearth_core::config::{ConfigDir, HarnessConfig, Project};
+use hearth_core::config::{ConfigDir, HarnessConfig, Project, valid_chat_id};
 use hearth_core::gateway::{Event, GatewayControl, Reply, Scope, Watch};
 use hearth_core::lang::tr;
 use hearth_core::pi::ExtraModel;
@@ -804,7 +804,7 @@ fn dispatch(
             let projects = offered(&shared.config);
             let (ok, message) =
                 app::apply_from_browser(&shared.config, &projects, &project, &enabled);
-            say(shared.mode, &format!("Browser: {message}"));
+            say(shared.mode, &sanitize(&format!("Browser: {message}")));
             // The new state first, so the server has it with the answer.
             if let Some(report) = changed_apps(shared, &projects) {
                 let _ = out.send(DeviceMessage::Apps { report });
@@ -826,7 +826,7 @@ fn dispatch(
                 app::request_from_browser(&shared.config, &path, &name, &title, &|line| {
                     say(shared.mode, line);
                 });
-            say(shared.mode, &format!("Browser: {message}"));
+            say(shared.mode, &sanitize(&format!("Browser: {message}")));
             // The waiting request is part of the report.
             if let Some(report) = changed_apps(shared, &offered(&shared.config)) {
                 let _ = out.send(DeviceMessage::Apps { report });
@@ -888,6 +888,11 @@ fn route(
     prompt: Prompt,
     compact: bool,
 ) {
+    // The id names pi's session file and goes into its arguments; a server
+    // gets nothing else in there (client review of 10.11., finding 9).
+    if !valid_chat_id(&prompt.session) {
+        return;
+    }
     // First sign of life in the chat: the computer has the message.
     let _ = out.send(DeviceMessage::SessionEvent {
         session: prompt.session.clone(),
@@ -929,6 +934,17 @@ fn route(
             let _ = session.commands.send(Command::Close);
         }
     }
+    if !sessions.contains_key(&prompt.session) && !room_for_a_session(shared, sessions) {
+        shared.idle.end(&prompt.session);
+        let _ = out.send(DeviceMessage::SessionClosed {
+            session: prompt.session.clone(),
+            reason: Some(format!(
+                "Auf diesem Rechner antworten schon {MAX_SESSIONS} Agents gleichzeitig. Schick die \
+                 Nachricht noch einmal, wenn einer fertig ist."
+            )),
+        });
+        return;
+    }
     let (commands, receiver) = mpsc::channel();
     let id = prompt.session.clone();
     let handle = SessionHandle {
@@ -946,9 +962,35 @@ fn route(
     }
 }
 
+/// pi sessions kept at once. Each holds a pi process in the VM; a server that
+/// opened one per chat it knows would run the VM out of memory (client
+/// review of 10.11., finding 10).
+const MAX_SESSIONS: usize = 4;
+
+/// Makes room for one more session: below the limit there is room; at it, a
+/// session waiting for its next message ends (its chat starts pi again
+/// when it needs it). False if every session is answering right now.
+fn room_for_a_session(shared: &Shared, sessions: &mut HashMap<String, SessionHandle>) -> bool {
+    if sessions.len() < MAX_SESSIONS {
+        return true;
+    }
+    let answering = shared.idle.answering();
+    let Some(waiting) = sessions.keys().find(|id| !answering.contains(id)).cloned() else {
+        return false;
+    };
+    if let Some(session) = sessions.remove(&waiting) {
+        let _ = session.commands.send(Command::Close);
+        let _ = session.thread.join();
+    }
+    true
+}
+
 /// Takes a chat's agent work over in a thread of its own; pi keeps
 /// running. The server sends this only while no reply of the chat runs.
 fn start_takeover(shared: &Arc<Shared>, out: &Sender<DeviceMessage>, request: TakeoverRequest) {
+    if !valid_chat_id(&request.session) {
+        return;
+    }
     let emit = Emitter {
         session: request.session.clone(),
         out: out.clone(),
@@ -2145,13 +2187,15 @@ impl ApprovalBridge {
         let Some(asked) = questions.get_mut(&id).filter(|asked| !asked.answered) else {
             return;
         };
-        // The same answers as in `hearth net watch`; "always" also writes
-        // the host into the project's allow list.
+        // The same answers as in `hearth net watch`, but "always" from the
+        // browser holds only until the sandbox stops: the allow list in the
+        // project file outlives the server that answered and applies to
+        // terminal sessions too, so only this computer writes it (client
+        // review of 10.11., finding 7).
         let key = match decision {
             Decision::Once => "e",
             Decision::Minutes => "m",
-            Decision::Session => "s",
-            Decision::Always => "i",
+            Decision::Session | Decision::Always => "s",
             Decision::Deny => "n",
         };
         let Some((scope, note)) = net::decide(config, project, &asked.question, key) else {

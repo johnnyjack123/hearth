@@ -412,7 +412,7 @@ export const de = {
     },
     approval: {
       title: 'Der Agent möchte {host} erreichen',
-      body: 'Das kann der Agent sein, die Harness selbst oder ein Programm, das er gestartet hat. Erlaube nur, was du erwartest.',
+      body: 'Das kann der Agent sein, die Harness selbst oder ein Programm, das er gestartet hat. Erlaube nur, was du erwartest. Dauerhaft erlauben geht nur am Rechner: hearth net allow {host} --always',
       once: 'Einmal erlauben',
       minutes: '15 Minuten',
       session: 'Bis zum Stopp',

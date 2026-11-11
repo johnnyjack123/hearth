@@ -239,6 +239,55 @@ fn device_proof(stored: &str, nonce: &str, origins: &[String]) -> String {
     hex(&mac.finalize().into_bytes())
 }
 
+/// Whether a server URL is safe to use without TLS: `https://`, or `http://`
+/// to this computer or the home network (private and Tailscale addresses,
+/// names without a dot, `.local`, `.lan`, `.home.arpa`, `.ts.net`). Over
+/// the internet a plain connection hands the device token to anyone who
+/// reads along (client review of 10.11., finding 10).
+pub fn private_or_encrypted(url: &str) -> bool {
+    let Some(rest) = url.trim().strip_prefix("http://") else {
+        return true;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = match authority.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or_default(),
+        None => authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host),
+    }
+    .to_lowercase();
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    // Tailscale and other carrier-grade NAT (100.64.0.0/10).
+                    || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64)
+            }
+            std::net::IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || (v6.segments()[0] & 0xfe00) == 0xfc00
+                    || (v6.segments()[0] & 0xffc0) == 0xfe80
+            }
+        };
+    }
+    !host.contains('.')
+        || [".local", ".lan", ".home.arpa", ".ts.net", ".internal"]
+            .iter()
+            .any(|suffix| host.ends_with(suffix))
+}
+
+/// Whether two URLs have the same scheme, host and port; paths do not count.
+pub fn same_origin(a: &str, b: &str) -> bool {
+    fn base(url: &str) -> String {
+        let (scheme, rest) = url.trim().split_once("://").unwrap_or(("", url));
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+        origin_of(&format!("{scheme}://{authority}"))
+    }
+    base(a) == base(b)
+}
+
 /// `url` as the origin a browser would form: scheme and host in lower case,
 /// without the default port, so it compares with the server's addresses.
 fn origin_of(url: &str) -> String {
@@ -734,6 +783,32 @@ mod tests {
     }
 
     #[test]
+    fn plain_http_only_at_home() {
+        for home in [
+            "https://hearth.example.org",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://192.168.1.50:8080",
+            "http://10.0.0.2",
+            "http://100.101.102.103:8080",
+            "http://[::1]:8080",
+            "http://[fd12::1]:8080",
+            "http://homeserver:8080",
+            "http://pi.local:8080",
+            "http://homeserver.tail1234.ts.net:8080",
+        ] {
+            assert!(private_or_encrypted(home), "{home}");
+        }
+        for outside in [
+            "http://hearth.example.org",
+            "http://203.0.113.5:8080",
+            "http://[2001:db8::1]:8080",
+        ] {
+            assert!(!private_or_encrypted(outside), "{outside}");
+        }
+    }
+
+    #[test]
     fn origins_compare_like_a_browser_forms_them() {
         assert_eq!(
             origin_of("https://Hearth.Example.org:443"),
@@ -749,6 +824,18 @@ mod tests {
             origin_of("https://hearth.example.org:8443"),
             origin_of("https://hearth.example.org")
         );
+        assert!(same_origin(
+            "https://Hearth.example.org/device?code=AB",
+            "https://hearth.example.org:443"
+        ));
+        assert!(!same_origin(
+            "https://hearth.example.org@evil.example/device",
+            "https://hearth.example.org"
+        ));
+        assert!(!same_origin(
+            "http://hearth.example.org/device",
+            "https://hearth.example.org"
+        ));
     }
 
     #[test]
