@@ -32,11 +32,18 @@ deny = []
 [remote]
 # Für Web-Chats deines Kontos freigeben: Sie können den Agent dieses
 # Projekts in seiner Sandbox steuern, gestartet vom Hintergrunddienst
-# (hearth daemon). Umschalten mit `hearth project remote on|off`.
-enabled = true
+# (hearth daemon). `hearth init` schaltet das ein; umschalten mit
+# `hearth project remote on|off`.
+enabled = false
 # Einen neuen Chat erst am Rechner bestätigen. Das geht nur, wenn
 # `hearth connect` im Terminal läuft, nicht mit dem Hintergrunddienst.
 confirm = false
+# Web-Chats dürfen die Arbeit des Agents ohne Freigabe an diesem Rechner in
+# den ausgecheckten Branch übernehmen („Fortschritt sichern“, Autosync).
+# Ohne das wartet jede Übernahme auf `hearth merge --approve <ID>`; Funde
+# der Prüfung halten sie in jedem Fall an. Umschalten mit
+# `hearth project remote on --merge` bzw. `--no-merge`.
+merge = false
 # Bestätigte Chats; hearth connect trägt sie ein.
 chats = []
 

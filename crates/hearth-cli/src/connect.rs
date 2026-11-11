@@ -1373,6 +1373,8 @@ struct Agent {
     finished: Receiver<()>,
     /// Uncommitted files of the project folder the chat was last told about.
     host_changes: Vec<String>,
+    /// Whether the chat heard that autosync needs the user's consent here.
+    autosync_refused: bool,
 }
 
 /// The reader does not pass a reply's `done` on but reports the end here;
@@ -1504,6 +1506,7 @@ fn start(
         thinking_level: None,
         first_prompt: true,
         host_changes: Vec::new(),
+        autosync_refused: false,
         next_id: 0,
         approvals,
         thinking,
@@ -1825,9 +1828,26 @@ impl Agent {
     }
 
     fn prompt(&mut self, shared: &Shared, prompt: &Prompt) {
+        // The server only asks for autosync; merging into the user's branch
+        // without an approval here needs `[remote] merge` (client review of
+        // 10.11., finding 1). Read fresh, like everything the device decides.
+        let consent = shared
+            .config
+            .project_config(&self.project.name)
+            .is_ok_and(|config| config.remote.merge);
         self.reply_end
             .autosync
-            .store(prompt.autosync, Ordering::SeqCst);
+            .store(prompt.autosync && consent, Ordering::SeqCst);
+        if prompt.autosync && !consent && !self.autosync_refused {
+            self.autosync_refused = true;
+            self.emit.event(AgentEvent::notice(
+                NoticeLevel::Info,
+                format!(
+                    "Autosync ist für {} auf diesem Rechner nicht erlaubt. „Fortschritt sichern“ legt die Übernahme zur Freigabe vor; ohne Freigabe übernimmt der Chat erst nach `hearth project remote on --merge` im Projektordner.",
+                    self.project.name
+                ),
+            ));
+        }
         self.warn_host_changes();
         if let Some(level) = &prompt.thinking
             && self.thinking_level.as_ref() != Some(level)

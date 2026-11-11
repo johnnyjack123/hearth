@@ -31,7 +31,7 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use clap::{Parser, Subcommand, ValueEnum};
 use hearth_core::Provider;
-use hearth_core::config::ConfigDir;
+use hearth_core::config::{ConfigDir, RemoteChange};
 use hearth_core::image::{BASE_IMAGE, BuildOptions, GATEWAY_IMAGE, IMAGES, ImageDefinition};
 use hearth_core::lang::tr;
 use hearth_core::tr;
@@ -333,6 +333,16 @@ enum ProjectCommand {
             "Confirm new chats on this computer again (default)"
         ))]
         confirm: bool,
+        #[arg(long, conflicts_with = "no_merge", help = tr(
+            "Web-Chats übernehmen die Arbeit des Agents ohne Freigabe hier (Autosync)",
+            "Web chats take the agent's work over without an approval here (autosync)"
+        ))]
+        merge: bool,
+        #[arg(long, help = tr(
+            "Übernahmen aus Web-Chats wieder hier freigeben (Standard)",
+            "Approve takeovers from web chats here again (default)"
+        ))]
+        no_merge: bool,
     },
 }
 
@@ -468,10 +478,15 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
                 state,
                 no_confirm,
                 confirm,
+                merge,
+                no_merge,
             } => project::remote(
                 &config,
-                state.map(|s| matches!(s, Switch::On)),
-                (no_confirm || confirm).then_some(confirm),
+                RemoteChange {
+                    enabled: state.map(|s| matches!(s, Switch::On)),
+                    confirm: (no_confirm || confirm).then_some(confirm),
+                    merge: (merge || no_merge).then_some(merge),
+                },
             ),
         },
         Command::Run { harness, args } => {

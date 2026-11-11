@@ -1026,6 +1026,12 @@ mod tests {
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         let config = ConfigDir::new(dir.path().join("home"));
         let project = config.create_project(&repo).unwrap();
+        // As after `hearth init`.
+        let on = hearth_core::config::RemoteChange {
+            enabled: Some(true),
+            ..Default::default()
+        };
+        config.set_remote(&project.name, on).unwrap();
         let template = |name: &str| {
             serde_json::json!({
                 "name": name, "title": name, "kind": "apt", "packages": [name],

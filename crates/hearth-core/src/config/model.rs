@@ -211,32 +211,43 @@ fn default_apps() -> Vec<String> {
 }
 
 /// `[remote]` of a project: whether web chats may run agents in it.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+//
+// Off unless the user said so on this computer: `hearth init` is that
+// consent and switches it on (decision of 17.10., still without a
+// confirmation per chat). A project created any other way, or by a version
+// that left `[remote]` out, is not offered: the server must not be able to
+// reach a folder the user never released (client review of 10.11., finding
+// 2). Merging without an approval here is a second, separate consent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoteConfig {
     /// Offered to web chats of the account (through the background service).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enabled: bool,
     /// A chat needs a confirmation on this computer before its first use;
     /// only `hearth connect` in a terminal can ask.
     #[serde(default)]
     pub confirm: bool,
+    /// Web chats may merge the agent's work into the checked-out branch
+    /// ("Fortschritt sichern", autosync) without an approval on this
+    /// computer. Findings hold a merge either way.
+    #[serde(default)]
+    pub merge: bool,
     /// Chats confirmed so far (conversation ids).
     #[serde(default)]
     pub chats: Vec<String>,
 }
 
-// Offered without confirmation by default: the user decided on 17.10. that
-// a project should be usable from the account's chats right after `hearth
-// init`. The sandbox still applies; `hearth project remote off` withdraws it.
-impl Default for RemoteConfig {
-    fn default() -> Self {
-        RemoteConfig {
-            enabled: true,
-            confirm: false,
-            chats: Vec::new(),
-        }
-    }
+/// A change to `[remote]` ([`super::ConfigDir::set_remote`]); `None` keeps
+/// a value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RemoteChange {
+    /// New `enabled`.
+    pub enabled: Option<bool>,
+    /// New `confirm`.
+    pub confirm: Option<bool>,
+    /// New `merge`.
+    pub merge: Option<bool>,
 }
 
 /// Whether `id` looks like a conversation id of the server (UUID).

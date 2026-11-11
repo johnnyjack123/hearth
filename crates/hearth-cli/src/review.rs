@@ -44,6 +44,13 @@ impl Checked {
     pub fn has_high(&self) -> bool {
         self.findings.iter().any(|f| f.severity == Severity::High)
     }
+
+    /// Whether a finding should be looked at before a merge nobody at this
+    /// computer started: medium ones (build scripts, CI, editor settings,
+    /// instructions for agents) run on the host just as well.
+    pub fn has_medium(&self) -> bool {
+        self.findings.iter().any(|f| f.severity == Severity::Medium)
+    }
 }
 
 fn label(severity: Severity) -> &'static str {
