@@ -187,10 +187,33 @@ struct ErrorDetail {
     message: String,
 }
 
-/// The server's answer to [`ServerClient::holds_device`].
+/// The server's answer to [`ServerClient::prove_device`].
 #[derive(Deserialize)]
-struct Proof {
-    proof: String,
+struct SignedProof {
+    origins: Vec<String>,
+    signature: String,
+}
+
+/// Prefix of the text a device proof signs; the server's is the same.
+const DEVICE_PROOF_CONTEXT: &str = "hearth-device-proof";
+
+/// Addresses of a server shown at most, e.g. in a refusal.
+const MAX_ORIGINS: usize = 10;
+
+/// What [`ServerClient::prove_device`] found out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceProof {
+    /// The server does not hold this device (or predates bound proofs).
+    NotHeld,
+    /// The server holds it and answers under the address dialled.
+    Held,
+    /// A server holding it answered, but names other addresses as its own:
+    /// the address dialled only relays to it, or is missing from the
+    /// server's `TRUSTED_ORIGINS`. The token must not go there.
+    Elsewhere {
+        /// The server's own addresses (sanitized, at most [`MAX_ORIGINS`]).
+        origins: Vec<String>,
+    },
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -205,12 +228,29 @@ fn device_lookup(token: &str) -> (String, String) {
     (stored, lookup)
 }
 
-/// The answer a server holding the device gives to `nonce`, in hex.
-fn device_proof(stored: &str, nonce: &str) -> String {
+/// The signature a server holding the device gives to `nonce` together with
+/// its `origins`, in hex.
+fn device_proof(stored: &str, nonce: &str, origins: &[String]) -> String {
     let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(stored.as_bytes())
         .expect("HMAC takes keys of any length");
-    mac.update(nonce.as_bytes());
+    let mut parts = vec![DEVICE_PROOF_CONTEXT, nonce];
+    parts.extend(origins.iter().map(String::as_str));
+    mac.update(parts.join("\n").as_bytes());
     hex(&mac.finalize().into_bytes())
+}
+
+/// `url` as the origin a browser would form: scheme and host in lower case,
+/// without the default port, so it compares with the server's addresses.
+fn origin_of(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/').to_lowercase();
+    for (scheme, port) in [("http://", ":80"), ("https://", ":443")] {
+        if let Some(rest) = url.strip_prefix(scheme)
+            && let Some(host) = rest.strip_suffix(port)
+        {
+            return format!("{scheme}{host}");
+        }
+    }
+    url
 }
 
 /// HTTP client for one harness server.
@@ -355,8 +395,10 @@ impl ServerClient {
     /// sending the token: `hearth login` keeps the device when the same
     /// server moves to a new address, and a mistyped address learns nothing.
     /// The server answers a random challenge with an HMAC keyed with the
-    /// token's hash, which only it stores.
-    pub fn holds_device(&self, token: &str) -> Result<bool> {
+    /// token's hash, which only it stores, over the challenge and the
+    /// addresses it answers under. A server that only relays the challenge to
+    /// the real one thus shows up as [`DeviceProof::Elsewhere`].
+    pub fn prove_device(&self, token: &str) -> Result<DeviceProof> {
         let (stored, lookup) = device_lookup(token);
         let mut challenge = [0u8; 32];
         getrandom::fill(&mut challenge).map_err(|e| Error::Server(e.to_string()))?;
@@ -365,11 +407,25 @@ impl ServerClient {
             .agent
             .post(format!("{}/api/pairing/prove", self.url))
             .send_json(serde_json::json!({ "lookup": lookup, "nonce": nonce }));
-        // Another server, or one from before the check, knows no such device.
-        let Ok(Proof { proof }) = self.read::<Proof>(response) else {
-            return Ok(false);
+        // Another server, or one from before bound proofs, knows no such
+        // device.
+        let Ok(SignedProof { origins, signature }) = self.read::<SignedProof>(response) else {
+            return Ok(DeviceProof::NotHeld);
         };
-        Ok(proof == device_proof(&stored, &nonce))
+        if signature != device_proof(&stored, &nonce, &origins) {
+            return Ok(DeviceProof::NotHeld);
+        }
+        let dialled = origin_of(&self.url);
+        if origins.iter().any(|origin| origin_of(origin) == dialled) {
+            return Ok(DeviceProof::Held);
+        }
+        Ok(DeviceProof::Elsewhere {
+            origins: origins
+                .iter()
+                .take(MAX_ORIGINS)
+                .map(|origin| crate::sync::sanitize(origin).chars().take(200).collect())
+                .collect(),
+        })
     }
 
     /// The device a token belongs to; fails for revoked tokens.
@@ -667,9 +723,31 @@ mod tests {
             lookup,
             "a0cc9c1632b9567bfe8d4d7aa836e1298dbf103fcfdcada8481e691668153c1d"
         );
+        let origins = [
+            "https://hearth.example.org".to_owned(),
+            "http://192.168.1.50:8080".to_owned(),
+        ];
         assert_eq!(
-            device_proof(&stored, "00112233445566778899aabbccddeeff"),
-            "dd44dcd282ec2ec506d61ae11f379095c42c7b06e3cd4eef2dd58c5b28586449"
+            device_proof(&stored, "00112233445566778899aabbccddeeff", &origins),
+            "0e4b40dd22a09f8f8f810641390c2f8a6ac2ccb5cf35264e5b7d32aacbe4d0a3"
+        );
+    }
+
+    #[test]
+    fn origins_compare_like_a_browser_forms_them() {
+        assert_eq!(
+            origin_of("https://Hearth.Example.org:443"),
+            "https://hearth.example.org"
+        );
+        assert_eq!(origin_of("http://lan.local:80/"), "http://lan.local");
+        assert_eq!(
+            origin_of("http://192.168.1.50:8080"),
+            "http://192.168.1.50:8080"
+        );
+        // Another port is another server.
+        assert_ne!(
+            origin_of("https://hearth.example.org:8443"),
+            origin_of("https://hearth.example.org")
         );
     }
 

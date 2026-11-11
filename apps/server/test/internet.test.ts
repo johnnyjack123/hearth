@@ -8,7 +8,7 @@ import { parseTrustedProxies, rateKey, resolveClientIp } from '../src/http/clien
 import { RateLimiter } from '../src/http/rate-limit.ts';
 import { SETUP_CODE_HEADER, sameSetupCode } from '../src/routes/auth.ts';
 import { startupNotes } from '../src/server.ts';
-import { isBanned } from '../src/services/devices.ts';
+import { type DeviceProof, isBanned, proveDevice } from '../src/services/devices.ts';
 import { createTestServer, DIALECTS, ORIGIN, SETUP_CODE, type TestServer } from './helpers.ts';
 
 const CLI = { origin: '' };
@@ -208,8 +208,16 @@ describe.each(DIALECTS)('server on the internet (%s)', (kind) => {
     await server.database.db.updateTable('device').set({ tokenHash: 'a71e718f66da4e3bde5b7756f407734208d50d07f5e67f411329e17883285433' }).execute();
     const prove = (lookup: string) =>
       server.request('POST', '/api/pairing/prove', { body: { lookup, nonce: '00112233445566778899aabbccddeeff' }, headers: CLI });
-    const known = await prove('a0cc9c1632b9567bfe8d4d7aa836e1298dbf103fcfdcada8481e691668153c1d');
-    expect(await known.json()).toEqual({ proof: 'dd44dcd282ec2ec506d61ae11f379095c42c7b06e3cd4eef2dd58c5b28586449' });
+    const lookup = 'a0cc9c1632b9567bfe8d4d7aa836e1298dbf103fcfdcada8481e691668153c1d';
+    const known = (await (await prove(lookup)).json()) as DeviceProof;
+    // The answer names the server's own addresses, signed with the rest.
+    expect(known.origins).toEqual([ORIGIN]);
+    expect(known.signature).toMatch(/^[0-9a-f]{64}$/);
+    const signed = await proveDevice(server.database.db, lookup, '00112233445566778899aabbccddeeff', [
+      'https://hearth.example.org',
+      'http://192.168.1.50:8080',
+    ]);
+    expect(signed?.signature).toBe('0e4b40dd22a09f8f8f810641390c2f8a6ac2ccb5cf35264e5b7d32aacbe4d0a3');
     expect((await prove('0'.repeat(64))).status).toBe(404);
     expect((await server.request('POST', '/api/pairing/prove', { body: { lookup: 'x', nonce: 'y' }, headers: CLI })).status).toBe(400);
   });

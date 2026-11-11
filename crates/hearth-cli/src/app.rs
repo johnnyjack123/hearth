@@ -16,6 +16,7 @@ use hearth_core::gateway;
 use hearth_core::lang::{self, Lang, tr};
 use hearth_core::podman::PodmanProvider;
 use hearth_core::project::ProjectName;
+use hearth_core::sync::sanitize;
 use hearth_core::tr;
 use hearth_core::tunnel::{AppInfo, AppsReport, PendingFile, ProjectApps, RemoteProject, truncate};
 use hearth_core::vmd;
@@ -255,26 +256,46 @@ fn file_app_name_free(config: &ConfigDir, name: &str, lang: Lang) -> Result<(), 
 /// to Linux program files, free names), then stored as a request for the
 /// user to approve on this computer. Returns whether it waits, what to tell
 /// the user (German, the browser translates on its own) and the request's
-/// id.
+/// id. Details only this computer should know go to `log`.
 pub(crate) fn request_from_browser(
     config: &ConfigDir,
     path: &str,
     name: &str,
     title: &str,
+    log: &dyn Fn(&str),
 ) -> (bool, String, Option<String>) {
     let title = title.trim();
     let checked = (|| -> Result<FileRequest, String> {
         if title.is_empty() || title.chars().count() > 60 {
             return Err("Der Name muss 1 bis 60 Zeichen lang sein.".to_owned());
         }
+        // The title shows up in the approval dialog; it must not fake lines
+        // or reorder text there.
+        if title.chars().any(invisible_or_control) {
+            return Err("Der Name darf keine Steuer- oder Formatzeichen enthalten.".to_owned());
+        }
         file_app_name_free(config, name, Lang::De)?;
         let file = Path::new(path);
-        if path.contains('\0') || !file.is_absolute() {
+        if path.contains('\0') || !app_file::on_local_drive(file) {
             return Err(format!(
-                "{path} ist kein vollständiger Pfad (z. B. C:\\Tools\\programm)."
+                "{} ist kein vollständiger Pfad auf einem Laufwerk dieses Rechners (z. B. \
+                 C:\\Tools\\programm); Netzwerkpfade und -laufwerke gehen nicht.",
+                sanitize(path)
             ));
         }
-        let info = app_file::inspect(file)?;
+        // Why a file does not qualify stays here: the browser must not learn
+        // which files exist on this computer.
+        let info = app_file::inspect(file).map_err(|reason| {
+            log(&format!(
+                "Programmdatei {} abgelehnt: {reason}",
+                sanitize(path)
+            ));
+            format!(
+                "{} fehlt, ist nicht lesbar oder keine Linux-Programmdatei für diese VM \
+                 (Programm, AppImage, .deb, .zip, .tar.gz, .tar.xz).",
+                sanitize(path)
+            )
+        })?;
         app_request::create(config, name, title, path, info).map_err(|e| format!("{e:#}"))
     })();
     match checked {
@@ -289,6 +310,15 @@ pub(crate) fn request_from_browser(
         ),
         Err(error) => (false, format!("Nicht angefragt: {error}"), None),
     }
+}
+
+/// Control characters and the invisible ones that hide or reorder text.
+fn invisible_or_control(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2069}' | '\u{FEFF}'
+        )
 }
 
 /// Switches `names` off in every project of this computer; returns the
@@ -996,6 +1026,12 @@ mod tests {
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         let config = ConfigDir::new(dir.path().join("home"));
         let project = config.create_project(&repo).unwrap();
+        // As after `hearth init`.
+        let on = hearth_core::config::RemoteChange {
+            enabled: Some(true),
+            ..Default::default()
+        };
+        config.set_remote(&project.name, on).unwrap();
         let template = |name: &str| {
             serde_json::json!({
                 "name": name, "title": name, "kind": "apt", "packages": [name],

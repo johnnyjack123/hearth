@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context as _, bail};
-use hearth_core::config::{ConfigDir, Project};
+use hearth_core::config::{ConfigDir, Project, RemoteChange};
 use hearth_core::lang::tr;
 use hearth_core::project::{ProjectName, find_repo_root};
 use hearth_core::provider::Provider as _;
@@ -153,17 +153,36 @@ pub fn init(config: &ConfigDir, path: Option<&Path>, name: Option<&str>) -> anyh
             project
         }
     };
-    let remote = config.project_config(&project.name)?.remote;
-    let paired = crate::login::paired(config)?.is_some();
-    if !remote.enabled {
-        println!(
-            "{}",
-            tr(
-                "Für Web-Chats nicht freigegeben (`hearth project remote on` schaltet es ein).",
-                "Not offered to web chats (`hearth project remote on` switches it on).",
-            )
+    // `hearth init` is the user's word that web chats may use this folder;
+    // projects created any other way stay off (`RemoteConfig::default`).
+    let mut remote = config.set_remote(
+        &project.name,
+        RemoteChange {
+            enabled: Some(true),
+            ..RemoteChange::default()
+        },
+    )?;
+    let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+    if !remote.merge && interactive {
+        let question = tr(
+            "Dürfen Web-Chats die Arbeit des Agents ohne Freigabe hier in deinen Branch \
+             übernehmen (Fortschritt sichern, Autosync)? Funde der Prüfung halten sie trotzdem an.",
+            "May web chats take the agent's work over into your branch without an approval \
+             here (save progress, autosync)? Findings of the check still hold it.",
         );
-    } else if !paired {
+        if confirm(question, false)? {
+            remote = config.set_remote(
+                &project.name,
+                RemoteChange {
+                    merge: Some(true),
+                    ..RemoteChange::default()
+                },
+            )?;
+        }
+    }
+    println!("{}", merge_note(remote.merge));
+    let paired = crate::login::paired(config)?.is_some();
+    if !paired {
         println!(
             "{}",
             tr(
@@ -202,12 +221,9 @@ pub fn init(config: &ConfigDir, path: Option<&Path>, name: Option<&str>) -> anyh
 }
 
 /// `hearth project remote [on|off]`: offers the project of the current
-/// repository to web chats, or stops that.
-pub fn remote(
-    config: &ConfigDir,
-    enabled: Option<bool>,
-    confirm: Option<bool>,
-) -> anyhow::Result<bool> {
+/// repository to web chats, or stops that, and says whether they may merge
+/// without an approval here.
+pub fn remote(config: &ConfigDir, change: RemoteChange) -> anyhow::Result<bool> {
     let repo = current_repo()?;
     let Some(project) = config.find_project(&repo)? else {
         bail!(tr!(
@@ -216,12 +232,12 @@ pub fn remote(
             repo.display()
         ));
     };
-    let remote = if enabled.is_some() || confirm.is_some() {
-        let remote = config.set_remote(&project.name, enabled, confirm)?;
+    let remote = if change == RemoteChange::default() {
+        config.project_config(&project.name)?.remote
+    } else {
+        let remote = config.set_remote(&project.name, change)?;
         crate::login::announce_projects(config);
         remote
-    } else {
-        config.project_config(&project.name)?.remote
     };
     if remote.enabled {
         println!(
@@ -254,6 +270,7 @@ pub fn remote(
                 )
             );
         }
+        println!("{}", merge_note(remote.merge));
     } else {
         println!(
             "{}",
@@ -265,6 +282,25 @@ pub fn remote(
         );
     }
     Ok(true)
+}
+
+/// What happens when a web chat takes the agent's work over.
+fn merge_note(merge: bool) -> &'static str {
+    if merge {
+        tr(
+            "Web-Chats übernehmen die Arbeit des Agents ohne Freigabe hier; Funde der Prüfung \
+             halten sie an (`hearth project remote on --no-merge` nimmt das zurück).",
+            "Web chats take the agent's work over without an approval here; findings of the \
+             check hold it (`hearth project remote on --no-merge` withdraws that).",
+        )
+    } else {
+        tr(
+            "Übernahmen aus Web-Chats warten auf `hearth merge --approve <ID>` an diesem Rechner \
+             (`hearth project remote on --merge` erlaubt sie ohne Freigabe).",
+            "Takeovers from web chats wait for `hearth merge --approve <ID>` on this computer \
+             (`hearth project remote on --merge` allows them without an approval).",
+        )
+    }
 }
 
 /// Lists all projects with their repositories and whether web chats may

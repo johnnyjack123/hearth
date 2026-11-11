@@ -108,6 +108,17 @@ describe('loadConfig', () => {
     expect(config.trustedOrigins).toEqual(['http://localhost:8080']);
   });
 
+  it('keeps the addresses as origins, the form hearth login compares', () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-config-'));
+    const config = loadConfig({
+      DATA_DIR: dataDir,
+      PUBLIC_URL: 'https://Hearth.Example.org:443/',
+      TRUSTED_ORIGINS: 'http://192.168.1.50:8080/, http://LAN.local:80',
+      NODE_ENV: 'production',
+    });
+    expect(config.trustedOrigins).toEqual(['https://hearth.example.org', 'http://192.168.1.50:8080', 'http://lan.local']);
+  });
+
   it('reads the variables and the SQLite file of a server from before the rename', () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), 'harness-config-'));
     writeFileSync(path.join(dataDir, 'harness.db'), '');

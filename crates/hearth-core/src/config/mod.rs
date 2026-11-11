@@ -22,8 +22,8 @@ use toml_edit::DocumentMut;
 pub use model::{
     AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppFile, AppSource, AppsConfig,
     DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind,
-    HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteConfig,
-    ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id, valid_file_name,
+    HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteChange,
+    RemoteConfig, ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id, valid_file_name,
 };
 use model::{Validate, validate_app_name, validate_harness_name};
 pub use template::{AppKind, AppTemplate, MAX_PACKAGE_LEN, MAX_PACKAGES, MAX_SCRIPT};
@@ -450,20 +450,19 @@ impl ConfigDir {
         })
     }
 
-    /// Changes `[remote]` of a project: whether web chats may use it and
-    /// whether new chats need a confirmation. `None` leaves a value as is.
-    pub fn set_remote(
-        &self,
-        name: &ProjectName,
-        enabled: Option<bool>,
-        confirm: Option<bool>,
-    ) -> Result<RemoteConfig> {
+    /// Changes `[remote]` of a project: whether web chats may use it,
+    /// whether new chats need a confirmation and whether they may merge
+    /// without an approval here. `None` leaves a value as is.
+    pub fn set_remote(&self, name: &ProjectName, change: RemoteChange) -> Result<RemoteConfig> {
         self.update_project(name, |doc| {
-            if let Some(enabled) = enabled {
-                doc["remote"]["enabled"] = toml_edit::value(enabled);
-            }
-            if let Some(confirm) = confirm {
-                doc["remote"]["confirm"] = toml_edit::value(confirm);
+            for (key, value) in [
+                ("enabled", change.enabled),
+                ("confirm", change.confirm),
+                ("merge", change.merge),
+            ] {
+                if let Some(value) = value {
+                    doc["remote"][key] = toml_edit::value(value);
+                }
             }
             Ok(())
         })?;

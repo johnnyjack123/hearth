@@ -29,7 +29,10 @@ export function takeoverTitle(t: TranslateFn, report: TakeoverReport): string {
     case 'up_to_date':
       return t('takeover.upToDate');
     case 'held':
-      return t('takeover.held');
+      if (report.findings.some((finding) => finding.severity === 'high')) {
+        return t('takeover.held');
+      }
+      return report.findings.length > 0 ? t('takeover.heldFindings') : t('takeover.heldApproval');
     case 'conflict':
       return t('takeover.conflict');
     case 'refused':
@@ -39,17 +42,21 @@ export function takeoverTitle(t: TranslateFn, report: TakeoverReport): string {
   }
 }
 
-function StateIcon({ state }: { state: TakeoverReport['state'] }) {
+function StateIcon({ report }: { report: TakeoverReport }) {
   const className = 'mt-0.5 size-4 shrink-0';
-  switch (state) {
+  switch (report.state) {
     case 'running':
       return <Spinner className={className} />;
     case 'merged':
       return <GitMerge className={cn(className, 'text-success')} aria-hidden="true" />;
     case 'up_to_date':
       return <Check className={cn(className, 'text-muted-foreground')} aria-hidden="true" />;
-    case 'held':
-      return <ShieldAlert className={cn(className, 'text-destructive')} aria-hidden="true" />;
+    case 'held': {
+      // Only severe findings are alarming; a merge that waits for the user's
+      // word is the normal case for projects without `[remote] merge`.
+      const severe = report.findings.some((finding) => finding.severity === 'high');
+      return <ShieldAlert className={cn(className, severe ? 'text-destructive' : 'text-foreground')} aria-hidden="true" />;
+    }
     case 'conflict':
     case 'refused':
       return <TriangleAlert className={cn(className, 'text-foreground')} aria-hidden="true" />;
@@ -60,8 +67,9 @@ function StateIcon({ state }: { state: TakeoverReport['state'] }) {
 
 /**
  * Taking over an agent's work into the user's folder, as a card in the
- * chat: how it ended, what the check found and, when severe findings hold
- * the merge, the command that approves it on the computer. Texts from the
+ * chat: how it ended, what the check found and, when findings or a missing
+ * consent on the computer hold the merge, the command that approves it
+ * there. Texts from the
  * device (findings, reasons) are German, like its other messages.
  *
  * @param props - The report.
@@ -92,7 +100,7 @@ export function TakeoverCard({ report }: { report: TakeoverReport }) {
       className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-3 text-sm text-card-foreground"
     >
       <div className="flex min-w-0 items-start gap-2">
-        <StateIcon state={report.state} />
+        <StateIcon report={report} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex flex-wrap items-center gap-2">
             <span className="break-words font-medium text-foreground">{takeoverTitle(t, report)}</span>
@@ -108,7 +116,7 @@ export function TakeoverCard({ report }: { report: TakeoverReport }) {
       </div>
       {report.reason ? <p className="break-words ps-6 text-sm text-muted-foreground">{report.reason}</p> : null}
       {report.state === 'conflict' ? <Conflicts files={report.conflicts ?? []} /> : null}
-      {held && report.request ? <ApproveCommand id={report.request} /> : null}
+      {held && report.request ? <ApproveCommand id={report.request} findings={findings.length > 0} /> : null}
       {report.notes?.length ? (
         <ul className="flex flex-col gap-1 ps-6 text-xs text-muted-foreground">
           {report.notes.map((note) => (
@@ -189,13 +197,13 @@ function Conflicts({ files }: { files: string[] }) {
 }
 
 /** The command that approves a held merge, ready to copy. */
-function ApproveCommand({ id }: { id: string }) {
+function ApproveCommand({ id, findings }: { id: string; findings: boolean }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const command = `hearth merge --approve ${id}`;
   return (
     <div className="flex flex-col gap-1.5 ps-6">
-      <span className="text-xs text-muted-foreground">{t('takeover.heldBody')}</span>
+      <span className="text-xs text-muted-foreground">{findings ? t('takeover.heldBody') : t('takeover.heldApprovalBody')}</span>
       <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted px-2 py-1">
         <code className="min-w-0 flex-1 wrap-anywhere font-mono text-xs text-foreground">{command}</code>
         <Button

@@ -78,11 +78,7 @@ pub fn create(
 ) -> anyhow::Result<String> {
     let dir = dir(config);
     fs::create_dir_all(&dir).with_context(|| format!("{} anlegen", dir.display()))?;
-    for old in list(config) {
-        if old.project == project.as_str() {
-            remove(config, &old.id);
-        }
-    }
+    forget_project(config, project);
     let request = MergeRequest {
         id: new_id(),
         project: project.to_string(),
@@ -125,6 +121,16 @@ pub fn list(config: &ConfigDir) -> Vec<MergeRequest> {
         .filter_map(|bytes| serde_json::from_slice::<MergeRequest>(&bytes).ok())
         .filter(|request| valid(&request.id))
         .collect()
+}
+
+/// Removes the requests of `project`, e.g. once a later takeover merged
+/// what they waited for; the tray would show them as waiting otherwise.
+pub fn forget_project(config: &ConfigDir, project: &ProjectName) {
+    for old in list(config) {
+        if old.project == project.as_str() {
+            remove(config, &old.id);
+        }
+    }
 }
 
 /// Removes the request, if it exists.

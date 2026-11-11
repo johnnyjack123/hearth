@@ -169,7 +169,10 @@ impl View {
                 list.iter()
                     .filter_map(|q| {
                         Some((
-                            q.get("session")?.as_str()?.to_owned(),
+                            q.get("session")?
+                                .as_str()
+                                .filter(|s| chat_id(s))?
+                                .to_owned(),
                             q.get("id")?.as_u64()?,
                             q.get("host")?.as_str()?.to_owned(),
                         ))
@@ -178,6 +181,13 @@ impl View {
             })
             .unwrap_or_default()
     }
+}
+
+/// Whether `id` looks like a chat id of the server (as
+/// `hearth_core::config::valid_chat_id`, which hearthd does not link): it
+/// becomes part of a URL the tray hands to Windows.
+fn chat_id(id: &str) -> bool {
+    (1..=100).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// Texts in the user's language: German or English.
@@ -562,8 +572,13 @@ mod tests {
         let mut view = view(json!({
             "pid": 7, "connection": "connected", "server": "http://pi:8085", "error": null,
             "vm": "running", "replies": 0, "terminals": 0, "stopAt": 1_000 + 12 * 60,
-            "questions": [{ "session": "c1", "id": 3, "host": "example.com" }]
+            "questions": [
+                { "session": "c1", "id": 3, "host": "example.com" },
+                // Not a chat id: never part of a URL handed to Windows.
+                { "session": "../x?y=1", "id": 4, "host": "example.org" }
+            ]
         }));
+        assert_eq!(view.questions().len(), 1);
         view.held.push(("demo".into(), "K7QF2M".into()));
         assert!(view.connected() && view.attention());
         let menu = actions(&DE.menu(&view, Path::new("C:/h/daemon.log"), 1_000));

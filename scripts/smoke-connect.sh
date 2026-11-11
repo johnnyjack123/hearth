@@ -285,10 +285,18 @@ check "Commit des Agents auf agent/$NAME" test "$(git log -1 --format=%s "agent/
 
 echo "== Fortschritt sichern"
 in_container 'echo offen > offen.txt' > /dev/null
-TAKEOVER=$(api POST "/api/conversations/$CONVERSATION/takeover")
 CARD="v.parts.findLast(p => p.type === 'data-takeover').data"
-check "übernommen in main" test "$(echo "$TAKEOVER" | json "$CARD.state + ' ' + $CARD.branch")" = "merged main"
+# Without the user's word on this computer, the browser only asks.
+BEFORE=$(git rev-parse HEAD)
+TAKEOVER=$(api POST "/api/conversations/$CONVERSATION/takeover")
+check "ohne Erlaubnis am Rechner angehalten" test "$(echo "$TAKEOVER" | json "$CARD.state + ' ' + !!$CARD.request")" = "held true"
 check "offene Datei im Container committet" test "$(echo "$TAKEOVER" | json "$CARD.committed")" = 1
+check "Ordner ohne Erlaubnis unverändert" test "$(git rev-parse HEAD)" = "$BEFORE" -a ! -e agent.txt
+"$H" project remote on --merge > "$WORK/merge.log" 2>&1
+check "Übernahmen ohne Freigabe erlaubt" grep -q "ohne Freigabe hier" "$WORK/merge.log"
+TAKEOVER=$(api POST "/api/conversations/$CONVERSATION/takeover")
+check "übernommen in main" test "$(echo "$TAKEOVER" | json "$CARD.state + ' ' + $CARD.branch")" = "merged main"
+check "alter Antrag erledigt" test -z "$(ls "$HEARTH_HOME/merge-requests" 2> /dev/null)"
 check "Arbeit des Agents im Ordner" test -f offen.txt -a -f agent.txt
 check "Agent-Branch auf dem Host folgt dem Merge" test "$(git rev-parse "agent/$NAME")" = "$(git rev-parse HEAD)"
 check "Agent-Branch im Container folgt dem Merge" test "$(in_container 'git rev-parse HEAD')" = "$(git rev-parse HEAD)"

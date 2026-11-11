@@ -184,6 +184,12 @@ try {
     await page.waitForSelector(text('Punkt zwei'), { timeout: 15_000 });
     await new Promise((resolve) => setTimeout(resolve, 800));
     await shot('06-first-reply');
+    // A short message fits one line: the bubble once took 80 % of its own
+    // text's width and broke it up, down to a letter per line.
+    const bubbleLines = await page.$eval('.bg-bubble', (bubble) => Math.round(bubble.getBoundingClientRect().height / parseFloat(getComputedStyle(bubble).lineHeight)));
+    if (bubbleLines > 2) {
+      throw new Error(`a short message took ${bubbleLines} lines`);
+    }
   });
 
   await step('second message in the chat view', async () => {
@@ -921,6 +927,7 @@ try {
       headers: { authorization: `Bearer ${deviceToken}` },
     });
     const received = [];
+    let takeovers = 0;
     const sendEvent = (session, event) => device.send(JSON.stringify({ type: 'session.event', session, event }));
     const sendStatus = (vm, activity) => device.send(JSON.stringify({ type: 'status', vm, replies: 0, terminals: 0, stopIn: null, ...activity }));
     // Protocol 5: the device's apps, C/C++ on by default. Protocol 6: the
@@ -1004,7 +1011,25 @@ try {
           device.send(JSON.stringify({ type: 'apps.result', request: message.request, ok: true, message: 'Apps von demo geändert.' }));
         }, 200);
       }
-      if (message.type === 'session.takeover') {
+      if (message.type === 'session.takeover' && takeovers++ > 0) {
+        // A project without `[remote] merge`: nothing found, but the merge
+        // waits for the user's word on the computer.
+        sendEvent(message.session, {
+          type: 'takeover',
+          report: {
+            state: 'held',
+            auto: false,
+            commits: 1,
+            files: 1,
+            branch: 'main',
+            checks: ['feste Regeln', 'OSV'],
+            findings: [],
+            reason: 'Für dieses Projekt übernehmen Web-Chats nur mit Freigabe an diesem Rechner.',
+            request: 'P3RM2T',
+          },
+        });
+        sendEvent(message.session, { type: 'done', aborted: false });
+      } else if (message.type === 'session.takeover') {
         // What the device reports when a git hook holds the merge.
         sendEvent(message.session, {
           type: 'takeover',
@@ -1371,7 +1396,16 @@ try {
       await waitForText('Nicht übernommen: schwere Funde');
       await openEnvironment();
       await page.waitForSelector('[role=switch][aria-checked=true]', { timeout: 5_000 });
-      await closeOptions();
+      // Nothing found, but no consent on the computer: it waits, calmly.
+      await page.click(`button${text('Fortschritt sichern')}`);
+      await waitForText('Wartet auf Freigabe am Rechner');
+      await waitForText('Übernehmen geht im Terminal auf dem Rechner:');
+      await waitForText('hearth merge --approve P3RM2T');
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('[data-chat-options]', { hidden: true, timeout: 5_000 });
+      await page.$eval(text('hearth merge --approve P3RM2T'), (element) => element.scrollIntoView({ block: 'center' }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('39-takeover-approval');
 
       // The same controls under Settings -> Devices, in light mode.
       sendStatus('running', { stopIn: 50 * 60 });

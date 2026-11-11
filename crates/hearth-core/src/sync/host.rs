@@ -9,7 +9,7 @@
 
 use std::env;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -238,9 +238,13 @@ impl HostRepo {
             .collect())
     }
 
-    /// Writes all local branches, tags and `HEAD` into a bundle for the
-    /// container. Remote-tracking refs and the stash stay on the host.
-    pub fn export_bundle(&self, target: &Path) -> Result<()> {
+    /// Writes what the agent works on into a bundle for the container: `HEAD`
+    /// with its branch, `agent_branch` if it exists (a new clone continues
+    /// it) and the tags in `HEAD`'s history (`git describe` in builds).
+    /// Other branches, tags elsewhere, remote-tracking refs and the stash
+    /// stay on the host: whoever steers the agent, a web chat too, must not
+    /// read work the user keeps apart (client review of 10.11., finding 2).
+    pub fn export_bundle(&self, target: &Path, agent_branch: &str) -> Result<()> {
         if self.rev_parse("HEAD")?.is_none() {
             return Err(Error::Sync(tr!(
                 "{} hat noch keine Commits. Der Agent braucht mindestens einen Commit als Ausgangspunkt",
@@ -248,18 +252,38 @@ impl HostRepo {
                 self.path.display()
             )));
         }
-        let target = target.to_string_lossy();
-        self.run(
-            "bundle create",
+        let mut refs = vec!["HEAD".to_owned()];
+        refs.extend(
+            self.current_branch()?
+                .map(|branch| format!("refs/heads/{branch}")),
+        );
+        let agent = format!("refs/heads/{agent_branch}");
+        if self.rev_parse(&agent)?.is_some() && !refs.contains(&agent) {
+            refs.push(agent);
+        }
+        let tags = self.run(
+            "tag --merged",
             &[
-                "bundle",
-                "create",
-                "--quiet",
-                &target,
-                "HEAD",
-                "--branches",
-                "--tags",
+                "for-each-ref",
+                "--merged=HEAD",
+                "--format=%(refname)",
+                "refs/tags",
             ],
+        )?;
+        refs.extend(
+            tags.lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned),
+        );
+        // Through stdin: a repository may have more tags than a Windows
+        // command line takes.
+        let mut input = refs.join("\n");
+        input.push('\n');
+        let target = target.to_string_lossy();
+        self.run_with_input(
+            "bundle create",
+            &["bundle", "create", "--quiet", &target, "--stdin"],
+            &input,
         )?;
         Ok(())
     }
@@ -670,6 +694,33 @@ impl HostRepo {
                 program: self.git.clone(),
                 source,
             })?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        } else {
+            Err(git_error(action, &output))
+        }
+    }
+
+    /// [`HostRepo::run`] with `input` on stdin.
+    fn run_with_input(&self, action: &str, args: &[&str], input: &str) -> Result<String> {
+        let spawn_error = |source| Error::Spawn {
+            program: self.git.clone(),
+            source,
+        };
+        let mut child = self
+            .command()
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(spawn_error)?;
+        // git reads all of stdin before it writes much; a failed write shows
+        // up in its exit status.
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(input.as_bytes());
+        }
+        let output = child.wait_with_output().map_err(spawn_error)?;
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {

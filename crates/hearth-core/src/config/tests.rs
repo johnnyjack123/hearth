@@ -397,23 +397,37 @@ fn remote_access_is_switched_and_chats_remembered() {
         RemoteConfig::default()
     );
 
-    let remote = f.config.set_remote(&name, Some(true), Some(true)).unwrap();
-    assert!(remote.enabled && remote.confirm);
+    let change = RemoteChange {
+        enabled: Some(true),
+        confirm: Some(true),
+        merge: None,
+    };
+    let remote = f.config.set_remote(&name, change).unwrap();
+    assert!(remote.enabled && remote.confirm && !remote.merge);
     f.config.remember_remote_chat(&name, "0199-abc").unwrap();
     f.config.remember_remote_chat(&name, "0199-abc").unwrap();
     assert!(f.config.remember_remote_chat(&name, "../x").is_err());
-    let remote = f.config.set_remote(&name, None, Some(false)).unwrap();
+    let change = RemoteChange {
+        confirm: Some(false),
+        merge: Some(true),
+        ..RemoteChange::default()
+    };
+    let remote = f.config.set_remote(&name, change).unwrap();
     assert_eq!(remote.chats, ["0199-abc"]);
-    assert!(!remote.confirm);
+    assert!(remote.enabled && !remote.confirm && remote.merge);
 
-    // A project file from before `[remote]` existed gets the table on demand
-    // and is offered like a new one.
+    // A project file from before `[remote]` existed gets the table on demand;
+    // without the user's word on this computer it is not offered.
     let file = f.config.project_file(&name);
     let text = fs::read_to_string(&file).unwrap();
     let start = text.find("[remote]").unwrap();
     let end = text.find("[resources]").unwrap();
     fs::write(&file, format!("{}{}", &text[..start], &text[end..])).unwrap();
-    assert!(f.config.project_config(&name).unwrap().remote.enabled);
+    assert_eq!(
+        f.config.project_config(&name).unwrap().remote,
+        RemoteConfig::default()
+    );
+    assert!(!RemoteConfig::default().enabled && !RemoteConfig::default().merge);
     f.config.remember_remote_chat(&name, "c2").unwrap();
     assert_eq!(f.config.project_config(&name).unwrap().remote.chats, ["c2"]);
     let text = fs::read_to_string(&file).unwrap();

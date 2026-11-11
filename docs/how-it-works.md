@@ -115,7 +115,7 @@ Jedes Projekt hat ein eigenes Gateway, einen kleinen Proxy in Rust in einem eige
 
 Der Agent arbeitet nie im Projektordner, sondern auf einem Klon in der VM. Der Austausch läuft über Git-Bundles:
 
-1. Beim Start einer Sitzung schickt `hearth` den Stand des Projekts als Bundle in die Instanz.
+1. Beim Start einer Sitzung schickt `hearth` den ausgecheckten Branch als Bundle in die Instanz, dazu `agent/<projekt>` und die Tags im Verlauf. Andere Branches und Tags bleiben auf dem Rechner: Wer den Agent steuert, auch über einen Web-Chat, soll nicht lesen können, was der Nutzer getrennt hält.
 2. Der Agent committet auf den Branch `agent/<projekt>`.
 3. `hearth sync` holt diese Commits als Bundle zurück, `hearth merge` prüft sie und übernimmt sie in den ausgecheckten Branch.
 
@@ -126,9 +126,11 @@ Der Agent arbeitet nie im Projektordner, sondern auf einem Klon in der VM. Der A
 - **OSV:** neue Abhängigkeiten werden gegen die Open Source Vulnerability Database geprüft, bekannte Schadpakete sind ein schwerer Fund.
 - **Jev** (optional): ein Bewertungsmodell liest die hinzugefügten Zeilen und schätzt die Gefahr ein. Es kann nur Funde hinzufügen, nie welche entfernen.
 
-Ein schwerer Fund hält die Übernahme an. Freigeben geht nur im Terminal mit `hearth merge --approve <ID>`; der Browser allein kann nie freigeben, und die Freigabe gilt nur für genau den geprüften Commit.
+`hearth merge` im Terminal hält bei schweren Funden an. Übernahmen, die ein Web-Chat anstößt („Fortschritt sichern“, Autosync), halten schon bei mittleren Funden an, denn Build-Skripte, CI-Dateien oder Editor-Einstellungen laufen ebenso auf dem Rechner. Freigeben geht nur im Terminal mit `hearth merge --approve <ID>`; der Browser allein kann nie freigeben, und die Freigabe gilt nur für genau den geprüften Commit.
 
-**Autosync** übernimmt nach jeder Antwort des Agents selbst, mit derselben Prüfung. Ist der Projektordner nicht sauber (eigene, nicht committete Änderungen), lässt Hearth alles, wie es ist, und sagt es.
+**Übernehmen aus dem Browser braucht eine Erlaubnis am Rechner** (`[remote] merge`, `hearth project remote on --merge`). Ohne sie legt auch eine Übernahme ohne Funde nur einen Antrag an, und Autosync bleibt aus. So kann ein kompromittierter Server nichts in den Projektordner bringen, ohne dass jemand am Rechner zustimmt.
+
+**Autosync** übernimmt bei erlaubten Projekten nach jeder Antwort des Agents selbst, mit derselben Prüfung. Ist der Projektordner nicht sauber (eigene, nicht committete Änderungen), lässt Hearth alles, wie es ist, und sagt es.
 
 ## 7. Web-Chat und Rechner
 
@@ -149,7 +151,7 @@ Der Rechner entscheidet selbst, was er tut. Er nimmt vom Server nur harmlose Bef
 1. Der Server schickt die Nachricht über den Tunnel.
 2. Der Hintergrunddienst startet bei Bedarf VM, Gateway und Instanz, aktualisiert die Arbeitskopie und startet pi im RPC-Modus. Jeder Schritt erscheint im Chat.
 3. Die Ereignisse von pi (Text, Werkzeugaufrufe, Kosten, Rückfragen des Gateways) gehen als neutrale Agent-Ereignisse zurück und werden im Server zu denselben Nachrichtenteilen wie bei einem normalen Chat. Speichern, Anzeigen und Wiederaufnehmen funktionieren dadurch gleich.
-4. Am Ende meldet der Rechner, ob Arbeit des Agents noch nicht im Projektordner ist, und übernimmt sie mit Autosync.
+4. Am Ende meldet der Rechner, ob Arbeit des Agents noch nicht im Projektordner ist, und übernimmt sie mit Autosync, wenn das Projekt es erlaubt.
 
 Dateien aus dem Chat landen in der Instanz unter `~/uploads`, nie im Repository, damit sie nicht versehentlich in einem Commit landen.
 
@@ -183,4 +185,4 @@ Nutzer können Vorlieben und Fakten speichern, die in jedem Chat gelten. Modelle
 - Der Client läuft nur unter Windows mit Hyper-V. Weitere Sandbox-Anbieter sind über eine Provider-Schnittstelle vorgesehen, aber noch nicht gebaut.
 - Die Windows-Programme sind nicht signiert.
 - Erkennung von Prompt-Injection und die KI-Bewertung sind Hilfen, kein Schutz. Was zählt, sind Sandbox, Gateway und die Prüfung vor dem Merge.
-- Ein kompromittierter Server kann einem gekoppelten Rechner Nachrichten an den Agent schicken und Autosync auslösen. Die Ergebnisse der Prüfungen aus [`security/`](security/) und ihr Stand sind dort dokumentiert.
+- Ein kompromittierter Server kann einem gekoppelten Rechner Nachrichten an den Agent schicken, in freigegebenen Projekten also den ausgecheckten Branch lesen lassen und dort, wo `[remote] merge` an ist, Übernahmen ohne Funde auslösen. Die Ergebnisse der Prüfungen aus [`security/`](security/) und ihr Stand sind dort dokumentiert.

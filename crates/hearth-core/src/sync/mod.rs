@@ -316,7 +316,7 @@ pub fn push_to_workspace(
 ) -> Result<WorkspaceState> {
     let dir = temp_dir()?;
     let bundle = dir.path().join("in.bundle");
-    repo.export_bundle(&bundle)?;
+    repo.export_bundle(&bundle, &name.agent_branch())?;
     provider.copy_into(container, &bundle, IN_BUNDLE)?;
     let output = run_script(
         provider,

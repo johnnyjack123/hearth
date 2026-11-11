@@ -1,10 +1,12 @@
 //! Taking over an agent's work into the user's folder (ROADMAP Phase 3,
 //! "Fortschritt sichern"): commit what the agent left uncommitted in the
 //! container, bring the agent branch home, check it, and merge it into the
-//! checked-out branch when the check finds nothing severe. Severe findings
-//! wait for `hearth merge --approve <id>` in a terminal on this computer:
-//! a browser alone never lets them through. After a merge the agent's branch
-//! continues from the merged state, in the container and on the host.
+//! checked-out branch when the check finds nothing of medium or high weight
+//! and the project allows merges from web chats (`[remote] merge`). Anything
+//! else waits for `hearth merge --approve <id>` in a terminal on this
+//! computer: a browser alone never lets it through. After a merge the
+//! agent's branch continues from the merged state, in the container and on
+//! the host.
 //!
 //! The report goes to the web chat and stays German, as the web app
 //! translates on its own; `hearth merge --approve` follows the user's
@@ -153,17 +155,43 @@ fn run(
             checked.findings.len()
         ));
     }
-    if checked.has_high() {
+    // A takeover always comes from the browser, so a hostile server could
+    // start it: findings of any weight, or a project that never allowed
+    // merging without an approval here, wait for `hearth merge --approve`
+    // (client review of 10.11., finding 1).
+    let consent = config.project_config(name)?.remote.merge;
+    if checked.has_high() || checked.has_medium() || !consent {
         let id = merge_request::create(config, name, &branch, &checked_commit)?;
         report.request = Some(id);
         report.state = TakeoverState::Held;
+        // Severe findings speak for themselves in the card.
+        report.reason = if checked.has_high() {
+            None
+        } else if checked.has_medium() {
+            Some(
+                "Die Prüfung hat etwas gefunden, das auf diesem Rechner ausgeführt werden \
+                 könnte. Sieh es dir an, bevor es in deinen Branch kommt."
+                    .to_owned(),
+            )
+        } else {
+            Some(
+                "Für dieses Projekt übernehmen Web-Chats nur mit Freigabe an diesem Rechner \
+                 (ohne Freigabe: `hearth project remote on --merge` im Projektordner)."
+                    .to_owned(),
+            )
+        };
         return Ok(());
     }
 
     step(report, "In den ausgecheckten Branch übernehmen");
     match repo.merge(&branch) {
-        Ok(MergeOutcome::UpToDate) => report.state = TakeoverState::UpToDate,
+        Ok(MergeOutcome::UpToDate) => {
+            report.state = TakeoverState::UpToDate;
+            merge_request::forget_project(config, name);
+        }
         Ok(MergeOutcome::FastForward { commits } | MergeOutcome::Merged { commits }) => {
+            // An older request waited for part of what just came in.
+            merge_request::forget_project(config, name);
             report.state = TakeoverState::Merged;
             report.commits = Some(commits);
             step(
@@ -301,7 +329,7 @@ pub fn approve(config: &ConfigDir, machine: &str, id: &str) -> anyhow::Result<bo
             project.path.display()
         )
     );
-    let Some(_) = review::check(config, &repo, &request.branch)? else {
+    let Some(checked) = review::check(config, &repo, &request.branch)? else {
         println!(
             "{}",
             tr("Nichts mehr zu übernehmen.", "Nothing left to take over.")
@@ -320,14 +348,17 @@ pub fn approve(config: &ConfigDir, machine: &str, id: &str) -> anyhow::Result<bo
         "HEAD ist kein Branch (detached). Bitte einen Branch auschecken",
         "HEAD is not on a branch (detached). Please check out a branch",
     ))?;
-    if !project::confirm(
-        &tr!(
+    // Without findings the request only waited for the user's word here.
+    let question = if checked.findings.is_empty() {
+        tr!("In {} übernehmen?", "Take over into {}?", sanitize(&target))
+    } else {
+        tr!(
             "Trotzdem in {} übernehmen?",
             "Take over into {} anyway?",
             sanitize(&target)
-        ),
-        false,
-    )? {
+        )
+    };
+    if !project::confirm(&question, checked.findings.is_empty())? {
         println!(
             "{}",
             tr(
