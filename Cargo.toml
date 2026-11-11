@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/hearth-core", "crates/hearth-cli", "crates/hearth-gateway", "crates/hearth-setup", "crates/hearth-vmd"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.88"
 license = "UNLICENSED"
