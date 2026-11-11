@@ -62,6 +62,21 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   if (options.logRequests) {
     app.use(logger());
   }
+  // nginx, and with it Nginx Proxy Manager, buffers responses by default: a
+  // streamed answer would reach the browser only at its end. This header
+  // switches that off per response, without settings in the proxy.
+  app.use(async (c, next) => {
+    await next();
+    if (c.res.headers.get('content-type')?.startsWith('text/event-stream')) {
+      try {
+        c.res.headers.set('X-Accel-Buffering', 'no');
+      } catch {
+        // Headers of a fetched response are immutable; copy it.
+        c.res = new Response(c.res.body, c.res);
+        c.res.headers.set('X-Accel-Buffering', 'no');
+      }
+    }
+  });
   const proxies = deps.config.trustedProxies;
   app.use((c, next) => {
     const peer = peerAddress(c);

@@ -1,4 +1,4 @@
-import { PROVIDER_KINDS, PROVIDERS, type ProviderCredential, type ProviderKind } from '@hearth/shared';
+import { PROVIDER_KINDS, PROVIDERS, plausibleKey, type ProviderCredential, type ProviderKind } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useState } from 'react';
 import { toast } from 'sonner';
@@ -85,6 +85,11 @@ function ProviderForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const prefix = PROVIDERS[kind].keyPrefix;
+    if (apiKey.trim() && !plausibleKey(kind, apiKey.trim())) {
+      setError(t('providers.keyPrefix', { provider: PROVIDERS[kind].label, prefix: prefix ?? '' }));
+      return;
+    }
     setSaving(true);
     setError(null);
     const trimmedUrl = baseUrl.trim();

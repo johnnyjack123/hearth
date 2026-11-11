@@ -910,6 +910,7 @@ export const de = {
     label: 'Bezeichnung',
     labelPlaceholder: 'z. B. Privat oder Arbeit',
     apiKey: 'API-Key',
+    keyPrefix: 'Ein {provider}-Key beginnt mit {prefix}. Prüfe, ob du den richtigen Key kopiert hast.',
     apiKeyKeep: 'Leer lassen, um den gespeicherten Key zu behalten.',
     baseUrl: 'Basis-URL',
     baseUrlHint: 'Nur ändern, wenn du einen eigenen Endpunkt oder Proxy verwendest.',
