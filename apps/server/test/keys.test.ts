@@ -1,5 +1,6 @@
 import type { ConversationSummary, ProviderCredential } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { withHeartbeat } from '../src/http/heartbeat.ts';
 import { createTestServer, DIALECTS, ORIGIN, type TestServer } from './helpers.ts';
 
 describe.each(DIALECTS)('API keys and streamed answers on %s', (kind) => {
@@ -56,5 +57,24 @@ describe.each(DIALECTS)('API keys and streamed answers on %s', (kind) => {
     expect(response.headers.get('content-type')).toMatch(/^text\/event-stream/);
     expect(response.headers.get('x-accel-buffering')).toBe('no');
     await response.text();
+  });
+});
+
+describe('heartbeat of event streams', () => {
+  it('fills pauses with comment lines and passes events through whole', async () => {
+    const encoder = new TextEncoder();
+    const source = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode('data: {"a":1}\n\n'));
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        controller.enqueue(encoder.encode('data: {"b":2}\n\n'));
+        controller.close();
+      },
+    });
+    const text = await new Response(withHeartbeat(source, 40)).text();
+    expect(text.startsWith('data: {"a":1}\n\n: keepalive\n\n')).toBe(true);
+    expect(text.endsWith('data: {"b":2}\n\n')).toBe(true);
+    // Nothing but whole events and comments.
+    expect(text.split('\n\n').filter(Boolean).every((part) => part.startsWith('data: ') || part === ': keepalive')).toBe(true);
   });
 });
