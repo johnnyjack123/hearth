@@ -175,7 +175,7 @@ describe('effort and summaries in chats', () => {
   async function credential(kind: string, baseUrl?: string): Promise<ProviderCredential> {
     const response = await server.request('POST', '/api/providers', {
       cookie,
-      body: { kind, label: kind, apiKey: 'sk-test-0123456789abcdef', ...(baseUrl ? { baseUrl } : {}) },
+      body: { kind, label: kind, apiKey: kind === 'openrouter' ? 'sk-or-test-0123456789abcdef' : 'sk-test-0123456789abcdef', ...(baseUrl ? { baseUrl } : {}) },
     });
     return (await response.json()) as ProviderCredential;
   }

@@ -910,6 +910,7 @@ export const en: Messages = {
     label: 'Label',
     labelPlaceholder: 'e.g. Personal or Work',
     apiKey: 'API key',
+    keyPrefix: 'A {provider} key starts with {prefix}. Check that you copied the right key.',
     apiKeyKeep: 'Leave empty to keep the stored key.',
     baseUrl: 'Base URL',
     baseUrlHint: 'Only change this if you use your own endpoint or proxy.',

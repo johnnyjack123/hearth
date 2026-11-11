@@ -1,5 +1,6 @@
 import {
   type CreateProviderCredentialInput,
+  plausibleKey,
   PROVIDERS,
   type ProviderCredential,
   type UpdateProviderCredentialInput,
@@ -29,6 +30,21 @@ function toDto(row: CredentialRow): ProviderCredential {
 
 function encryptionContext(userId: string, credentialId: string): string {
   return `${userId}:${credentialId}`;
+}
+
+/**
+ * Rejects a key that cannot belong to the provider (it lacks the prefix all
+ * of the provider's keys have), before it is stored and sent somewhere.
+ *
+ * @param kind - The provider.
+ * @param apiKey - The key as entered.
+ * @throws {HttpError} 400 for a key of another kind.
+ */
+function assertPlausibleKey(kind: CredentialRow['kind'], apiKey: string | null): void {
+  const info = PROVIDERS[kind];
+  if (apiKey && !plausibleKey(kind, apiKey)) {
+    throw new HttpError(400, 'validation', `${info.label} keys start with ${info.keyPrefix ?? ''}; this one does not`);
+  }
 }
 
 function assertShape(kind: CredentialRow['kind'], apiKey: string | null, baseUrl: string | null): void {
@@ -108,6 +124,7 @@ export async function createCredential(
   const apiKey = PROVIDERS[input.kind].apiKey === 'none' ? null : (input.apiKey ?? null);
   const baseUrl = input.baseUrl ?? null;
   assertShape(input.kind, apiKey, baseUrl);
+  assertPlausibleKey(input.kind, apiKey);
 
   const id = uuidv7();
   const now = Date.now();
@@ -150,6 +167,7 @@ export async function updateCredential(
     next.baseUrl = patch.baseUrl;
   }
   if (patch.apiKey !== undefined && PROVIDERS[row.kind].apiKey !== 'none') {
+    assertPlausibleKey(row.kind, patch.apiKey);
     next.encryptedKey = box.encrypt(patch.apiKey, encryptionContext(row.userId, row.id));
     next.keyHint = keyHint(patch.apiKey);
   }

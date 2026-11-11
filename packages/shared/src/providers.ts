@@ -40,6 +40,23 @@ export interface ProviderKindInfo {
    * `allowCustomBaseUrls` to prevent server-side request forgery.
    */
   userDefinedEndpoint: boolean;
+  /**
+   * How every key of the provider starts, if they share a prefix; a key
+   * without it was copied from somewhere else.
+   */
+  keyPrefix?: string;
+}
+
+/**
+ * Whether an API key can belong to the provider, judged by its prefix.
+ *
+ * @param kind - The provider.
+ * @param apiKey - The key as entered, trimmed.
+ * @returns False if the provider's keys share a prefix the key lacks.
+ */
+export function plausibleKey(kind: ProviderKind, apiKey: string): boolean {
+  const prefix = PROVIDERS[kind].keyPrefix;
+  return prefix === undefined || apiKey.startsWith(prefix);
 }
 
 /**
@@ -50,6 +67,7 @@ export const PROVIDERS: Readonly<Record<ProviderKind, ProviderKindInfo>> = {
     kind: 'anthropic',
     label: 'Anthropic',
     apiKey: 'required',
+    keyPrefix: 'sk-ant-',
     baseUrl: 'optional',
     defaultBaseUrl: 'https://api.anthropic.com/v1',
     userDefinedEndpoint: false,
@@ -82,6 +100,7 @@ export const PROVIDERS: Readonly<Record<ProviderKind, ProviderKindInfo>> = {
     kind: 'openrouter',
     label: 'OpenRouter',
     apiKey: 'required',
+    keyPrefix: 'sk-or-',
     baseUrl: 'fixed',
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     userDefinedEndpoint: false,
