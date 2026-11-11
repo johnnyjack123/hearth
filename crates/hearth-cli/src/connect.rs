@@ -823,7 +823,9 @@ fn dispatch(
             title,
         } => {
             let (ok, message, approval) =
-                app::request_from_browser(&shared.config, &path, &name, &title);
+                app::request_from_browser(&shared.config, &path, &name, &title, &|line| {
+                    say(shared.mode, line);
+                });
             say(shared.mode, &format!("Browser: {message}"));
             // The waiting request is part of the report.
             if let Some(report) = changed_apps(shared, &offered(&shared.config)) {

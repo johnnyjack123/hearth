@@ -72,6 +72,48 @@ fn elf_machine(machine: u16) -> Option<&'static str> {
     }
 }
 
+/// Whether `path` is a full path on a drive of this computer (`C:\…` on a
+/// fixed or removable disk), checked without touching the file. A path the
+/// browser names must never make Windows reach out: `\\host\share\x` and
+/// `\\host@SSL@443\x` would sign in to that host as the user and hand over
+/// the NTLM hash, and a mapped network drive does the same (client review of
+/// 10.11., finding 4).
+pub fn on_local_drive(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return false;
+    };
+    let Prefix::Disk(letter) = prefix.kind() else {
+        return false;
+    };
+    if components.next() != Some(Component::RootDir) {
+        return false;
+    }
+    local_drive(letter)
+}
+
+#[cfg(windows)]
+fn local_drive(letter: u8) -> bool {
+    use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+    // DRIVE_REMOVABLE and DRIVE_FIXED; network drives, CD drives and RAM
+    // disks have other values.
+    const REMOVABLE: u32 = 2;
+    const FIXED: u32 = 3;
+    let root: Vec<u16> = format!("{}:\\", char::from(letter))
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: `root` is a NUL-terminated wide string that lives for the call.
+    let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+    matches!(kind, REMOVABLE | FIXED)
+}
+
+#[cfg(not(windows))]
+fn local_drive(_letter: u8) -> bool {
+    false
+}
+
 /// Reads what `path` is from its first bytes. Fails with a message for
 /// people for anything that is not a Linux program file for the VM.
 pub fn inspect(path: &Path) -> std::result::Result<FileInfo, String> {
@@ -98,7 +140,51 @@ pub fn inspect(path: &Path) -> std::result::Result<FileInfo, String> {
         .and_then(|mut file| file.read(&mut head))
         .map_err(|e| unreadable(path, &e))?;
     let kind = kind_of(&head[..read])?;
+    archive_named_as_such(path, kind)?;
     Ok(FileInfo { kind, size })
+}
+
+/// Archives must say so in their name: a `.docx`, `.xlsx`, `.odt` or
+/// `.epub` is a zip, a `backup.sql.gz` a gzip stream, and one "Yes" to a
+/// browser's request would hand such a document to every agent (client
+/// review of 10.11., finding 5). Office and OpenDocument files renamed to
+/// `.zip` still give themselves away by their first entry.
+fn archive_named_as_such(path: &Path, kind: FileKind) -> std::result::Result<(), String> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let named = match kind {
+        FileKind::Zip => name.ends_with(".zip"),
+        FileKind::Tar => [".tar.gz", ".tgz", ".tar.xz", ".txz"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix)),
+        FileKind::Program | FileKind::AppImage | FileKind::Deb => true,
+    };
+    if !named {
+        return Err(tr(
+            "Archive brauchen ihre Endung (.zip, .tar.gz, .tgz, .tar.xz, .txz); Dokumente und \
+             einzelne komprimierte Dateien nimmt hearth nicht",
+            "Archives need their extension (.zip, .tar.gz, .tgz, .tar.xz, .txz); hearth takes \
+             no documents or single compressed files",
+        )
+        .to_owned());
+    }
+    Ok(())
+}
+
+/// Whether a zip's first entry marks it as a document: OpenDocument and
+/// EPUB start with `mimetype`, Office files usually with
+/// `[Content_Types].xml`.
+fn zip_is_document(head: &[u8]) -> bool {
+    let Some(length) = head.get(26..28) else {
+        return false;
+    };
+    let length = usize::from(u16::from_le_bytes([length[0], length[1]]));
+    let first = head
+        .get(30..30 + length)
+        .unwrap_or(&head[30.min(head.len())..]);
+    first.starts_with(b"mimetype") || first.starts_with(b"[Content_Types].xml")
 }
 
 fn unreadable(path: &Path, error: &std::io::Error) -> String {
@@ -143,6 +229,13 @@ fn kind_of(head: &[u8]) -> std::result::Result<FileKind, String> {
         return Ok(FileKind::Tar);
     }
     if head.starts_with(b"PK\x03\x04") {
+        if zip_is_document(head) {
+            return Err(tr(
+                "Ein Dokument (Office, OpenDocument, EPUB), keine Programmdatei",
+                "A document (Office, OpenDocument, EPUB), not a program file",
+            )
+            .to_owned());
+        }
         return Ok(FileKind::Zip);
     }
     Err(tr(
@@ -435,6 +528,61 @@ mod tests {
             b"",
         ] {
             assert!(kind_of(refused).is_err(), "{refused:?}");
+        }
+    }
+
+    /// A zip whose first entry is `name`.
+    fn zip_starting_with(name: &str) -> Vec<u8> {
+        let mut head = b"PK\x03\x04".to_vec();
+        head.resize(26, 0);
+        head.extend_from_slice(&u16::try_from(name.len()).unwrap().to_le_bytes());
+        head.extend_from_slice(&[0, 0]);
+        head.extend_from_slice(name.as_bytes());
+        head
+    }
+
+    #[test]
+    fn documents_do_not_pass_as_archives() {
+        assert_eq!(kind_of(&zip_starting_with("bin/rg")), Ok(FileKind::Zip));
+        for document in ["mimetype", "[Content_Types].xml"] {
+            assert!(kind_of(&zip_starting_with(document)).is_err(), "{document}");
+        }
+        let temp = tempfile::tempdir().unwrap();
+        for (name, bytes, ok) in [
+            ("tools.zip", zip_starting_with("bin/rg"), true),
+            ("Tools.ZIP", zip_starting_with("bin/rg"), true),
+            ("Steuer.docx", zip_starting_with("word/document.xml"), false),
+            ("book.epub", zip_starting_with("META-INF/x"), false),
+            ("node.tar.xz", b"\xfd7zXZ\x00rest".to_vec(), true),
+            ("tool.tgz", vec![0x1f, 0x8b, 8, 0], true),
+            ("backup.sql.gz", vec![0x1f, 0x8b, 8, 0], false),
+            ("fd_arm64", b"!<arch>\ndebian-binary   ".to_vec(), true),
+        ] {
+            let file = temp.path().join(name);
+            fs::write(&file, bytes).unwrap();
+            assert_eq!(inspect(&file).is_ok(), ok, "{name}");
+        }
+    }
+
+    #[test]
+    fn only_paths_on_local_drives_count() {
+        for remote in [
+            r"\\203.0.113.5\s\a",
+            r"\\host@SSL@443\x",
+            r"\\?\UNC\host\share\x",
+            r"\\?\C:\Tools\rg",
+            r"\\.\C:\Tools\rg",
+            r"C:Tools\rg",
+            r"Tools\rg",
+            "/usr/bin/rg",
+        ] {
+            assert!(!on_local_drive(Path::new(remote)), "{remote}");
+        }
+        // The drive Windows itself runs from is a local disk.
+        #[cfg(windows)]
+        {
+            let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_owned());
+            assert!(on_local_drive(Path::new(&format!(r"{system}\Tools\rg"))));
         }
     }
 
