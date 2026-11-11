@@ -123,7 +123,10 @@ function UserMessage({ message, animate }: { message: ChatMessage; animate: bool
   const text = messageText(message);
   const files = message.parts.filter((part) => part.type === 'file');
   return (
-    <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="ms-auto flex max-w-full flex-col items-end gap-2">
+    // Full width, so the bubble's 80 % refer to the chat column: a column
+    // as wide as its content made the bubble 80 % of its own text and
+    // stacked short messages letter by letter.
+    <motion.div variants={riseIn} initial={animate ? 'initial' : false} animate="animate" className="flex w-full flex-col items-end gap-2">
       <MessageFiles parts={files} />
       {text ? (
         <div className="max-w-4/5 whitespace-pre-wrap break-words rounded-2xl rounded-ee-sm bg-bubble px-4 py-2.5 text-base leading-7 text-bubble-foreground">

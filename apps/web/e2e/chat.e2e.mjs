@@ -184,6 +184,12 @@ try {
     await page.waitForSelector(text('Punkt zwei'), { timeout: 15_000 });
     await new Promise((resolve) => setTimeout(resolve, 800));
     await shot('06-first-reply');
+    // A short message fits one line: the bubble once took 80 % of its own
+    // text's width and broke it up, down to a letter per line.
+    const bubbleLines = await page.$eval('.bg-bubble', (bubble) => Math.round(bubble.getBoundingClientRect().height / parseFloat(getComputedStyle(bubble).lineHeight)));
+    if (bubbleLines > 2) {
+      throw new Error(`a short message took ${bubbleLines} lines`);
+    }
   });
 
   await step('second message in the chat view', async () => {
