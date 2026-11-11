@@ -69,7 +69,7 @@ Web-Chats sehen nur Projekte, die mit `hearth init` angelegt oder mit `hearth pr
 
 1. Im Chat auf das Zahnrad → **Umgebung** → Rechner und Projekt wählen.
 2. Die erste Nachricht startet VM, Gateway und Sandbox, falls nötig. Jeder Schritt erscheint im Chat.
-3. Will der Agent einen Host erreichen, den die Regeln des Projekts nicht erlauben, fragt der Chat nach: einmal, für 15 Minuten, bis zum Stopp der Sandbox oder immer.
+3. Will der Agent einen Host erreichen, den die Regeln des Projekts nicht erlauben, fragt der Chat nach: einmal, für 15 Minuten oder bis zum Stopp der Sandbox. Dauerhaft erlauben geht nur am Rechner (`hearth net allow <host> --always`), damit kein Server die Regeln eines Projekts auf Dauer ändern kann.
 4. **Fortschritt sichern** im Umgebungs-Menü holt die Arbeit des Agents und prüft sie. Übernommen wird sie erst nach Freigabe am Rechner: `hearth merge --approve <ID>` im Terminal (die ID steht im Chat, das Tray-Symbol zeigt wartende Freigaben).
 5. Wer das nicht jedes Mal will, erlaubt es pro Projekt am Rechner: `hearth project remote on --merge` (oder Ja bei der Frage in `hearth init`). Dann übernimmt „Fortschritt sichern“ direkt in den ausgecheckten Branch, und **Autosync** tut es nach jeder Antwort. Ohne diese Erlaubnis bleibt Autosync aus.
 6. Findet die Prüfung etwas Mittleres oder Schweres (etwa Build-Skripte, CI-Dateien, Editor-Einstellungen, Anweisungen für KI-Werkzeuge, Git-Hooks), hält sie in jedem Fall an; freigeben geht dann ebenfalls nur mit `hearth merge --approve <ID>`.
@@ -113,7 +113,7 @@ hearth app on rust go
 hearth app off java
 ```
 
-Dasselbe geht im Browser unter Einstellungen → Geräte. Dort lassen sich auch eigene Programme anlegen (apt-, npm- oder pip-Pakete oder ein Skript). Programmdateien vom Rechner (ein Linux-Programm, AppImage, `.deb` oder Archiv mit Endung `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` oder `.txz`) fragt der Browser nur an; freigeben geht am Rechner über das Tray-Symbol oder mit `hearth app approve <ID>`. Der Pfad muss auf einem Laufwerk des Rechners liegen, Netzwerkpfade und Netzlaufwerke nimmt der Rechner nicht an; Office- und OpenDocument-Dateien gelten nie als Archiv.
+Dasselbe geht im Browser unter Einstellungen → Geräte. Dort lassen sich auch eigene Programme anlegen (apt-, npm- oder pip-Pakete oder ein Skript). Sie gehören zum Server: `hearth logout` und das Koppeln mit einem anderen Server schalten sie in allen Projekten aus; installierte Stände entfernt `hearth app remove`. Programmdateien vom Rechner (ein Linux-Programm, AppImage, `.deb` oder Archiv mit Endung `.zip`, `.tar.gz`, `.tgz`, `.tar.xz` oder `.txz`) fragt der Browser nur an; freigeben geht am Rechner über das Tray-Symbol oder mit `hearth app approve <ID>`. Der Pfad muss auf einem Laufwerk des Rechners liegen, Netzwerkpfade und Netzlaufwerke nimmt der Rechner nicht an; Office- und OpenDocument-Dateien gelten nie als Archiv.
 
 ## VM und Speicherplatz
 

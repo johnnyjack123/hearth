@@ -25,6 +25,8 @@
 5. Neuinstallation auf frischem Windows, auch x64 (keine Windows Sandbox).
 6. Release-Kandidat v1.0.0-rc.1, ein bis zwei Wochen Alltag nur mit Fehlerbehebungen, dann 1.0.
 
+Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die Provider-Schnittstelle.
+
 Nach 1.0: signierte Programme und Auto-Update, Scanner für die Merge-Prüfung, Mistral für pi, gleiche Zusammenfass-Schwellen bei pi und im Web, ESLint/Prettier, kleinere Web-App, Host-Modus, Windows Home und Linux.
 
 ## Phase 1 – Reste
