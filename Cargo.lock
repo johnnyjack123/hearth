@@ -401,7 +401,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hearth-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "getrandom 0.4.3",
  "hearth-gateway",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-setup"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-vmd"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "hearth-core",
  "serde",
