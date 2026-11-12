@@ -1579,6 +1579,20 @@ try {
     await page.waitForSelector(text('Und noch eine Frage'));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await shot('08-chat-dark');
+    // Installable as an app: the manifest with its icons, and a title bar
+    // in the colour of the theme shown (one tag, the dark background).
+    const app = await page.evaluate(async () => {
+      const link = document.querySelector('link[rel=manifest]');
+      const manifest = link ? await (await fetch(link.href)).json() : null;
+      const colors = [...document.querySelectorAll('meta[name="theme-color"]')].map((meta) => meta.content);
+      return { manifest, colors };
+    });
+    if (app.manifest?.display !== 'standalone' || !app.manifest.icons.some((icon) => icon.sizes === '512x512')) {
+      throw new Error(`manifest: ${JSON.stringify(app.manifest)}`);
+    }
+    if (app.colors.length !== 1 || app.colors[0] !== '#0b0c10') {
+      throw new Error(`theme-color: ${JSON.stringify(app.colors)}`);
+    }
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForSelector(text('Fertig: zwei Einträge, example.com antwortet.'));
     await shot('19-agent-dark');

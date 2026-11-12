@@ -15,6 +15,7 @@ Hearth ist ein selbst gehosteter Chat für große Sprachmodelle. Mehrere Persone
 - Ein Gedächtnis unter Kontrolle des Nutzers, Tags als Ordner und Kosten je Antwort und je Modellaufruf.
 - OpenRouter-Routing zum günstigsten Anbieter oder zu einem fest gewählten Anbieter je Modell, mit dessen Firmensitz.
 - Konten mit Admin-Rolle, ab Werk geschlossene Registrierung, Zwei-Faktor-Anmeldung und ein Kostendeckel pro Tag.
+- Als App auf Handy und Desktop installierbar (PWA), wenn der Server per HTTPS erreichbar ist.
 
 **Agents auf dem eigenen Rechner (Windows-Client)**
 - Der Coding-Agent [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) läuft in einem gehärteten Container in einer Linux-VM (Hyper-V und Podman). Die VM sieht keine Dateien des Rechners.
@@ -98,4 +99,4 @@ Hearth wird aktiv entwickelt und hat Version 1.0 noch nicht erreicht. Die Window
 
 ## Lizenz
 
-Eine Lizenz ist noch nicht gewählt. Bis dahin sind alle Rechte vorbehalten.
+Hearth ist freie Software unter der [GNU Affero General Public License v3.0 oder später](LICENSE). Wer eine veränderte Version als Dienst für andere betreibt, muss ihnen deren Quellcode anbieten.
