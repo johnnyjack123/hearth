@@ -43,7 +43,7 @@ Konfiguriert sind in `podman machine` 4 CPUs und 2 GiB. **Der WSL-Provider ignor
 | Prüfung | Ergebnis |
 |---|---|
 | Automount | `C:\ on /mnt/c type 9p (rw,…,aname=drvfs;path=C:\;uid=1000;gid=1000…)`: **das ganze Laufwerk C:, beschreibbar** |
-| Schreibzugriff aus der VM | `touch /mnt/c/Users/<user>/…` funktioniert |
+| Schreibzugriff aus der VM | `touch /mnt/c/Users/<nutzer>/…` funktioniert |
 | WSL-Interop | `/proc/sys/fs/binfmt_misc/WSLInterop` aktiv (Interpreter `/init`, Flags `PF`). `/mnt/c/Windows/System32/whoami.exe` liefert aus der VM `<rechner>\<nutzer>` |
 | Windows-`PATH` in der VM | wird angehängt (`appendWindowsPath` ist Standard) |
 | `sudo` in der VM | ohne Passwort (`user` ist in `wheel`) |
@@ -286,7 +286,7 @@ podman machine init harness --cpus 4 -m 4096 -v "C:\Users\<user>\Projekte:/mnt/p
 - `quay.io/podman/machine-os:5.8` enthält ein Disk-Image mit `disktype: hyperv` für **aarch64** (neben applehv, qemu, wsl). Das Image für Hyper-V auf ARM64 wird also gebaut.
 - Eine Dokumentation oder Erfahrungsberichte zum Hyper-V-Provider auf Windows ARM64 gibt es nicht. Die offizielle Doku nennt nur amd64. Ein Red-Hat-Epic für Podman auf Windows AArch64 existiert (RHEL-88520). Ein bekanntes ARM64-Problem betrifft den WSL-Provider (containers/podman#28341, SSH-Race beim Start).
 - `podman machine set` kennt nur `--cpus`, `--disk-size`, `--memory`, `--rootful`, `--usb` und `--user-mode-networking`, **kein `--volume`**. Freigaben werden bei `init` festgelegt. Um sie zu ändern, muss die Machine neu angelegt werden (`rm` + `init`; Images und Volumes gehen dabei verloren). Ob sich die Mounts in der Machine-JSON unter `~/.config/containers/podman/machine/hyperv/` gefahrlos von Hand ändern lassen, ist **nicht geprüft** und auch nicht dokumentiert.
-- Der Standard für `--volume` ist laut `podman machine init --help` auf diesem Rechner `C:\Users\<user>:/Users/<user>` und `C:\:/mnt/c`. `harnessd` muss die Freigaben also immer explizit setzen, sonst sieht auch eine Hyper-V-Machine ganz `C:\`. Beim WSL-Provider hat `--volume` laut Doku keine Wirkung.
+- Der Standard für `--volume` ist laut `podman machine init --help` auf diesem Rechner `C:\Users\<nutzer>:/Users/<nutzer>` und `C:\:/mnt/c`. `harnessd` muss die Freigaben also immer explizit setzen, sonst sieht auch eine Hyper-V-Machine ganz `C:\`. Beim WSL-Provider hat `--volume` laut Doku keine Wirkung.
 - Unter Hyper-V laufen die Freigaben über Podmans eigenen 9p-Server per vsock. Die Performance kann anders (auch schlechter) ausfallen als drvfs und muss mit `bench-run.sh` neu gemessen werden.
 - Podman 6.0.x ist erschienen (lokal 5.8.3) und wurde nicht getestet.
 
@@ -301,7 +301,7 @@ cd apps/server && TEST_POSTGRES_URL=postgres://harness:harness@127.0.0.1:55432/h
 Ergebnis (wörtlich):
 
 ```
- RUN  v5.0.3 C:/Users/<user>/Documents/Programmieren/llm_harness/apps/server
+ RUN  v5.0.3 C:/Users/<nutzer>/Documents/Programmieren/llm_harness/apps/server
 
  Test Files  2 passed (2)
       Tests  46 passed (46)
