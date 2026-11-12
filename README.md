@@ -15,6 +15,7 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - A memory the user controls, tags that group chats into folders, and costs per reply and per model call.
 - OpenRouter routing to the cheapest host, or to a fixed host chosen per model, with its country of operation shown.
 - Accounts with admin roles, closed registration by default, two-factor sign-in and a daily cost limit.
+- Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS.
 
 **Agents on your PC (Windows client)**
 - The [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) coding agent runs in a hardened container inside a Linux VM (Hyper-V and Podman). The VM has no access to the host's files.
@@ -100,4 +101,4 @@ Hearth is in active development and has not reached 1.0. The Windows programs ar
 
 ## License
 
-No license has been chosen yet. Until one is added, all rights are reserved.
+Hearth is free software under the [GNU Affero General Public License v3.0 or later](LICENSE). If you run a modified version as a service for others, you must offer them its source code.
