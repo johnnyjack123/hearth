@@ -208,6 +208,16 @@ Der Client und das Gateway in der VM vertrauen für diesen Server dann nur diese
 docker compose exec postgres psql -U hearth -d hearth -c "DELETE FROM \"twoFactor\" WHERE \"userId\" = (SELECT id FROM \"user\" WHERE email = 'name@example.org'); UPDATE \"user\" SET \"twoFactorEnabled\" = false WHERE email = 'name@example.org';"
 ```
 
+### Als App installieren
+
+Über `https://` lässt sich die Web-App wie eine App installieren (PWA): eigenes Symbol, eigenes Fenster ohne Browserleiste.
+
+- **Android (Chrome):** Menü → „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.
+- **iPhone/iPad (Safari):** Teilen → „Zum Home-Bildschirm“.
+- **Desktop (Chrome, Edge):** Symbol „App installieren“ in der Adressleiste.
+
+Über `http://` im Heimnetz bieten Browser das nicht an (nur eine Verknüpfung). Die App lädt immer den aktuellen Stand vom Server; sie speichert nichts offline.
+
 ## Umstieg von LLM Harness (bis 0.1.x)
 
 Mit 0.2.0 haben Images und Container neue Namen. Daten und `.env` bleiben gültig:

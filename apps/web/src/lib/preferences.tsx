@@ -1,6 +1,7 @@
 import { DEFAULT_TONE, DEFAULT_VERBOSITY, EFFORT_LEVELS, type EffortLevel, type Tone, TONES, type Verbosity, VERBOSITY_LEVELS } from '@hearth/shared';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { detectLocale, type Locale, translate, type TranslateFn } from '@/i18n/index.ts';
+import { syncThemeColor } from '@/lib/theme-color.ts';
 
 /**
  * Color scheme preference; `system` follows the OS setting.
@@ -151,6 +152,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+    syncThemeColor();
   }, [resolvedTheme]);
 
   useEffect(() => {
