@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 import { useReducedMotion } from 'motion/react';
 import { Avatar as AvatarPrimitive } from 'radix-ui';
-import { type ComponentProps, type CSSProperties, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { type ComponentProps, type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { durations, speeds } from '@/lib/motion.ts';
 import { cn } from '@/lib/utils.ts';
 
@@ -65,6 +65,10 @@ export function Skeleton({ className, ...props }: ComponentProps<'div'>) {
   return <div aria-hidden="true" className={cn('animate-skeleton rounded-md bg-muted', className)} {...props} />;
 }
 
+/** With `autoplay` on touch screens: pause between runs, and rest at the end of one. */
+const AUTOPLAY_PAUSE_MS = 5_000;
+const AUTOPLAY_REST_MS = 1_500;
+
 /** Scrolls while the `group/marquee` control is pointed at, focused or highlighted (cmdk). */
 const MARQUEE_ACTIVE = [
   'group-hover/marquee:max-w-none group-hover/marquee:animate-marquee',
@@ -79,14 +83,27 @@ const MARQUEE_ACTIVE = [
  * `group/marquee` on that control. The full text is also the tooltip, which
  * is what users who prefer reduced motion get instead.
  *
- * @param props - The text, classes for the outer element, and whether the
- *   text wraps on touch screens instead, where nothing can point at it.
+ * @param props - The text, classes for the outer element, whether the text
+ *   wraps on touch screens instead, where nothing can point at it, and
+ *   whether it scrolls by itself every few seconds there (`autoplay`, for
+ *   a control that opens something when tapped).
  * @returns The text.
  */
-export function MarqueeText({ text, className, wrapOnTouch = false }: { text: string; className?: string; wrapOnTouch?: boolean }) {
+export function MarqueeText({
+  text,
+  className,
+  wrapOnTouch = false,
+  autoplay = false,
+}: {
+  text: string;
+  className?: string;
+  wrapOnTouch?: boolean;
+  autoplay?: boolean;
+}) {
   const outer = useRef<HTMLSpanElement>(null);
   const inner = useRef<HTMLSpanElement>(null);
   const [shift, setShift] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const reducedMotion = useReducedMotion();
 
   useLayoutEffect(() => {
@@ -105,9 +122,27 @@ export function MarqueeText({ text, className, wrapOnTouch = false }: { text: st
   }, [text]);
 
   const scrolls = shift > 0 && !reducedMotion;
-  const style = scrolls
-    ? ({ '--marquee-shift': `-${shift}px`, '--marquee-duration': `${Math.max(shift / speeds.marquee, durations.slow)}s` } as CSSProperties)
-    : undefined;
+  const seconds = Math.max(shift / speeds.marquee, durations.slow);
+
+  // Touch screens cannot point at the control: run, rest at the end, jump
+  // back, and run again after a pause, like a car radio.
+  useEffect(() => {
+    if (!autoplay || !scrolls || !window.matchMedia('(hover: none)').matches) {
+      setPlaying(false);
+      return;
+    }
+    // Delay and run of the animation, then a moment at the end.
+    const run = (seconds + durations.slow) * 1000 + AUTOPLAY_REST_MS;
+    let timer = 0;
+    const cycle = (on: boolean) => {
+      setPlaying(on);
+      timer = window.setTimeout(() => cycle(!on), on ? run : AUTOPLAY_PAUSE_MS);
+    };
+    cycle(false);
+    return () => window.clearTimeout(timer);
+  }, [autoplay, scrolls, seconds]);
+
+  const style = scrolls ? ({ '--marquee-shift': `-${shift}px`, '--marquee-duration': `${seconds}s` } as CSSProperties) : undefined;
   return (
     <span ref={outer} title={shift > 0 ? text : undefined} className={cn('block min-w-0 overflow-hidden', className)}>
       <span
@@ -117,6 +152,7 @@ export function MarqueeText({ text, className, wrapOnTouch = false }: { text: st
           'inline-block max-w-full truncate align-top',
           wrapOnTouch && 'pointer-coarse:whitespace-normal pointer-coarse:break-words',
           scrolls && MARQUEE_ACTIVE,
+          playing && 'max-w-none animate-marquee',
         )}
       >
         {text}
