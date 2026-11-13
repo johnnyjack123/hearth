@@ -20,6 +20,7 @@ export const queryKeys = {
   activity: ['admin', 'activity'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
+  conversationSearch: (query: string) => ['conversations', 'search', query] as const,
   users: ['admin', 'users'] as const,
 };
 

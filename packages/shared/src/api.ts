@@ -651,6 +651,28 @@ export interface ConversationSummary {
   tags: string[];
 }
 
+/**
+ * A chat whose messages contain the search words
+ * (`GET /api/conversations/search?q=`); all words in one message, case and
+ * accents ignored.
+ */
+export interface ConversationSearchHit {
+  /** The chat. */
+  conversation: ConversationSummary;
+  /** Messages of the chat that match. */
+  matches: number;
+  /** Text around the first match in the newest matching message. */
+  snippet: string;
+  /** Where the search words are in `snippet`: [start, end) offsets, sorted. */
+  marks: [number, number][];
+}
+
+/** Response of `GET /api/conversations/search`, newest match first. */
+export interface ConversationSearchResult {
+  /** At most 30 chats. */
+  hits: ConversationSearchHit[];
+}
+
 /** Most tags on one chat. */
 export const MAX_CHAT_TAGS = 10;
 

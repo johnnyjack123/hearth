@@ -64,7 +64,7 @@ export function ModelPicker({ selection, onSelect, groups, loading, recent = [] 
       <PopoverTrigger asChild>
         <Button variant="ghost" size="sm" className="group/marquee min-w-0 max-w-52 shrink gap-1.5 px-2 text-muted-foreground hover:text-foreground">
           <Sparkles className="text-primary" />
-          <MarqueeText text={label} />
+          <MarqueeText text={label} autoplay />
           <ChevronDown className="opacity-60" />
         </Button>
       </PopoverTrigger>

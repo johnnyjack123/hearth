@@ -63,9 +63,10 @@ Postgres, web search, HTTPS and running the server on the internet are covered i
 
 ### Windows client
 
-1. Download `hearth-setup-x64.exe` or `hearth-setup-arm64.exe` from the [latest release](https://github.com/johnnyjack123/hearth/releases/latest) and run it. It checks Hyper-V, installs Git and Podman if needed, creates the VM and pairs the PC with your server.
-2. In a project folder, run `hearth init`. The project then appears in the web chat under the gear menu → Environment.
-3. Alternatively, run `hearth` in the project folder to work with the agent in the terminal.
+1. Download `hearth-setup-x64.exe` or `hearth-setup-arm64.exe` from the [latest release](https://github.com/johnnyjack123/hearth/releases/latest) and run it. It checks Hyper-V, installs Git and Podman if needed and creates the VM (a download of about 1.5 GB).
+2. **Connect the PC to your server.** Near the end, the setup asks for the server's address, the `PUBLIC_URL` (e.g. `https://hearth.example.org`). It shows a code and opens a confirmation page in the browser: sign in there with your account and confirm the code. From then on the PC's agents use the models of your account; the API keys never leave the server. You can also give the address up front with `hearth setup --server <address>`, pair again later with `hearth login <address>` (also after the server moved to a new address), and undo the pairing with `hearth logout`.
+3. In a project folder, run `hearth init`. The project then appears in the web chat under the gear menu → Environment.
+4. Alternatively, run `hearth` in the project folder to work with the agent in the terminal.
 
 Details and troubleshooting: [`docs/client.md`](docs/client.md).
 

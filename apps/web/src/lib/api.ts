@@ -10,6 +10,7 @@ import type {
   ChatFile,
   CompactRequestBody,
   ConversationDetail,
+  ConversationSearchResult,
   CostStatus,
   HostCheckStatus,
   OpenRouterHostAccess,
@@ -191,6 +192,7 @@ export const api = {
   },
   conversations: {
     list: () => request<ConversationSummary[]>('GET', '/conversations'),
+    search: (query: string) => request<ConversationSearchResult>('GET', `/conversations/search?q=${encodeURIComponent(query)}`),
     get: (id: string) => request<ConversationDetail<ChatMessage>>('GET', `/conversations/${encodeURIComponent(id)}`),
     create: (input: CreateConversationInput) => request<ConversationSummary>('POST', '/conversations', input),
     rename: (id: string, title: string) =>

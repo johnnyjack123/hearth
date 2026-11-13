@@ -63,9 +63,10 @@ Postgres, Websuche, HTTPS und den Betrieb im Internet beschreibt [`docs/deploy.m
 
 ### Windows-Client
 
-1. `hearth-setup-x64.exe` oder `hearth-setup-arm64.exe` aus dem [neuesten Release](https://github.com/johnnyjack123/hearth/releases/latest) herunterladen und starten. Es prüft Hyper-V, installiert bei Bedarf Git und Podman, legt die VM an und koppelt den Rechner mit dem Server.
-2. In einem Projektordner `hearth init` ausführen. Das Projekt erscheint dann im Web-Chat unter Zahnrad → Umgebung.
-3. Alternativ startet `hearth` im Projektordner den Agent im Terminal.
+1. `hearth-setup-x64.exe` oder `hearth-setup-arm64.exe` aus dem [neuesten Release](https://github.com/johnnyjack123/hearth/releases/latest) herunterladen und starten. Es prüft Hyper-V, installiert bei Bedarf Git und Podman und legt die VM an (etwa 1,5 GB Download).
+2. **Rechner mit dem Server verbinden.** Gegen Ende fragt das Setup nach der Adresse des Servers, also `PUBLIC_URL` (etwa `https://hearth.example.org`). Es zeigt einen Code und öffnet eine Bestätigungsseite im Browser: dort mit dem eigenen Konto anmelden und den Code bestätigen. Ab dann nutzen die Agents des Rechners die Modelle dieses Kontos; die API-Keys verlassen den Server nie. Die Adresse lässt sich auch gleich mitgeben (`hearth setup --server <adresse>`). Später koppelt `hearth login <adresse>` neu, auch nach einem Umzug des Servers, und `hearth logout` hebt die Kopplung auf.
+3. In einem Projektordner `hearth init` ausführen. Das Projekt erscheint dann im Web-Chat unter Zahnrad → Umgebung.
+4. Alternativ startet `hearth` im Projektordner den Agent im Terminal.
 
 Einzelheiten und Hilfe bei Problemen: [`docs/client.md`](docs/client.md).
 

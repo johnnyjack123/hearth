@@ -1,9 +1,10 @@
-import type { AgentDataParts, ConversationSummary, MessageMetadata } from '@hearth/shared';
+import type { AgentDataParts, ConversationSearchHit, ConversationSummary, MessageMetadata } from '@hearth/shared';
 import type { UIMessage } from 'ai';
-import type { Kysely, Selectable } from 'kysely';
+import { type Kysely, type Selectable, sql } from 'kysely';
 import { v7 as uuidv7 } from 'uuid';
 import type { ConversationTable, DB } from '../db/schema.ts';
 import { addCost } from './costs.ts';
+import { messageText, searchTerms, searchTextOf, snippet } from './search-text.ts';
 
 /**
  * Message type stored and exchanged with the web app.
@@ -102,6 +103,78 @@ export async function listConversations(db: Kysely<DB>, userId: string, limit = 
     rows.map((row) => row.id),
   );
   return rows.map((row) => toSummary(row, tags.get(row.id)));
+}
+
+/** Most chats one search returns, and most matching messages it looks at. */
+const SEARCH_CHATS = 30;
+const SEARCH_MESSAGES = 1_000;
+
+/**
+ * The user's chats with messages that contain every word of `query`, case
+ * and accents ignored, newest match first. Titles are left to the client,
+ * which has them all.
+ *
+ * @param db - Open database.
+ * @param userId - Whose chats.
+ * @param query - What the user typed.
+ * @returns The chats with an excerpt of the newest matching message.
+ */
+export async function searchConversations(db: Kysely<DB>, userId: string, query: string): Promise<ConversationSearchHit[]> {
+  const terms = searchTerms(query);
+  if (terms.length === 0) {
+    return [];
+  }
+  let select = db
+    .selectFrom('message')
+    .innerJoin('conversation', 'conversation.id', 'message.conversationId')
+    .select(['message.id', 'message.conversationId'])
+    .where('conversation.userId', '=', userId)
+    .where('message.role', '!=', 'system');
+  for (const term of terms) {
+    // Wildcards in what the user typed are searched for as such.
+    const pattern = `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    select = select.where(sql<boolean>`${sql.ref('message.searchText')} like ${pattern} escape '\\'`);
+  }
+  const rows = await select.orderBy('message.createdAt', 'desc').limit(SEARCH_MESSAGES).execute();
+
+  // Per chat: how many messages match, and the newest of them for the excerpt.
+  const chats = new Map<string, { newest: string; matches: number }>();
+  for (const row of rows) {
+    const chat = chats.get(row.conversationId);
+    if (chat) {
+      chat.matches += 1;
+    } else if (chats.size < SEARCH_CHATS) {
+      chats.set(row.conversationId, { newest: row.id, matches: 1 });
+    }
+  }
+  if (chats.size === 0) {
+    return [];
+  }
+  const ids = [...chats.keys()];
+  const [summaries, tags, messages] = await Promise.all([
+    selectConversations(db).where('conversation.id', 'in', ids).execute(),
+    tagsOf(db, ids),
+    db
+      .selectFrom('message')
+      .select(['id', 'parts'])
+      .where(
+        'id',
+        'in',
+        [...chats.values()].map((chat) => chat.newest),
+      )
+      .execute(),
+  ]);
+  const byId = new Map(summaries.map((row) => [row.id, row]));
+  const partsOf = new Map(messages.map((row) => [row.id, row.parts]));
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    const chat = chats.get(id);
+    if (!row || !chat) {
+      return [];
+    }
+    const excerpt = snippet(messageText(partsOf.get(chat.newest) ?? '[]'), terms);
+    return [{ conversation: toSummary(row, tags.get(id)), matches: chat.matches, snippet: excerpt.text, marks: excerpt.marks }];
+  });
 }
 
 /**
@@ -405,6 +478,7 @@ export async function discardFrom(db: Kysely<DB>, conversationId: string, messag
 export async function saveMessage(db: Kysely<DB>, conversationId: string, message: ChatMessage): Promise<void> {
   const parts = JSON.stringify(message.parts);
   const metadata = message.metadata ? JSON.stringify(message.metadata) : null;
+  const searchText = message.role === 'system' ? null : searchTextOf(message.parts);
 
   await db.transaction().execute(async (trx) => {
     const existing = await trx
@@ -426,7 +500,7 @@ export async function saveMessage(db: Kysely<DB>, conversationId: string, messag
     if (existing) {
       await trx
         .updateTable('message')
-        .set({ parts, metadata })
+        .set({ parts, metadata, searchText })
         .where('id', '=', message.id)
         .where('conversationId', '=', conversationId)
         .execute();
@@ -445,6 +519,7 @@ export async function saveMessage(db: Kysely<DB>, conversationId: string, messag
         role: message.role,
         parts,
         metadata,
+        searchText,
         seq: Number(last?.seq ?? 0) + 1,
         createdAt: message.metadata?.createdAt ?? Date.now(),
       })

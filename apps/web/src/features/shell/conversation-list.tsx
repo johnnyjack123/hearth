@@ -1,9 +1,9 @@
-import { type ConversationSummary, MAX_CHAT_TAGS } from '@hearth/shared';
-import { useQueryClient } from '@tanstack/react-query';
+import { type ConversationSearchHit, type ConversationSummary, MAX_CHAT_TAGS } from '@hearth/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { Check, ChevronRight, Ellipsis, Folder, FolderOpen, MessagesSquare, Pencil, Plus, Tag, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { ConfirmDialog, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog.tsx';
@@ -87,7 +87,8 @@ function groupByDate(conversations: ConversationSummary[]): { key: MessageKey; i
 
 /**
  * The user's conversations: a folder per tag at the top, then all of them
- * grouped by recency, filtered by `query` (title or tag).
+ * grouped by recency, filtered by `query` (title or tag), and below them
+ * chats whose messages contain it.
  *
  * @param props - Search text from the sidebar.
  * @returns The list, a skeleton while loading, or an empty state.
@@ -97,8 +98,9 @@ export function ConversationList({ query }: { query: string }) {
   const { data, isPending } = useConversations();
   const [openFolders, setOpenFolders] = useState(readOpenFolders);
   const searching = query.trim() !== '';
+  const inMessages = useMessageSearch(query);
 
-  const { groups, folders, tags } = useMemo(() => {
+  const { groups, folders, tags, titled } = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const all = data ?? [];
     const filtered = all.filter(
@@ -112,8 +114,12 @@ export function ConversationList({ query }: { query: string }) {
       folders: groupByTag(filtered, locale),
       // Every tag of the user, for tagging a chat.
       tags: groupByTag(all, locale).map((folder) => folder.name),
+      titled: new Set(filtered.map((conversation) => conversation.id)),
     };
   }, [data, query, t, locale]);
+  // Matches in the title or a tag come first; chats found only by their
+  // messages follow below.
+  const found = useMemo(() => (inMessages.hits ?? []).filter((hit) => !titled.has(hit.conversation.id)), [inMessages.hits, titled]);
 
   function toggleFolder(name: string) {
     const next = openFolders.includes(name) ? openFolders.filter((open) => open !== name) : [...openFolders, name];
@@ -135,8 +141,12 @@ export function ConversationList({ query }: { query: string }) {
     return <EmptyState icon={<MessagesSquare />} title={t('nav.noChats')} description={t('nav.noChatsHint')} />;
   }
 
-  if (groups.length === 0) {
-    return <p className="px-3 py-6 text-center text-sm text-muted-foreground">{t('nav.noResults', { query })}</p>;
+  if (groups.length === 0 && found.length === 0) {
+    return (
+      <p role="status" className="px-3 py-6 text-center text-sm text-muted-foreground">
+        {inMessages.pending ? t('nav.searchingMessages') : t('nav.noResults', { query })}
+      </p>
+    );
   }
 
   return (
@@ -181,8 +191,68 @@ export function ConversationList({ query }: { query: string }) {
           </ul>
         </section>
       ))}
+      {found.length > 0 ? (
+        <section aria-label={t('nav.inMessages')} data-message-hits="">
+          <h2 className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">{t('nav.inMessages')}</h2>
+          <ul className="flex flex-col gap-px">
+            {found.map((hit) => (
+              <li key={hit.conversation.id}>
+                <ConversationItem conversation={hit.conversation} tags={tags} excerpt={hit} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+/** Pause after the last keystroke before the messages are searched. */
+const MESSAGE_SEARCH_DELAY_MS = 300;
+
+/**
+ * Searches the messages of the user's chats on the server, a moment after
+ * the user stopped typing; two characters at least.
+ *
+ * @param query - The search text.
+ * @returns The hits (undefined before the first answer) and whether a
+ *   search for the current text is still to come.
+ */
+function useMessageSearch(query: string): { hits: ConversationSearchHit[] | undefined; pending: boolean } {
+  const trimmed = query.trim();
+  const [settled, setSettled] = useState(trimmed);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(trimmed), MESSAGE_SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [trimmed]);
+  const enabled = settled.length >= 2;
+  const search = useQuery({
+    queryKey: queryKeys.conversationSearch(settled),
+    queryFn: () => api.conversations.search(settled),
+    enabled,
+    staleTime: 30_000,
+  });
+  return {
+    hits: enabled && settled === trimmed ? search.data?.hits : undefined,
+    pending: trimmed.length >= 2 && (settled !== trimmed || search.isFetching),
+  };
+}
+
+/** A message excerpt with the search words highlighted. */
+function Excerpt({ text, marks }: { text: string; marks: [number, number][] }) {
+  const pieces: ReactNode[] = [];
+  let at = 0;
+  for (const [start, end] of marks) {
+    pieces.push(text.slice(at, start));
+    pieces.push(
+      <mark key={start} className="rounded-xs bg-primary/15 text-foreground">
+        {text.slice(start, end)}
+      </mark>,
+    );
+    at = end;
+  }
+  pieces.push(text.slice(at));
+  return <span className="line-clamp-2 text-xs text-muted-foreground">{pieces}</span>;
 }
 
 /**
@@ -463,7 +533,16 @@ function TagsDialog({
   );
 }
 
-function ConversationItem({ conversation, tags }: { conversation: ConversationSummary; tags: string[] }) {
+function ConversationItem({
+  conversation,
+  tags,
+  excerpt,
+}: {
+  conversation: ConversationSummary;
+  tags: string[];
+  /** Where a message search found the chat. */
+  excerpt?: { snippet: string; marks: [number, number][] };
+}) {
   const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -496,9 +575,13 @@ function ConversationItem({ conversation, tags }: { conversation: ConversationSu
       <Link
         to="/c/$conversationId"
         params={{ conversationId: conversation.id }}
-        className="flex min-w-0 flex-1 items-center rounded-lg px-2 py-1.5 pe-9 text-sm text-sidebar-foreground transition-colors duration-(--duration-instant) hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[status=active]:bg-sidebar-accent data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground pointer-coarse:min-h-11"
+        className={cn(
+          'flex min-w-0 flex-1 rounded-lg px-2 py-1.5 pe-9 text-sm text-sidebar-foreground transition-colors duration-(--duration-instant) hover:bg-sidebar-accent hover:text-sidebar-accent-foreground data-[status=active]:bg-sidebar-accent data-[status=active]:font-medium data-[status=active]:text-sidebar-accent-foreground pointer-coarse:min-h-11',
+          excerpt ? 'flex-col gap-0.5' : 'items-center',
+        )}
       >
         <span className="truncate">{title}</span>
+        {excerpt ? <Excerpt text={excerpt.snippet} marks={excerpt.marks} /> : null}
       </Link>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
