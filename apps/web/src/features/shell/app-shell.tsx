@@ -24,7 +24,7 @@ export function AppShell() {
   }, [pathname]);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    <div className="pad-safe-area flex h-dvh overflow-hidden bg-background">
       <aside className="hidden w-(--sidebar-width) shrink-0 border-e border-sidebar-border bg-sidebar md:flex">
         <Sidebar />
       </aside>

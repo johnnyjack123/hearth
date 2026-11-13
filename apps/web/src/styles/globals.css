@@ -177,6 +177,15 @@
   }
 }
 
+/*
+ * Keeps a full-screen layout clear of notches, the iPhone home indicator and
+ * Android's gesture bar. `viewport-fit=cover` lets the page reach under them
+ * (installed app, landscape); the insets are 0 everywhere else.
+ */
+@utility pad-safe-area {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
 @layer base {
   *,
   ::before,
