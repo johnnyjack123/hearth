@@ -56,6 +56,9 @@ export function useStickToBottom() {
     if (content) {
       observer.observe(content);
     }
+    // The container shrinks when the on-screen keyboard opens; the newest
+    // messages stay in view instead of sliding under the composer.
+    observer.observe(element);
     return () => {
       element.removeEventListener('scroll', onScroll);
       observer.disconnect();
