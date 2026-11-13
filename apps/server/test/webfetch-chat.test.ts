@@ -306,6 +306,28 @@ describe('web fetch in ordinary chats', () => {
     expect(Object.keys(stored?.metadata?.toolMs ?? {})).toEqual([call?.toolCallId]);
   });
 
+  it('loads any public URL without asking once the user opens web access, and still warns', async () => {
+    const open = await server.request('PATCH', '/api/features', { cookie, body: { webFetchOpen: true } });
+    expect(open.status).toBe(200);
+    const conversationId = await newConversation();
+    // Neither host was named, and the redirect goes to another host.
+    target = `http://site.test:${port}/elsewhere`;
+    const chunks = await new ChunkReader(await chat(conversationId, 'Worum geht es auf der Testseite?')).rest();
+    expect(chunks.some((chunk) => chunk.type === 'data-approval')).toBe(false);
+    expect(fetches).toBe(2);
+    expect(chunks.find((chunk) => chunk.type === 'tool-output-available')).toMatchObject({
+      output: { title: 'Kaffee', warnings: expect.arrayContaining(['ignore_instructions']) },
+    });
+    expect(JSON.stringify(llm.calls.at(-1)?.prompt.at(-1))).toContain('prompt injection');
+
+    // The address checks stay: a host that resolves to nothing allowed fails.
+    target = `http://elsewhere.test:${port}/page`;
+    const blocked = await new ChunkReader(await chat(conversationId, 'Und die andere Seite?')).rest();
+    expect(blocked.some((chunk) => chunk.type === 'data-approval')).toBe(false);
+    expect(blocked.find((chunk) => chunk.type === 'tool-output-error')).toBeDefined();
+    expect(fetches).toBe(2);
+  });
+
   it('asks again when a known host redirects to another one', async () => {
     const conversationId = await newConversation();
     target = `http://site.test:${port}/elsewhere`;

@@ -635,6 +635,9 @@ export const en: Messages = {
     webFetch: 'Load web pages',
     webFetchHint:
       'Chat models and agents may fetch web pages through the server, from public addresses only. Hosts you did not name yourself load only after a question in the chat.',
+    webFetchOpen: 'Free web access',
+    webFetchOpenHint:
+      'Chat models load any public page without asking, also addresses they made up. Prompt injection warnings stay. The risk: a hijacked model could send parts of the chat to a foreign server inside an address. Agents follow their project’s network rules, open with “hearth net preset open” in the project folder.',
     calculator: 'Calculator',
     calculatorHint:
       'Models in ordinary chats calculate with math.js on the server instead of in their heads: units, fractions, matrices, statistics, derivatives. Switch it off if a model cannot use tools.',

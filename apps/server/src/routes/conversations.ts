@@ -674,7 +674,7 @@ export function conversationRoutes(deps: AppDeps) {
         pricing,
         abortSignal: stop.signal,
         consumeSseStream: follow,
-        webFetch: features.webFetch ? { approvals: fetchApprovals, config: webFetchConfig } : null,
+        webFetch: features.webFetch ? { approvals: fetchApprovals, config: webFetchConfig, open: features.webFetchOpen } : null,
         search,
         research,
         calculator: features.calculator ? calculator : null,

@@ -9,7 +9,7 @@ Hearth is a self-hosted chat for large language models. Several people share one
 **Chat (server and web app)**
 - Bring your own keys: Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter, Ollama and any OpenAI-compatible endpoint such as DeepSeek. Keys are stored encrypted and are only used for their owner's requests.
 - Research mode with web search (SearXNG, Brave or Tavily). The model reads only the relevant sections of long pages and cites its sources per paragraph.
-- Web pages from hosts the user did not mention load only after approval. Text that looks like a prompt injection is flagged with the exact location, and a helper model can rate the warning.
+- Web pages from hosts the user did not mention load only after approval, unless the user switches on free web access. Text that looks like a prompt injection is flagged with the exact location, and a helper model can rate the warning.
 - Images, PDF, Word, Excel and PowerPoint files in chats, with text recognition for scanned PDFs. Long documents are searched instead of sent in full.
 - Per-chat options: thinking effort, answer length and tone. Long chats are condensed and summarized automatically to keep the context affordable.
 - A memory the user controls, tags that group chats into folders, and costs per reply and per model call.
@@ -101,4 +101,4 @@ Hearth is in active development and has not reached 1.0. The Windows programs ar
 
 ## License
 
-Hearth is free software under the [GNU Affero General Public License v3.0 or later](LICENSE). If you run a modified version as a service for others, you must offer them its source code.
+Hearth is free software under the [GNU Affero General Public License v3.0 or later](LICENSE.md). If you run a modified version as a service for others, you must offer them its source code.
