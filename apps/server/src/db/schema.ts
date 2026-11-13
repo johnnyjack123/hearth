@@ -58,6 +58,8 @@ export interface MessageTable {
   /** Position within the conversation, starting at 1. */
   seq: number;
   createdAt: number;
+  /** Visible text, folded for the chat search (`search-text.ts`); null before migration 0021 filled it. */
+  searchText: string | null;
 }
 
 /**

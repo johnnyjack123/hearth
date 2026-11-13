@@ -8,6 +8,7 @@ import {
   chatRequestSchema,
   compactRequestSchema,
   type ConversationDetail,
+  type ConversationSearchResult,
   type EffortLevel,
   createConversationSchema,
   DEFAULT_TONE,
@@ -37,6 +38,7 @@ import {
   findConversation,
   listConversations,
   loadMessages,
+  searchConversations,
   removeLink,
   saveMessage,
   setAutosync,
@@ -322,6 +324,12 @@ export function conversationRoutes(deps: AppDeps) {
 
   return new Hono<AppEnv>()
     .get('/', async (c) => c.json(await listConversations(db, c.get('user').id)))
+    // Before '/:id', which would take "search" for an id.
+    .get('/search', async (c) => {
+      const query = (c.req.query('q') ?? '').slice(0, 200);
+      const result: ConversationSearchResult = { hits: await searchConversations(db, c.get('user').id, query) };
+      return c.json(result);
+    })
     .post('/', async (c) => {
       const user = c.get('user');
       const { link, ...selection } = createConversationSchema.parse(await c.req.json().catch(() => ({})));

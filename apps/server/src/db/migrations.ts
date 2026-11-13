@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
+import { fillSearchText } from '../services/search-text.ts';
 import type { DB } from './schema.ts';
 
 // Rules that keep migrations portable between SQLite and Postgres:
@@ -390,6 +391,16 @@ const migrations: Record<string, Migration> = {
     async down(db: Kysely<unknown>) {
       await db.schema.dropTable('openRouterAccess').execute();
       await db.schema.dropTable('userSetting').execute();
+    },
+  },
+  // The chat search looks into messages, not only titles.
+  '0021_message_search': {
+    async up(db: Kysely<unknown>) {
+      await db.schema.alterTable('message').addColumn('searchText', 'text').execute();
+      await fillSearchText(db as unknown as Kysely<DB>);
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.alterTable('message').dropColumn('searchText').execute();
     },
   },
 };

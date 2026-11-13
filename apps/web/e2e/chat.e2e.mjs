@@ -275,6 +275,21 @@ try {
     await page.waitForSelector('[role=alertdialog]', { hidden: true, timeout: 5_000 });
   });
 
+  await step('the chat search finds chats by their messages too', async () => {
+    const search = 'input[placeholder="Chats durchsuchen"]';
+    // Not in the title, only in a message; case does not matter.
+    await page.type(search, 'noch eine FRAGE');
+    await page.waitForSelector('[data-message-hits] a::-p-text(Testgespräch mit Mock)', { timeout: 5_000 });
+    const marked = await page.$$eval('[data-message-hits] mark', (marks) => marks.map((mark) => mark.textContent));
+    if (!marked.includes('Frage')) {
+      throw new Error(`marked ${JSON.stringify(marked)}`);
+    }
+    await shot('07e-message-search');
+    await page.click(search, { count: 3 });
+    await page.keyboard.press('Backspace');
+    await page.waitForSelector('[data-message-hits]', { hidden: true, timeout: 5_000 });
+  });
+
   let fetchPath = '';
   await step('web fetch in an ordinary chat asks, then answers from the page', async () => {
     // The mock model calls web_fetch for a URL the user did not name, so the
