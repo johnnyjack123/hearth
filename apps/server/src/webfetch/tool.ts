@@ -67,6 +67,11 @@ export interface WebFetchContext {
   /** See {@link WebFetchConfig}. */
   config: WebFetchConfig;
   /**
+   * The user's free web access: every URL the policy allows loads without
+   * asking. Address checks and injection warnings stay.
+   */
+  open?: boolean;
+  /**
    * In research mode: URLs from search results and loaded pages, which load
    * without asking; null otherwise.
    */
@@ -327,7 +332,7 @@ export function createWebFetchTool(context: WebFetchContext) {
   /** Lets the fetch go ahead, asking the user unless the host is known. */
   async function authorize(url: URL, signal: AbortSignal | undefined): Promise<void> {
     const key = hostKey(url.hostname);
-    if (mentioned.has(key) || granted.has(key)) {
+    if (context.open || mentioned.has(key) || granted.has(key)) {
       return;
     }
     const { id, outcome } = approvals.ask(conversationId, {

@@ -499,8 +499,11 @@ export interface StreamChatOptions {
   abortSignal: AbortSignal;
   /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
   consumeSseStream?: (stream: ReadableStream<string>) => void;
-  /** Web fetch for the model; null when an admin switched it off. */
-  webFetch: { approvals: FetchApprovals; config: WebFetchConfig } | null;
+  /**
+   * Web fetch for the model; null when the user switched it off. `open`:
+   * every public URL loads without asking.
+   */
+  webFetch: { approvals: FetchApprovals; config: WebFetchConfig; open?: boolean } | null;
   /** The configured search provider; null when none is set up. */
   search: SearchBackend | null;
   /** Research mode of this request: search, and found URLs load without asking. */
@@ -638,6 +641,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
             write: (chunk) => writer?.write(chunk),
             approvals: webFetch.approvals,
             config: webFetch.config,
+            open: webFetch.open ?? false,
             known,
             helpers,
             assess: options.assess ? assessor(helpers, abortSignal) : null,

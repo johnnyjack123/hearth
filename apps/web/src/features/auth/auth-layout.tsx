@@ -11,7 +11,7 @@ import { riseIn } from '@/lib/motion.ts';
  */
 export function AuthLayout() {
   return (
-    <div className="grid min-h-dvh bg-background lg:grid-cols-2">
+    <div className="pad-safe-area grid min-h-dvh bg-background lg:grid-cols-2">
       <div className="relative hidden overflow-hidden border-e border-border bg-sidebar lg:flex lg:flex-col lg:justify-between lg:p-10">
         <Logo withWordmark />
         <div aria-hidden="true" className="pointer-events-none absolute inset-0">

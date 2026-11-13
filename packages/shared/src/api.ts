@@ -83,6 +83,14 @@ export interface PublicSettings {
 export interface ChatFeatures {
   /** Whether models in ordinary chats, and the user's agents, may load web pages through the server. */
   webFetch: boolean;
+  /**
+   * With {@link webFetch}: models in ordinary chats load any public URL
+   * without asking, also hosts the user never named. Off by default: a
+   * hijacked model could otherwise send parts of the chat to any server in
+   * a URL. Agents are governed by their project's network rules on the
+   * computer (`hearth net preset open`), never by this.
+   */
+  webFetchOpen: boolean;
   /** The calculator tool (math.js on the server) in ordinary chats. */
   calculator: boolean;
   /** The memory: chat models and agents may store what the user wants every chat to know. */
@@ -102,6 +110,7 @@ export interface ChatFeatures {
 /** {@link ChatFeatures} of a user who changed nothing. */
 export const DEFAULT_CHAT_FEATURES: ChatFeatures = {
   webFetch: true,
+  webFetchOpen: false,
   calculator: true,
   memory: true,
   progress: true,
@@ -115,6 +124,7 @@ export const DEFAULT_CHAT_FEATURES: ChatFeatures = {
 export const updateChatFeaturesSchema = z
   .object({
     webFetch: z.boolean(),
+    webFetchOpen: z.boolean(),
     calculator: z.boolean(),
     memory: z.boolean(),
     progress: z.boolean(),

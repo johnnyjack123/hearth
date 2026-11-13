@@ -13,7 +13,19 @@ import { Section, SettingRow } from '../shell/page.tsx';
 type Feature = keyof ChatFeatures;
 
 /** The switches of one card, each with its label and hint. */
-const TOOLS: Feature[] = ['webFetch', 'calculator', 'memory', 'progress'];
+const TOOLS: Feature[] = ['webFetch', 'webFetchOpen', 'calculator', 'memory', 'progress'];
+
+/** Switches that only mean something while another one is on. */
+const DEPENDS_ON: Partial<Record<Feature, Feature>> = {
+  webFetchOpen: 'webFetch',
+  openRouterNoFourBit: 'openRouterCheapest',
+};
+
+/** Whether the switch `name` is off-limits because the one it needs is off. */
+function waitsFor(features: ChatFeatures, name: Feature): boolean {
+  const needed = DEPENDS_ON[name];
+  return needed !== undefined && !features[needed];
+}
 const ROUTING: Feature[] = ['openRouterCheapest', 'openRouterNoFourBit'];
 
 /**
@@ -61,8 +73,9 @@ function FeatureCard({ names }: { names: Feature[] }) {
                 <Switch
                   aria-label={t(`features.${name}` as MessageKey)}
                   checked={data[name]}
-                  // Without the cheapest routing there is nothing to skip.
-                  disabled={name === 'openRouterNoFourBit' && !data.openRouterCheapest}
+                  // Without web fetch there is nothing to open, without the
+                  // cheapest routing nothing to skip.
+                  disabled={waitsFor(data, name)}
                   onCheckedChange={(checked) => update.mutate({ [name]: checked })}
                 />
               }

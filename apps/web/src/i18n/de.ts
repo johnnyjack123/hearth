@@ -635,6 +635,9 @@ export const de = {
     webFetch: 'Webseiten laden',
     webFetchHint:
       'Chat-Modelle und Agents dürfen Webseiten über den Server abrufen, nur von öffentlichen Adressen. Hosts, die du nicht selbst genannt hast, lädt der Server erst nach Rückfrage im Chat.',
+    webFetchOpen: 'Freier Webzugriff',
+    webFetchOpenHint:
+      'Chat-Modelle laden jede öffentliche Seite ohne Rückfrage, auch Adressen, die sie sich selbst ausgedacht haben. Die Warnungen vor Prompt-Injection bleiben. Das Risiko: Ein gekapertes Modell könnte Teile des Chats in einer Adresse an einen fremden Server schicken. Für Agents gilt das Netz ihres Projekts, frei mit „hearth net preset open“ im Projektordner.',
     calculator: 'Taschenrechner',
     calculatorHint:
       'Modelle in normalen Chats rechnen mit math.js auf dem Server statt im Kopf: Einheiten, Brüche, Matrizen, Statistik, Ableitungen. Ausschalten, falls ein Modell keine Werkzeuge kann.',
