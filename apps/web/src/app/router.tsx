@@ -22,6 +22,7 @@ import { isAdmin } from '@/lib/auth-client.ts';
 import { queryClient, setUnauthorizedHandler } from '@/lib/query-client.ts';
 import { queryKeys, sessionQuery } from '@/lib/queries.ts';
 import { isLocalPath } from '@/lib/redirect.ts';
+import { RouteError } from './route-error.tsx';
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -129,6 +130,7 @@ export const router = createRouter({
   routeTree,
   context: { queryClient },
   defaultPreload: 'intent',
+  defaultErrorComponent: RouteError,
   scrollRestoration: true,
 });
 

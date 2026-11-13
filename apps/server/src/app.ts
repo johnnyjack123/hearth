@@ -167,6 +167,9 @@ function mountWebApp(app: Hono<AppEnv>, webDist: string): void {
       },
     }),
   );
+  // A file of an older build: a page from before an update asks for it.
+  // The SPA instead would arrive as a script and fail with a MIME error.
+  app.get('/assets/*', (c) => c.text('Not found', 404));
   app.use('/*', serveStatic({ root }));
   // Client-side routes: every unknown GET path renders the SPA.
   app.get('*', (c) => {

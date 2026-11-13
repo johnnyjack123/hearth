@@ -12,10 +12,12 @@ import { TooltipProvider } from './components/ui/menu.tsx';
 import { installClipboardFallback } from './lib/clipboard.ts';
 import { adoptOldPreferences, PreferencesProvider } from './lib/preferences.tsx';
 import { queryClient } from './lib/query-client.ts';
+import { installStaleBuildReload } from './lib/stale-build.ts';
 
 // Before anything renders a copy button.
 installClipboardFallback();
 adoptOldPreferences();
+installStaleBuildReload();
 
 const container = document.getElementById('root');
 if (!container) {
