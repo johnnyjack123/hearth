@@ -58,6 +58,10 @@ page.on('requestfailed', (request) => {
   }
 });
 await page.evaluateOnNewDocument(() => localStorage.setItem('hearth.locale', 'de'));
+// The live connection (`/api/events`) stays off outside its own step: while
+// it is open, the page never becomes "network idle" (networkidle0).
+const quiet = () => localStorage.setItem('hearth.liveEvents', 'off');
+let quietScript = await page.evaluateOnNewDocument(quiet);
 
 const step = async (name, fn) => {
   const started = Date.now();
@@ -288,6 +292,64 @@ try {
     await page.click(search, { count: 3 });
     await page.keyboard.press('Backspace');
     await page.waitForSelector('[data-message-hits]', { hidden: true, timeout: 5_000 });
+  });
+
+  await step('a chat open on phone and laptop shows what the other one writes', async () => {
+    // Another browser stands in for the phone: its own sign-in and connection.
+    const context = await browser.createBrowserContext();
+    try {
+      const phone = await context.newPage();
+      await phone.evaluateOnNewDocument(() => localStorage.setItem('hearth.locale', 'de'));
+      await phone.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+      await phone.goto(`${BASE}/login`, { waitUntil: 'networkidle0' });
+      await phone.type('input[autocomplete=email]', 'erika@example.com');
+      await phone.type('input[autocomplete=current-password]', 'sehr-sicheres-passwort');
+      await phone.click('button[type=submit]');
+      await phone.waitForFunction(() => location.pathname === '/', { timeout: 10_000 });
+      // The live connection stays open: at most two requests count as idle.
+      await phone.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle2' });
+      await phone.waitForSelector(text('Und noch eine Frage'), { timeout: 10_000 });
+
+      // Touch screens choose between photos, the camera and files: Android
+      // shows its photo picker only for an input that takes images alone.
+      await phone.tap('form button[aria-label="Datei anhängen"][aria-haspopup="menu"]');
+      await phone.waitForSelector(`[role=menuitem]${text('Foto aufnehmen')}`, { timeout: 5_000 });
+      await phone.screenshot({ path: path.join(OUT, '07f-attach-menu-phone.png') });
+      await phone.$$eval('form input[type=file]', (inputs) => {
+        for (const input of inputs) {
+          input.addEventListener('click', () => {
+            window.pickedAccept = input.accept;
+          });
+        }
+      });
+      const [chooser] = await Promise.all([phone.waitForFileChooser({ timeout: 5_000 }), phone.tap(`[role=menuitem]${text('Fotos')}`)]);
+      const accept = await phone.evaluate(() => window.pickedAccept);
+      await chooser.cancel();
+      if (accept !== 'image/*' || !chooser.isMultiple()) {
+        throw new Error(`the photo picker takes ${accept}`);
+      }
+
+      await page.removeScriptToEvaluateOnNewDocument(quietScript.identifier);
+      await page.evaluate(() => localStorage.removeItem('hearth.liveEvents'));
+      await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle2' });
+      await phone.type('textarea', 'Gruß vom Handy');
+      await phone.keyboard.press('Enter');
+      // The laptop shows the message and follows the reply as it streams.
+      await page.waitForSelector(text('Gruß vom Handy'), { timeout: 10_000 });
+      await page.waitForFunction(() => document.body.innerText.split('Punkt zwei').length - 1 >= 3, { timeout: 15_000 });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await shot('07g-live-sync-laptop');
+      // The phone shows its own message once, not again from the event.
+      await phone.waitForFunction(() => document.body.innerText.split('Punkt zwei').length - 1 >= 3, { timeout: 15_000 });
+      const own = await phone.evaluate(() => document.body.innerText.split('Gruß vom Handy').length - 1);
+      if (own !== 1) {
+        throw new Error(`the phone shows its message ${own} times`);
+      }
+    } finally {
+      await context.close();
+      quietScript = await page.evaluateOnNewDocument(quiet);
+      await page.evaluate(quiet);
+    }
   });
 
   let fetchPath = '';

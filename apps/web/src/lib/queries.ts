@@ -1,5 +1,5 @@
 import { queryOptions, useQuery } from '@tanstack/react-query';
-import { api } from './api.ts';
+import { ApiError, api } from './api.ts';
 import { authClient } from './auth-client.ts';
 
 /**
@@ -25,15 +25,39 @@ export const queryKeys = {
 };
 
 /**
+ * Whether an error may pass by itself: no connection, a proxy that cannot
+ * reach the server (while it restarts after an update), too many requests.
+ *
+ * @param error - The error of a request.
+ * @returns True if trying again later can help.
+ */
+export function isTransientError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 0 || error.status === 429 || error.status >= 500);
+}
+
+/**
  * Current session, or null when signed out. Shared by route guards and UI.
+ * Only the server's "no session" counts as signed out: a dropped connection
+ * or a proxy error used to send the user to the login page.
  */
 export const sessionQuery = queryOptions({
   queryKey: queryKeys.session,
   queryFn: async () => {
-    const { data } = await authClient.getSession();
+    let result: Awaited<ReturnType<typeof authClient.getSession>>;
+    try {
+      result = await authClient.getSession();
+    } catch (error) {
+      throw new ApiError(0, 'network', error instanceof Error ? error.message : 'Network error');
+    }
+    const { data, error } = result;
+    if (error && error.status !== 401) {
+      throw new ApiError(error.status, error.status === 0 ? 'network' : 'internal', error.message ?? error.statusText ?? 'Session check failed');
+    }
     return data ?? null;
   },
   staleTime: 60_000,
+  retry: (count, error) => count < 3 && isTransientError(error),
+  retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 8_000),
 });
 
 /**

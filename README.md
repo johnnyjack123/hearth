@@ -15,7 +15,8 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - A memory the user controls, tags that group chats into folders, and costs per reply and per model call.
 - OpenRouter routing to the cheapest host, or to a fixed host chosen per model, with its country of operation shown.
 - Accounts with admin roles, closed registration by default, two-factor sign-in and a daily cost limit.
-- Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS.
+- Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS. A chat open on several devices stays in step: a message written on the phone appears on the laptop, with its reply as it is written.
+- Search across chat titles, tags and the text of the messages.
 
 **Agents on your PC (Windows client)**
 - The [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) coding agent runs in a hardened container inside a Linux VM (Hyper-V and Podman). The VM has no access to the host's files.

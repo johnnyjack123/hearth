@@ -41,8 +41,10 @@ import type {
   UpdateServerSettings,
   VmStopResult,
 } from '@hearth/shared';
+import { CLIENT_ID_HEADER } from '@hearth/shared';
 import type { UIMessage } from 'ai';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
+import { CLIENT_ID } from './client-id.ts';
 
 /**
  * Chat message type shared with the server.
@@ -77,7 +79,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     response = await fetch(`/api${path}`, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      headers: { [CLIENT_ID_HEADER]: CLIENT_ID, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (error) {

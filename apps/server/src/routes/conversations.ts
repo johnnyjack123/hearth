@@ -51,6 +51,7 @@ import { findDevice, loadDeviceProjects } from '../services/devices.ts';
 import { chatFeatures } from '../services/features.ts';
 import { getServerSettings, loadSearchBackend } from '../services/settings.ts';
 import { ActiveStreams } from '../streams.ts';
+import { clientSource, LiveEvents } from '../events.ts';
 import { FetchApprovals } from '../webfetch/approvals.ts';
 import { describeFile, fileStore } from '../files/store.ts';
 import { DEFAULT_WEB_FETCH_CONFIG } from '../webfetch/tool.ts';
@@ -202,6 +203,8 @@ export function conversationRoutes(deps: AppDeps) {
   const calculator = deps.calculator ?? sharedCalculator();
   // Replies being written, for a page that reloads in the middle of one.
   const streams = deps.streams ?? new ActiveStreams();
+  // The user's other open pages (phone and laptop) learn about every change.
+  const events = deps.events ?? new LiveEvents();
   const files = fileStore(db, deps.config.dataDir);
 
   /**
@@ -344,11 +347,11 @@ export function conversationRoutes(deps: AppDeps) {
         await assertOffered(link.deviceId, link.project, link.harness);
       }
       const conversation = await createConversation(db, user.id, selection);
-      if (!link) {
-        return c.json(conversation, 201);
+      if (link) {
+        await setLink(db, conversation.id, link);
       }
-      await setLink(db, conversation.id, link);
-      return c.json(await findConversation(db, user.id, conversation.id), 201);
+      events.list(user.id, clientSource(c));
+      return c.json(link ? await findConversation(db, user.id, conversation.id) : conversation, 201);
     })
     .get('/:id', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
@@ -368,6 +371,7 @@ export function conversationRoutes(deps: AppDeps) {
       }
       const { title } = updateConversationSchema.parse(await c.req.json());
       await updateConversation(db, conversation.id, { title });
+      events.list(c.get('user').id, clientSource(c));
       return c.json({ ...conversation, title, updatedAt: Date.now() });
     })
     .put('/:id/tags', async (c) => {
@@ -378,7 +382,9 @@ export function conversationRoutes(deps: AppDeps) {
       }
       const { tags } = updateConversationTagsSchema.parse(await c.req.json());
       // Tagging files a chat; it does not count as activity.
-      return c.json({ ...conversation, tags: await setTags(db, user.id, conversation.id, tags) });
+      const stored = await setTags(db, user.id, conversation.id, tags);
+      events.list(user.id, clientSource(c));
+      return c.json({ ...conversation, tags: stored });
     })
     .delete('/:id', async (c) => {
       const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
@@ -392,6 +398,7 @@ export function conversationRoutes(deps: AppDeps) {
       streams.stop(conversation.id);
       await files.removeConversation(conversation.id);
       await deleteConversation(db, conversation.id);
+      events.chat(c.get('user').id, conversation.id, 'deleted', clientSource(c));
       return c.body(null, 204);
     })
     .put('/:id/link', async (c) => {
@@ -412,6 +419,7 @@ export function conversationRoutes(deps: AppDeps) {
       }
       // Autosync belongs to the project the chat works in; another one starts without.
       await setLink(db, conversation.id, input, same && old.autosync);
+      events.chat(user.id, conversation.id, 'changed', clientSource(c));
       return c.json(await findConversation(db, user.id, conversation.id));
     })
     .patch('/:id/link', async (c) => {
@@ -422,6 +430,7 @@ export function conversationRoutes(deps: AppDeps) {
       }
       const { autosync } = updateLinkSchema.parse(await c.req.json());
       await setAutosync(db, conversation.id, autosync);
+      events.chat(user.id, conversation.id, 'changed', clientSource(c));
       return c.json(await findConversation(db, user.id, conversation.id));
     })
     .post('/:id/takeover', async (c) => {
@@ -470,6 +479,7 @@ export function conversationRoutes(deps: AppDeps) {
       }
       const message = await attachTakeover(db, conversation.id, link, report, workspace);
       await updateConversation(db, conversation.id, {});
+      events.chat(c.get('user').id, conversation.id, 'changed', clientSource(c));
       return c.json(message);
     })
     .delete('/:id/link', async (c) => {
@@ -480,6 +490,7 @@ export function conversationRoutes(deps: AppDeps) {
       if (conversation.link) {
         hub.closeSession(conversation.link.deviceId, conversation.id);
         await removeLink(db, conversation.id);
+        events.chat(c.get('user').id, conversation.id, 'changed', clientSource(c));
       }
       return c.body(null, 204);
     })
@@ -594,10 +605,17 @@ export function conversationRoutes(deps: AppDeps) {
       // Only the stop route ends the reply: a closed or reloaded page is a
       // disconnect, and the page picks the reply up again (`GET …/stream`).
       const stop = new AbortController();
-      const follow = (stream: ReadableStream<string>) => streams.add(conversation.id, stream, () => stop.abort());
+      const source = clientSource(c);
+      // The other pages hear of the reply once `GET …/stream` has it.
+      const follow = (stream: ReadableStream<string>) => {
+        streams.add(conversation.id, stream, () => stop.abort());
+        events.chat(user.id, conversation.id, 'started', source);
+      };
+      const onSaved = () => events.chat(user.id, conversation.id, 'saved', source);
       // Its cost joins the first reply of an ordinary chat.
       // A message with only files gets its title from their names.
       const title = conversation.title ? null : assignTitle(db, conversation.id, model, text.trim() || fileNames.join(', '));
+      void title?.then(() => events.list(user.id));
 
       if (link) {
         // Also tells the device about a model pi's own catalog lacks.
@@ -635,6 +653,7 @@ export function conversationRoutes(deps: AppDeps) {
           selection: { credentialId: row.id, modelId: body.modelId },
           abortSignal: stop.signal,
           consumeSseStream: follow,
+          onSaved,
           assess: body.assess ? await agentAssessor(user.id, row, stop.signal) : null,
           price: await agentPricer(link.deviceId, row, body.modelId),
           costs: {
@@ -682,6 +701,7 @@ export function conversationRoutes(deps: AppDeps) {
         pricing,
         abortSignal: stop.signal,
         consumeSseStream: follow,
+        onSaved,
         webFetch: features.webFetch ? { approvals: fetchApprovals, config: webFetchConfig, open: features.webFetchOpen } : null,
         search,
         research,
@@ -716,7 +736,9 @@ export function conversationRoutes(deps: AppDeps) {
       await costGuard(db).assert(user.id);
       if (conversation.link) {
         // The agent keeps its own history: pi summarizes it on the computer.
-        return c.json(await compactAgent(conversation.id, conversation.title, conversation.link));
+        const summarized = await compactAgent(conversation.id, conversation.title, conversation.link);
+        events.chat(user.id, conversation.id, 'changed', clientSource(c));
+        return c.json(summarized);
       }
       const body = compactRequestSchema.parse(await c.req.json());
       const row = await findCredential(db, user.id, body.credentialId);
@@ -749,6 +771,7 @@ export function conversationRoutes(deps: AppDeps) {
       };
       await saveMessage(db, conversation.id, message);
       await updateConversation(db, conversation.id, {});
+      events.chat(user.id, conversation.id, 'changed', clientSource(c));
       return c.json(message);
     })
     .get('/:id/stream', async (c) => {
@@ -797,6 +820,7 @@ export function conversationRoutes(deps: AppDeps) {
         ...(usage && message.metadata ? { metadata: { ...message.metadata, usage: withHelpers(usage, helpers.usage) } } : {}),
       };
       await saveMessage(db, conversation.id, updated);
+      events.chat(user.id, conversation.id, 'changed', clientSource(c));
       return c.json(updated);
     })
     // The whole content behind a warning, with every flagged place marked.

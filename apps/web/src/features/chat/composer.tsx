@@ -1,10 +1,20 @@
 import { ACCEPTED_FILE_EXTENSIONS } from '@hearth/shared';
 import type { FileUIPart } from 'ai';
-import { ArrowUp, Paperclip, Square } from 'lucide-react';
-import { type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowUp, Camera, FileText, Images, Paperclip, Square } from 'lucide-react';
+import {
+  type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Kbd } from '@/components/ui/display.tsx';
-import { Tooltip } from '@/components/ui/menu.tsx';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip } from '@/components/ui/menu.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AttachmentList, useAttachments } from './attachments.tsx';
@@ -63,6 +73,8 @@ export function Composer({
   const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLInputElement>(null);
+  const photosRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const attachments = useAttachments();
   const [dragging, setDragging] = useState(false);
   // A blind model gets no images; the user removes them or picks another model.
@@ -95,6 +107,12 @@ export function Composer({
     }
     onSubmit(value.trim(), attachments.parts);
     attachments.clear();
+  }
+
+  function addPicked(event: ChangeEvent<HTMLInputElement>) {
+    attachments.add([...(event.target.files ?? [])]);
+    // The same file again must fire another change.
+    event.target.value = '';
   }
 
   function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -185,25 +203,46 @@ export function Composer({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  className="shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:hidden"
                   aria-label={t('files.attach')}
                   onClick={() => pickerRef.current?.click()}
                 >
                   <Paperclip />
                 </Button>
               </Tooltip>
-              <input
-                ref={pickerRef}
-                type="file"
-                multiple
-                hidden
-                accept={[...ACCEPTED_FILE_EXTENSIONS, 'image/*'].join(',')}
-                onChange={(event) => {
-                  attachments.add([...(event.target.files ?? [])]);
-                  // The same file again must fire another change.
-                  event.target.value = '';
-                }}
-              />
+              {/* Android opens its photo picker only for an input that takes
+                  images alone; one that also takes documents goes straight to
+                  the file manager. Touch screens therefore get a choice. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="hidden shrink-0 text-muted-foreground hover:text-foreground pointer-coarse:inline-flex"
+                    aria-label={t('files.attach')}
+                  >
+                    <Paperclip />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="top">
+                  <DropdownMenuItem disabled={files.images === false} onSelect={() => photosRef.current?.click()}>
+                    <Images />
+                    {t('files.photos')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={files.images === false} onSelect={() => cameraRef.current?.click()}>
+                    <Camera />
+                    {t('files.camera')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => pickerRef.current?.click()}>
+                    <FileText />
+                    {t('files.documents')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <input ref={pickerRef} type="file" multiple hidden accept={[...ACCEPTED_FILE_EXTENSIONS, 'image/*'].join(',')} onChange={addPicked} />
+              <input ref={photosRef} type="file" multiple hidden accept="image/*" onChange={addPicked} />
+              <input ref={cameraRef} type="file" hidden accept="image/*" capture="environment" onChange={addPicked} />
             </>
           ) : null}
           {toolbar}

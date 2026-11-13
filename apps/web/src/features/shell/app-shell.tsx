@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button.tsx';
 import { Sheet } from '@/components/ui/sheet.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { Sidebar } from './sidebar.tsx';
+import { useLiveSync } from './use-live-sync.ts';
 
 /**
  * Layout of every signed-in page: sidebar on wide screens, a drawer plus a
@@ -17,6 +18,7 @@ export function AppShell() {
   const t = useT();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  useLiveSync();
 
   // Navigating from inside the drawer should close it.
   useEffect(() => {

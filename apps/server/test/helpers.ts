@@ -20,6 +20,7 @@ import { createDeviceHub } from '../src/server.ts';
 import { updateServerSettings } from '../src/services/settings.ts';
 import { OpenRouterRouting } from '../src/openrouter.ts';
 import { HostProber } from '../src/openrouter-access.ts';
+import type { LiveEvents } from '../src/events.ts';
 import type { DeviceHub } from '../src/tunnel/hub.ts';
 import type { WebFetchConfig } from '../src/webfetch/tool.ts';
 import type { SearchEndpoints } from '../src/websearch/providers.ts';
@@ -164,6 +165,8 @@ export async function createTestServer(
     converter?: DocumentConverter | null;
     openRouter?: OpenRouterRouting;
     hostProber?: HostProber;
+    events?: LiveEvents;
+    webDist?: string;
   } = {},
 ): Promise<TestServer> {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'hearth-test-'));
@@ -176,7 +179,7 @@ export async function createTestServer(
     databaseUrl,
     secret: 'test-secret-that-is-long-enough-for-hkdf-0123456789',
     trustedOrigins: [ORIGIN],
-    webDist: null,
+    webDist: options.webDist ?? null,
     trustedProxies: parseTrustedProxies('10.0.0.0/8'),
     setupCode: SETUP_CODE,
   };
@@ -220,6 +223,7 @@ export async function createTestServer(
     openRouter: options.openRouter ?? new OpenRouterRouting(async () => null, Date.now, async () => null),
     // Nor probes OpenRouter for the account's hosts.
     hostProber: options.hostProber ?? new HostProber(async () => 'unknown'),
+    ...(options.events ? { events: options.events } : {}),
   });
 
   const request: TestServer['request'] = (method, url, options = {}) => {

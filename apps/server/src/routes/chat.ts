@@ -499,6 +499,8 @@ export interface StreamChatOptions {
   abortSignal: AbortSignal;
   /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
   consumeSseStream?: (stream: ReadableStream<string>) => void;
+  /** Called once the reply is stored (or there was nothing to store). */
+  onSaved?: () => void;
   /**
    * Web fetch for the model; null when the user switched it off. `open`:
    * every public URL loads without asking.
@@ -843,17 +845,21 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
       );
     },
     onEnd: async ({ responseMessage }) => {
-      if (responseMessage.parts.length === 0) {
-        return;
+      try {
+        if (responseMessage.parts.length === 0) {
+          return;
+        }
+        const metadata: MessageMetadata = { ...baseMetadata, ...responseMessage.metadata };
+        // The title of a new chat is usually done by now; a late one is left out.
+        const title = options.title ? await Promise.race([options.title, new Promise<null>((resolve) => setTimeout(resolve, TITLE_WAIT_MS, null))]) : null;
+        if (title && metadata.usage) {
+          metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title.usage, pricing, [], title.billed, options.hostRates), model: modelId, purpose: 'title' }]);
+        }
+        await saveMessage(db, conversationId, { ...responseMessage, metadata });
+        await updateConversation(db, conversationId, {});
+      } finally {
+        options.onSaved?.();
       }
-      const metadata: MessageMetadata = { ...baseMetadata, ...responseMessage.metadata };
-      // The title of a new chat is usually done by now; a late one is left out.
-      const title = options.title ? await Promise.race([options.title, new Promise<null>((resolve) => setTimeout(resolve, TITLE_WAIT_MS, null))]) : null;
-      if (title && metadata.usage) {
-        metadata.usage = withHelpers(metadata.usage, [{ ...callUsage(title.usage, pricing, [], title.billed, options.hostRates), model: modelId, purpose: 'title' }]);
-      }
-      await saveMessage(db, conversationId, { ...responseMessage, metadata });
-      await updateConversation(db, conversationId, {});
     },
     onError: describeStreamError,
   });

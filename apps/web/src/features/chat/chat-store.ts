@@ -1,5 +1,6 @@
 import { Chat } from '@ai-sdk/react';
 import {
+  CLIENT_ID_HEADER,
   type ConversationDetail,
   DEFAULT_TONE,
   DEFAULT_VERBOSITY,
@@ -10,6 +11,7 @@ import {
 } from '@hearth/shared';
 import { DefaultChatTransport } from 'ai';
 import { api, type ChatMessage } from '@/lib/api.ts';
+import { CLIENT_ID } from '@/lib/client-id.ts';
 import { autoAssessEnabled } from '@/lib/preferences.tsx';
 import { queryClient } from '@/lib/query-client.ts';
 import { queryKeys } from '@/lib/queries.ts';
@@ -35,6 +37,8 @@ export interface ChatEntry {
    * a reload; {@link resumeReply} picks it up once.
    */
   resumable: boolean;
+  /** Another page changed the chat while this one streamed; reload it afterwards. */
+  stale: boolean;
 }
 
 // Chats live outside React on purpose. If useChat owned them, it would stop
@@ -109,6 +113,7 @@ export function getChat(
     messages: initialMessages,
     transport: new DefaultChatTransport<ChatMessage>({
       api: `/api/conversations/${encodeURIComponent(conversationId)}/chat`,
+      headers: { [CLIENT_ID_HEADER]: CLIENT_ID },
       prepareReconnectToStreamRequest: () => ({ api: `/api/conversations/${encodeURIComponent(conversationId)}/stream` }),
       // The server owns the history; only the newest message is sent.
       prepareSendMessagesRequest: ({ messages }) => ({
@@ -131,14 +136,77 @@ export function getChat(
       refreshConversationList();
       // The server generates the title in the background, shortly after the reply.
       window.setTimeout(refreshConversationList, 2500);
+      if (entry.stale) {
+        void syncChat(conversationId);
+      }
     },
   });
 
   // A reply runs while the newest stored message is the user's: the server
   // stores the reply when it ends.
-  const entry = { chat, selection, research, effort, verbosity, tone, resumable: initialMessages.at(-1)?.role === 'user' };
+  const entry: ChatEntry = {
+    chat,
+    selection,
+    research,
+    effort,
+    verbosity,
+    tone,
+    resumable: initialMessages.at(-1)?.role === 'user',
+    stale: false,
+  };
   entries.set(conversationId, entry);
   return entry;
+}
+
+function streaming(entry: ChatEntry): boolean {
+  return entry.chat.status === 'submitted' || entry.chat.status === 'streaming';
+}
+
+/**
+ * Loads a chat anew after another page changed it (the phone wrote while
+ * the laptop shows it), and follows a reply that page started. A chat
+ * streaming here waits until its reply ends; one this tab has not opened is
+ * dropped from the cache, so opening it loads it fresh.
+ *
+ * @param conversationId - Conversation id.
+ */
+export async function syncChat(conversationId: string): Promise<void> {
+  const entry = entries.get(conversationId);
+  if (!entry) {
+    queryClient.removeQueries({ queryKey: queryKeys.conversation(conversationId), exact: true });
+    return;
+  }
+  if (streaming(entry)) {
+    entry.stale = true;
+    return;
+  }
+  entry.stale = false;
+  const fresh = await api.conversations.get(conversationId).catch(() => null);
+  // Something may have started here meanwhile, or the chat was closed.
+  if (!fresh || entries.get(conversationId) !== entry || streaming(entry)) {
+    return;
+  }
+  entry.chat.messages = fresh.messages;
+  queryClient.setQueryData(queryKeys.conversation(conversationId), fresh);
+  if (fresh.messages.at(-1)?.role === 'user') {
+    entry.resumable = true;
+    await resumeReply(conversationId);
+  }
+}
+
+/**
+ * Brings every chat of this tab up to date after a break in the connection,
+ * during which changes may have gone unannounced.
+ */
+export function resyncChats(): void {
+  refreshConversationList();
+  // Chats without a session are loaded fresh when opened.
+  queryClient.removeQueries({
+    predicate: ({ queryKey }) => queryKey.length === 2 && queryKey[0] === 'conversations' && !entries.has(String(queryKey[1])),
+  });
+  for (const id of entries.keys()) {
+    void syncChat(id);
+  }
 }
 
 /**
