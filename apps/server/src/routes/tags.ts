@@ -1,5 +1,6 @@
 import { removeTagSchema, renameTagSchema } from '@hearth/shared';
 import { Hono } from 'hono';
+import { clientSource, LiveEvents } from '../events.ts';
 import type { AppDeps, AppEnv } from '../http/context.ts';
 import { notFound } from '../http/errors.ts';
 import { removeTag, renameTag } from '../services/conversations.ts';
@@ -13,6 +14,7 @@ import { removeTag, renameTag } from '../services/conversations.ts';
  */
 export function tagRoutes(deps: AppDeps) {
   const { db } = deps.database;
+  const events = deps.events ?? new LiveEvents();
   return new Hono<AppEnv>()
     .patch('/', async (c) => {
       const { from, to } = renameTagSchema.parse(await c.req.json());
@@ -20,6 +22,7 @@ export function tagRoutes(deps: AppDeps) {
       if (chats === 0) {
         throw notFound('Tag');
       }
+      events.list(c.get('user').id, clientSource(c));
       return c.json({ chats });
     })
     .delete('/', async (c) => {
@@ -28,6 +31,7 @@ export function tagRoutes(deps: AppDeps) {
       if (chats === 0) {
         throw notFound('Tag');
       }
+      events.list(c.get('user').id, clientSource(c));
       return c.json({ chats });
     });
 }

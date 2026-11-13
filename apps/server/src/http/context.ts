@@ -16,6 +16,7 @@ import type { WebFetchConfig } from '../webfetch/tool.ts';
 import type { SearchEndpoints } from '../websearch/providers.ts';
 import type { HelperOptions } from '../helpers/load.ts';
 import type { ActiveStreams } from '../streams.ts';
+import type { LiveEvents } from '../events.ts';
 import type { ActivityTracker } from './activity.ts';
 import { authenticateDevice, type DeviceOwner, type DeviceRow } from '../services/devices.ts';
 import { HttpError } from './errors.ts';
@@ -61,6 +62,8 @@ export interface AppDeps {
   streams?: ActiveStreams;
   /** When users last used the web app; one tracker for the whole app when unset. */
   activity?: ActivityTracker;
+  /** Changes sent to the users' open pages; one for the whole app when unset. */
+  events?: LiveEvents;
   /**
    * Turns documents into Markdown; by default markitdown at
    * `config.markitdownUrl`, null for none. Tests pass a stand-in.

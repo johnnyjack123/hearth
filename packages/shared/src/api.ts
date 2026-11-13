@@ -673,6 +673,32 @@ export interface ConversationSearchResult {
   hits: ConversationSearchHit[];
 }
 
+/** Header with which a page names itself, so it can skip events it caused. */
+export const CLIENT_ID_HEADER = 'x-hearth-client';
+
+/**
+ * What changed in a chat:
+ * - `started`: a new message is stored and its reply runs (`GET …/stream` has it)
+ * - `saved`: the reply is stored
+ * - `changed`: stored messages changed otherwise (summary, takeover, assessment)
+ * - `deleted`: the chat is gone
+ */
+export type ChatChange = 'started' | 'saved' | 'changed' | 'deleted';
+
+/**
+ * An event on `GET /api/events` (server-sent, event name = `type`), sent to
+ * every open page of the user.
+ */
+export type LiveEvent =
+  /** First event of a connection: the server's build. */
+  | { type: 'hello'; version: string; commit: string | null }
+  /** Every 20 s, so a page notices a connection that silently died. */
+  | { type: 'ping' }
+  /** Messages of a chat changed; `source` is the page that caused it, if it said. */
+  | { type: 'chat'; id: string; change: ChatChange; source?: string }
+  /** The chat list changed (new chat, title, tags). */
+  | { type: 'list'; source?: string };
+
 /** Most tags on one chat. */
 export const MAX_CHAT_TAGS = 10;
 

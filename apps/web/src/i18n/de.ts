@@ -16,6 +16,8 @@ export const de = {
     copied: 'Kopiert',
     loading: 'Wird geladen …',
     newVersion: 'Hearth wurde aktualisiert, die Seite lädt neu …',
+    updateAvailable: 'Eine neue Version von Hearth ist da.',
+    reload: 'Neu laden',
     create: 'Anlegen',
     optional: 'optional',
     you: 'Du',

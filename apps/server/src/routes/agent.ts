@@ -378,6 +378,8 @@ export interface StreamAgentOptions {
   abortSignal: AbortSignal;
   /** Gets a copy of the SSE stream, which keeps the reply going without the page. */
   consumeSseStream?: (stream: ReadableStream<string>) => void;
+  /** Called once the reply is stored (or there was nothing to store). */
+  onSaved?: () => void;
   /**
    * Asks Jev about tool output that looks like a prompt injection, before it
    * is shown; null unless the user wants that. Its cost joins the reply.
@@ -462,19 +464,23 @@ export function streamAgent(options: StreamAgentOptions): Response {
       return 'The agent reply could not be streamed.';
     },
     onEnd: async ({ responseMessage }) => {
-      if (responseMessage.parts.length === 0) {
-        return;
-      }
       try {
-        await saveMessage(db, conversationId, {
-          ...responseMessage,
-          metadata: { ...metadata, ...responseMessage.metadata },
-        });
+        if (responseMessage.parts.length === 0) {
+          return;
+        }
+        try {
+          await saveMessage(db, conversationId, {
+            ...responseMessage,
+            metadata: { ...metadata, ...responseMessage.metadata },
+          });
+        } finally {
+          // Stored, its cost counts in `costDay`; or lost, and then not at all.
+          options.costs?.end();
+        }
+        await updateConversation(db, conversationId, {});
       } finally {
-        // Stored, its cost counts in `costDay`; or lost, and then not at all.
-        options.costs?.end();
+        options.onSaved?.();
       }
-      await updateConversation(db, conversationId, {});
     },
   });
   return createUIMessageStreamResponse({

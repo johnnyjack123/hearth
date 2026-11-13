@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { serveStatic } from '@hono/node-server/serve-static';
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { csrf } from 'hono/csrf';
+import { createMiddleware } from 'hono/factory';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { peerAddress, resolveClientIp } from './http/client-ip.ts';
@@ -27,6 +28,8 @@ import { HostProber } from './openrouter-access.ts';
 import { ActivityTracker } from './http/activity.ts';
 import { adminActivityRoutes } from './routes/activity.ts';
 import { ActiveStreams } from './streams.ts';
+import { LiveEvents } from './events.ts';
+import { eventRoutes } from './routes/events.ts';
 import { SERVER_COMMIT, SERVER_VERSION } from './version.ts';
 
 // `/api/devices` (session) must not match, `/api/device` (token) must.
@@ -56,6 +59,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
     hostProber: given.hostProber ?? new HostProber(),
     streams: given.streams ?? new ActiveStreams(),
     activity: given.activity ?? new ActivityTracker(),
+    events: given.events ?? new LiveEvents(),
   };
   const app = new Hono<AppEnv>();
   app.onError(handleError);
@@ -133,6 +137,7 @@ export function createApp(given: AppDeps, options: CreateAppOptions = {}) {
   api.route('/costs', costRoutes(deps));
   api.route('/openrouter', openRouterRoutes(deps));
   api.route('/tags', tagRoutes(deps));
+  api.route('/events', eventRoutes(deps));
   api.route('/features', featureRoutes(deps));
   api.route('/admin/settings', adminSettingsRoutes(deps));
   api.route('/admin/activity', adminActivityRoutes(deps));
@@ -154,26 +159,36 @@ function mountWebApp(app: Hono<AppEnv>, webDist: string): void {
     console.warn(`[http] web build not found at ${webDist}; serving API only`);
     return;
   }
-  const indexHtml = readFileSync(indexFile, 'utf8');
+  // The page learns which build it is: once the server announces another one
+  // (`/api/events`), it offers to reload.
+  const build = (SERVER_COMMIT ?? SERVER_VERSION).replace(/[^\w.+-]/g, '');
+  const indexHtml = readFileSync(indexFile, 'utf8').replace('<head>', `<head>\n    <meta name="hearth-build" content="${build}" />`);
   // serveStatic resolves `root` against the working directory.
   const root = path.relative(process.cwd(), webDist) || '.';
+  // Without Cache-Control, browsers keep a page with Last-Modified for a
+  // tenth of its age: an installed app opened days after an update started
+  // the old build. Hashed assets are the only files that never change.
+  const page = (c: Context<AppEnv>) => {
+    c.header('Cache-Control', 'no-cache');
+    return c.html(indexHtml);
+  };
+  // serveStatic's `onFound` runs after the response is built (node-server
+  // 2.1), so a header set there never arrived; this sets it afterwards.
+  const cache = (value: string) =>
+    createMiddleware<AppEnv>(async (c, next) => {
+      await next();
+      if (c.res.ok) {
+        c.header('Cache-Control', value);
+      }
+    });
 
-  app.use(
-    '/assets/*',
-    serveStatic({
-      root,
-      onFound: (_path, c) => {
-        c.header('Cache-Control', 'public, max-age=31536000, immutable');
-      },
-    }),
-  );
+  app.use('/assets/*', cache('public, max-age=31536000, immutable'), serveStatic({ root }));
   // A file of an older build: a page from before an update asks for it.
   // The SPA instead would arrive as a script and fail with a MIME error.
   app.get('/assets/*', (c) => c.text('Not found', 404));
-  app.use('/*', serveStatic({ root }));
+  app.get('/', page);
+  app.get('/index.html', page);
+  app.use('/*', cache('no-cache'), serveStatic({ root }));
   // Client-side routes: every unknown GET path renders the SPA.
-  app.get('*', (c) => {
-    c.header('Cache-Control', 'no-cache');
-    return c.html(indexHtml);
-  });
+  app.get('*', page);
 }

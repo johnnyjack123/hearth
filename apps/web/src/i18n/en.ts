@@ -18,6 +18,8 @@ export const en: Messages = {
     copied: 'Copied',
     loading: 'Loading …',
     newVersion: 'Hearth was updated, reloading the page …',
+    updateAvailable: 'A new version of Hearth is available.',
+    reload: 'Reload',
     create: 'Create',
     optional: 'optional',
     you: 'You',
