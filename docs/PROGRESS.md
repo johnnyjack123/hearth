@@ -64,7 +64,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hi
 
 ## Verification state
 
-Stand: Commit `f70a911` (14.11.), danach nur noch Doku.
+Stand: Commit `f70a911` (14.11.); danach nur Doku und `scripts/install.ps1` (lädt das Release ohne GitHub-CLI). Beim Skript ist nur die Syntax geprüft (PowerShell-Parser) und dass die Release-Adresse antwortet; installiert wurde damit nicht.
 - `pnpm -r typecheck`: grün.
 - `pnpm --filter @hearth/web build`: grün.
 - Server-Tests: 40 Dateien, 321 Tests grün, davon neu `test/events.test.ts` mit Live-Ereignissen, Cache-Headern und Build-Tag.
