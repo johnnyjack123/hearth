@@ -519,7 +519,14 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
 - **Setup erkennt gesperrte Registries:** Ein DNS-Filter im Heimnetz löste `quay.io` und `ghcr.io` auf `0.0.0.0` auf, und die Installation scheiterte ohne klaren Grund (13.11.). `hearth setup` könnte das vorher prüfen und erklären.
 - ✅ **Gleicher Chat auf mehreren Geräten** (13./14.11.): `GET /api/events`, CLAUDE.md „Live-Abgleich zwischen Geräten“.
 - ✅ **Suche in den Nachrichten** (13.11.), **freier Webzugriff** (13.11.), **Foto-Auswahl am Handy** (14.11.).
-- Ideen ohne Auftrag: die PWA als Ziel für „Teilen“ unter Android (`share_target` im Manifest; Fotos und PDFs aus anderen Apps direkt in einen Chat), und Chats offline lesen (bräuchte einen Service-Worker, den es bewusst nicht gibt).
+- **„Teilen → Hearth“ unter Android** (Wunsch des Nutzers, 17.11.): `share_target` im Manifest, damit Fotos, PDFs und Text aus anderen Apps direkt in einen neuen oder gewählten Chat gehen. Dateien kommen als `POST multipart/form-data` an die `action`-Adresse: entweder fängt ein Service-Worker sie ab und reicht sie an die Seite (passt zum nächsten Punkt), oder der Server nimmt sie an, legt sie wie Uploads ab und leitet auf den Chat mit den Anhängen weiter. iOS kennt `share_target` nicht.
+- **Letzte Chats offline lesen** (Wunsch des Nutzers, 17.11.): ein Service-Worker hält App-Dateien und die zuletzt geöffneten Chats (etwa 20) im Browser, damit die PWA ohne Netz startet und sie zeigt; senden geht offline nicht, das Modell läuft auf dem Server.
+  - Aufwand: ein eigener Block von ein bis zwei Tagen.
+    - App-Dateien zuerst aus dem Netz, sonst aus dem Cache (`no-cache`-Startseite, Build-Tag und der Hinweis „Neu laden“ müssen weiter stimmen).
+    - `GET /api/conversations` und `/api/conversations/:id` zuerst aus dem Netz, als Rückfall der Cache.
+    - Abmelden leert den Cache: gemeinsam genutzte Geräte, mehrere Konten in einem Browser.
+  - Größe: Ein Recherche-Chat mit geladenen Seiten kann einige MB JSON haben (Werkzeugausgaben). 20 Chats sind also eher zehn als einen MB; Android erlaubt weit mehr. iOS löscht den Speicher einer PWA nach rund sieben Tagen ohne Nutzung.
+  - Heute gibt es bewusst keinen Service-Worker (Updates einfach halten); das wäre die Abwägung.
 
 
 - ✅ **Fortschrittsliste des Agents im Chat** (Idee des Nutzers 30.10., gebaut 31.10.): pi bekommt in Web-Chats das Werkzeug `progress` (`pi/progress.ts`) und schickt jedes Mal die ganze Liste; der Chat zeigt die aktuelle über dem Eingabefeld mit Balken, jede Aktualisierung als eine Zeile in der Antwort. Kosten: Beschreibung ~150 Token im Cache, je Aktualisierung einige Dutzend Ausgabe-Token.

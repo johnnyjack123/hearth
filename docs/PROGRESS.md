@@ -19,7 +19,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## Next step
 
-1. **Server aktualisieren lassen.** Seit das Repo öffentlich ist, baut Actions wieder: Der Lauf vom 17.11. war für amd64 und arm64 grün (`gh run list --workflow server-image.yml`). Ob der Nutzer `docker compose pull` und `docker compose up -d --no-deps server` schon ausgeführt hat, steht in `/api/health` (`commit` muss mindestens `f70a911` sein). Am 14.11. hatte der Build gar nicht erst begonnen, weil die Actions-Minuten des privaten Repos aufgebraucht waren.
+1. **Server aktualisieren lassen** (17.11. lief noch `b341c31`, also ohne Live-Abgleich, Foto-Auswahl und die Fixes vom 14.11.). Seit das Repo öffentlich ist, baut Actions wieder: Der Lauf vom 17.11. war für amd64 und arm64 grün (`gh run list --workflow server-image.yml`). Ob der Nutzer `docker compose pull` und `docker compose up -d --no-deps server` schon ausgeführt hat, steht in `/api/health` (`commit` muss mindestens `f70a911` sein). Am 14.11. hatte der Build gar nicht erst begonnen, weil die Actions-Minuten des privaten Repos aufgebraucht waren.
 2. **Rückmeldung des Nutzers** von echten Geräten abwarten: Foto-Auswahl auf Android, Live-Abgleich Handy ↔ Laptop, Tastatur auf dem iPhone. Dazu sein Test zu „Chrome im WLAN hakt“ (siehe Open questions).
 3. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
 4. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
@@ -42,7 +42,10 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hi
 
 ## Open questions for the user
 
-- **„Too many requests“ und Aussetzer nur in Chrome im WLAN:** Der Server protokolliert keine 429. Die Zertifikate und den Heim-DNS habe ich geprüft (nur IPv4, lokale Adresse). Verdacht: Chromes „Sicheres DNS verwenden“ mit festem Anbieter umgeht den lokalen DNS-Eintrag. Der Nutzer prüft das in den Chrome-Einstellungen und unter `chrome://net-internals/#dns`; wenn das nicht hilft, schickt er einen Mitschnitt aus `chrome://net-export`. Unabhängig davon schickt ein Verbindungsfehler seit 14.11. nicht mehr zur Anmeldung.
+- **`ERR_TOO_MANY_RETRIES` in der PWA im WLAN** (Screenshot des Nutzers, 17.11.; das frühere „too many requests“ war vermutlich dasselbe): Chromes Netzfehler −375. Laut `net_error_list.h` wurde eine Anfrage zu oft neu gestartet, meist weil Server oder Proxy immer neue Zugangsdaten verlangen oder ein ungültiges Zertifikat zeigen. Der Fehler kommt vor unserer App (Navigation auf `/`), unser Code kann ihn nicht abfangen. „Sicheres DNS“ war es nicht (der Nutzer hat es ausgeschaltet, der Fehler blieb). Andere Browser auf demselben Handy gehen, der Chrome-Tab offenbar auch.
+  - Geprüft: Der Heim-DNS liefert nur IPv4 und die lokale Adresse; NPM zeigt dort ein gültiges Zertifikat und verlangt keine Anmeldung. Androids Prüfadressen (`connectivitycheck.gstatic.com` usw.) löst der DNS normal auf.
+  - Verdacht: ein Proxy in den WLAN-Einstellungen des Handys (Chrome nutzt ihn, Firefox nicht), eine früher einmal übergangene Zertifikatswarnung, oder ein Weg über die öffentliche IP, auf dem die Fritzbox selbst mit eigenem Zertifikat antwortet.
+  - Nächster Schritt: ein Mitschnitt aus `chrome://net-export` (Chrome und PWA teilen sich den Netz-Stack). Er zeigt Ziel-IP, Zertifikat und den Grund jedes Neustarts.
 - Jev-Schwellen bei der Merge-Prüfung (ab 75 % schwer, ab 50 % mittel) sind geschätzt; Rückmeldung nach echten Diffs.
 - Ob der OpenRouter-Key aus dem Chat vom 21.10. widerrufen wurde (er stand im Gesprächsverlauf).
 
@@ -57,7 +60,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hi
 - **Mittel:** Brave, Tavily, Jev und die Embeddings sind in Tests nur gegen Stand-ins geprüft.
 - **Niedrig:** Über `http://` im LAN gibt es keine Web Locks, dann hält jeder Tab eine eigene Live-Verbindung (HTTP/1.1: höchstens sechs je Server).
 - **Niedrig:** Fund 8 und 10 der Client-Prüfung sind teilweise offen (`docs/security/review-2026-11-10-client.md`).
-- **Hoch (für andere Nutzer):** Die Images `hearth-server` und `hearth-markitdown` in der GitHub Container Registry sind noch privat (17.11. geprüft: anonym 403). Der Nutzer stellt sie in den Paket-Einstellungen auf öffentlich; per API geht das nicht. Bis dahin scheitert `docker compose pull` bei allen außer ihm.
+- Die Images `hearth-server` und `hearth-markitdown` sind seit 17.11. öffentlich (anonym geprüft). Die alten `llm-harness-server` (versehentlich öffentlich) und `llm-harness-markitdown` aus der Zeit vor der Umbenennung kann der Nutzer löschen; die alte Pi-Instanz hat sie noch lokal.
 - **Niedrig:** Veraltete Texte im Client, mit dem nächsten Release korrigieren: Der Kommentar in `crates/hearth-core/defaults/harnesses/pi.toml` sagt, `~/.pi` gelte für alle Projekte (seit 0.1.17 eines je Projekt). `hearth init` (`project.rs`) schickt den Nutzer zu „Umgebung“ unten im Chat (heute im Zahnrad-Menü).
 - **Niedrig:** Der LLM-Durchgang (`/api/llm/`) sendet absichtlich keine Lebenszeichen. Schweigt ein Anbieter länger als `proxy_read_timeout` (nginx: 60 s), bricht der Proxy die Antwort ab.
 - **Rechner des Entwicklers:** Bei knappem Speicher scheitert der Browser-E2E mit `ERR_INSUFFICIENT_RESOURCES`; dann einfach noch einmal laufen lassen. Windows Defender hält `hearth.exe` manchmal für einen Trojaner (Fehlalarm des maschinellen Lernens). Windows Sandbox nie ungefragt starten.
