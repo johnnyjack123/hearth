@@ -13,7 +13,8 @@
 #                                                 → Websuche: SearXNG, http://searxng:8080
 #                                                 (beide Profile: COMPOSE_PROFILES=postgres,search)
 #
-# Das Image ist privat, solange das Repository privat ist: vorher einmal
+# Die Images liegen öffentlich in der GitHub Container Registry. Nur wer
+# eigene, private Images baut (Fork), meldet sich vorher einmal an:
 #   docker login ghcr.io -u <github-name>     (Token mit read:packages)
 
 services:

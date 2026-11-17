@@ -5,8 +5,8 @@
 # Sources, first that applies:
 #   -Zip            a release ZIP (file or URL)
 #   this folder     the unpacked release ZIP, which contains this script
-#   GitHub          the latest release, through the GitHub CLI (the
-#                   repository is private, so a plain download needs a login)
+#   GitHub          the latest release, downloaded directly (the repository
+#                   is public since 0.3)
 #
 # Target: %LOCALAPPDATA%\Programs\hearth, no admin rights. The VM service
 # (hearth-vmd.exe) is copied below Program Files later by `hearth setup`,
@@ -41,13 +41,12 @@ if ($Zip) {
     Expand-Archive -Path $file -DestinationPath $work -Force
     $source = $work
 } elseif (-not (Test-Path (Join-Path $source 'hearth.exe'))) {
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw "Hier liegt kein Release. -Zip <Datei oder URL> angeben oder die GitHub-CLI installieren (winget install GitHub.cli) und anmelden (gh auth login)."
-    }
     $work = New-WorkDir
-    gh release download --repo $repository --pattern "hearth-windows-$arch.zip" --dir $work
-    if ($LASTEXITCODE -ne 0) { throw "gh release download ist gescheitert" }
-    Expand-Archive -Path (Join-Path $work "hearth-windows-$arch.zip") -DestinationPath $work -Force
+    $file = Join-Path $work "hearth-windows-$arch.zip"
+    $url = "https://github.com/$repository/releases/latest/download/hearth-windows-$arch.zip"
+    Write-Host "Lade $url"
+    Invoke-WebRequest -Uri $url -OutFile $file -UseBasicParsing
+    Expand-Archive -Path $file -DestinationPath $work -Force
     $source = $work
 }
 foreach ($name in $files) {

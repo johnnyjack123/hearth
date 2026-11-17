@@ -31,11 +31,11 @@ Die Grundidee: **Der Agent darf in seiner Sandbox alles, aber nichts außerhalb.
 - **Hono** als HTTP-Framework, **Better Auth** für Konten, Sitzungen, Admin-Rollen und Zwei-Faktor-Anmeldung.
 - **Kysely** für die Datenbank, wahlweise SQLite (eine Datei, keine weitere Software) oder Postgres. Migrationen laufen beim Start und sind so geschrieben, dass sie auf beiden laufen.
 - **AI SDK** für die Gespräche mit den Modellen. Jeder Anbieter (Anthropic, OpenAI, Google, Mistral, OpenRouter, Ollama, OpenAI-kompatibel) wird über denselben Weg angesprochen.
-- Die Web-App ist React mit Vite und wird vom Server als statische Dateien ausgeliefert.
+- Die Web-App ist React mit Vite und wird vom Server als statische Dateien ausgeliefert. Über HTTPS lässt sie sich als App installieren (Web-App-Manifest). Einen Service Worker hat sie nicht, offline geht also nichts.
 
 ### API-Keys
 
-Jeder Nutzer hinterlegt eigene Keys. Sie liegen mit AES-256-GCM verschlüsselt in der Datenbank. Der Schlüssel wird per HKDF aus dem Server-Geheimnis abgeleitet, und jeder Key ist an Nutzer und Zugang gebunden (als „associated data“). Ein Key lässt sich deshalb weder ohne das Geheimnis entschlüsseln noch einem anderen Konto unterschieben. Admins sehen nur die letzten Zeichen.
+Jeder Nutzer hinterlegt eigene Keys. Sie liegen mit AES-256-GCM verschlüsselt in der Datenbank. Der Schlüssel wird per HKDF aus dem Server-Geheimnis abgeleitet, und jeder Key ist an Nutzer und Zugang gebunden (als „associated data“). Ein Key lässt sich deshalb weder ohne das Geheimnis entschlüsseln noch einem anderen Konto unterschieben. Der Besitzer sieht in der Web-App nur die letzten Zeichen, Admins sehen Keys und Chats anderer Nutzer gar nicht.
 
 ### Ein Chat-Aufruf
 
@@ -47,6 +47,22 @@ Jeder Nutzer hinterlegt eigene Keys. Sie liegen mit AES-256-GCM verschlüsselt i
 **Warum der System-Prompt fest bleibt:** Anbieter rechnen wiederholte Anfangsstücke eines Prompts aus ihrem Cache ab, oft zu einem Bruchteil des Preises. Alles, was sich ändert (Datum, Recherche-Schalter, Antwortlänge, Tonfall, neue Erinnerungen), steht deshalb nicht im System-Prompt, sondern als kurzer Hinweis vor der jeweiligen Nutzernachricht, und auch nur, wenn sich etwas geändert hat. Der Hinweis wird mit der Nachricht gespeichert, damit spätere Aufrufe Zeichen für Zeichen denselben Anfang schicken.
 
 **Antworten laufen ohne Browser weiter.** Der Server liest den Stream selbst bis zum Ende und speichert die Antwort. Lädt jemand die Seite neu oder schließt sie, holt die Web-App die laufende Antwort von Anfang an wieder ab. Beenden lässt sie sich nur mit „Stopp“.
+
+### Mehrere Geräte
+
+Jede offene Seite hält eine Verbindung `GET /api/events` (Server-Sent Events). Ändert sich ein Chat, meldet der Server das allen anderen Seiten desselben Kontos: eine neue Nachricht, eine Antwort, die beginnt oder gespeichert ist, ein neuer Titel, Tags, ein gelöschter Chat. Eine Seite, die diesen Chat zeigt, lädt ihn neu und folgt einer laufenden Antwort; so erscheint, was auf dem Handy geschrieben wird, auch auf dem Laptop. Jede Seite schickt eine eigene Kennung mit und überspringt Meldungen, die sie selbst ausgelöst hat.
+
+- Alle Tabs eines Browsers teilen sich eine Verbindung (Web Locks, nur über HTTPS), weil Browser über HTTP/1.1 höchstens sechs Verbindungen je Server öffnen. Über `http://` im Heimnetz verbindet jeder Tab selbst.
+- Der Server schickt alle 20 Sekunden ein Lebenszeichen. Hört eine Seite 50 Sekunden nichts, etwa weil das Handy sie im Hintergrund getrennt hat, verbindet sie sich neu und lädt nach, was sie verpasst haben könnte.
+- Die Verbindungen leben wie der Tunnel nur im Speicher. Nach einem Neustart des Servers verbinden sich die Seiten neu.
+
+### Nach einem Update
+
+Die Startseite und alle Seiten der App liefert der Server mit `Cache-Control: no-cache` aus, nur Dateien unter `/assets` (mit Prüfsumme im Namen) dürfen im Cache bleiben. Eine installierte App startet deshalb nach einem Update mit dem neuen Stand. Die Seite kennt ihren Build; meldet `/api/events` einen anderen, bietet sie „Neu laden“ an. Fehlen einer offenen Seite Teile, die sie erst bei Bedarf lädt (sie gehören zum alten Build), lädt sie sich einmal selbst neu.
+
+### Suche
+
+Zu jeder Nachricht speichert der Server ihren sichtbaren Text in einer vereinfachten Form: klein geschrieben, ohne Akzente, ß als ss. Die Seitenleiste filtert Titel und Tags im Browser und zeigt darunter unter „In Nachrichten“ Chats, in denen eine Nachricht alle Suchwörter enthält, mit Ausschnitt. Werkzeugausgaben, Denkblöcke und Hinweise an das Modell werden nicht durchsucht.
 
 ### Lange Chats
 
@@ -94,7 +110,7 @@ Für jedes Projekt gibt es einen Container („Instanz“) mit festen Sicherheit
 - Konfiguration des Agents, je Projekt getrennt
 - ein schreibgeschütztes Werkzeug-Volume mit dem Agent und den Erweiterungen von Hearth
 
-**Programme aus dem Katalog** (Compiler, Laufzeitumgebungen) werden je Projekt in eigene Volumes installiert und schreibgeschützt eingehängt. Eine Installation gilt erst als fertig, wenn ein Quittungs-Volume mit Version und Rezept-Prüfsumme existiert; abgebrochene Installationen werden so nie benutzt. Das Basis-Image bleibt dadurch klein, und ein Projekt bekommt nur, was es braucht.
+**Programme aus dem Katalog** (Compiler, Laufzeitumgebungen) werden einmal je VM in eigene Volumes installiert und in die Instanzen der Projekte, die sie eingeschaltet haben, schreibgeschützt eingehängt. Eine Installation gilt erst als fertig, wenn ein Quittungs-Volume mit Version und Rezept-Prüfsumme existiert; abgebrochene Installationen werden so nie benutzt. Das Basis-Image bleibt dadurch klein, und ein Projekt bekommt nur, was es braucht.
 
 ### Speicher
 
@@ -106,7 +122,7 @@ Jedes Projekt hat ein eigenes Gateway, einen kleinen Proxy in Rust in einem eige
 
 - **Adressfilter.** Das Gateway verbindet sich nur mit öffentlichen Adressen, für jeden Modus und auch für IP-Literale. Das Heimnetz, der Rechner selbst und die VM-internen Adressen sind nie erreichbar.
 - **Regeln je Projekt.** Voreinstellungen (z. B. nur Paket-Registries) plus eigene Erlaubnis- und Sperrlisten. Was nicht passt, wird zur Rückfrage.
-- **Rückfragen entscheidet nie etwas im Container.** Sie werden im Terminal (`hearth run`, `hearth net watch`), über das Tray-Symbol oder im Web-Chat beantwortet, also von Programmen außerhalb der Sandbox. Sonst könnte sich ein gekaperter Agent selbst freigeben.
+- **Rückfragen entscheidet nie etwas im Container.** Sie werden im Terminal (`hearth run`, `hearth net watch`) oder im Web-Chat beantwortet, also von Programmen außerhalb der Sandbox; das Tray-Symbol meldet wartende Fragen und öffnet den Chat. Sonst könnte sich ein gekaperter Agent selbst freigeben. Dauerhaft in die Regeln eines Projekts schreibt nur der Rechner selbst („immer“ im Terminal, `hearth net allow --always`); eine Freigabe aus dem Browser gilt höchstens bis zum Stopp der Sandbox.
 - **Modelle über `llm.hearth`.** Der Agent spricht seine Modelle unter der Adresse `http://llm.hearth/<zugang>/…` an. Das Gateway reicht diese Anfragen mit dem Geräte-Token an den Server weiter, und erst der Server setzt den API-Key ein. In der Sandbox liegt damit kein Key, den ein Angreifer stehlen könnte; das Geräte-Token selbst kennt nur das Gateway, nicht die Instanz.
 - **Werkzeuge über den Server.** Webseiten laden, Websuche, Gedächtnis und Dokumente laufen für Agents ebenfalls über `llm.hearth`. Beim Laden einer Seite prüft das Gateway vorher den Host nach den Regeln des Projekts, und der Server lädt nur genau diesen Host.
 - **TLS.** Ist der Server per `https://` erreichbar, verschlüsselt das Gateway selbst und prüft Zertifikat und Namen; eine eigene CA lässt sich hinterlegen.
@@ -144,7 +160,7 @@ Zieht der Server um, beweist er beim nächsten `hearth login`, dass er das Gerä
 
 Der Hintergrunddienst hält einen WebSocket zum Server. Darüber laufen in beide Richtungen kleine JSON-Nachrichten: Projekte und Zustand des Rechners, Nachrichten an den Agent, seine Ereignisse, Rückfragen und Antworten. Beide Seiten nennen ihre Protokollversion und nutzen die kleinere; neue Nachrichten schickt jede Seite nur, wenn die andere sie kennt. So lassen sich Server und Rechner unabhängig voneinander aktualisieren.
 
-Der Rechner entscheidet selbst, was er tut. Er nimmt vom Server nur harmlose Befehle an (Nachricht an einen Agent in einem angebotenen Projekt, VM stoppen, Programme schalten, Arbeit sichern) und prüft jeden gegen seine eigene Konfiguration. Umgebungen entstehen nur durch `hearth init` am Rechner, nie aus dem Browser.
+Der Rechner entscheidet selbst, was er tut. Er nimmt vom Server nur harmlose Befehle an (Nachricht an einen Agent in einem angebotenen Projekt, Zusammenfassen, VM stoppen, Leerlaufzeit, Programme schalten, Programmdateien anfragen, Arbeit sichern) und prüft jeden gegen seine eigene Konfiguration. Umgebungen entstehen nur durch `hearth init` am Rechner, nie aus dem Browser.
 
 ### Eine Nachricht an den Agent
 
@@ -179,6 +195,7 @@ Nutzer können Vorlieben und Fakten speichern, die in jedem Chat gelten. Modelle
 - **Erstes Konto:** braucht einen Einrichtungscode aus dem Protokoll, damit niemand einen frisch gestarteten Server übernimmt.
 - **Registrierung:** ab Werk geschlossen; bei geschlossener Registrierung verrät der Server nicht, ob eine Adresse schon ein Konto hat.
 - **Zwei-Faktor-Anmeldung** mit Authenticator-App und Backup-Codes.
+- **Hinter einem Reverse-Proxy** braucht es keine Einstellungen für Streams: Der Server schaltet die Pufferung von nginx per Header ab (`X-Accel-Buffering: no`) und hält stille Streams mit Kommentarzeilen und Pings offen. Einzelheiten in [`deploy.md`](deploy.md#https-und-betrieb-im-internet).
 
 ## 11. Grenzen
 

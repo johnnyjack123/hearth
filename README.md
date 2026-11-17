@@ -15,7 +15,8 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - A memory the user controls, tags that group chats into folders, and costs per reply and per model call.
 - OpenRouter routing to the cheapest host, or to a fixed host chosen per model, with its country of operation shown.
 - Accounts with admin roles, closed registration by default, two-factor sign-in and a daily cost limit.
-- Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS. A chat open on several devices stays in step: a message written on the phone appears on the laptop, with its reply as it is written.
+- Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS. The layout keeps clear of notches and gesture bars, and the on-screen keyboard does not cover the message box. On a phone, the paperclip offers photos, the camera or files.
+- A chat open on several devices stays in step: a message written on the phone appears on the laptop, with its reply as it is written. After a server update, open pages offer to reload.
 - Search across chat titles, tags and the text of the messages.
 
 **Agents on your PC (Windows client)**
@@ -24,7 +25,7 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - API keys never enter the sandbox. The gateway forwards model requests to the server, which adds the key.
 - The agent works on a copy of the checked-out branch. Its commits come back only after a review with fixed rules, a check of new dependencies against the OSV database and an optional AI assessment. Merges a web chat asks for need approval on the PC unless the project allows them there.
 - Toolchains such as C/C++, Rust, Go, Java, Deno and Bun can be switched on per project, as can your own programs.
-- A tray icon shows the state of the VM and asks for approvals. The VM stops on its own when idle.
+- A tray icon shows the state of the VM and points to anything waiting for approval. The VM stops on its own when idle.
 
 ## How it fits together
 
@@ -42,7 +43,7 @@ Windows PC: hearth background service ──► Hyper-V VM (Podman)
 
 ## Requirements
 
-- **Server:** Docker with Compose 2.24 or newer, on amd64 or arm64. A Raspberry Pi 5 with 4 GB is enough.
+- **Server:** Docker with Compose 2.24 or newer, on amd64 or arm64. A small board such as a Raspberry Pi with 4 GB of RAM is enough.
 - **Client (optional, for agents):** Windows 11 Pro, Enterprise or Education (Hyper-V is required, Windows Home does not have it), x64 or ARM64, 16 GB of RAM recommended. Git and Podman are installed by the setup program.
 
 ## Quick start
@@ -60,11 +61,11 @@ docker compose logs server | grep "setup code"
 
 Open `PUBLIC_URL`, create the first account with the setup code from the log (it becomes the admin) and add an API key under Settings → API keys.
 
-Postgres, web search, HTTPS and running the server on the internet are covered in [`docs/deploy.md`](docs/deploy.md).
+Postgres, web search, HTTPS and running the server on the internet are covered in [`docs/deploy.md`](docs/deploy.md). A commented template for `.env` is in [`.env.example`](.env.example).
 
 ### Windows client
 
-1. Download `hearth-setup-x64.exe` or `hearth-setup-arm64.exe` from the [latest release](https://github.com/johnnyjack123/hearth/releases/latest) and run it. It checks Hyper-V, installs Git and Podman if needed and creates the VM (a download of about 1.5 GB).
+1. Download `hearth-setup-x64.exe` or `hearth-setup-arm64.exe` from the [latest release](https://github.com/johnnyjack123/hearth/releases/latest) and run it. It installs the programs for your user, checks Hyper-V, installs Git and Podman if needed, creates the VM and builds its images (up to about 1.4 GB of downloads). The release also has a ZIP with an install script; see [`docs/client.md`](docs/client.md).
 2. **Connect the PC to your server.** Near the end, the setup asks for the server's address, the `PUBLIC_URL` (e.g. `https://hearth.example.org`). It shows a code and opens a confirmation page in the browser: sign in there with your account and confirm the code. From then on the PC's agents use the models of your account; the API keys never leave the server. You can also give the address up front with `hearth setup --server <address>`, pair again later with `hearth login <address>` (also after the server moved to a new address), and undo the pairing with `hearth logout`.
 3. In a project folder, run `hearth init`. The project then appears in the web chat under the gear menu → Environment.
 4. Alternatively, run `hearth` in the project folder to work with the agent in the terminal.

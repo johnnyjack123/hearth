@@ -1,6 +1,6 @@
 # Roadmap
 
-> Stand 26.10.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
+> Stand 17.11.2026. Architektur und Begründungen: [`ARCHITECTURE.md`](../ARCHITECTURE.md). Aktueller Arbeitsstand: [`PROGRESS.md`](PROGRESS.md).
 > Grundsatz: **ein** Sandbox-Provider (Podman + Hyper-V + Linux-VM, Isoliert-Modus), bis er im Alltag trägt. Weitere Provider kommen erst danach.
 
 | Phase | Inhalt | Status |
@@ -13,19 +13,21 @@
 | 2c | Merge-Prüfung: Diff des Agents vor `hearth merge` auf Verdächtiges prüfen | 🔨 feste Regeln, OSV und Jev fertig; offen: Scanner im Container, Chat-Modell mit Begründung, Lücken mit Versionsbezug |
 | 2d | Prompt-Injection: Hinweis im System-Prompt, Warnungen bei verdächtigen Inhalten | ✅ Hinweis, Warnungen (Muster) und Jev als Zweitmeinung (25.10.); offen: Chat-Modell als Alternative |
 | 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser und Programmdateien vom Rechner ✅ (30.10.), Gateway fertig gebaut ✅ (30.10.), offen: signierte Programme |
-| 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; offen: Dialoge von pi-Erweiterungen im Web, Verbrauch und Limits pro Gerät |
+| 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; Kostendeckel gilt auch für Agents (3.11.); offen: Dialoge von pi-Erweiterungen im Web |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
 
-## Weg zu 1.0 (Stand 5.11.2026)
+## Weg zu 1.0 (Stand 17.11.2026)
 
 1. ✅ Versionen sichtbar (Server-Version im Image, hearth-Version im Tunnel-Protokoll 10, Hinweise in Einstellungen → Geräte und im Tray).
 2. ✅ Kostendeckel pro Tag (Admin für alle, eigenes Limit je Nutzer, Agents und `hearth run` stoppen am Limit).
-3. Backup, Wiederherstellung und Umzug des Servers dokumentieren (passt zum Umzug auf den Heimserver; `HEARTH_SECRET` gehört zur Datenbank).
-4. ✅ Funde der Sicherheitsprüfung behoben (`docs/security/review-2026-11-03.md`): H1–H3 und M1–M8 (v0.1.17). Offen: die niedrigen Funde je nach Aufwand, und eine zweite Prüfung des neuen Stands durch einen frischen Agenten vor dem RC.
+3. ✅ Backup, Wiederherstellung und Umzug des Servers dokumentiert (`docs/deploy.md`, „Daten und Sicherung“); der Nutzer ist damit am 10.11. auf seinen Heimserver umgezogen.
+4. ✅ Funde der Sicherheitsprüfung behoben (`docs/security/review-2026-11-03.md`): H1–H3 und M1–M8 (v0.1.17). ✅ Prüfung des Clients gegen einen feindlichen Server (`docs/security/review-2026-11-10-client.md`): Funde 1–7 und 9 behoben, 8 und 10 teilweise (v0.2.2, v0.3.0). Offen: die niedrigen Funde je nach Aufwand, und eine zweite Prüfung des Servers im neuen Stand (Internet, Live-Ereignisse, freier Webzugriff) durch einen frischen Agenten vor dem RC.
 5. Neuinstallation auf frischem Windows, auch x64 (keine Windows Sandbox).
 6. Release-Kandidat v1.0.0-rc.1, ein bis zwei Wochen Alltag nur mit Fehlerbehebungen, dann 1.0.
 
-Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die Provider-Schnittstelle.
+Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die Provider-Schnittstelle. Eine Tauri-App für Android bleibt möglich; vorerst reicht die PWA.
+
+Das Repo ist seit dem 17.11. öffentlich (AGPL-3.0-or-later).
 
 Nach 1.0: signierte Programme und Auto-Update, Scanner für die Merge-Prüfung, Mistral für pi, gleiche Zusammenfass-Schwellen bei pi und im Web, ESLint/Prettier, kleinere Web-App, Host-Modus, Windows Home und Linux.
 
@@ -510,6 +512,16 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
 
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
+**Vorgemerkt (Wünsche des Nutzers, Stand 17.11.):**
+- **Copy-Knopf an eigenen Nachrichten** (beim Zeigen, wie unter den Antworten).
+- **Schalter für frühere Denkblöcke:** behalten oder weglassen, um Kosten und Qualität zu vergleichen (heute gehen die Denkblöcke desselben Modells mit, `withReasoning` in `condense.ts`).
+- **Export und Import ausgewählter Chats**, um Chats von der alten Instanz auf dem Pi auf den neuen Server zu holen. Die alte Instanz bleibt, bis das gebaut ist.
+- **Setup erkennt gesperrte Registries:** Ein DNS-Filter im Heimnetz löste `quay.io` und `ghcr.io` auf `0.0.0.0` auf, und die Installation scheiterte ohne klaren Grund (13.11.). `hearth setup` könnte das vorher prüfen und erklären.
+- ✅ **Gleicher Chat auf mehreren Geräten** (13./14.11.): `GET /api/events`, CLAUDE.md „Live-Abgleich zwischen Geräten“.
+- ✅ **Suche in den Nachrichten** (13.11.), **freier Webzugriff** (13.11.), **Foto-Auswahl am Handy** (14.11.).
+- Ideen ohne Auftrag: die PWA als Ziel für „Teilen“ unter Android (`share_target` im Manifest; Fotos und PDFs aus anderen Apps direkt in einen Chat), und Chats offline lesen (bräuchte einen Service-Worker, den es bewusst nicht gibt).
+
+
 - ✅ **Fortschrittsliste des Agents im Chat** (Idee des Nutzers 30.10., gebaut 31.10.): pi bekommt in Web-Chats das Werkzeug `progress` (`pi/progress.ts`) und schickt jedes Mal die ganze Liste; der Chat zeigt die aktuelle über dem Eingabefeld mit Balken, jede Aktualisierung als eine Zeile in der Antwort. Kosten: Beschreibung ~150 Token im Cache, je Aktualisierung einige Dutzend Ausgabe-Token.
   - ✅ Dasselbe Werkzeug für das Chat-Modell in normalen Chats (2.11., Admin-Schalter „Fortschrittsliste“; die Beschreibung kostet in jedem Chat ~150 Token im Cache).
 - ✅ **Dauer je Werkzeugaufruf** (31.10.): jede Werkzeugkarte zeigt die Laufzeit, live hochzählend, danach gespeichert (`metadata.toolMs`).
@@ -518,7 +530,7 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
   - Speicher: eine Tabelle pro Nutzer auf dem Server (Text, Herkunft: welcher Chat, welches Modell, wann). Werkzeuge `remember`/`forget` für das Chat-Modell und als pi-Erweiterung über `llm.hearth` wie `web_fetch`.
   - Einbinden: als Block vor der ersten Nutzernachricht oder im System-Prompt. Für den Cache muss der Block fest bleiben, bis sich eine Erinnerung ändert.
   - Vorsicht Prompt-Injection: Eine gekaperte Seite könnte das Modell dazu bringen, sich etwas „zu merken“, das dann in jedem Chat wirkt. Neue Erinnerungen deshalb sichtbar im Chat anzeigen (wie eine Rückfrage, mit Bestätigung oder wenigstens Hinweis) und den Text vor dem Speichern auf Injection-Muster prüfen.
-- **Englische Texte in CLI und Einrichtung** (Frage des Nutzers, 25.10.): `hearth`, `hearth setup` und das Einrichtungsprogramm sprechen nur Deutsch, die Web-App Deutsch und Englisch. Sprache nach Windows-Einstellung (`GetUserDefaultUILanguage`), Texte in einer Tabelle wie `apps/web/src/i18n`.
+- ✅ **Englische Texte in CLI und Einrichtung** (Frage des Nutzers, 25.10., gebaut 2.11., `hearth_core::lang`): `hearth`, `hearth setup` und das Einrichtungsprogramm sprechen nur Deutsch, die Web-App Deutsch und Englisch. Sprache nach Windows-Einstellung (`GetUserDefaultUILanguage`), Texte in einer Tabelle wie `apps/web/src/i18n`.
 - ✅ **Recherche für Agents ohne Rückfrage je Treffer** (gebaut 2.11., CLAUDE.md „web_search für pi“): Im Web-Chat laden Suchtreffer ohne Frage, beim Agent prüft das Gateway jeden Host. Idee: Das Gateway fragt den Server (mit dem Geräte-Token), ob eine URL ein Treffer einer laufenden Recherche-Antwort ist, und lässt sie dann ohne Rückfrage durch; die deny-Liste gilt weiter.
 
 - **ponytail als optionaler Skill in pi** (Idee des Nutzers, 24.10., vorgemerkt): ponytail ist ein pi-Paket („lazy senior dev“), das den Agent zu weniger und einfacherem Code drängt. Es arbeitet eine Checkliste ab: Braucht es den Code überhaupt? Deckt das die Standardbibliothek, die Plattform oder eine vorhandene Abhängigkeit schon ab? Dazu kommen Befehle wie `/ponytail lite|full|ultra|off`, `/ponytail-review` und `/ponytail-audit`.
@@ -552,7 +564,7 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
   - Einschätzung: als zusätzlicher Modus machbar (ein Spike von 1–2 Tagen), aber nicht als Standard. Standard bleibt pi im Container, weil dort nichts, was das Modell auslöst, den Host erreicht, egal welche pi-Funktion es nutzt.
 - ✅ **Dateien im Chat** (Idee des Nutzers 18.10., gebaut 31.10.): Bilder, PDF, Word, Excel, PowerPoint, EPUB, HTML und Textdateien per Knopf, Einfügen oder Hineinziehen, 20 MB, zehn pro Nachricht. Dokumente wandelt markitdown in einem eigenen Container ohne Netz in Markdown um (`apps/markitdown`). In Umgebungs-Chats legt der Rechner die Dateien nach `~/uploads` der Instanz (Tunnel-Protokoll 9). Offen:
   - lange Dokumente in langen Chats eindampfen wie alte Webseiten (heute bleibt der ganze Text bis 100 000 Zeichen im Verlauf)
-  - Texterkennung (OCR) für gescannte PDFs
+  - ✅ Texterkennung (OCR) für gescannte PDFs (2.11.)
   - Bilder an pi direkt per RPC (`images` im `prompt`), heute liest der Agent sie mit seinem `read`-Werkzeug
   - das markitdown-Image verkleinern (440 MB; pandas, numpy und Magikas ONNX-Laufzeit sind der größte Teil)
 - **Harnesses aktualisieren** (`hearth update [harness]`): Mit `PI_OFFLINE` nutzt pi seine mitgelieferte Modellliste, neue Modelle kommen erst mit einer neuen pi-Version ins Tools-Volume.

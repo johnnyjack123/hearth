@@ -1,11 +1,11 @@
 # Windows-Client einrichten und nutzen
 
-Der Windows-Client bringt Coding-Agents in eine isolierte Umgebung auf dem eigenen Rechner. Er besteht aus vier Programmen, die das Einrichtungsprogramm gemeinsam installiert:
+Der Windows-Client bringt Coding-Agents in eine isolierte Umgebung auf dem eigenen Rechner. Das Einrichtungsprogramm installiert drei Programme. Dazu kommt das Gateway, das in `hearth.exe` steckt und in der VM läuft:
 
 | Programm | Aufgabe |
 |---|---|
-| `hearth.exe` | Befehlszeile: Projekte, Agent im Terminal, Sync, Prüfung, Einrichtung |
-| `hearthd.exe` | Tray-Symbol; startet bei der Anmeldung den Hintergrunddienst für Web-Chats |
+| `hearth.exe` | Befehlszeile: Projekte, Agent im Terminal, Sync, Prüfung, Einrichtung; als `hearth daemon` auch der Hintergrunddienst für Web-Chats |
+| `hearthd.exe` | Tray-Symbol; startet bei der Anmeldung den Hintergrunddienst |
 | `hearth-vmd.exe` | Windows-Dienst, der die VM startet und stoppt (der einzige Teil mit Administratorrechten) |
 | Gateway | läuft in der VM, regelt jeden Netzzugriff der Sandbox |
 
@@ -15,7 +15,7 @@ Ohne Client funktioniert der Web-Chat ganz normal, nur ohne Agents auf dem Rechn
 
 - Windows 11 Pro, Enterprise oder Education, x64 oder ARM64. Windows Home hat kein Hyper-V und wird nicht unterstützt.
 - Virtualisierung in der Firmware eingeschaltet (Intel VT-x bzw. AMD-V; auf ARM-Geräten meist ab Werk an).
-- 16 GB RAM empfohlen. Die VM nimmt sich beim Start, was Windows frei hat, abzüglich 1 GB.
+- 16 GB RAM empfohlen. Auf x64 startet die VM mit 1 GB und wächst bei Bedarf bis 4 GB. Auf ARM64 kann sie nicht wachsen; sie nimmt sich deshalb beim Start, was Windows frei hat, abzüglich 1 GB (zwischen 1 und 4 GB).
 - Rund 10 GB freier Platz für die VM-Festplatte.
 - Ein laufender Hearth-Server und ein Konto darauf ([`deploy.md`](deploy.md)).
 
@@ -25,25 +25,48 @@ Ohne Client funktioniert der Web-Chat ganz normal, nur ohne Agents auf dem Rechn
 2. SmartScreen warnt beim ersten Start, weil die Programme nicht signiert sind: „Weitere Informationen“ → „Trotzdem ausführen“.
 3. Das Einrichtungsprogramm legt die Programme unter `%LOCALAPPDATA%\Programs\hearth` ab und startet `hearth setup`. Das prüft der Reihe nach und fragt vor jedem größeren Schritt:
    - **Hyper-V:** schaltet es bei Bedarf ein (Administratorrechte, danach ist ein Neustart nötig; das Einrichtungsprogramm danach noch einmal starten).
-   - **Git und Podman:** installiert sie über `winget`.
-   - **VM-Dienst und VM:** richtet den Dienst `hearth-vmd` ein und legt die VM `hearth` an (2–4 CPUs, bis 4 GB RAM, 40 GB Festplatte, die nur so weit wächst wie nötig). Der Download der VM dauert einige Minuten.
-   - **Images:** baut das Basis-Image der Sandbox und das Gateway in der VM.
-   - **Server:** fragt nach der Adresse des Servers und öffnet die Bestätigung im Browser (siehe Kopplung).
-   - **Autostart und PATH:** der Hintergrunddienst startet ab jetzt bei der Anmeldung, `hearth` geht in jedem neuen Terminal.
-4. Am Ende `hearth doctor` ausführen; es zeigt, ob alles bereit ist.
+   - **Git und Podman:** installiert sie über `winget` (etwa 70 bzw. 30 MB).
+   - **VM-Dienst und VM:** richtet den Dienst `hearth-vmd` ein und legt die VM `hearth` an (2–4 CPUs, bis 4 GB RAM, 40 GB Festplatte, die nur so weit wächst wie nötig). Das lädt etwa 1 GB und dauert einige Minuten.
+   - **Images:** baut das Basis-Image der Sandbox und das Gateway in der VM (beim ersten Mal etwa 250 MB Download).
+   - **Server:** fragt nach der Adresse des Servers und öffnet die Bestätigung im Browser (siehe [Kopplung](#kopplung-mit-dem-server)). Eine leere Antwort überspringt den Schritt; dann geht nur der Terminal-Betrieb, bis `hearth login` nachgeholt ist.
+   - **Autostart:** nach der Kopplung startet der Hintergrunddienst für Web-Chats bei jeder Anmeldung.
+   - **PATH:** `hearth` geht danach in jedem neuen Terminal.
+4. Am Ende in einem neuen Terminal `hearth doctor` ausführen; es zeigt, ob alles bereit ist.
 
-Bricht ein Schritt ab, das Einrichtungsprogramm einfach erneut starten. Es macht nur, was noch fehlt.
+Bricht ein Schritt ab, das Einrichtungsprogramm einfach erneut starten. Es macht nur, was noch fehlt. Aus einem Terminal geht dasselbe mit `hearth setup`; `--server <adresse>` gibt die Adresse des Servers gleich mit, `--yes` stimmt allen Schritten ohne Nachfrage zu.
+
+### Ohne Einrichtungsprogramm
+
+Im Release liegt je Architektur auch `hearth-windows-x64.zip` bzw. `hearth-windows-arm64.zip` mit den drei Programmen und dem Skript `install.ps1`. Das Skript kopiert die Programme nach `%LOCALAPPDATA%\Programs\hearth` (ohne Administratorrechte) und startet danach `hearth setup`:
+
+```powershell
+# ZIP herunterladen und entpacken, dann im entpackten Ordner:
+powershell -ExecutionPolicy Bypass -File install.ps1
+
+# oder ohne ZIP: nur das Skript holen; es lädt das neueste Release für diesen Rechner selbst
+Invoke-WebRequest https://raw.githubusercontent.com/johnnyjack123/hearth/main/scripts/install.ps1 -OutFile install.ps1 -UseBasicParsing
+powershell -ExecutionPolicy Bypass -File install.ps1
+
+# ein bestimmtes ZIP (Datei oder Adresse)
+powershell -ExecutionPolicy Bypass -File install.ps1 -Zip https://github.com/johnnyjack123/hearth/releases/latest/download/hearth-windows-x64.zip
+```
+
+Auf ARM64 `arm64` statt `x64`. `-NoSetup` installiert nur die Programme, `-Target <ordner>` wählt einen anderen Ordner. Ohne `-Zip` und ohne Programme im eigenen Ordner lädt das Skript das Release über die GitHub-CLI (`gh`), die dafür installiert und angemeldet sein muss.
 
 **Microsoft Defender** hält die unsignierte `hearth.exe` gelegentlich für Schadsoftware und löscht sie kurz nach dem Schreiben. Das Einrichtungsprogramm erkennt das und erklärt den Weg zurück: Windows-Sicherheit → Viren- & Bedrohungsschutz → Schutzverlauf → Eintrag öffnen → „Aktionen“ → „Wiederherstellen“. Dauerhaft hilft eine Meldung als Fehlalarm bei Microsoft.
 
 ## Kopplung mit dem Server
 
+Die Einrichtung fragt nach der Adresse des Servers, also nach seiner `PUBLIC_URL`. Zum späteren oder erneuten Koppeln:
+
 ```powershell
 hearth login https://hearth.example.org
 ```
 
-Der Befehl zeigt einen Code und öffnet die Bestätigungsseite der Web-App. Dort steht, von welcher Adresse die Anfrage kommt; stimmt sie nicht mit der des Browsers überein, warnt die Seite. Nur bestätigen, wenn man den Befehl gerade selbst ausgeführt hat. Danach kann der Rechner über den Server Modelle mit den eigenen Keys nutzen. Die Keys selbst sieht er nie.
+Der Befehl zeigt einen Code und öffnet die Bestätigungsseite der Web-App (`--no-browser`: nur Code und Adresse anzeigen). Dort mit dem eigenen Konto anmelden. Die Seite zeigt, von welcher Adresse die Anfrage kommt; stimmt sie nicht mit der des Browsers überein, warnt sie. Nur bestätigen, wenn man den Befehl gerade selbst ausgeführt hat. Danach kann der Rechner über den Server Modelle mit den eigenen Keys nutzen. Die Keys selbst sieht er nie. Das Geräte-Token liegt in der Windows-Anmeldeinformationsverwaltung.
 
+- Eine `http://`-Adresse außerhalb des Heimnetzes lässt `hearth login` zu, warnt aber: Wer die Verbindung mitliest, bekommt das Geräte-Token. Im Internet nur `https://` nutzen.
+- Hinter einem Reverse-Proxy muss dieser WebSockets durchreichen, sonst sieht der Web-Chat den Rechner nicht ([`deploy.md`](deploy.md#https-und-betrieb-im-internet)).
 - `hearth logout` widerruft die Kopplung sofort.
 - Bekommt der Server eine neue Adresse (etwa hinter einem Reverse-Proxy), genügt `hearth login <neue Adresse>`. Der Client erkennt denselben Server, fragt einmal nach und behält das Gerät samt verknüpfter Chats. Die neue Adresse muss `PUBLIC_URL` des Servers sein oder in `TRUSTED_ORIGINS` stehen; sonst lehnt der Client den Umzug ab, weil eine fremde Adresse, die nur an den echten Server weiterleitet, so das Geräte-Token abgreifen könnte.
 - Einstellungen → Geräte in der Web-App zeigt alle gekoppelten Rechner, ihre Version und den Zustand der VM.
@@ -127,7 +150,7 @@ Bevor `vmd clean` oder `project remove` Projektdaten löscht, sichert es nicht �
 
 ## Updates
 
-Das neue Einrichtungsprogramm herunterladen und starten. Es hält den Hintergrunddienst an, ersetzt die Programme und richtet nach, was sich geändert hat. Laufende Agents vorher fertig werden lassen. Server und Client verhandeln ihre Protokollversion, deshalb ist die Reihenfolge der Updates meist egal; die Web-App und das Tray-Menü sagen, wenn eine Seite zu alt ist.
+Das neue Einrichtungsprogramm herunterladen und starten (oder `install.ps1` aus dem neuen ZIP). Es hält den Hintergrunddienst an, ersetzt die Programme und richtet nach, was sich geändert hat, etwa veraltete Images oder einen neuen VM-Dienst. Laufende Agents vorher fertig werden lassen. Ein `hearth run`, das noch in einem Terminal läuft, arbeitet mit der alten Version weiter; jeder neue Start nimmt die neue. Server und Client verhandeln ihre Protokollversion, deshalb ist die Reihenfolge der Updates meist egal; die Web-App und das Tray-Menü sagen, wenn eine Seite zu alt ist.
 
 ## Umstieg von LLM Harness (bis 0.1.x)
 
@@ -155,7 +178,7 @@ Mit 0.2.0 heißt das Projekt Hearth; Programme, Ordner, VM und Dienst haben neue
 | Hyper-V-Fehler 32788 oder 32778 beim Start der VM | zu wenig freier Arbeitsspeicher; Programme schließen und erneut versuchen |
 | „expected pipe is not available“ nach dem Standby | ein alter `gvproxy` hält die Verbindung; in einer Administrator-PowerShell `Stop-Process -Name gvproxy -Force`, dann erneut starten |
 | „pi wurde beendet“ bzw. Exit-Code 137 | der VM ging der Speicher aus; weniger parallel laufen lassen oder mehr RAM freigeben |
-| Web-Chat findet den Rechner nicht | `hearth daemon status`; sonst `hearth daemon start` |
+| Web-Chat findet den Rechner nicht | `hearth daemon status`; sonst `hearth daemon start`. Steht im Protokoll ein Fehler beim Verbinden, reicht ein Reverse-Proxy vor dem Server womöglich keine WebSockets durch |
 | Agent erreicht einen Host nicht | `hearth net watch` zeigt, was blockiert wurde und warum |
 
 Protokolle: `%USERPROFILE%\.hearth\daemon.log` (Hintergrunddienst) und `C:\ProgramData\hearth\vmd\vmd.log` (VM-Dienst). `hearth doctor` prüft Konfiguration, VM, Verbindung und Images in einem Durchgang.
@@ -171,4 +194,4 @@ $env:CONTAINERS_MACHINE_PROVIDER = 'hyperv'
 & "C:\Program Files\RedHat\Podman\podman.exe" machine rm -f hearth
 ```
 
-Danach `%LOCALAPPDATA%\Programs\hearth`, `%LOCALAPPDATA%\hearth`, `C:\ProgramData\hearth` und `%USERPROFILE%\.hearth` löschen und den Eintrag aus dem PATH (Benutzervariablen) entfernen.
+Danach `%LOCALAPPDATA%\Programs\hearth`, `%LOCALAPPDATA%\hearth`, `C:\ProgramData\hearth` und `%USERPROFILE%\.hearth` löschen und den Eintrag aus dem PATH (Benutzervariablen) entfernen. Git und Podman bleiben installiert; wer sie nicht mehr braucht, entfernt sie wie andere Programme über die Windows-Einstellungen.
