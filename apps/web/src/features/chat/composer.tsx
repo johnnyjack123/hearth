@@ -14,7 +14,15 @@ import {
 } from 'react';
 import { Button } from '@/components/ui/button.tsx';
 import { Kbd } from '@/components/ui/display.tsx';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Tooltip } from '@/components/ui/menu.tsx';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Tooltip,
+} from '@/components/ui/menu.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { AttachmentList, useAttachments } from './attachments.tsx';
@@ -238,6 +246,16 @@ export function Composer({
                     <FileText />
                     {t('files.documents')}
                   </DropdownMenuItem>
+                  {/* Touch screens show no tooltip: the menu itself says why
+                      photos are greyed out. */}
+                  {files.images === false ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel data-no-images className="max-w-60 font-normal">
+                        {t('files.noImagesHint')}
+                      </DropdownMenuLabel>
+                    </>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
               <input ref={pickerRef} type="file" multiple hidden accept={[...ACCEPTED_FILE_EXTENSIONS, 'image/*'].join(',')} onChange={addPicked} />
