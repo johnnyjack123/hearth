@@ -19,8 +19,8 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## Next step
 
-1. **Server aktualisieren lassen** (17.11. lief noch `b341c31`, also ohne Live-Abgleich, Foto-Auswahl und die Fixes vom 14.11.). Seit das Repo öffentlich ist, baut Actions wieder: Der Lauf vom 17.11. war für amd64 und arm64 grün (`gh run list --workflow server-image.yml`). Ob der Nutzer `docker compose pull` und `docker compose up -d --no-deps server` schon ausgeführt hat, steht in `/api/health` (`commit` muss mindestens `f70a911` sein). Am 14.11. hatte der Build gar nicht erst begonnen, weil die Actions-Minuten des privaten Repos aufgebraucht waren.
-2. **Rückmeldung des Nutzers** von echten Geräten abwarten: Foto-Auswahl auf Android, Live-Abgleich Handy ↔ Laptop, Tastatur auf dem iPhone. Dazu sein Test zu „Chrome im WLAN hakt“ (siehe Open questions).
+1. **Rückmeldung des Nutzers** von echten Geräten abwarten: Foto-Auswahl auf Android, Live-Abgleich Handy ↔ Laptop, Tastatur auf dem iPhone. Sein Server läuft seit 18.11. auf `f70a911` (alles vom 14.11. ist also aktiv), die PWA geht im WLAN wieder (Berechtigung für das lokale Netz, siehe Open questions).
+2. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
 3. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
 4. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
@@ -42,7 +42,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hi
 
 ## Open questions for the user
 
-- **Gelöst (18.11.): `ERR_TOO_MANY_RETRIES` in der PWA im WLAN.** Laut Mitschnitt aus `chrome://net-export` (Chrome 157, Android 17) scheitert jede Verbindung zur lokalen Adresse mit `ERR_LOCAL_NETWORK_PERMISSION_MISSING`: Android 17 verlangt für Verbindungen ins lokale Netz eine Berechtigung, und Chrome hatte sie nicht. Chrome startet die Anfrage dann bis zum Limit neu. Mit mobilen Daten zeigt der Name auf die öffentliche Adresse, deshalb ging es dort. Abhilfe beim Nutzer: Chrome die Berechtigung erteilen. Steht in `docs/deploy.md` unter „Probleme“. Rückmeldung des Nutzers steht noch aus.
+- **Gelöst (18.11.): `ERR_TOO_MANY_RETRIES` in der PWA im WLAN.** Laut Mitschnitt aus `chrome://net-export` (Chrome 157, Android 17) scheitert jede Verbindung zur lokalen Adresse mit `ERR_LOCAL_NETWORK_PERMISSION_MISSING`: Android 17 verlangt für Verbindungen ins lokale Netz eine Berechtigung, und Chrome hatte sie nicht. Chrome startet die Anfrage dann bis zum Limit neu. Mit mobilen Daten zeigt der Name auf die öffentliche Adresse, deshalb ging es dort. Abhilfe: Chrome die Berechtigung erteilen; beim Nutzer bestätigt (18.11.). Steht in `docs/deploy.md` unter „Probleme“.
 - Jev-Schwellen bei der Merge-Prüfung (ab 75 % schwer, ab 50 % mittel) sind geschätzt; Rückmeldung nach echten Diffs.
 - Ob der OpenRouter-Key aus dem Chat vom 21.10. widerrufen wurde (er stand im Gesprächsverlauf).
 
