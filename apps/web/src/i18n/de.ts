@@ -679,6 +679,7 @@ export const de = {
     photos: 'Fotos',
     camera: 'Foto aufnehmen',
     documents: 'Dateien',
+    noImagesHint: 'Das gewählte Modell versteht keine Bilder. Für Fotos ein anderes Modell wählen.',
     attachHint: 'Bilder, PDF, Word, Excel, PowerPoint oder Textdateien anhängen (auch per Einfügen oder Hineinziehen), höchstens 20 MB',
     attachNoImages: 'PDF, Word, Excel, PowerPoint oder Textdateien anhängen. Bilder versteht das gewählte Modell nicht.',
     attached: 'Angehängte Dateien',

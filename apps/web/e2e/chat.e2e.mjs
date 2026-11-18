@@ -345,6 +345,41 @@ try {
       if (own !== 1) {
         throw new Error(`the phone shows its message ${own} times`);
       }
+
+      // A model that reads no images (the test catalog has none, so the
+      // page is told so): photos are greyed out, and the menu says why,
+      // since a phone shows no tooltip.
+      const blind = await context.newPage();
+      await blind.evaluateOnNewDocument(() => {
+        localStorage.setItem('hearth.locale', 'de');
+        const original = window.fetch;
+        window.fetch = async (...args) => {
+          const response = await original(...args);
+          const url = String(args[0] instanceof Request ? args[0].url : args[0]);
+          if (!url.includes('/api/models')) {
+            return response;
+          }
+          const groups = await response.json();
+          for (const group of groups) {
+            for (const model of group.models) {
+              model.images = false;
+            }
+          }
+          return new Response(JSON.stringify(groups), { status: response.status, headers: { 'content-type': 'application/json' } });
+        };
+      });
+      await blind.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+      await blind.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle2' });
+      await blind.tap('form button[aria-label="Datei anhängen"][aria-haspopup="menu"]');
+      await blind.waitForSelector('[data-no-images]', { timeout: 5_000 });
+      const greyed = await blind.$$eval('[role=menuitem][data-disabled]', (items) => items.map((item) => item.textContent).join(', '));
+      if (greyed !== 'Fotos, Foto aufnehmen') {
+        throw new Error(`greyed out: ${greyed}`);
+      }
+      // After the menu's opening animation.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await blind.screenshot({ path: path.join(OUT, '07h-attach-menu-no-images.png') });
+      await blind.close();
     } finally {
       await context.close();
       quietScript = await page.evaluateOnNewDocument(quiet);

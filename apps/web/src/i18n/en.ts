@@ -679,6 +679,7 @@ export const en: Messages = {
     photos: 'Photos',
     camera: 'Take photo',
     documents: 'Files',
+    noImagesHint: 'The chosen model does not read images. Choose another model for photos.',
     attachHint: 'Attach images, PDF, Word, Excel, PowerPoint or text files (also by pasting or dragging), 20 MB at most',
     attachNoImages: 'Attach PDF, Word, Excel, PowerPoint or text files. The chosen model does not read images.',
     attached: 'Attached files',
