@@ -19,7 +19,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## Next step
 
-1. **Branch `fix/photo-hint` prüfen und mergen** (siehe In flight). Rückmeldung des Nutzers von echten Geräten: Live-Abgleich Handy ↔ Laptop geht (18.11.), die Foto-Auswahl erscheint, ist mit seinem Modell aber ausgegraut (Modell ohne Bilder, kein Fehler); Tastatur auf dem iPhone offen. Sein Server läuft seit 18.11. auf `f70a911` (alles vom 14.11. ist also aktiv), die PWA geht im WLAN wieder (Berechtigung für das lokale Netz, siehe Open questions).
+1. **Rückmeldung des Nutzers von echten Geräten:** Der Live-Abgleich zwischen Handy und Laptop geht (18.11.). Die Foto-Auswahl war ausgegraut, weil im Chat DeepSeek V4 Pro gewählt war; laut models.dev liest es nur Text. Seit `fix/photo-hint` steht der Grund im Menü (gemergt 18.11.). Offen ist noch die Tastatur auf dem iPhone.
 2. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
 3. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
 4. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
@@ -30,7 +30,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## In flight / half-finished
 
-- **Branch `fix/photo-hint`** (gepusht, nicht gemergt): Das Anhängen-Menü auf Touch-Geräten sagt jetzt, warum „Fotos“ und „Foto aufnehmen“ ausgegraut sind; das gewählte Modell liest laut Katalog keine Bilder (`files.images === false` in `composer.tsx`). Der Nutzer hielt die grauen Einträge für einen Fehler (18.11.). Dazu ein E2E-Teil im Schritt „a chat open on phone and laptop …“ (Modelle per gepatchtem `fetch` als blind markiert, Bild `07h-attach-menu-no-images.png`). Typecheck grün; der Browser-E2E scheiterte dreimal an `ERR_INSUFFICIENT_RESOURCES` (1,8 GB Commit frei), auch in unveränderten Schritten. **Zu tun:** bei freiem Speicher `pnpm --filter @hearth/web e2e` auf dem Branch, Bild 07h ansehen, dann nach `main` mergen.
+Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hilfsagenten und keine Worktrees.
 
 ## Decisions made 12.–17.11.
 
@@ -69,7 +69,7 @@ Stand: Commit `f70a911` (14.11.); danach nur Doku und `scripts/install.ps1` (lä
 - `pnpm --filter @hearth/web build`: grün.
 - Server-Tests: 40 Dateien, 321 Tests grün, davon neu `test/events.test.ts` mit Live-Ereignissen, Cache-Headern und Build-Tag.
 - Server-Image vom 17.11.: grün (amd64 und arm64, Smoke-Test im Workflow).
-- Browser-E2E: 23/23 Schritte, 0 Konsolenprobleme. Neu ist der Schritt „a chat open on phone and laptop …“, Screenshots `07f-attach-menu-phone.png` und `07g-live-sync-laptop.png` angesehen.
+- Browser-E2E (18.11., nach `fix/photo-hint`): 23/23 Schritte, 0 Konsolenprobleme. Der Schritt „a chat open on phone and laptop …“ prüft jetzt auch das Menü bei einem Modell ohne Bilder. Screenshots `07f`, `07g` und `07h` angesehen. Vorher scheiterten drei Läufe an `ERR_INSUFFICIENT_RESOURCES` (1,8 GB Commit frei); mit 5 GB lief er durch.
 - Nicht geprüft:
   - Rust-Tests und Smoke-Skripte; der Client-Code ist seit v0.3.0 unverändert.
   - Echte Handys.
