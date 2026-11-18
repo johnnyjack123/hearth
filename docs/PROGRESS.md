@@ -42,10 +42,7 @@ Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hi
 
 ## Open questions for the user
 
-- **`ERR_TOO_MANY_RETRIES` in der PWA im WLAN** (Screenshot des Nutzers, 17.11.; das frühere „too many requests“ war vermutlich dasselbe): Chromes Netzfehler −375. Laut `net_error_list.h` wurde eine Anfrage zu oft neu gestartet, meist weil Server oder Proxy immer neue Zugangsdaten verlangen oder ein ungültiges Zertifikat zeigen. Der Fehler kommt vor unserer App (Navigation auf `/`), unser Code kann ihn nicht abfangen. „Sicheres DNS“ war es nicht (der Nutzer hat es ausgeschaltet, der Fehler blieb). Andere Browser auf demselben Handy gehen, der Chrome-Tab offenbar auch.
-  - Geprüft: Der Heim-DNS liefert nur IPv4 und die lokale Adresse; NPM zeigt dort ein gültiges Zertifikat und verlangt keine Anmeldung. Androids Prüfadressen (`connectivitycheck.gstatic.com` usw.) löst der DNS normal auf.
-  - Verdacht: ein Proxy in den WLAN-Einstellungen des Handys (Chrome nutzt ihn, Firefox nicht), eine früher einmal übergangene Zertifikatswarnung, oder ein Weg über die öffentliche IP, auf dem die Fritzbox selbst mit eigenem Zertifikat antwortet.
-  - Nächster Schritt: ein Mitschnitt aus `chrome://net-export` (Chrome und PWA teilen sich den Netz-Stack). Er zeigt Ziel-IP, Zertifikat und den Grund jedes Neustarts.
+- **Gelöst (18.11.): `ERR_TOO_MANY_RETRIES` in der PWA im WLAN.** Laut Mitschnitt aus `chrome://net-export` (Chrome 157, Android 17) scheitert jede Verbindung zur lokalen Adresse mit `ERR_LOCAL_NETWORK_PERMISSION_MISSING`: Android 17 verlangt für Verbindungen ins lokale Netz eine Berechtigung, und Chrome hatte sie nicht. Chrome startet die Anfrage dann bis zum Limit neu. Mit mobilen Daten zeigt der Name auf die öffentliche Adresse, deshalb ging es dort. Abhilfe beim Nutzer: Chrome die Berechtigung erteilen. Steht in `docs/deploy.md` unter „Probleme“. Rückmeldung des Nutzers steht noch aus.
 - Jev-Schwellen bei der Merge-Prüfung (ab 75 % schwer, ab 50 % mittel) sind geschätzt; Rückmeldung nach echten Diffs.
 - Ob der OpenRouter-Key aus dem Chat vom 21.10. widerrufen wurde (er stand im Gesprächsverlauf).
 

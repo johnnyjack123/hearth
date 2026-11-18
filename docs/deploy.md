@@ -250,6 +250,7 @@ Danach die Windows-Rechner umstellen ([`client.md`](client.md#umstieg-von-llm-ha
 | 502 Bad Gateway im Proxy | der Proxy zeigt auf den falschen Port; im gemeinsamen Docker-Netz ist es `8080`, nicht der veröffentlichte Port |
 | Antworten erscheinen erst am Ende | der Proxy puffert Streams; nginx und NPM tun das nicht, weil der Server `X-Accel-Buffering: no` setzt. Bei anderen Proxys die Pufferung für den Server abschalten |
 | Kopplung klappt, aber der Web-Chat findet den Rechner nicht | der Proxy reicht keine WebSockets durch; in NPM „Websockets Support“ einschalten |
+| Android: `ERR_TOO_MANY_RETRIES` in Chrome oder der installierten App, nur im WLAN | Der Name zeigt im Heimnetz auf eine lokale Adresse (eigener DNS-Eintrag), und Chrome fehlt die Android-Berechtigung für das lokale Netzwerk (seit Android 17). Android blockt die Verbindung (`ERR_LOCAL_NETWORK_PERMISSION_MISSING` im Mitschnitt von `chrome://net-export`), Chrome versucht es 32-mal und gibt auf. Mit mobilen Daten geht es, weil der Name dort auf die öffentliche Adresse zeigt. Abhilfe: in den App-Einstellungen von Chrome die Berechtigung für Geräte im lokalen Netzwerk erlauben, oder den lokalen DNS-Eintrag weglassen |
 | Hochladen scheitert mit `413` | der Proxy nimmt zu große Anfragen nicht an; bei nginx `client_max_body_size 25m` |
 | „Dokumente umwandeln geht gerade nicht“ | `markitdown` läuft nicht: `docker compose ps -a`, `docker compose logs --tail 50 markitdown` |
 | Suche „nicht erreichbar“ (`ENOTFOUND`) | Profil `search` fehlt in `COMPOSE_PROFILES` |
