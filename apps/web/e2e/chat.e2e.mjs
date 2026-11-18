@@ -376,6 +376,8 @@ try {
       if (greyed !== 'Fotos, Foto aufnehmen') {
         throw new Error(`greyed out: ${greyed}`);
       }
+      // After the menu's opening animation.
+      await new Promise((resolve) => setTimeout(resolve, 300));
       await blind.screenshot({ path: path.join(OUT, '07h-attach-menu-no-images.png') });
       await blind.close();
     } finally {
