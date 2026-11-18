@@ -513,6 +513,7 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
 ## Phase 5 – Ausbau (ohne feste Reihenfolge)
 
 **Vorgemerkt (Wünsche des Nutzers, Stand 17.11.):**
+- **Standardmodell für neue Chats je Nutzer** (18.11., beim Nutzer DeepSeek V4.1 Flash über OpenRouter): geht vor die letzte Wahl im Browser; Einzelheiten in PROGRESS.md.
 - **Copy-Knopf an eigenen Nachrichten** (beim Zeigen, wie unter den Antworten).
 - **Schalter für frühere Denkblöcke:** behalten oder weglassen, um Kosten und Qualität zu vergleichen (heute gehen die Denkblöcke desselben Modells mit, `withReasoning` in `condense.ts`).
 - **Export und Import ausgewählter Chats**, um Chats von der alten Instanz auf dem Pi auf den neuen Server zu holen. Die alte Instanz bleibt, bis das gebaut ist.

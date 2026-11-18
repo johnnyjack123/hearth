@@ -20,13 +20,16 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 ## Next step
 
 1. **Rückmeldung des Nutzers von echten Geräten:** Der Live-Abgleich zwischen Handy und Laptop geht (18.11.). Die Foto-Auswahl war ausgegraut, weil im Chat DeepSeek V4 Pro gewählt war; laut models.dev liest es nur Text. Seit `fix/photo-hint` steht der Grund im Menü (gemergt 18.11.). Offen ist noch die Tastatur auf dem iPhone.
-2. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
-3. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
-4. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
+2. **Standardmodell für neue Chats** (Wunsch des Nutzers, 18.11.): Neue Chats sollen immer mit **DeepSeek V4.1 Flash** starten, beim Nutzer `deepseek/deepseek-v4.1-flash-1017` über seinen OpenRouter-Zugang. Das soll auch gelten, wenn er in einem anderen Chat zuletzt ein anderes Modell gewählt hat; bestehende Chats behalten ihr Modell.
+   - Heute nimmt `useModelSelection` (`apps/web/src/features/chat/model-selection.ts`) das Modell des Chats, sonst die letzte Wahl in diesem Browser (`readLastModel`, `localStorage`), sonst das erste Modell. So startete das Handy mit DeepSeek V4 Pro, das keine Bilder liest.
+   - Vorschlag: eine Einstellung je Nutzer auf dem Server (`userSetting`, wie die Chat-Funktionen in `services/features.ts`) mit Zugang und Modell, wählbar unter Einstellungen → Chat („Standardmodell für neue Chats“). Für neue Chats geht sie vor die letzte Wahl im Browser. Gibt es Zugang oder Modell nicht mehr, gilt das bisherige Verhalten. Nicht fest auf V4.1 Flash verdrahten: Hearth hat mehrere Nutzer mit eigenen Zugängen.
+3. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
+4. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
+5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
    - Schalter, ob frühere Denkblöcke mitgehen (A/B-Test)
    - Export und Import ausgewählter Chats (die alte Instanz auf dem Pi ist die Quelle; sie bleibt, bis das gebaut ist)
-5. **Weg zu 1.0** (ROADMAP): Neuinstallation auf frischem Windows (auch x64), zweite Sicherheitsprüfung durch einen frischen Agenten, dann `v1.0.0-rc.1`.
+6. **Weg zu 1.0** (ROADMAP): Neuinstallation auf frischem Windows (auch x64), zweite Sicherheitsprüfung durch einen frischen Agenten, dann `v1.0.0-rc.1`.
 
 ## In flight / half-finished
 
