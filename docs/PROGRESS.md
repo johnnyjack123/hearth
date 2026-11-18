@@ -19,7 +19,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## Next step
 
-1. **Rückmeldung des Nutzers** von echten Geräten abwarten: Foto-Auswahl auf Android, Live-Abgleich Handy ↔ Laptop, Tastatur auf dem iPhone. Sein Server läuft seit 18.11. auf `f70a911` (alles vom 14.11. ist also aktiv), die PWA geht im WLAN wieder (Berechtigung für das lokale Netz, siehe Open questions).
+1. **Branch `fix/photo-hint` prüfen und mergen** (siehe In flight). Rückmeldung des Nutzers von echten Geräten: Live-Abgleich Handy ↔ Laptop geht (18.11.), die Foto-Auswahl erscheint, ist mit seinem Modell aber ausgegraut (Modell ohne Bilder, kein Fehler); Tastatur auf dem iPhone offen. Sein Server läuft seit 18.11. auf `f70a911` (alles vom 14.11. ist also aktiv), die PWA geht im WLAN wieder (Berechtigung für das lokale Netz, siehe Open questions).
 2. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
 3. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
 4. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
@@ -30,7 +30,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## In flight / half-finished
 
-Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hilfsagenten und keine Worktrees.
+- **Branch `fix/photo-hint`** (gepusht, nicht gemergt): Das Anhängen-Menü auf Touch-Geräten sagt jetzt, warum „Fotos“ und „Foto aufnehmen“ ausgegraut sind; das gewählte Modell liest laut Katalog keine Bilder (`files.images === false` in `composer.tsx`). Der Nutzer hielt die grauen Einträge für einen Fehler (18.11.). Dazu ein E2E-Teil im Schritt „a chat open on phone and laptop …“ (Modelle per gepatchtem `fetch` als blind markiert, Bild `07h-attach-menu-no-images.png`). Typecheck grün; der Browser-E2E scheiterte dreimal an `ERR_INSUFFICIENT_RESOURCES` (1,8 GB Commit frei), auch in unveränderten Schritten. **Zu tun:** bei freiem Speicher `pnpm --filter @hearth/web e2e` auf dem Branch, Bild 07h ansehen, dann nach `main` mergen.
 
 ## Decisions made 12.–17.11.
 
