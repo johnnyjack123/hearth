@@ -238,6 +238,7 @@ VM-Befehle für den Nutzer: nach `hearth vmd install` einfach `hearth vmd start|
 ### Windows / Umgebung
 
 - Images müssen multi-arch sein (amd64 und arm64; der Rechner des Nutzers ist ARM64, siehe `CLAUDE.local.md`).
+- **`target/` räumt cargo nie auf:** Am 21.11. waren es 36,7 GB (22 GB `debug/incremental`, dazu Dutzende Varianten jedes Testprogramms aus Toolchain- und Abhängigkeits-Updates und noch die Crates vor der Umbenennung). Ein frischer Stand ist ein Bruchteil davon. Ab und zu `cargo clean` (vorher prüfen, dass nichts aus `target` läuft); der nächste Build dauert dann einige Minuten länger.
 - Windows PowerShell 5.1 liest `.ps1` ohne BOM als ANSI, deshalb Skripte **ASCII-only** halten.
 - Podman scheitert an der `~/.ssh/known_hosts` des Nutzers (Zeilen ohne Host-Muster). Nicht anfassen, stattdessen `spikes/phase-0/pm.sh` (eigene known_hosts, Verbindung explizit).
 - Port-Weiterleitungen immer an `127.0.0.1` binden (`-p 127.0.0.1:X:Y`). Ohne Angabe wird unter Windows teils nur `[::1]` bedient.
