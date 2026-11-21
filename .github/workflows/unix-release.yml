@@ -1,0 +1,137 @@
+# Builds hearth for Linux and macOS and, on version tags, adds them to the
+# release that windows.yml publishes:
+# - hearth-linux-<arch>.tar.gz with hearth, hearthd, hearth-app and
+#   install.sh (x64 and arm64, built on Ubuntu 22.04 so older glibc works;
+#   OpenSSL is built in, see crates/hearth-core/Cargo.toml),
+# - hearth-macos.tar.gz with Hearth.app (one program for Apple silicon and
+#   Intel) and install.sh,
+# - install.sh on its own, for `curl … | sh`.
+# The programs are not signed; install.sh removes macOS's quarantine flag.
+name: Unix release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unix-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: "4"
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Build
+        run: cargo build --release --locked -p hearth-cli -p hearth-app
+
+      - name: Starts on the runner
+        run: |
+          target/release/hearth --version
+          if ldd target/release/hearth | grep -q -E 'libssl|libcrypto'; then
+            echo "OpenSSL is linked dynamically" >&2
+            exit 1
+          fi
+
+      - name: Package
+        run: |
+          name="hearth-linux-${{ matrix.arch }}"
+          mkdir "$name"
+          for program in hearth hearthd hearth-app; do
+            cp "target/release/$program" "$name/"
+            strip "$name/$program"
+          done
+          cp scripts/install.sh "$name/"
+          tar -czf "$name.tar.gz" -C "$name" .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hearth-linux-${{ matrix.arch }}
+          path: hearth-linux-${{ matrix.arch }}.tar.gz
+          retention-days: 30
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Build for both processors
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked --target "$target" -p hearth-cli -p hearth-app
+          done
+
+      - name: App bundle
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "hearth-cli"))')
+          app=dist/Hearth.app
+          mkdir -p "$app/Contents/MacOS"
+          sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          for program in hearth hearthd hearth-app; do
+            lipo -create -output "$app/Contents/MacOS/$program" \
+              "target/aarch64-apple-darwin/release/$program" "target/x86_64-apple-darwin/release/$program"
+          done
+          # Ad-hoc signature: Apple silicon refuses unsigned programs.
+          codesign --force --deep --sign - "$app"
+          "$app/Contents/MacOS/hearth" --version
+          cp scripts/install.sh dist/
+          tar -czf hearth-macos.tar.gz -C dist .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hearth-macos
+          path: hearth-macos.tar.gz
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/install.sh dist/
+          # windows.yml may create the release at the same moment.
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes ||
+            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null
+          gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz dist/install.sh --repo "$GITHUB_REPOSITORY" --clobber

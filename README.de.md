@@ -27,6 +27,10 @@ Hearth ist ein selbst gehosteter Chat für große Sprachmodelle. Mehrere Persone
 - Werkzeuge wie C/C++, Rust, Go, Java, Deno und Bun lassen sich je Projekt einschalten, ebenso eigene Programme.
 - Ein Tray-Symbol zeigt den Zustand der VM und weist auf alles hin, was auf eine Freigabe wartet. Im Leerlauf stoppt die VM von selbst.
 
+**Direktmodus (Windows, Linux, macOS)**
+- Ohne VM: Das Chat-Modell arbeitet als Agent direkt im Projektordner, hearth führt seine Werkzeuge auf dem Rechner aus. Lesen und Schreiben im Ordner gehen ohne Rückfrage; jeder Befehl und jeder Zugriff außerhalb des Ordners, auf Geheimnisse oder auf Dateien, die später Code ausführen (Git-Hooks, Editor-Einstellungen), wartet auf deine Freigabe am Rechner. Siehe [`docs/security/concept.md`](docs/security/concept.md).
+- Eine Desktop-App (nativ, ohne Browser-Engine) zeigt Freigaben, Projekte mit ihrem Modus, Kopplung und Protokolle.
+
 ## Aufbau
 
 ```
@@ -72,12 +76,22 @@ Postgres, Websuche, HTTPS und den Betrieb im Internet beschreibt [`docs/deploy.m
 
 Einzelheiten und Hilfe bei Problemen: [`docs/client.md`](docs/client.md).
 
+### Linux und macOS
+
+```sh
+curl -fsSL https://github.com/johnnyjack123/hearth/releases/latest/download/install.sh | sh
+```
+
+Installiert `hearth`, den Hintergrunddienst und die Desktop-App für deinen Nutzer und startet `hearth setup`. Projekte nutzen dort den Direktmodus (`hearth project host on`); die Podman-Sandbox folgt. Details: [`docs/client-unix.md`](docs/client-unix.md).
+
 ## Dokumentation
 
 | Dokument | Inhalt |
 |---|---|
 | [`docs/deploy.md`](docs/deploy.md) | Server: Installation, Einstellungen, Updates, Sicherung, HTTPS, Betrieb im Internet |
 | [`docs/client.md`](docs/client.md) | Windows-Client: Einrichtung, Projekte, Web-Chat und Terminal, Updates, Probleme |
+| [`docs/client-unix.md`](docs/client-unix.md) | Linux und macOS: Installation, Direktmodus, Freigaben |
+| [`docs/security/concept.md`](docs/security/concept.md) | Sicherheitskonzept: Sandbox und Direktmodus |
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Wie die Teile funktionieren und warum sie so gebaut sind |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Das ursprüngliche Entwurfsdokument |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phasen und nächste Schritte |

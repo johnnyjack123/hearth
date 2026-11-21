@@ -27,6 +27,10 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - Toolchains such as C/C++, Rust, Go, Java, Deno and Bun can be switched on per project, as can your own programs.
 - A tray icon shows the state of the VM and points to anything waiting for approval. The VM stops on its own when idle.
 
+**Direct mode (Windows, Linux, macOS)**
+- Without a VM: the chat model works as the agent right in the project folder, and hearth runs its tools on the computer. Reading and writing in the folder need no approval; every command, and every access outside the folder, to secrets or to files that run code later (git hooks, editor settings), waits for your approval on the computer. See [`docs/security/concept.md`](docs/security/concept.md).
+- A desktop app (native, no browser engine) shows the approvals, the projects and their mode, the pairing and the logs.
+
 ## How it fits together
 
 ```
@@ -72,6 +76,14 @@ Postgres, web search, HTTPS and running the server on the internet are covered i
 
 Details and troubleshooting: [`docs/client.md`](docs/client.md).
 
+### Linux and macOS
+
+```sh
+curl -fsSL https://github.com/johnnyjack123/hearth/releases/latest/download/install.sh | sh
+```
+
+This installs `hearth`, its background service and the desktop app for your user and runs `hearth setup`. Projects there use the direct mode (`hearth project host on`); the Podman sandbox follows. Details: [`docs/client-unix.md`](docs/client-unix.md).
+
 ## Documentation
 
 The detailed documentation is in German.
@@ -80,6 +92,8 @@ The detailed documentation is in German.
 |---|---|
 | [`docs/deploy.md`](docs/deploy.md) | Server: installation, configuration, updates, backups, HTTPS, internet exposure |
 | [`docs/client.md`](docs/client.md) | Windows client: setup, projects, web chat and terminal, updates, troubleshooting |
+| [`docs/client-unix.md`](docs/client-unix.md) | Linux and macOS: installation, direct mode, approvals |
+| [`docs/security/concept.md`](docs/security/concept.md) | Security concept: sandbox and direct mode |
 | [`docs/how-it-works.md`](docs/how-it-works.md) | How the parts work and why they were built this way |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | The original design document |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phases and what comes next |
