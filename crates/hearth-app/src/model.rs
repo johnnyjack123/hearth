@@ -28,6 +28,21 @@ pub struct ProjectRow {
     pub network: String,
     /// Apps of the sandbox.
     pub apps: Vec<String>,
+    /// Extra allowed domains of the sandbox's network.
+    pub allow: Vec<String>,
+    /// Blocked domains.
+    pub deny: Vec<String>,
+}
+
+/// A program of the app catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogApp {
+    /// Name for `hearth app on`.
+    pub name: String,
+    /// Name for people.
+    pub title: String,
+    /// What it brings.
+    pub description: Option<String>,
 }
 
 /// The background service's status file (`daemon-status.json`), as far
@@ -100,6 +115,8 @@ pub struct Snapshot {
     pub merges: Vec<MergeRequest>,
     /// Requested program files.
     pub files: Vec<FileRequest>,
+    /// Programs a sandbox project can switch on.
+    pub catalog: Vec<CatalogApp>,
 }
 
 impl Snapshot {
@@ -149,11 +166,23 @@ pub fn load(config: &ConfigDir) -> Snapshot {
                     .map(|project| project.network.to_string())
                     .unwrap_or_default(),
                 apps: raw.apps.enabled.clone(),
+                allow: raw.network.allow.iter().map(ToString::to_string).collect(),
+                deny: raw.network.deny.iter().map(ToString::to_string).collect(),
             }),
             Err(error) => snapshot.broken.push((name.to_string(), error.to_string())),
         }
     }
     snapshot.projects.sort_by(|a, b| a.name.cmp(&b.name));
+    snapshot.catalog = config
+        .apps()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|app| CatalogApp {
+            name: app.name,
+            title: app.title,
+            description: app.description,
+        })
+        .collect();
     snapshot
 }
 
