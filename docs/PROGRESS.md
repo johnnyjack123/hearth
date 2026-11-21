@@ -29,7 +29,8 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
    - Schritt 4: Benachrichtigung und Freigabe-Dialog am Rechner (heute nur `hearth host` im Terminal), geht in Schritt 5 auf.
    - 🔨 Schritt 5: Desktop-App `hearth-app` (egui) im ersten Stand: Freigaben, Projekte mit Modus, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben. Offen: Netzregeln und Programme je Projekt in der App, Tray unter macOS und Linux, Startmenü-Eintrag.
    - 🔨 Schritt 7 vorgezogen: Pakete für Linux (x64, arm64, OpenSSL eingebaut) und macOS (Universal-App, ad hoc signiert) mit `scripts/install.sh` und Workflow `unix-release.yml`; Linux/macOS: `hearth setup`, `hearth doctor`, Token-Datei, Benachrichtigungen ohne Tray. Anleitung `docs/client-unix.md`.
-   - Offen: Sandbox unter Linux/macOS (Schritt 6), Tray-Symbol unter Linux/macOS, Test auf dem Linux-Laptop.
+   - 🔨 Schritt 6: Sandbox unter Linux (rootless Podman ohne VM) und macOS (Podman-Machine) im Provider; Instanzen ohne DNS (Fund: Podman 4 löste im internen Netz externe Namen auf). Geprüft: Provider-Test in der Windows-VM und unter Ubuntu in der CI. Offen: `hearth setup` legt die Machine unter macOS nicht an, Gateway- und Instanz-Tests unter Linux in der CI, die Images in der VM des Nutzers sind für diesen Stand veraltet (erst neu bauen, wenn er zustimmt, siehe Stolpersteine „TLS im Gateway“ zum Sichern seines Stands).
+   - Offen außerdem: Tray-Symbol unter Linux/macOS, Test auf dem Linux-Laptop (am 21.11. nachmittags offline).
    - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
