@@ -30,6 +30,13 @@ windows-sys.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# OpenSSL built in on Linux: distributions ship different major versions
+# (Ubuntu 22.04 has 3, CachyOS 4), and a program linked against one does
+# not start with the other. Features unify, so ureq and tungstenite use it
+# too. Building it needs perl and a C compiler, which Linux has anyway.
+[target.'cfg(target_os = "linux")'.dependencies]
+native-tls = { workspace = true, features = ["vendored"] }
+
 [features]
 # German as the UI language unless HEARTH_LANG says otherwise, whatever
 # Windows shows: for the tests of crates that depend on hearth-core, whose

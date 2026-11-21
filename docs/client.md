@@ -1,11 +1,12 @@
 # Windows-Client einrichten und nutzen
 
-Der Windows-Client bringt Coding-Agents in eine isolierte Umgebung auf dem eigenen Rechner. Das Einrichtungsprogramm installiert drei Programme. Dazu kommt das Gateway, das in `hearth.exe` steckt und in der VM läuft:
+Der Windows-Client bringt Coding-Agents in eine isolierte Umgebung auf dem eigenen Rechner, oder im Direktmodus ohne VM in den Projektordner (siehe unten). Das Einrichtungsprogramm installiert vier Programme. Dazu kommt das Gateway, das in `hearth.exe` steckt und in der VM läuft. Linux und macOS: [`client-unix.md`](client-unix.md).
 
 | Programm | Aufgabe |
 |---|---|
 | `hearth.exe` | Befehlszeile: Projekte, Agent im Terminal, Sync, Prüfung, Einrichtung; als `hearth daemon` auch der Hintergrunddienst für Web-Chats |
 | `hearthd.exe` | Tray-Symbol; startet bei der Anmeldung den Hintergrunddienst |
+| `hearth-app.exe` | Desktop-App: Freigaben, Projekte und ihr Modus, Kopplung, Dienst, VM, Protokolle (über das Tray-Symbol „Hearth öffnen“) |
 | `hearth-vmd.exe` | Windows-Dienst, der die VM startet und stoppt (der einzige Teil mit Administratorrechten) |
 | Gateway | läuft in der VM, regelt jeden Netzzugriff der Sandbox |
 
@@ -113,6 +114,19 @@ hearth stop            # Sandbox des Projekts stoppen
 ```
 
 Rückfragen des Gateways erscheinen im selben Fenster. In der ersten Sekunde zählt keine Taste, damit nichts aus Versehen beantwortet wird; „immer“ braucht einen zweiten Tastendruck.
+
+## Direktmodus
+
+Ohne VM: Der Agent arbeitet direkt im Projektordner, das Chat-Modell des Servers ist der Agent, und `hearth` führt seine Werkzeuge auf dem Rechner aus. Lesen, Schreiben und Suchen im Ordner gehen ohne Rückfrage (außer `.env`, Schlüsseln, `.git`, Hooks, Editor- und Agent-Einstellungen); jeder Befehl und jeder Zugriff außerhalb des Ordners wartet auf deine Freigabe, und freigegebene Befehle laufen mit deinen Rechten. Befehle laufen in Git Bash, wenn installiert, sonst in PowerShell. Regeln und Abwägung: [`security/concept.md`](security/concept.md).
+
+```powershell
+hearth project host on                      # im Projektordner; oder in der App unter Projekte → Modus
+hearth project host on --browser-approvals  # Freigaben auch im Web-Chat (riskant, siehe Konzept)
+hearth host                                 # offene Freigaben; approve <ID> [--chat], deny <ID>, watch
+hearth host log <projekt>                   # was der Agent tat und wer es erlaubte
+```
+
+Freigaben meldet das Tray-Symbol; ein Klick öffnet die Hearth-App bei „Freigaben“. Der Server braucht dafür mindestens den Stand vom 21.11.2026 (Tunnel-Protokoll 11).
 
 ## Netz der Sandbox
 
