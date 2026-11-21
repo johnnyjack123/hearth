@@ -379,7 +379,7 @@ export const en: Messages = {
     offlineHint: 'The computer cannot be reached right now. Is it on and signed in? The background service starts with the sign-in (“hearth daemon”).',
     dialogTitle: 'Connect to an environment',
     dialogDescription:
-      'The agent then works in a sandbox on your computer. Replies come from it instead of directly from the model, with commands and file changes.',
+      'The agent then works on your computer: in a sandbox, or for projects in the direct mode right in the project folder. Replies come with commands and file changes.',
     noDevices: 'No computer paired yet',
     noDevicesHint: 'Run “hearth login” on your computer and “hearth init” in the project folder.',
     deviceOffline: 'Not reachable right now. You can still connect; writing works as soon as the computer is back.',
@@ -667,6 +667,40 @@ export const en: Messages = {
     defaultModelNone: 'No default',
     defaultModelUnavailable: 'The credential no longer offers “{model}”. New chats take the model last chosen.',
     defaultModelClear: 'Remove default',
+  },
+  host: {
+    harness: 'directly on the computer',
+    linkedTo: '{project}, directly on the computer',
+    placeholder: 'Message the agent in {project} …',
+    linkedHint:
+      'The agent works in the project folder without a VM. Reading and writing there needs no approval; you approve every command and every access outside.',
+    approvalsHere: 'Approvals work here in the chat and on the computer.',
+    approvalsComputer: 'Approvals on the computer only: in the hearth app, through the notification or with `hearth host` in a terminal.',
+    approval: {
+      title: {
+        command: 'The agent wants to run a command',
+        read: 'The agent wants to read',
+        write: 'The agent wants to write',
+      },
+      where: '{shell} in {cwd}',
+      id: 'Approval {id}',
+      once: 'Allow once',
+      chatCommand: 'Allow this command in the chat',
+      chatFolder: 'Allow in the chat',
+      deny: 'Deny',
+      onComputer: 'Waiting for your approval on the computer',
+      answers: {
+        once: 'Allowed ({by})',
+        chat: 'Allowed for this chat ({by})',
+        deny: 'Denied ({by})',
+      },
+      by: {
+        computer: 'on the computer',
+        browser: 'in the chat',
+        timeout: 'no answer',
+      },
+      expired: 'Not answered',
+    },
   },
   files: {
     read: {

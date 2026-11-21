@@ -1,6 +1,9 @@
 import {
   type AgentDataParts,
   approvalDecisionSchema,
+  approvalIdSchema,
+  HOST_HARNESS,
+  hostDecisionSchema,
   assessmentRequestSchema,
   type ChatLink,
   chatFileId,
@@ -442,6 +445,9 @@ export function conversationRoutes(deps: AppDeps) {
       if (!link) {
         throw new HttpError(400, 'validation', 'The chat is not linked to an environment');
       }
+      if (link.harness === HOST_HARNESS) {
+        throw new HttpError(400, 'validation', 'In the direct mode the agent works in the folder itself; there is nothing to take over');
+      }
       assertOnline(link.deviceId);
       const run = hub.startTakeover(link.deviceId, {
         type: 'session.takeover',
@@ -549,13 +555,21 @@ export function conversationRoutes(deps: AppDeps) {
         }),
       };
       const { link } = conversation;
+      // The direct mode: the chat model is the agent, the device runs its
+      // tools. Everything else of an ordinary chat applies.
+      const hostLink = link?.harness === HOST_HARNESS ? link : null;
+      const agentLink = hostLink ? null : link;
       if (link) {
         // Checked before anything is stored, so an offline device leaves no
         // unanswered message behind.
         assertOnline(link.deviceId);
-        if (attached.size > 0) {
+        if (agentLink && attached.size > 0) {
           hub.assertFiles(link.deviceId);
         }
+      }
+      const hostInfo = hostLink ? hub.status(hostLink.deviceId).projects.find((project) => project.name === hostLink.project)?.host : undefined;
+      if (hostLink && !hostInfo) {
+        throw new HttpError(409, 'device_offline', 'The device does not offer this project in the direct mode');
       }
 
       // A known message id means "regenerate" or "edit": the old branch is replaced.
@@ -577,16 +591,16 @@ export function conversationRoutes(deps: AppDeps) {
       const verbosity = body.verbosity ?? DEFAULT_VERBOSITY;
       const tone = body.tone ?? DEFAULT_TONE;
       // Linked chats talk to an agent with its own prompt and get no other notes.
-      const note = link
+      const note = agentLink
         ? null
         : [chatNote(previous, { date, research: search ? research : null, verbosity, tone }), memoryUpdate].filter(Boolean).join('\n') || null;
       // Decided once and stored, so later requests condense at the same place.
-      const condensed = !link && shouldCondense(previous, settings.condense);
+      const condensed = !agentLink && shouldCondense(previous, settings.condense);
       const stored: ChatMessage = {
         ...userMessage,
         metadata: {
           createdAt: Date.now(),
-          ...(link ? {} : { date }),
+          ...(agentLink ? {} : { date }),
           ...(research ? { research } : {}),
           ...(body.effort ? { effort: body.effort } : {}),
           ...(verbosity !== DEFAULT_VERBOSITY ? { verbosity } : {}),
@@ -617,7 +631,8 @@ export function conversationRoutes(deps: AppDeps) {
       const title = conversation.title ? null : assignTitle(db, conversation.id, model, text.trim() || fileNames.join(', '));
       void title?.then(() => events.list(user.id));
 
-      if (link) {
+      if (agentLink) {
+        const link = agentLink;
         // Also tells the device about a model pi's own catalog lacks.
         const pricing = await deps.pricing.lookup(row.kind, row.baseUrl, body.modelId);
         const info = agentModelInfo(pricing);
@@ -720,7 +735,42 @@ export function conversationRoutes(deps: AppDeps) {
         files,
         memory: features.memory ? { userId: user.id } : null,
         progress: features.progress,
+        host:
+          hostLink && hostInfo
+            ? {
+                project: hostLink.project,
+                info: hostInfo,
+                call: (request, onApproval) =>
+                  hub.hostCall(
+                    hostLink.deviceId,
+                    {
+                      session: conversation.id,
+                      project: hostLink.project,
+                      conversation: { id: conversation.id, title: conversation.title },
+                      call: request.call,
+                      tool: request.tool,
+                      input: request.input,
+                    },
+                    { signal: request.signal, onApproval },
+                  ),
+              }
+            : null,
       });
+    })
+    // The chat's answer to a question of the direct mode; the device takes
+    // it only where the project allows answers from the chat.
+    .post('/:id/host-approvals/:approval', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation?.link || conversation.link.harness !== HOST_HARNESS) {
+        throw notFound('Conversation');
+      }
+      const approval = approvalIdSchema.safeParse(c.req.param('approval'));
+      if (!approval.success) {
+        throw notFound('Approval');
+      }
+      const { decision } = hostDecisionSchema.parse(await c.req.json());
+      hub.hostDecide(conversation.link.deviceId, conversation.id, approval.data, decision);
+      return c.body(null, 204);
     })
     // Summarizes the chat now, on the user's request: everything but the
     // latest turn. The summary joins the last reply, like an automatic one.
@@ -734,7 +784,7 @@ export function conversationRoutes(deps: AppDeps) {
         throw new HttpError(409, 'conflict', 'A reply is still being written');
       }
       await costGuard(db).assert(user.id);
-      if (conversation.link) {
+      if (conversation.link && conversation.link.harness !== HOST_HARNESS) {
         // The agent keeps its own history: pi summarizes it on the computer.
         const summarized = await compactAgent(conversation.id, conversation.title, conversation.link);
         events.chat(user.id, conversation.id, 'changed', clientSource(c));

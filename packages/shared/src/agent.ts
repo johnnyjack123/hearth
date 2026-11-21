@@ -28,8 +28,14 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * agent's work the user's folder lacks (`workspace` event).
  * Version 9: prompts carry the files attached in the chat (`files`); the
  * device downloads them from the server and copies them into the instance.
+ * Version 10: program versions in `welcome` and `hello`.
+ * Version 11: the direct mode. Projects may carry `host` (they offer the
+ * pseudo-harness `host`); the server sends their tool calls (`host.call`,
+ * `host.cancel`), the device asks the user where its rules say so
+ * (`host.approval`), takes answers from the chat only where the project
+ * allows it (`host.decide`), and returns each result (`host.result`).
  */
-export const TUNNEL_VERSION = 10;
+export const TUNNEL_VERSION = 11;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -76,6 +82,57 @@ export const VERSION_FILES = 9;
 /** First protocol with program versions: the server's in `welcome`, hearth's in `hello`. */
 export const VERSION_APP_VERSION = 10;
 
+/** First protocol with the direct mode (`host` projects and their tool calls). */
+export const VERSION_HOST = 11;
+
+/**
+ * The pseudo-harness of the direct mode: the server's chat model is the
+ * agent, and the device runs its tools in the project folder.
+ */
+export const HOST_HARNESS = 'host';
+
+/** Tools of the direct mode, as the device runs them (`hearth_core::host::ToolCall`). */
+export const HOST_TOOLS = ['read', 'write', 'edit', 'list', 'find', 'grep', 'shell'] as const;
+
+/** One of {@link HOST_TOOLS}. */
+export type HostTool = (typeof HOST_TOOLS)[number];
+
+/** How the user answers a question of the direct mode. */
+export const HOST_DECISIONS = ['once', 'chat', 'deny'] as const;
+
+/** See {@link HOST_DECISIONS}. */
+export type HostDecision = (typeof HOST_DECISIONS)[number];
+
+/**
+ * What a project in the direct mode tells the server, so the chat model
+ * knows where it works (protocol 11).
+ */
+export const hostInfoSchema = z
+  .object({
+    /** The project folder on the computer. */
+    root: z.string().min(1).max(1_000),
+    /** The computer's system. */
+    os: z.enum(['windows', 'macos', 'linux']),
+    /** The shell commands run in, e.g. `bash` or `Windows PowerShell`. */
+    shell: z.string().min(1).max(100),
+    /** Whether the chat may answer the device's questions; set on the computer only. */
+    browserApprovals: z.boolean(),
+  })
+  .strict();
+
+/** See {@link hostInfoSchema}. */
+export type HostInfo = z.infer<typeof hostInfoSchema>;
+
+/** What the device asks the user to allow (`hearth_core::host::Request`). */
+export const hostRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('command'), command: z.string().max(20_000), shell: z.string().max(100), cwd: z.string().max(1_000) }).strict(),
+  z.object({ kind: z.literal('read'), path: z.string().max(2_000), reason: z.string().max(40), folder: z.boolean() }).strict(),
+  z.object({ kind: z.literal('write'), path: z.string().max(2_000), reason: z.string().max(40) }).strict(),
+]);
+
+/** See {@link hostRequestSchema}. */
+export type HostRequest = z.infer<typeof hostRequestSchema>;
+
 /** Ids of requests the user approves on the computer (`hearth app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
 
@@ -103,6 +160,8 @@ export const remoteProjectSchema = z
   .object({
     name: projectNameSchema,
     harnesses: z.array(harnessNameSchema).max(20),
+    // From protocol 11 on, for projects in the direct mode.
+    host: hostInfoSchema.optional(),
   })
   .strict();
 
@@ -396,6 +455,39 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('apps'), report: appsReportSchema }).strict(),
+  // Protocol 11: the outcome of a tool call of the direct mode.
+  z
+    .object({
+      type: z.literal('host.result'),
+      session: sessionId,
+      call: partId,
+      output: text(MAX_TOOL_OUTPUT),
+      isError: z.boolean(),
+      exitCode: z.number().int().optional(),
+    })
+    .strict(),
+  // Protocol 11: a question of the direct mode, and later how it ended.
+  z
+    .object({
+      type: z.literal('host.approval'),
+      session: sessionId,
+      call: partId,
+      approval: approvalIdSchema,
+      state: z.enum(['pending', 'resolved']),
+      request: hostRequestSchema,
+      /** One line for the user, in the language of the computer. */
+      summary: text(500),
+      /** Why it asks. */
+      why: text(1_000),
+      /** Whether "for this chat" is offered. */
+      chatWide: z.boolean(),
+      /** Whether the chat may answer (the project allows it on the computer). */
+      browser: z.boolean(),
+      decision: z.enum(HOST_DECISIONS).optional(),
+      /** Who answered: on the computer, in the chat, or nobody in time. */
+      by: z.enum(['computer', 'browser', 'timeout']).optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('apps.result'),
@@ -558,6 +650,37 @@ export type ServerMessage =
       type: 'apps.templates';
       /** All own programs of the account, after the hello and on every change. Protocol 6. */
       templates: DeviceAppTemplate[];
+    }
+  | {
+      type: 'host.call';
+      /** The chat (conversation id); "for this chat" answers last as long as it. Protocol 11. */
+      session: string;
+      /** Project in the direct mode. */
+      project: string;
+      /** The chat, so the device can name it when it asks the user. */
+      conversation: { id: string; title: string | null };
+      /** Id of the model's tool call; the device repeats it. */
+      call: string;
+      /** The tool. */
+      tool: HostTool;
+      /** Its input as the model gave it. */
+      input: Record<string, unknown>;
+    }
+  | {
+      type: 'host.cancel';
+      /** The chat. Protocol 11. */
+      session: string;
+      /** The call to end: a waiting question is denied, a running command ends. */
+      call: string;
+    }
+  | {
+      type: 'host.decide';
+      /** The chat. Protocol 11. */
+      session: string;
+      /** The question from `host.approval`. */
+      approval: string;
+      /** The answer; the device takes it only where the project allows answers from the chat. */
+      decision: HostDecision;
     };
 
 /**
@@ -654,7 +777,44 @@ export type AgentDataParts = {
    * device after the reply or takeover (protocol 8).
    */
   workspace: { commits: number; changes: number };
+  /**
+   * A question of the direct mode (a command, a path outside the project,
+   * a secret or a protected file); updated in place when answered. Its id
+   * is the approval id.
+   */
+  hostApproval: HostApproval;
 };
+
+/** See {@link AgentDataParts.hostApproval}. */
+export interface HostApproval {
+  /** Id to answer with, as the computer shows it. */
+  approval: string;
+  /** The model's tool call it belongs to. */
+  call: string;
+  /** Waiting, or answered (see {@link decision}). */
+  state: 'pending' | 'resolved';
+  /** What is asked. */
+  request: HostRequest;
+  /** One line for the user. */
+  summary: string;
+  /** Why it asks. */
+  why: string;
+  /** Whether "for this chat" is offered. */
+  chatWide: boolean;
+  /** Whether the chat may answer; else only the computer can. */
+  browser: boolean;
+  /** The answer, once there is one. */
+  decision?: HostDecision;
+  /** Who answered. */
+  by?: 'computer' | 'browser' | 'timeout';
+}
+
+/** Validates the answer to a question of the direct mode sent from the chat. */
+export const hostDecisionSchema = z
+  .object({
+    decision: z.enum(HOST_DECISIONS),
+  })
+  .strict();
 
 /**
  * A summary of the older turns of a chat. The model reads it instead of

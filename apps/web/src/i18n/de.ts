@@ -377,7 +377,7 @@ export const de = {
     offlineHint: 'Der Rechner ist gerade nicht erreichbar. Ist er an und angemeldet? Der Hintergrunddienst startet mit der Anmeldung („hearth daemon“).',
     dialogTitle: 'Mit Umgebung verbinden',
     dialogDescription:
-      'Der Agent arbeitet dann in einer Sandbox auf deinem Rechner. Antworten kommen von ihm statt direkt vom Modell, mit Befehlen und Dateiänderungen.',
+      'Der Agent arbeitet dann auf deinem Rechner: in einer Sandbox, oder bei Projekten im Direktmodus direkt im Projektordner. Antworten kommen mit Befehlen und Dateiänderungen.',
     noDevices: 'Noch kein Rechner gekoppelt',
     noDevicesHint: 'Führe auf deinem Rechner „hearth login“ aus und im Projektordner „hearth init“.',
     deviceOffline: 'Gerade nicht erreichbar. Du kannst trotzdem verbinden; schreiben geht, sobald der Rechner wieder da ist.',
@@ -667,6 +667,40 @@ export const de = {
     defaultModelNone: 'Kein Standard',
     defaultModelUnavailable: 'Der Zugang bietet „{model}“ nicht mehr an. Neue Chats nehmen das zuletzt gewählte Modell.',
     defaultModelClear: 'Standard entfernen',
+  },
+  host: {
+    harness: 'direkt auf dem Rechner',
+    linkedTo: '{project}, direkt auf dem Rechner',
+    placeholder: 'Nachricht an den Agent in {project} …',
+    linkedHint:
+      'Der Agent arbeitet ohne VM im Projektordner. Lesen und Schreiben dort geht ohne Rückfrage; jeden Befehl und jeden Zugriff außerhalb gibst du frei.',
+    approvalsHere: 'Freigaben gehen hier im Chat und am Rechner.',
+    approvalsComputer: 'Freigaben nur am Rechner: in der hearth-App, über die Benachrichtigung oder mit `hearth host` im Terminal.',
+    approval: {
+      title: {
+        command: 'Der Agent möchte einen Befehl ausführen',
+        read: 'Der Agent möchte lesen',
+        write: 'Der Agent möchte schreiben',
+      },
+      where: '{shell} in {cwd}',
+      id: 'Freigabe {id}',
+      once: 'Einmal erlauben',
+      chatCommand: 'Diesen Befehl im Chat erlauben',
+      chatFolder: 'Im Chat erlauben',
+      deny: 'Ablehnen',
+      onComputer: 'Wartet auf deine Freigabe am Rechner',
+      answers: {
+        once: 'Erlaubt ({by})',
+        chat: 'Für diesen Chat erlaubt ({by})',
+        deny: 'Abgelehnt ({by})',
+      },
+      by: {
+        computer: 'am Rechner',
+        browser: 'im Chat',
+        timeout: 'keine Antwort',
+      },
+      expired: 'Nicht beantwortet',
+    },
   },
   files: {
     read: {

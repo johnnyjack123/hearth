@@ -9,6 +9,7 @@
 //! then [`Session::execute`] runs the call.
 
 pub mod audit;
+pub mod inbox;
 pub mod policy;
 pub mod shell;
 pub mod tools;
@@ -313,7 +314,7 @@ impl Output {
 
 /// One chat's work in one project: the rules, the shell and what the user
 /// allowed for the chat.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Session {
     policy: Policy,
     shell: Shell,

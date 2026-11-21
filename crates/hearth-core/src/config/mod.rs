@@ -22,8 +22,9 @@ use toml_edit::DocumentMut;
 pub use model::{
     AGENT_HOME, APPS_DIR, AdapterConfig, AppConfig, AppFile, AppSource, AppsConfig,
     DEFAULT_HARNESS, Defaults, DomainPattern, FileMode, FilesConfig, GlobalConfig, GuardKind,
-    HarnessConfig, LlmWiring, NetworkConfig, NetworkPreset, ProjectConfig, RemoteChange,
-    RemoteConfig, ResourcesConfig, ReviewConfig, ServerConfig, valid_chat_id, valid_file_name,
+    HarnessConfig, HostChange, HostConfig, HostWrites, LlmWiring, NetworkConfig, NetworkPreset,
+    ProjectConfig, RemoteChange, RemoteConfig, ResourcesConfig, ReviewConfig, ServerConfig,
+    valid_chat_id, valid_file_name,
 };
 use model::{Validate, validate_app_name, validate_harness_name};
 pub use template::{AppKind, AppTemplate, MAX_PACKAGE_LEN, MAX_PACKAGES, MAX_SCRIPT};
@@ -467,6 +468,28 @@ impl ConfigDir {
             Ok(())
         })?;
         Ok(self.project_config(name)?.remote)
+    }
+
+    /// Changes `[host]` of a project (the direct mode).
+    pub fn set_host(&self, name: &ProjectName, change: HostChange) -> Result<HostConfig> {
+        self.update_project(name, |doc| {
+            for (key, value) in [
+                ("enabled", change.enabled),
+                ("browser_approvals", change.browser_approvals),
+            ] {
+                if let Some(value) = value {
+                    doc["host"][key] = toml_edit::value(value);
+                }
+            }
+            if let Some(writes) = change.writes {
+                doc["host"]["writes"] = toml_edit::value(match writes {
+                    HostWrites::Free => "free",
+                    HostWrites::Ask => "ask",
+                });
+            }
+            Ok(())
+        })?;
+        Ok(self.project_config(name)?.host)
     }
 
     /// Adds a chat confirmed on this computer to `remote.chats`.

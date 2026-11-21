@@ -185,6 +185,51 @@ pub struct ProjectConfig {
     /// Programs from the app catalog the agent gets.
     #[serde(default)]
     pub apps: AppsConfig,
+    /// The direct mode: the agent works in the folder on this computer.
+    #[serde(default)]
+    pub host: HostConfig,
+}
+
+/// `[host]` of a project: the direct mode (`docs/security/concept.md`).
+/// Off unless switched on here; the server can never switch it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostConfig {
+    /// Offer web chats the agent that works in the project folder, with
+    /// approvals on this computer; needs `[remote] enabled` as well.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Web chats may answer the approvals too. Whoever controls the server
+    /// could then run commands here.
+    #[serde(default)]
+    pub browser_approvals: bool,
+    /// Whether writing in the project folder asks.
+    #[serde(default)]
+    pub writes: HostWrites,
+}
+
+/// `writes` of `[host]`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HostWrites {
+    /// Files in the project folder change without asking (but for
+    /// protected ones like git hooks).
+    #[default]
+    Free,
+    /// Every write asks.
+    Ask,
+}
+
+/// A change to `[host]` ([`super::ConfigDir::set_host`]); `None` keeps a
+/// value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HostChange {
+    /// New `enabled`.
+    pub enabled: Option<bool>,
+    /// New `browser_approvals`.
+    pub browser_approvals: Option<bool>,
+    /// New `writes`.
+    pub writes: Option<HostWrites>,
 }
 
 /// `[apps]` of a project.

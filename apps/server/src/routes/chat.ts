@@ -3,6 +3,10 @@ import {
   DEFAULT_TONE,
   DEFAULT_VERBOSITY,
   FORGET_TOOL,
+  HOST_HARNESS,
+  HOST_TOOLS,
+  type HostApproval,
+  type HostInfo,
   type Tone,
   type Verbosity,
   type MemoryToolOutput,
@@ -58,6 +62,7 @@ import { keepToolContent } from '../inspect.ts';
 import { type SearchBackend, WebSearchError } from '../websearch/providers.ts';
 import { createWebSearchTool } from '../websearch/tool.ts';
 import { type Calculator, CalculatorError } from '../calculator/engine.ts';
+import { createHostTools, type HostCallRequest, type HostCallResult, hostInstructions } from '../host/tools.ts';
 import { calculatorText, createCalculatorTool } from '../calculator/tool.ts';
 import { createMemoryTools, MEMORY_INSTRUCTIONS, MemoryError, memoryText } from '../memory/tool.ts';
 import { createProgressTool, PROGRESS_INSTRUCTIONS, PROGRESS_TOOL, type ProgressOutput, progressText } from '../progress/tool.ts';
@@ -179,6 +184,8 @@ const TITLE_WAIT_MS = 3_000;
 
 /** Most model calls per reply when tools are offered (tool rounds plus the answer). */
 const MAX_STEPS = 6;
+/** Steps of a reply in the direct mode: coding takes many tool calls. */
+const MAX_HOST_STEPS = 100;
 /** Research takes several searches and pages before the answer. */
 const MAX_RESEARCH_STEPS = 12;
 
@@ -287,6 +294,7 @@ const REMEMBER_PART = `tool-${REMEMBER_TOOL}`;
 const FORGET_PART = `tool-${FORGET_TOOL}`;
 const PROGRESS_PART = `tool-${PROGRESS_TOOL}`;
 const READ_DOCUMENT_PART = `tool-${READ_DOCUMENT_TOOL}`;
+const HOST_TOOL_PARTS = new Set<string>(HOST_TOOLS.map((name) => `tool-${name}`));
 
 /**
  * Models guess at arithmetic; the calculator does not. Part of the system
@@ -324,6 +332,10 @@ function serverToolText(part: ChatMessage['parts'][number]): string {
     const verb = part.type === REMEMBER_PART ? 'Remembered' : 'Forgot';
     const outcome = error ?? (output ? memoryText(verb, output as unknown as MemoryToolOutput) : '');
     return `[Earlier, ${part.type.slice('tool-'.length)}${outcome ? `: ${shorten(outcome)}` : ''}]`;
+  }
+  if (HOST_TOOL_PARTS.has(part.type)) {
+    const outcome = error ?? String(output?.text ?? '');
+    return `[Earlier, in the linked project: ${part.type.slice('tool-'.length)} ${JSON.stringify(input).slice(0, 300)}${outcome ? `: ${shorten(outcome)}` : ''}]`;
   }
   if (part.type === WEB_SEARCH_PART) {
     const query = String(input.query ?? '');
@@ -540,6 +552,16 @@ export interface StreamChatOptions {
   memory?: { userId: string } | null;
   /** The progress list for tasks with several steps; off when an admin switched it off. */
   progress?: boolean;
+  /**
+   * The direct mode: the chat is linked to a project whose device runs the
+   * model's file and shell tools. `call` sends one to the device; the
+   * device's questions arrive through `onApproval`.
+   */
+  host?: {
+    project: string;
+    info: HostInfo;
+    call: (request: HostCallRequest, onApproval: (approval: HostApproval) => void) => Promise<HostCallResult>;
+  } | null;
 }
 
 /** Which OpenRouter hosts the calls of a chat go to, see `OpenRouterRouting`. */
@@ -618,6 +640,7 @@ function withNotes(messages: ChatMessage[]): ChatMessage[] {
  */
 export async function streamChat(options: StreamChatOptions): Promise<Response> {
   const { db, conversationId, messages, model, modelId, credentialId, pricing, abortSignal, webFetch, search, research, helpers, hosts } = options;
+  const host = options.host ?? null;
   // What Jev ranks search hits against: the user's newest message.
   const question = (messages.at(-1)?.parts ?? [])
     .map((part) => (part.type === 'text' ? part.text : ''))
@@ -660,10 +683,18 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(longDocuments
       ? { [READ_DOCUMENT_TOOL]: createReadDocumentTool(options.files, fileIds, { helpers, vectors: documentVectors(db), signal: abortSignal }) }
       : {}),
+    // The device's questions update a card in place, by their id.
+    ...(host
+      ? createHostTools((request) =>
+          host.call(request, (approval) => writer?.write({ type: 'data-hostApproval', id: `host-${approval.approval}`, data: approval })),
+        )
+      : {}),
   };
   const hasTools = Object.keys(tools).length > 0;
   const missing = new Set(
-    [WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL, PROGRESS_TOOL, READ_DOCUMENT_TOOL].filter((name) => !(name in tools)),
+    [WEB_FETCH_TOOL, WEB_SEARCH_TOOL, CALCULATOR_TOOL, REMEMBER_TOOL, FORGET_TOOL, PROGRESS_TOOL, READ_DOCUMENT_TOOL, ...HOST_TOOLS].filter(
+      (name) => !(name in tools),
+    ),
   );
   const instructions = [
     INSTRUCTIONS,
@@ -675,6 +706,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(options.calculator ? [CALCULATOR_INSTRUCTIONS] : []),
     ...(options.memory ? [MEMORY_INSTRUCTIONS] : []),
     ...(options.progress ? [PROGRESS_INSTRUCTIONS] : []),
+    ...(options.host ? [hostInstructions(options.host.info)] : []),
   ].join(' ');
 
   /**
@@ -706,6 +738,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     createdAt: startedAt,
     modelId,
     credentialId,
+    ...(options.host ? { agent: { project: options.host.project, harness: HOST_HARNESS } } : {}),
     // So the chat can say right away that older results were condensed.
     ...(messages.at(-1)?.metadata?.condensed ? { condensed: true } : {}),
   };
@@ -770,7 +803,7 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
         model,
         instructions,
         messages: await modelMessagesFor(fresh ?? latestCompaction(messages)),
-        ...(hasTools ? { tools, stopWhen: isStepCount(research ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
+        ...(hasTools ? { tools, stopWhen: isStepCount(options.host ? MAX_HOST_STEPS : research ? MAX_RESEARCH_STEPS : MAX_STEPS) } : {}),
         ...options.effort,
         // A call OpenRouter sent elsewhere after a failure moved the cache
         // there; the next one follows instead of going back cold.

@@ -10,6 +10,9 @@ import {
   type DeviceMessage,
   deviceMessageSchema,
   DEFAULT_IDLE_MINUTES,
+  type HostApproval,
+  type HostDecision,
+  type HostTool,
   MIN_TUNNEL_VERSION,
   type RemoteProject,
   type ServerMessage,
@@ -17,6 +20,7 @@ import {
   VERSION_APP_FILES,
   VERSION_APPS,
   VERSION_FILES,
+  VERSION_HOST,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
   VERSION_TEMPLATES,
@@ -215,6 +219,30 @@ interface Connection {
   templatesSent: number;
 }
 
+/** A tool call of the direct mode waiting for the device's result. */
+interface HostPending {
+  deviceId: string;
+  resolve: (result: { output: string; isError: boolean; exitCode?: number }) => void;
+  reject: (error: Error) => void;
+  onApproval: (approval: HostApproval) => void;
+}
+
+/** A tool call of the direct mode, as the chat sends it to the device. */
+export interface HostCallMessage {
+  /** The chat. */
+  session: string;
+  /** Project in the direct mode. */
+  project: string;
+  /** The chat, so the device can name it when it asks. */
+  conversation: { id: string; title: string | null };
+  /** The model's tool call id. */
+  call: string;
+  /** The tool. */
+  tool: HostTool;
+  /** Its input. */
+  input: Record<string, unknown>;
+}
+
 interface ActiveRun {
   deviceId: string;
   /** The chat's project: an agent only reaches what belongs to its own. */
@@ -225,6 +253,11 @@ interface ActiveRun {
    * pages its searches found: those load without asking the user.
    */
   research?: { question: string; found: KnownUrls };
+}
+
+/** Key of a tool call of the direct mode. */
+function hostKey(session: string, call: string): string {
+  return `${session}\u{0}${call}`;
 }
 
 /** Whether a running reply is on a device and, if named, in a project. */
@@ -240,6 +273,8 @@ function ofScope(active: ActiveRun, deviceId: string, project: string | null): b
 export class DeviceHub {
   readonly #devices = new Map<string, Connection>();
   readonly #runs = new Map<string, ActiveRun>();
+  /** Tool calls of the direct mode by chat and call id. */
+  readonly #hostCalls = new Map<string, HostPending>();
   /**
    * What OpenRouter billed for the agents' model calls through the
    * pass-through, until the agent's report of each call picks it up.
@@ -641,6 +676,83 @@ export class DeviceHub {
   }
 
   /**
+   * Sends a tool call of the direct mode to a device and waits for its
+   * result. The device checks the call against the project's rules and asks
+   * the user where they say so; its questions arrive through `onApproval`.
+   *
+   * @param deviceId - The device of the chat.
+   * @param message - The call.
+   * @param options - Ends the call when aborted; gets the device's questions.
+   * @returns What the device returned.
+   * @throws {HttpError} 409 if the device is offline or too old for it, or
+   *   it disconnects before the result.
+   */
+  hostCall(
+    deviceId: string,
+    message: HostCallMessage,
+    options: { signal?: AbortSignal | undefined; onApproval: (approval: HostApproval) => void },
+  ): Promise<{ output: string; isError: boolean; exitCode?: number }> {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      return Promise.reject(new HttpError(409, 'device_offline', 'The device is not connected'));
+    }
+    if (connection.version < VERSION_HOST) {
+      return Promise.reject(new HttpError(409, 'device_outdated', 'The device has no direct mode yet; update hearth'));
+    }
+    const key = hostKey(message.session, message.call);
+    if (this.#hostCalls.has(key)) {
+      return Promise.reject(new HttpError(409, 'conflict', 'This tool call is already running'));
+    }
+    return new Promise((resolve, reject) => {
+      const finish = () => {
+        this.#hostCalls.delete(key);
+        options.signal?.removeEventListener('abort', abort);
+      };
+      const abort = () => {
+        finish();
+        this.#send(connection, { type: 'host.cancel', session: message.session, call: message.call });
+        reject(options.signal?.reason instanceof Error ? options.signal.reason : new Error('aborted'));
+      };
+      if (options.signal?.aborted) {
+        reject(new Error('aborted'));
+        return;
+      }
+      options.signal?.addEventListener('abort', abort, { once: true });
+      this.#hostCalls.set(key, {
+        deviceId,
+        resolve: (result) => {
+          finish();
+          resolve(result);
+        },
+        reject: (error) => {
+          finish();
+          reject(error);
+        },
+        onApproval: options.onApproval,
+      });
+      this.#send(connection, { type: 'host.call', ...message });
+    });
+  }
+
+  /**
+   * Passes the chat's answer to a question of the direct mode on. The
+   * device takes it only where the project allows answers from the chat.
+   *
+   * @param deviceId - Device of the chat.
+   * @param session - The chat.
+   * @param approval - The question's id.
+   * @param decision - The answer.
+   * @throws {HttpError} 409 if the device is offline.
+   */
+  hostDecide(deviceId: string, session: string, approval: string, decision: HostDecision): void {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      throw new HttpError(409, 'device_offline', 'The device is not connected');
+    }
+    this.#send(connection, { type: 'host.decide', session, approval, decision });
+  }
+
+  /**
    * Passes the user's answer to a gateway question on to the device.
    *
    * @param deviceId - Device the session runs on.
@@ -748,6 +860,25 @@ export class DeviceHub {
         }
         return;
       }
+      case 'host.result': {
+        const pending = this.#hostCalls.get(hostKey(message.session, message.call));
+        if (pending?.deviceId === deviceId) {
+          pending.resolve({
+            output: message.output,
+            isError: message.isError,
+            ...(message.exitCode !== undefined ? { exitCode: message.exitCode } : {}),
+          });
+        }
+        return;
+      }
+      case 'host.approval': {
+        const pending = this.#hostCalls.get(hostKey(message.session, message.call));
+        if (pending?.deviceId === deviceId) {
+          const { type: _type, session: _session, ...approval } = message;
+          pending.onApproval(approval);
+        }
+        return;
+      }
       case 'session.closed': {
         const active = this.#runs.get(message.session);
         if (active?.deviceId === deviceId) {
@@ -804,6 +935,11 @@ export class DeviceHub {
       if (active.deviceId === deviceId) {
         active.run.fail(reason);
         this.#runs.delete(session);
+      }
+    }
+    for (const pending of [...this.#hostCalls.values()]) {
+      if (pending.deviceId === deviceId) {
+        pending.reject(new HttpError(409, 'device_offline', 'The device disconnected'));
       }
     }
   }

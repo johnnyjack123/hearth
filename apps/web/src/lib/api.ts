@@ -21,6 +21,7 @@ import type {
   CreateProviderCredentialInput,
   CredentialModels,
   DefaultModel,
+  HostDecision,
   DeviceSummary,
   Inspection,
   LinkConversationInput,
@@ -212,6 +213,8 @@ export const api = {
     takeover: (id: string) => request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/takeover`),
     approve: (id: string, approvalId: number, decision: ApprovalDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
+    hostDecide: (id: string, approval: string, decision: HostDecision) =>
+      request<void>('POST', `/conversations/${encodeURIComponent(id)}/host-approvals/${encodeURIComponent(approval)}`, { decision }),
     stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
     assess: (id: string, messageId: string, toolCallId: string) =>
       request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/assessments`, { messageId, toolCallId }),

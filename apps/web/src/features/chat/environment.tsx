@@ -4,6 +4,7 @@ import {
   type ConversationDetail,
   type ConversationSummary,
   type DeviceSummary,
+  HOST_HARNESS,
   harnessNameSchema,
   type LinkConversationInput,
   projectNameSchema,
@@ -24,6 +25,7 @@ import { cn } from '@/lib/utils.ts';
 import { ProjectAppsDialog, ProjectAppsLine } from '../devices/device-apps.tsx';
 import { DeviceVm } from '../devices/device-vm.tsx';
 import { upsertMessage } from './chat-store.ts';
+import { harnessLabel, linkLabel } from './host-parts.tsx';
 import { takeoverTitle } from './takeover-card.tsx';
 
 /** Search parameters of the start page that preselect an environment. */
@@ -212,7 +214,8 @@ export function useChatEnvironment(
     workspace: link ? workspace : null,
     confirmLabel: t('agent.link'),
     onChoose: choose,
-    work: link ? (
+    // In the direct mode the agent works in the folder itself: nothing to save.
+    work: link?.harness === HOST_HARNESS ? null : link ? (
       <>
         {workspace ? <WorkspaceLine workspace={workspace} /> : null}
         <Button variant="secondary" size="sm" className="justify-start" loading={saving} disabled={online === false} onClick={() => void save()}>
@@ -333,7 +336,7 @@ function useEnvironmentOption({
             <Laptop className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="break-words text-sm font-medium text-foreground">
-                {t('agent.linkedTo', { harness: link.harness, project: link.project })}
+                {linkLabel(t, link)}
               </span>
               <span className="break-words text-xs text-muted-foreground">{t('agent.onDevice', { device: link.deviceName })}</span>
               <OnlineBadge online={online} />
@@ -341,7 +344,8 @@ function useEnvironmentOption({
             </div>
           </div>
           {work ? <div className="flex flex-col gap-1.5 border-t border-border pt-2">{work}</div> : null}
-          {device ? (
+          {link.harness === HOST_HARNESS ? <HostLine device={device} project={link.project} /> : null}
+          {device && link.harness !== HOST_HARNESS ? (
             <div className="flex flex-col gap-2 border-t border-border pt-2">
               <DeviceVm device={device} />
               <ProjectAppsLine
@@ -447,6 +451,18 @@ function WorkspaceLine({ workspace }: { workspace: WorkspaceState }) {
         {workspaceText(t, workspace)}
       </Badge>
       <span className="text-xs text-muted-foreground">{t('takeover.workspaceHint')}</span>
+    </div>
+  );
+}
+
+/** What the direct mode means here, and where its questions are answered. */
+function HostLine({ device, project }: { device: DeviceSummary | undefined; project: string }) {
+  const t = useT();
+  const browser = device?.projects.find((entry) => entry.name === project)?.host?.browserApprovals;
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-2 text-xs text-muted-foreground">
+      <span>{t('host.linkedHint')}</span>
+      {browser === undefined ? null : <span>{browser ? t('host.approvalsHere') : t('host.approvalsComputer')}</span>}
     </div>
   );
 }
@@ -603,7 +619,7 @@ function DeviceChoices({
                 />
                 <Container className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <span className="min-w-0 flex-1 truncate font-medium">{option.project}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{option.harness}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{harnessLabel(t, option.harness)}</span>
                 <Check className={cn('size-4 shrink-0 text-primary', !selected && 'invisible')} aria-hidden="true" />
               </label>
             );

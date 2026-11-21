@@ -994,6 +994,7 @@ mod tests {
         let offered = vec![RemoteProject {
             name: name.clone(),
             harnesses: vec!["pi".into()],
+            host: None,
         }];
 
         let (ok, message) = apply_from_browser(&config, &offered, &name, &["rust".into()]);

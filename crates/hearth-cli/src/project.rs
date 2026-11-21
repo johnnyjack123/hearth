@@ -686,7 +686,7 @@ pub fn resolve_or_offer(config: &ConfigDir) -> anyhow::Result<Project> {
     Ok(project)
 }
 
-fn current_repo() -> anyhow::Result<PathBuf> {
+pub(crate) fn current_repo() -> anyhow::Result<PathBuf> {
     let cwd = env::current_dir().context(tr(
         "Aktuellen Ordner bestimmen",
         "Determining the current folder",

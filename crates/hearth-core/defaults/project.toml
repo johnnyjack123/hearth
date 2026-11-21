@@ -47,6 +47,21 @@ merge = false
 # Bestätigte Chats; hearth connect trägt sie ein.
 chats = []
 
+[host]
+# Direktmodus: Web-Chats bekommen zusätzlich einen Agent, der ohne VM in
+# diesem Ordner auf dem Rechner arbeitet. Lesen und Schreiben im Ordner geht
+# ohne Rückfrage (außer Git-Hooks, Editor- und Agent-Einstellungen und
+# Geheimnissen wie .env); jeder Befehl und jeder Zugriff außerhalb des
+# Ordners braucht deine Freigabe an diesem Rechner. Befehle laufen mit
+# deinen Rechten. Braucht auch [remote] enabled. Umschalten mit
+# `hearth project host on|off`.
+enabled = false
+# Freigaben auch im Web-Chat erlauben. Dann kann jeder, der den Server
+# kontrolliert, Befehle auf diesem Rechner freigeben.
+browser_approvals = false
+# free: Schreiben im Ordner ohne Rückfrage. ask: jedes Schreiben fragt.
+writes = "free"
+
 [apps]
 # Programme aus dem App-Katalog, die der Agent hier bekommt, z. B. "rust"
 # (`hearth app list` zeigt alle; was eine App braucht, kommt mit). Jede

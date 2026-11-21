@@ -109,6 +109,30 @@ function effortStep(payload) {
   return null;
 }
 
+/**
+ * The direct mode: "Direkt: <command>" reads the README through the device,
+ * runs the command (which asks first), then answers with its first line.
+ */
+function hostStep(payload) {
+  if (!payload.tools?.some((tool) => tool.function?.name === 'shell')) {
+    return null;
+  }
+  const messages = payload.messages ?? [];
+  const lastUser = messages.map((message) => message.role).lastIndexOf('user');
+  const command = /Direkt: (.+)$/m.exec(textOf(messages[lastUser]?.content))?.[1];
+  if (!command) {
+    return null;
+  }
+  const done = messages.slice(lastUser).filter((message) => message.role === 'tool');
+  if (done.length === 0) {
+    return { call: { name: 'read', input: { path: 'README.md' } } };
+  }
+  if (done.length === 1) {
+    return { call: { name: 'shell', input: { command } } };
+  }
+  return { text: `Erledigt: ${textOf(done.at(-1).content).trim().split('\n')[0]}` };
+}
+
 /** Uses the calculator and answers with formulas and a code block, when asked to calculate. */
 function calculatorStep(payload) {
   if (!payload.tools?.some((tool) => tool.function?.name === 'calculate')) {
@@ -328,6 +352,7 @@ http
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const step =
           effortStep(payload) ??
+          hostStep(payload) ??
           calculatorStep(payload) ??
           memoryStep(payload) ??
           progressStep(payload) ??

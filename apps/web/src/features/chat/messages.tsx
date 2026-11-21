@@ -3,6 +3,7 @@ import {
   CALCULATOR_TOOL,
   type Compaction,
   FORGET_TOOL,
+  type HostDecision,
   type Inspection,
   REMEMBER_TOOL,
   WEB_FETCH_TOOL,
@@ -24,6 +25,7 @@ import { MessageFiles } from './attachments.tsx';
 import { AgentNotice, AgentProgress, ApprovalCard, ToolCall } from './agent-parts.tsx';
 import { CalculatorCall } from './calculator-call.tsx';
 import { DocumentRead } from './document-read.tsx';
+import { asDynamicTool, HostApprovalCard, isHostToolPart, linkLabel } from './host-parts.tsx';
 import { MemoryCall, memoryCallView } from './memory-call.tsx';
 import { TakeoverCard } from './takeover-card.tsx';
 import { formatCost } from './context-meter.tsx';
@@ -60,6 +62,8 @@ export interface MessageListProps {
   onRegenerate: () => void;
   /** Answers a question of the gateway in a linked chat. */
   onApprove?: (id: number, decision: ApprovalDecision) => Promise<void>;
+  /** Answers a question of the direct mode, where the project allows answers from the chat. */
+  onHostDecide?: (approval: string, decision: HostDecision) => Promise<void>;
   /** Asks Jev about the prompt injection warning of a tool call in a stored reply. */
   onAssess?: (messageId: string, toolCallId: string) => Promise<void>;
   /** Loads the whole content behind the prompt injection warning of a tool call in a stored reply. */
@@ -72,7 +76,7 @@ export interface MessageListProps {
  * @param props - See {@link MessageListProps}.
  * @returns The message column.
  */
-export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove, onAssess, onInspect }: MessageListProps) {
+export function MessageList({ messages, status, error, initialIds, onRegenerate, onApprove, onHostDecide, onAssess, onInspect }: MessageListProps) {
   const lastAssistantId = messages.findLast((message) => message.role === 'assistant')?.id;
   const busy = status === 'submitted' || status === 'streaming';
   // Links of a reply are checked against everything the chat read or found.
@@ -104,6 +108,7 @@ export function MessageList({ messages, status, error, initialIds, onRegenerate,
               canRegenerate={message.id === lastAssistantId && !busy}
               onRegenerate={onRegenerate}
               onApprove={onApprove}
+              onHostDecide={onHostDecide}
               onAssess={onAssess}
               onInspect={onInspect}
               known={known}
@@ -144,6 +149,7 @@ function AssistantMessage({
   canRegenerate,
   onRegenerate,
   onApprove,
+  onHostDecide,
   onAssess,
   onInspect,
   known,
@@ -154,6 +160,7 @@ function AssistantMessage({
   canRegenerate: boolean;
   onRegenerate: () => void;
   onApprove: ((id: number, decision: ApprovalDecision) => Promise<void>) | undefined;
+  onHostDecide: ((approval: string, decision: HostDecision) => Promise<void>) | undefined;
   onAssess: ((messageId: string, toolCallId: string) => Promise<void>) | undefined;
   onInspect: ((messageId: string, toolCallId: string) => Promise<Inspection>) | undefined;
   known: ReadonlyMap<string, KnownSource>;
@@ -232,6 +239,21 @@ function AssistantMessage({
               onInspect={inspect(part.toolCallId)}
             />
           );
+        }
+        if (isHostToolPart(part)) {
+          return (
+            <ToolCall
+              key={part.toolCallId}
+              part={asDynamicTool(part)}
+              streaming={streaming}
+              ms={toolMs?.[part.toolCallId]}
+              onAssess={assess(part.toolCallId)}
+              onInspect={inspect(part.toolCallId)}
+            />
+          );
+        }
+        if (part.type === 'data-hostApproval') {
+          return <HostApprovalCard key={part.id ?? index} approval={part.data} live={streaming} onDecide={onHostDecide} />;
         }
         if (part.type === 'data-notice') {
           return <AgentNotice key={index} notice={part.data} />;
@@ -460,7 +482,7 @@ function MessageActions({
         {message.metadata?.agent ? (
           <span className="ms-1 inline-flex min-w-0 items-center gap-1 truncate text-xs">
             <Container className="size-3.5 shrink-0" aria-hidden="true" />
-            {t('agent.linkedTo', { harness: message.metadata.agent.harness, project: message.metadata.agent.project })}
+            {linkLabel(t, message.metadata.agent)}
           </span>
         ) : null}
         {message.metadata?.modelId ? (
