@@ -138,6 +138,22 @@ export const updateChatFeaturesSchema = z
 export type UpdateChatFeatures = z.infer<typeof updateChatFeaturesSchema>;
 
 /**
+ * The model a user's new chats start with (Settings → Chat), or null for
+ * none: then a new chat takes the last model chosen in that browser. Chats
+ * that already have a model keep it.
+ */
+export const defaultModelSchema = z
+  .object({
+    credentialId: z.string().min(1).max(100),
+    modelId: z.string().min(1).max(300),
+  })
+  .strict()
+  .nullable();
+
+/** See {@link defaultModelSchema}. */
+export type DefaultModel = z.infer<typeof defaultModelSchema>;
+
+/**
  * One user's use of the server right now, for admins.
  */
 export interface UserActivity {

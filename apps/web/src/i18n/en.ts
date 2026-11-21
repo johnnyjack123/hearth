@@ -661,6 +661,12 @@ export const en: Messages = {
     openRouterNoFourBitHint:
       'The cheapest hosts often run models shrunk to 4 bits (fp4, int4). That saves money but may give worse answers.',
     saved: 'Setting saved',
+    defaultModel: 'Default model for new chats',
+    defaultModelHint:
+      'Every new chat starts with this model, on all your devices. Chats with a model keep theirs. Without a default, a new chat takes the model last chosen in this browser.',
+    defaultModelNone: 'No default',
+    defaultModelUnavailable: 'The credential no longer offers “{model}”. New chats take the model last chosen.',
+    defaultModelClear: 'Remove default',
   },
   files: {
     read: {

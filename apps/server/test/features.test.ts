@@ -33,6 +33,35 @@ describe.each(DIALECTS)('chat features and registration on %s', (kind) => {
     expect((await server.request('GET', '/api/features')).status).toBe(401);
   });
 
+  it('keeps a default model for new chats per user, only with their own credential', async () => {
+    const alice = await server.signUp('alice@example.com');
+    const bob = await server.signUp('bob@example.com');
+    const added = await server.request('POST', '/api/providers', {
+      cookie: alice,
+      body: { kind: 'openai', label: 'Work', apiKey: 'sk-test-0123456789abcdef' },
+    });
+    const credential = (await added.json()) as { id: string };
+    const read = async (cookie: string) => (await server.request('GET', '/api/features/default-model', { cookie })).json();
+
+    expect(await read(alice)).toBeNull();
+    const choice = { credentialId: credential.id, modelId: 'gpt-test' };
+    const stored = await server.request('PUT', '/api/features/default-model', { cookie: alice, body: choice });
+    expect(stored.status).toBe(200);
+    expect(await read(alice)).toEqual(choice);
+    expect(await read(bob)).toBeNull();
+
+    // Someone else's credential is no choice.
+    expect((await server.request('PUT', '/api/features/default-model', { cookie: bob, body: choice })).status).toBe(404);
+    expect((await server.request('PUT', '/api/features/default-model', { cookie: alice, body: { modelId: 'x' } })).status).toBe(400);
+
+    // Without the credential the choice is gone, so the browser's last model counts again.
+    await server.request('DELETE', `/api/providers/${credential.id}`, { cookie: alice });
+    expect(await read(alice)).toBeNull();
+
+    expect((await server.request('PUT', '/api/features/default-model', { cookie: alice, body: null })).status).toBe(200);
+    expect(await read(alice)).toBeNull();
+  });
+
   it('takes what an admin set for the server before, until the user sets their own', async () => {
     const user = await server.signUp('user@example.com');
     // Stored by a server before 0.1.22, when the features were server settings.

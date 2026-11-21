@@ -23,6 +23,12 @@ export interface ModelPickerProps {
   loading: boolean;
   /** Models of the latest chats, offered first. */
   recent?: ModelSelection[];
+  /** Where the list opens: above the composer, or below a button elsewhere. */
+  side?: 'top' | 'bottom';
+  /** Shown without a selection; defaults to "Select model". */
+  placeholder?: string;
+  /** Look of the button: plain in the composer, framed in a settings row. */
+  variant?: 'ghost' | 'outline';
 }
 
 /**
@@ -43,7 +49,16 @@ export function withoutVendor(name: string): string {
  * @param props - See {@link ModelPickerProps}.
  * @returns The picker.
  */
-export function ModelPicker({ selection, onSelect, groups, loading, recent = [] }: ModelPickerProps) {
+export function ModelPicker({
+  selection,
+  onSelect,
+  groups,
+  loading,
+  recent = [],
+  side = 'top',
+  placeholder,
+  variant = 'ghost',
+}: ModelPickerProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const choose = (next: ModelSelection) => {
@@ -57,18 +72,26 @@ export function ModelPicker({ selection, onSelect, groups, loading, recent = [] 
   const label =
     selectedGroup && selection
       ? `${selectedGroup.label}: ${withoutVendor(selectedModel?.name ?? selection.modelId)}`
-      : (selection?.modelId ?? t('chat.selectModel'));
+      : (selection?.modelId ?? placeholder ?? t('chat.selectModel'));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="group/marquee min-w-0 max-w-52 shrink gap-1.5 px-2 text-muted-foreground hover:text-foreground">
+        <Button
+          variant={variant}
+          size="sm"
+          className={
+            variant === 'ghost'
+              ? 'group/marquee min-w-0 max-w-52 shrink gap-1.5 px-2 text-muted-foreground hover:text-foreground'
+              : 'group/marquee min-w-0 max-w-72 shrink gap-1.5 px-2'
+          }
+        >
           <Sparkles className="text-primary" />
           <MarqueeText text={label} autoplay />
           <ChevronDown className="opacity-60" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="top" className="w-[min(var(--spacing)*88,calc(100vw-var(--spacing)*8))] p-0">
+      <PopoverContent align="start" side={side} className="w-[min(var(--spacing)*88,calc(100vw-var(--spacing)*8))] p-0">
         <Command loop defaultValue={selection ? `${selection.credentialId}::${selection.modelId}` : undefined}>
           <CommandInput placeholder={t('chat.searchModels')} />
           <CommandList>

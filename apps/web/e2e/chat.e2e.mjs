@@ -294,6 +294,60 @@ try {
     await page.waitForSelector('[data-message-hits]', { hidden: true, timeout: 5_000 });
   });
 
+  await step('new chats start with the default model, existing ones keep theirs', async () => {
+    // The test catalog has one model; the page is told about a second one
+    // (on the same page: another one would cost a renderer).
+    const wider = await page.evaluateOnNewDocument(() => {
+      const original = window.fetch;
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        const url = String(args[0] instanceof Request ? args[0].url : args[0]);
+        if (!url.includes('/api/models')) {
+          return response;
+        }
+        const groups = await response.json();
+        for (const group of groups) {
+          group.models.push({ ...group.models[0], id: 'mock-alt', name: 'Mock Alt' });
+        }
+        return new Response(JSON.stringify(groups), { status: response.status, headers: { 'content-type': 'application/json' } });
+      };
+    });
+    const composerShows = (value) =>
+      page.waitForFunction((wanted) => document.querySelector('form')?.innerText.includes(wanted), { timeout: 10_000 }, value);
+    try {
+      await page.goto(`${BASE}/settings?tab=chat`, { waitUntil: 'networkidle0' });
+      await page.click('[data-default-model] button');
+      await page.waitForSelector(`[role=option]${text('Mock Alt')}`, { timeout: 5_000 });
+      await page.click(`[role=option]${text('Mock Alt')}`);
+      await page.waitForSelector('[data-default-model] button[aria-label="Standard entfernen"]', { timeout: 5_000 });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('07i-default-model');
+
+      await page.goto(BASE, { waitUntil: 'networkidle0' });
+      await composerShows('Mock: Mock Alt');
+      // A chat that has a model keeps it.
+      await page.goto(`${BASE}${conversationPath}`, { waitUntil: 'networkidle0' });
+      await composerShows('Mock: mock-model');
+    } finally {
+      await page.removeScriptToEvaluateOnNewDocument(wider.identifier);
+    }
+
+    // Where the credential no longer offers the model, the settings say so
+    // and new chats take the model as before.
+    await page.goto(`${BASE}/settings?tab=chat`, { waitUntil: 'networkidle0' });
+    await waitForText('bietet „mock-alt“ nicht mehr an');
+    await page.goto(BASE, { waitUntil: 'networkidle0' });
+    await composerShows('Mock: mock-model');
+
+    await page.goto(`${BASE}/settings?tab=chat`, { waitUntil: 'networkidle0' });
+    await page.click('[data-default-model] button[aria-label="Standard entfernen"]');
+    await page.waitForSelector('[data-default-model] button[aria-label="Standard entfernen"]', { hidden: true, timeout: 5_000 });
+    const stored = await page.evaluate(async () => (await fetch('/api/features/default-model')).json());
+    if (stored !== null) {
+      throw new Error(`default model still ${JSON.stringify(stored)}`);
+    }
+  });
+
   await step('a chat open on phone and laptop shows what the other one writes', async () => {
     // Another browser stands in for the phone: its own sign-in and connection.
     const context = await browser.createBrowserContext();

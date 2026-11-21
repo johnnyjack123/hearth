@@ -9,6 +9,7 @@ import { api, errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryKeys, useProviders } from '@/lib/queries.ts';
 import { Section, SettingRow } from '../shell/page.tsx';
+import { DefaultModelCard } from './default-model.tsx';
 
 type Feature = keyof ChatFeatures;
 
@@ -94,7 +95,8 @@ function FeatureCard({ names }: { names: Feature[] }) {
 }
 
 /**
- * Settings → Chat: the tools the user's chat models and agents get.
+ * Settings → Chat: the model new chats start with and the tools the user's
+ * chat models and agents get.
  *
  * @returns The panel.
  */
@@ -102,7 +104,10 @@ export function ChatFeaturesPanel() {
   const t = useT();
   return (
     <Section title={t('features.title')} description={t('features.description')}>
-      <FeatureCard names={TOOLS} />
+      <div className="flex flex-col gap-4">
+        <DefaultModelCard />
+        <FeatureCard names={TOOLS} />
+      </div>
     </Section>
   );
 }

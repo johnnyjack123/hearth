@@ -17,6 +17,7 @@ export const queryKeys = {
   costs: ['costs'] as const,
   hostCheck: ['openrouter-access', 'status'] as const,
   features: ['features'] as const,
+  defaultModel: ['features', 'default-model'] as const,
   activity: ['admin', 'activity'] as const,
   conversations: ['conversations'] as const,
   conversation: (id: string) => ['conversations', id] as const,
@@ -166,6 +167,16 @@ export function useAppTemplates() {
  */
 export function useModels(enabled = true) {
   return useQuery({ queryKey: queryKeys.models, queryFn: api.models.list, enabled, staleTime: 5 * 60_000 });
+}
+
+/**
+ * The model the user's new chats start with, or null for none. Kept for a
+ * few minutes; it changes only in Settings → Chat, which updates the cache.
+ *
+ * @returns The query result.
+ */
+export function useDefaultModel() {
+  return useQuery({ queryKey: queryKeys.defaultModel, queryFn: api.features.defaultModel, staleTime: 5 * 60_000 });
 }
 
 /**

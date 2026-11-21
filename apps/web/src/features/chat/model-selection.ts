@@ -1,6 +1,6 @@
 import type { ConversationSummary, CredentialModels, ModelSelection } from '@hearth/shared';
-import { useCallback, useEffect, useState } from 'react';
-import { useConversations, useModels } from '@/lib/queries.ts';
+import { useCallback, useState } from 'react';
+import { useConversations, useDefaultModel, useModels } from '@/lib/queries.ts';
 
 /** Models the picker offers as recently used. */
 const RECENT_MODELS = 5;
@@ -53,12 +53,55 @@ function rememberModel(selection: ModelSelection): void {
   }
 }
 
+/** Whether a credential of the list offers the model. */
+function offers(groups: CredentialModels[], selection: ModelSelection): boolean {
+  return groups.some((group) => group.credentialId === selection.credentialId && group.models.some((model) => model.id === selection.modelId));
+}
+
+/** Whether the list still has the selection's credential. */
+function hasCredential(groups: CredentialModels[], selection: ModelSelection): boolean {
+  return groups.some((group) => group.credentialId === selection.credentialId);
+}
+
+/**
+ * The model for the next message, from the best source that is still
+ * usable. Before the model list has loaded every source counts as usable.
+ *
+ * @param chosen - The chat's model, or what the user picked on this page.
+ * @param fallback - The user's default model, else the last choice in this browser.
+ * @param groups - Models per credential, undefined while loading.
+ * @returns The selection, or null when no credential offers a model.
+ */
+function pickModel(
+  chosen: ModelSelection | null,
+  fallback: { defaultModel: ModelSelection | null; last: ModelSelection | null },
+  groups: CredentialModels[] | undefined,
+): ModelSelection | null {
+  // A chat keeps its model even when the catalog no longer lists it; only a
+  // removed credential replaces it.
+  if (chosen && (!groups || hasCredential(groups, chosen))) {
+    return chosen;
+  }
+  const { defaultModel, last } = fallback;
+  if (defaultModel && (!groups || offers(groups, defaultModel))) {
+    return defaultModel;
+  }
+  if (last && (!groups || hasCredential(groups, last))) {
+    return last;
+  }
+  const first = groups?.find((group) => group.models.length > 0);
+  const model = first?.models[0];
+  return first && model ? { credentialId: first.credentialId, modelId: model.id } : null;
+}
+
 /**
  * Tracks the model used for the next message.
  *
- * Starts from the conversation's last model, then the user's last choice in
- * this browser, then the first available model. A selection whose credential
- * no longer exists is replaced once the model list has loaded.
+ * Starts from the conversation's model, then the user's default model for
+ * new chats (Settings → Chat, the same on every device) while its credential
+ * still offers it, then the user's last choice in this browser, then the
+ * first available model. A selection whose credential no longer exists is
+ * replaced once the model list has loaded.
  *
  * @param initial - Model stored with the conversation, if any.
  * @returns Current selection, a setter that also remembers the choice, the model list query,
@@ -67,30 +110,16 @@ function rememberModel(selection: ModelSelection): void {
 export function useModelSelection(initial: { credentialId: string | null; modelId: string | null } | null) {
   const models = useModels();
   const conversations = useConversations();
-  const [selection, setSelection] = useState<ModelSelection | null>(() =>
-    initial?.credentialId && initial.modelId
-      ? { credentialId: initial.credentialId, modelId: initial.modelId }
-      : readLastModel(),
+  const defaults = useDefaultModel();
+  const [chosen, setChosen] = useState<ModelSelection | null>(() =>
+    initial?.credentialId && initial.modelId ? { credentialId: initial.credentialId, modelId: initial.modelId } : null,
   );
-
-  useEffect(() => {
-    const groups = models.data;
-    if (!groups) {
-      return;
-    }
-    setSelection((current) => {
-      if (current && groups.some((group) => group.credentialId === current.credentialId)) {
-        return current;
-      }
-      const first = groups.find((group) => group.models.length > 0);
-      const model = first?.models[0];
-      return first && model ? { credentialId: first.credentialId, modelId: model.id } : null;
-    });
-  }, [models.data]);
+  const [last] = useState(readLastModel);
+  const selection = pickModel(chosen, { defaultModel: defaults.data ?? null, last }, models.data);
 
   const select = useCallback((next: ModelSelection) => {
     rememberModel(next);
-    setSelection(next);
+    setChosen(next);
   }, []);
 
   const group = models.data?.find((entry) => entry.credentialId === selection?.credentialId);
