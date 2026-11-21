@@ -25,12 +25,12 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 4. **Phase 6 (ROADMAP, Plan vom 21.11., Konzept `docs/security/concept.md`):**
    - ✅ Schritt 1: Unix-Build (Workflow `unix.yml` grün auf Linux x64/arm64 und macOS, Tests auf dem Linux-Laptop grün).
    - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
-   - ✅ Schritt 3: Tunnel-Protokoll 11, Server-Schleife, Web-Karten, `hearth project host`, `hearth host`. Geprüft: Server-Tests, Browser-E2E (25/25), `scripts/smoke-host.sh` unter Windows (26/26). **Offen:** `smoke-host.sh` auf dem Linux-Laptop (war am 21.11. nachmittags nicht erreichbar; Weg: Server und Mock unter Windows, `ssh -R 8097:127.0.0.1:8097 linux-laptop`, dort `SERVER_URL=http://127.0.0.1:8097 SERVER_COOKIES=… CREDENTIAL=… bash scripts/smoke-host.sh`).
+   - ✅ Schritt 3: Tunnel-Protokoll 11, Server-Schleife, Web-Karten, `hearth project host`, `hearth host`. Geprüft: Server-Tests, Browser-E2E (25/25), `scripts/smoke-host.sh` unter Windows (26/26). Auf dem Linux-Laptop mit dem Paket aus v0.4.0 ebenfalls 26/26 (21.11. abends; Server und Mock unter Windows, `ssh -R 8097:127.0.0.1:8097 linux-laptop`, dort `SERVER_URL=http://127.0.0.1:8097 SERVER_COOKIES=… CREDENTIAL=… HEARTH_BIN=… bash scripts/smoke-host.sh`).
    - Schritt 4: Benachrichtigung und Freigabe-Dialog am Rechner (heute nur `hearth host` im Terminal), geht in Schritt 5 auf.
    - 🔨 Schritt 5: Desktop-App `hearth-app` (egui): Freigaben, Projekte mit Modus, Netzregeln und Programmen der Sandbox, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben; `hearth setup` trägt sie ins Startmenü ein (Windows `Hearth.lnk`, Linux `.desktop`). Offen: Tray unter macOS und Linux (Linux: StatusNotifierItem, z. B. `ksni`; macOS: `NSStatusItem`), beides ohne echtes Testgerät hier.
    - 🔨 Schritt 7 vorgezogen: Pakete für Linux (x64, arm64, OpenSSL eingebaut) und macOS (Universal-App, ad hoc signiert) mit `scripts/install.sh` und Workflow `unix-release.yml`; Linux/macOS: `hearth setup`, `hearth doctor`, Token-Datei, Benachrichtigungen ohne Tray. Anleitung `docs/client-unix.md`.
    - 🔨 Schritt 6: Sandbox unter Linux (rootless Podman ohne VM) und macOS (Podman-Machine, `hearth setup` legt sie an) im Provider; Instanzen ohne DNS (Fund: Podman 4 löste im internen Netz externe Namen auf). Geprüft: Provider-Test in der Windows-VM; unter Ubuntu in der CI (Job `sandbox` in `unix.yml`) grün: Provider, Images (Base und Gateway im lokalen Podman gebaut), Git-Sync, Gateway mit Rückfrage und TLS, Instanz mit Installation über das Gateway. Unter Linux erreicht die Sandbox keinen Server unter `localhost` (kein gvproxy), dokumentiert. Offen: macOS-Sandbox ungeprüft (die CI-Runner haben keine verschachtelte Virtualisierung); zusätzliche Runtime unter Linux (gVisor/krun, ARCHITECTURE §3); die Images in der VM des Nutzers sind für das neue Netz-Layout veraltet (erst neu bauen, wenn er zustimmt, siehe Stolpersteine „TLS im Gateway“ zum Sichern seines Stands; beim nächsten Update baut `hearth setup` sie ohnehin neu).
-   - Offen außerdem: Test auf dem Linux-Laptop (am 21.11. nachmittags und abends offline), Rückmeldung des Nutzers zu v0.4.0 (erstes Release mit Linux- und macOS-Paketen, 21.11.); Korrekturen kommen als 0.4.x.
+   - Offen außerdem: Desktop-App und Sandbox auf dem Linux-Laptop (dort ist kein Podman installiert), Rückmeldung des Nutzers zu v0.4.0 (erstes Release mit Linux- und macOS-Paketen, 21.11.); Korrekturen kommen als 0.4.x.
    - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
@@ -88,7 +88,8 @@ Stand 21.11. abends (Branch `feat/unix-sandbox`, danach `main`):
 - `unix-release.yml` als Probelauf grün (Pakete gebaut, nichts veröffentlicht).
 - Desktop-App: kittest-Tests mit Bildern angesehen, Speicher gemessen (glow 78 MB).
 - Startmenü-Eintrag: PowerShell-Teil gegen eine Testdatei geprüft (anlegen, unverändert lassen, Ziel ändern); `hearth setup` selbst nicht mit dem echten Startmenü laufen lassen.
-- Nicht geprüft: echter Linux-Desktop (Laptop offline), macOS-Sandbox, Tray unter Linux/macOS (gibt es noch nicht), echte Handys.
+- v0.4.0: alle Release-Workflows grün, 8 Dateien im Release. Auf dem Linux-Laptop (CachyOS, x86_64): `install.sh` mit dem Archiv aus dem Release, `hearth 0.4.0` startet, OpenSSL eingebaut, `hearth-app` findet alle Bibliotheken, `smoke-host.sh` 26/26 mit dem Release-Programm.
+- Nicht geprüft: Desktop-App auf einem echten Linux-Desktop (nur die Bibliotheken), Sandbox auf dem Laptop, macOS-Sandbox, Tray unter Linux/macOS (gibt es noch nicht), echte Handys.
 
 ---
 
