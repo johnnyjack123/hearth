@@ -10,6 +10,10 @@
 //! 6. `hearth` on the user's PATH.
 //!
 //! Run it again after a restart or a fix: finished steps only show ✓.
+//!
+//! On Linux and macOS it checks git and Podman, pairs, sets up the
+//! background service and an entry for the desktop app; the sandbox there
+//! comes with Phase 6, step 6, the direct mode works already.
 
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
@@ -121,17 +125,14 @@ impl Assistant {
 
 /// `hearth setup`. Returns whether everything is ready.
 pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Result<bool> {
-    if !cfg!(windows) {
-        anyhow::bail!(tr(
-            "`hearth setup` richtet Windows ein; auf anderen Systemen gibt es das noch nicht.",
-            "`hearth setup` sets Windows up; there is nothing like it for other systems yet."
-        ));
-    }
     let assistant = Assistant {
         yes: options.yes,
         interactive: std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
         system: daemon::automatic(),
     };
+    if !cfg!(windows) {
+        return run_unix(&assistant, config, options);
+    }
     println!(
         "{}",
         tr(
@@ -196,6 +197,120 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
         );
     }
     Ok(true)
+}
+
+/// `hearth setup` on Linux and macOS: no VM service and nothing that needs
+/// administrator rights; packages come from the system's package manager.
+fn run_unix(assistant: &Assistant, config: &ConfigDir, options: Options) -> anyhow::Result<bool> {
+    println!(
+        "{}",
+        tr(
+            "Einrichtung von hearth auf diesem Rechner\n",
+            "Setting up hearth on this computer\n"
+        )
+    );
+    let install = if cfg!(target_os = "macos") {
+        "brew install"
+    } else {
+        tr(
+            "dem Paketmanager (apt, dnf, pacman …):",
+            "the package manager (apt, dnf, pacman …):",
+        )
+    };
+    match find_git() {
+        Ok(git) => ok(tr!("git: {}", "git: {}", git.display())),
+        Err(_) => {
+            fail(tr!(
+                "git fehlt. Installieren mit {install} git",
+                "git is missing. Install it with {install} git"
+            ));
+            return Ok(false);
+        }
+    }
+    match find_podman() {
+        Ok(podman) => ok(tr!(
+            "Podman: {} (die Sandbox unter diesem System kommt mit einem späteren Update; der Direktmodus geht schon)",
+            "Podman: {} (the sandbox on this system comes with a later update; the direct mode works already)",
+            podman.display()
+        )),
+        Err(_) => warn(tr!(
+            "Podman fehlt; der Direktmodus braucht es nicht. Für die Sandbox später: {install} podman",
+            "Podman is missing; the direct mode does not need it. For the sandbox later: {install} podman"
+        )),
+    }
+    let paired = server(assistant, config, options.server)?;
+    if paired {
+        background(assistant, config)?;
+    }
+    desktop_entry(assistant)?;
+    let here = std::env::current_exe()?;
+    if let Some(dir) = here.parent()
+        && !std::env::var_os("PATH")
+            .is_some_and(|path| std::env::split_paths(&path).any(|entry| entry == dir))
+    {
+        warn(tr!(
+            "{} steht nicht im PATH. In der Shell-Konfiguration ergänzen, z. B. export PATH=\"{}:$PATH\"",
+            "{} is not on the PATH. Add it in the shell's configuration, e.g. export PATH=\"{}:$PATH\"",
+            dir.display(),
+            dir.display()
+        ));
+    }
+    println!();
+    println!(
+        "{}",
+        tr(
+            "Fertig. Im Ordner eines Projekts: `hearth init`, dann `hearth project host on` für den Direktmodus (Agent im Ordner, jeder Befehl mit Freigabe). Freigaben gibst du in der Hearth-App oder mit `hearth host`.",
+            "Done. In a project's folder: `hearth init`, then `hearth project host on` for the direct mode (agent in the folder, every command with approval). You answer approvals in the Hearth app or with `hearth host`."
+        )
+    );
+    Ok(true)
+}
+
+/// A menu entry for the desktop app (Linux: `~/.local/share/applications`;
+/// macOS gets an app bundle from the package).
+fn desktop_entry(assistant: &Assistant) -> anyhow::Result<()> {
+    if cfg!(target_os = "macos") || !assistant.system {
+        return Ok(());
+    }
+    let app = std::env::current_exe()?.with_file_name("hearth-app");
+    if !app.is_file() {
+        return Ok(());
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .map_or_else(
+            || hearth_core::paths::home_dir().map(|home| home.join(".local/share")),
+            Ok,
+        )?;
+    let file = data.join("applications").join("io.hearth.app.desktop");
+    let entry = format!(
+        "[Desktop Entry]\nType=Application\nName=Hearth\nComment={}\nExec=\"{}\"\nTerminal=false\nCategories=Development;Utility;\nStartupWMClass=io.hearth.app\n",
+        tr(
+            "Projekte, Freigaben und Verbindung von hearth",
+            "Projects, approvals and connection of hearth"
+        ),
+        app.display()
+            .to_string()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+    );
+    if std::fs::read_to_string(&file).is_ok_and(|text| text == entry) {
+        ok(tr(
+            "Hearth-App im Startmenü",
+            "Hearth app in the start menu",
+        ));
+        return Ok(());
+    }
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&file, entry)?;
+    ok(tr(
+        "Hearth-App im Startmenü eingetragen",
+        "Hearth app added to the start menu",
+    ));
+    Ok(())
 }
 
 /// Hyper-V switched on; if not, why not, and an offer to switch it on.

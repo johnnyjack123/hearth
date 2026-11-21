@@ -106,6 +106,22 @@ fn check_config(config: &ConfigDir, report: &mut Report) -> GlobalConfig {
 }
 
 fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
+    // The sandbox outside Windows comes later (Phase 6, step 6); the
+    // direct mode needs no VM, so its absence is no failure there.
+    if !cfg!(windows) {
+        match find_podman() {
+            Ok(podman) => report.ok(tr!(
+                "Podman: {} (die Sandbox kommt auf diesem System mit einem späteren Update)",
+                "Podman: {} (the sandbox comes to this system with a later update)",
+                podman.display()
+            )),
+            Err(_) => report.ok(tr(
+                "Ohne Podman: Projekte laufen im Direktmodus (`hearth project host on`)",
+                "Without Podman: projects run in the direct mode (`hearth project host on`)",
+            )),
+        }
+        return Ok(());
+    }
     let machine = match MachineConfig::load(machine_name) {
         Ok(machine) => {
             report.ok(tr!(

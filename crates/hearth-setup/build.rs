@@ -6,7 +6,12 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-const PROGRAMS: [&str; 4] = ["hearth.exe", "hearthd.exe", "hearth-vmd.exe", "hearth-app.exe"];
+const PROGRAMS: [&str; 4] = [
+    "hearth.exe",
+    "hearthd.exe",
+    "hearth-vmd.exe",
+    "hearth-app.exe",
+];
 
 fn main() {
     // Windows treats programs with "setup" in their name as installers and
