@@ -193,7 +193,9 @@ mod tests {
     #[test]
     fn derives_names_from_folders() {
         let derive = |s: &str| ProjectName::derive(Path::new(s)).0;
+        #[cfg(windows)]
         assert_eq!(derive(r"C:\Projekte\llm_harness"), "llm-harness");
+        assert_eq!(derive("/home/x/llm_harness"), "llm-harness");
         assert_eq!(derive("/x/My Cool.App"), "my-cool-app");
         assert_eq!(derive("/x/Übungen Größe"), "uebungen-groesse");
         assert_eq!(derive("/x/__weird__"), "weird");

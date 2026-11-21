@@ -1,0 +1,71 @@
+# Builds, lints and tests the client (hearth, hearthd and the crates they
+# use) on Linux and macOS. The development machine is Windows; this is the
+# only place macOS compiles at all, and the user's Linux laptop is not
+# always on.
+name: Unix client
+
+on:
+  push:
+    paths:
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/unix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # .cargo/config.toml limits jobs for the RAM of the development machine.
+  CARGO_BUILD_JOBS: "4"
+  # The tests expect German texts (hearth_core::lang).
+  HEARTH_LANG: de
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          cargo test --locked --workspace
+
+      - name: Release build
+        run: cargo build --locked --release -p hearth-cli
+
+      - name: Smoke
+        run: |
+          export HEARTH_HOME="$RUNNER_TEMP/hearth-home"
+          ./target/release/hearth --version
+          ./target/release/hearth doctor || true
+          ./target/release/hearth daemon
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hearth-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            target/release/hearth
+            target/release/hearthd
+          retention-days: 14

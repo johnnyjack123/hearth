@@ -8,6 +8,10 @@
 //! launcher at logon through the user's Run key; no admin rights needed.
 //! A named mutex per configuration folder keeps one connection per
 //! computer, because two would keep replacing each other on the server.
+//!
+//! On Linux and macOS a locked file in the configuration folder does what
+//! the mutex does, request files what the named events do, and the
+//! autostart is an XDG autostart entry or a LaunchAgent.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -22,6 +26,7 @@ use hearth_core::tr;
 pub const EXIT_UNPAIRED: i32 = 3;
 
 /// Name of the value in the Run key.
+#[cfg(windows)]
 const RUN_VALUE: &str = "hearth";
 
 /// Log of the background service, in the configuration folder.
@@ -38,10 +43,12 @@ pub fn automatic() -> bool {
 /// Suffix of the named kernel objects: one service per configuration
 /// folder, so a test with `HEARTH_HOME` does not collide with the user's.
 /// hearthd computes the same; keep both in step.
+#[cfg(windows)]
 fn object_suffix(config: &ConfigDir) -> String {
     suffix_of(config.root())
 }
 
+#[cfg(windows)]
 fn suffix_of(root: &std::path::Path) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in root.to_string_lossy().to_lowercase().bytes() {
@@ -217,6 +224,123 @@ mod sys {
     }
 }
 
+#[cfg(not(windows))]
+mod sys {
+    use std::fs::{self, File, OpenOptions};
+    use std::path::{Path, PathBuf};
+
+    use hearth_core::config::ConfigDir;
+
+    /// Held (locked) by the running service.
+    pub fn lock_path(config: &ConfigDir) -> PathBuf {
+        config.root().join("daemon.lock")
+    }
+
+    /// Created by `hearth daemon stop`; the service ends while it exists
+    /// and removes it when it starts.
+    pub fn stop_path(config: &ConfigDir) -> PathBuf {
+        config.root().join("daemon.stop")
+    }
+
+    /// Created by the tray icon or the app to stop the VM.
+    pub fn vm_stop_path(config: &ConfigDir) -> PathBuf {
+        config.root().join("daemon.vmstop")
+    }
+
+    /// Locks the service's file; `None` if another process holds it.
+    pub fn lock(config: &ConfigDir) -> std::io::Result<Option<File>> {
+        fs::create_dir_all(config.root())?;
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(lock_path(config))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(file)),
+            Err(fs::TryLockError::WouldBlock) => Ok(None),
+            Err(fs::TryLockError::Error(error)) => Err(error),
+        }
+    }
+
+    /// Whether some process holds the lock. The lock goes with the process,
+    /// also after a crash.
+    pub fn locked(config: &ConfigDir) -> bool {
+        let Ok(file) = OpenOptions::new().write(true).open(lock_path(config)) else {
+            return false;
+        };
+        matches!(file.try_lock(), Err(fs::TryLockError::WouldBlock))
+    }
+
+    /// Takes a request file; true if it was there.
+    pub fn take(path: &Path) -> bool {
+        fs::remove_file(path).is_ok()
+    }
+
+    /// Leaves a request file for the service.
+    pub fn request(path: &Path) -> bool {
+        fs::write(path, b"").is_ok()
+    }
+
+    /// Where the autostart entry lives: an XDG autostart file on Linux, a
+    /// LaunchAgent on macOS.
+    pub fn autostart_path() -> Option<PathBuf> {
+        let home = hearth_core::paths::home_dir().ok()?;
+        if cfg!(target_os = "macos") {
+            return Some(home.join("Library/LaunchAgents/io.hearth.daemon.plist"));
+        }
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
+        Some(config.join("autostart").join("hearth.desktop"))
+    }
+
+    /// The autostart entry that starts `launcher` at logon.
+    pub fn autostart_entry(launcher: &Path) -> String {
+        let path = launcher.display().to_string();
+        if cfg!(target_os = "macos") {
+            let escaped = path
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            return [
+                r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+                r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">"#,
+                r#"<plist version="1.0">"#,
+                "<dict>",
+                "<key>Label</key><string>io.hearth.daemon</string>",
+                &format!("<key>ProgramArguments</key><array><string>{escaped}</string></array>"),
+                "<key>RunAtLoad</key><true/>",
+                "</dict>",
+                "</plist>",
+                "",
+            ]
+            .join("\n");
+        }
+        // Exec quoting per the desktop entry spec: double quotes, with a
+        // backslash before ", `, $ and the backslash itself.
+        let mut quoted = String::from('"');
+        for c in path.chars() {
+            if matches!(c, '"' | '`' | '$' | '\\') {
+                quoted.push('\\');
+            }
+            quoted.push(c);
+        }
+        quoted.push('"');
+        [
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=Hearth",
+            "Comment=Connects this computer with the hearth server",
+            &format!("Exec={quoted}"),
+            "Terminal=false",
+            "X-GNOME-Autostart-enabled=true",
+            "",
+        ]
+        .join("\n")
+    }
+}
+
 /// The running service's hold on its configuration folder, with the
 /// events that ask it to stop and (from the tray icon) to stop the VM.
 pub struct Instance {
@@ -226,6 +350,12 @@ pub struct Instance {
     stop: sys::Handle,
     #[cfg(windows)]
     vm_stop: sys::Handle,
+    #[cfg(not(windows))]
+    _lock: std::fs::File,
+    #[cfg(not(windows))]
+    stop: PathBuf,
+    #[cfg(not(windows))]
+    vm_stop: PathBuf,
 }
 
 impl Instance {
@@ -247,10 +377,22 @@ impl Instance {
         }))
     }
 
-    /// Without Windows there is no second process to keep out.
+    /// Takes the connection of this configuration folder; `None` if a
+    /// service or `hearth connect` already has it.
     #[cfg(not(windows))]
-    pub fn acquire(_config: &ConfigDir) -> anyhow::Result<Option<Instance>> {
-        Ok(Some(Instance {}))
+    pub fn acquire(config: &ConfigDir) -> anyhow::Result<Option<Instance>> {
+        let Some(lock) = sys::lock(config)? else {
+            return Ok(None);
+        };
+        let (stop, vm_stop) = (sys::stop_path(config), sys::vm_stop_path(config));
+        // Left over from a service that ended before it saw them.
+        sys::take(&stop);
+        sys::take(&vm_stop);
+        Ok(Some(Instance {
+            _lock: lock,
+            stop,
+            vm_stop,
+        }))
     }
 
     /// Whether the tray icon asked to stop the VM since the last check.
@@ -261,7 +403,7 @@ impl Instance {
         }
         #[cfg(not(windows))]
         {
-            false
+            sys::take(&self.vm_stop)
         }
     }
 
@@ -273,7 +415,8 @@ impl Instance {
         }
         #[cfg(not(windows))]
         {
-            false
+            // Stays until the service ends, like the manual-reset event.
+            self.stop.exists()
         }
     }
 }
@@ -287,8 +430,7 @@ pub fn running(config: &ConfigDir) -> bool {
     }
     #[cfg(not(windows))]
     {
-        let _ = config;
-        false
+        sys::locked(config)
     }
 }
 
@@ -340,6 +482,13 @@ pub fn start(config: &ConfigDir) -> anyhow::Result<bool> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        // Its own process group: Ctrl+C or closing this terminal must not
+        // end the service.
+        command.process_group(0);
+    }
     command.spawn()?;
     Ok(wait_until(Duration::from_secs(8), || running(config)))
 }
@@ -353,6 +502,15 @@ pub fn stop(config: &ConfigDir) -> bool {
             object_suffix(config)
         )) {
             return !running(config);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if !running(config) {
+            return true;
+        }
+        if !sys::request(&sys::stop_path(config)) {
+            return false;
         }
     }
     wait_until(Duration::from_secs(15), || !running(config))
@@ -372,6 +530,16 @@ pub fn install(config: &ConfigDir) -> anyhow::Result<bool> {
     retire_legacy();
     #[cfg(windows)]
     sys::set_autostart(RUN_VALUE, &format!("\"{}\"", launcher.display()))?;
+    #[cfg(not(windows))]
+    {
+        let path = sys::autostart_path().ok_or_else(|| {
+            anyhow::anyhow!(tr("Kein Home-Ordner gefunden", "No home folder found"))
+        })?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, sys::autostart_entry(&launcher))?;
+    }
     start(config)
 }
 
@@ -379,6 +547,10 @@ pub fn install(config: &ConfigDir) -> anyhow::Result<bool> {
 pub fn uninstall(config: &ConfigDir) -> bool {
     #[cfg(windows)]
     sys::remove_autostart(RUN_VALUE);
+    #[cfg(not(windows))]
+    if let Some(path) = sys::autostart_path() {
+        let _ = std::fs::remove_file(path);
+    }
     stop(config)
 }
 
@@ -390,7 +562,9 @@ pub fn autostart() -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        None
+        sys::autostart_path()
+            .filter(|path| path.exists())
+            .map(|path| path.display().to_string())
     }
 }
 
