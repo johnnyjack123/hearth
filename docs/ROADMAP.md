@@ -32,13 +32,13 @@ Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die P
 
 Wunsch des Nutzers (21.11.): Ein zweiter Modus ohne VM, in dem der Agent direkt auf dem Rechner arbeitet und jeder Befehl sowie jeder Zugriff außerhalb des Projektordners eine Freigabe braucht; eine richtige Desktop-App statt des Tray-Menüs, nur Rust und sparsam; alles auch unter macOS und Linux. Konzept und Regeln: [`security/concept.md`](security/concept.md). Entscheidungen: Freigaben am Rechner, im Browser nur per Opt-in je Projekt; die Modellschleife läuft im Server, die Werkzeuge im Rust-Proxy; egui/eframe für die App.
 
-1. **Unix-Build:** `hearth-core` und `hearth-cli` bauen und testen unter Linux und macOS (Windows-Teile hinter `cfg`, Token-Speicher, Hintergrunddienst, Belegt-Marker, TLS mit rustls unter Unix), Workflow `unix.yml`, Test auf dem Linux-Laptop des Nutzers.
-2. **Proxy-Kern** (`hearth-core/src/host/`): Pfadregeln, Werkzeuge `read`, `write`, `edit`, `list`, `find`, `grep`, `shell`, Rückfragen, Protokoll; Tests auf allen drei Systemen.
-3. **Tunnel-Protokoll 11 und Server:** Pseudo-Harness `host`, Modellschleife mit Werkzeugen des Geräts (wie normale Chats: Gedächtnis, Web, Zusammenfassen, Kosten), Rückfrage-Karten im Chat, Freigabe im Browser nur mit Opt-in.
-4. **Freigaben am Rechner:** lokale Verbindung zum Hintergrunddienst, `hearth host watch`, Benachrichtigungen.
-5. **Desktop-App `hearth-app` (egui):** Übersicht, Projekte (anlegen, Modus, Web-Chats, Übernahmen, Browser-Freigaben), Freigaben, Netzregeln, Programme, Merge-Anträge, VM, Kopplung, Protokolle; Tray-Symbol auch unter macOS und Linux. Was heute nur im Terminal geht, soll dort gehen; `hearth run`/`shell` öffnet ein Terminal.
-6. **Sandbox unter Linux** (rootless Podman, gVisor falls vorhanden) **und macOS** (Podman Machine) über die Provider-Schnittstelle.
-7. **Pakete:** Linux (Archiv mit Installationsskript, Autostart per XDG), macOS (App-Bundle, LaunchAgent), Release-Workflow für alle drei.
+1. ✅ **Unix-Build:** `hearth-core` und `hearth-cli` bauen und testen unter Linux und macOS (Windows-Teile hinter `cfg`, Token-Speicher, Hintergrunddienst, Belegt-Marker, TLS mit rustls unter Unix), Workflow `unix.yml`, Test auf dem Linux-Laptop des Nutzers.
+2. ✅ **Proxy-Kern** (`hearth-core/src/host/`): Pfadregeln, Werkzeuge `read`, `write`, `edit`, `list`, `find`, `grep`, `shell`, Rückfragen, Protokoll; Tests auf allen drei Systemen.
+3. ✅ **Tunnel-Protokoll 11 und Server:** Pseudo-Harness `host`, Modellschleife mit Werkzeugen des Geräts (wie normale Chats: Gedächtnis, Web, Zusammenfassen, Kosten), Rückfrage-Karten im Chat, Freigabe im Browser nur mit Opt-in.
+4. ✅ **Freigaben am Rechner:** (Tray unter Windows, Benachrichtigungen unter Linux/macOS, `hearth host`, App) lokale Verbindung zum Hintergrunddienst, `hearth host watch`, Benachrichtigungen.
+5. 🔨 **Desktop-App `hearth-app` (egui):** erster Stand gebaut (Freigaben, Projekte mit Modus, Rechner, Protokoll); offen: Netzregeln und Programme je Projekt, Tray unter macOS/Linux. Übersicht, Projekte (anlegen, Modus, Web-Chats, Übernahmen, Browser-Freigaben), Freigaben, Netzregeln, Programme, Merge-Anträge, VM, Kopplung, Protokolle; Tray-Symbol auch unter macOS und Linux. Was heute nur im Terminal geht, soll dort gehen; `hearth run`/`shell` öffnet ein Terminal.
+6. 🔨 **Sandbox unter Linux** (rootless Podman, gVisor falls vorhanden) **und macOS** (Podman Machine) über die Provider-Schnittstelle.
+7. 🔨 **Pakete:** Workflow `unix-release.yml` und `scripts/install.sh` gebaut, noch kein Release damit; Linux (Archiv mit Installationsskript, Autostart per XDG), macOS (App-Bundle, LaunchAgent), Release-Workflow für alle drei.
 
 Das Repo ist seit dem 17.11. öffentlich (AGPL-3.0-or-later).
 

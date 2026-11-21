@@ -11,9 +11,9 @@
 //!
 //! Run it again after a restart or a fix: finished steps only show ✓.
 //!
-//! On Linux and macOS it checks git and Podman, pairs, sets up the
-//! background service and an entry for the desktop app; the sandbox there
-//! comes with Phase 6, step 6, the direct mode works already.
+//! On Linux and macOS it checks git and Podman, prepares the sandbox (macOS:
+//! Podman's machine; Linux: the computer's own Podman) and its images,
+//! pairs, sets up the background service and an entry for the desktop app.
 
 use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
@@ -131,7 +131,7 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
         system: daemon::automatic(),
     };
     if !cfg!(windows) {
-        return run_unix(&assistant, config, options);
+        return run_unix(&assistant, config, machine, options);
     }
     println!(
         "{}",
@@ -201,7 +201,12 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
 
 /// `hearth setup` on Linux and macOS: no VM service and nothing that needs
 /// administrator rights; packages come from the system's package manager.
-fn run_unix(assistant: &Assistant, config: &ConfigDir, options: Options) -> anyhow::Result<bool> {
+fn run_unix(
+    assistant: &Assistant,
+    config: &ConfigDir,
+    machine: &str,
+    options: Options,
+) -> anyhow::Result<bool> {
     println!(
         "{}",
         tr(
@@ -228,14 +233,13 @@ fn run_unix(assistant: &Assistant, config: &ConfigDir, options: Options) -> anyh
         }
     }
     match find_podman() {
-        Ok(podman) => ok(tr!(
-            "Podman: {} (die Sandbox unter diesem System kommt mit einem späteren Update; der Direktmodus geht schon)",
-            "Podman: {} (the sandbox on this system comes with a later update; the direct mode works already)",
-            podman.display()
-        )),
+        Ok(podman) => {
+            ok(tr!("Podman: {}", "Podman: {}", podman.display()));
+            sandbox_unix(assistant, &podman, machine)?;
+        }
         Err(_) => warn(tr!(
-            "Podman fehlt; der Direktmodus braucht es nicht. Für die Sandbox später: {install} podman",
-            "Podman is missing; the direct mode does not need it. For the sandbox later: {install} podman"
+            "Podman fehlt; der Direktmodus braucht es nicht. Für die Sandbox: {install} podman, dann `hearth setup` noch einmal",
+            "Podman is missing; the direct mode does not need it. For the sandbox: {install} podman, then `hearth setup` again"
         )),
     }
     let paired = server(assistant, config, options.server)?;
@@ -264,6 +268,61 @@ fn run_unix(assistant: &Assistant, config: &ConfigDir, options: Options) -> anyh
         )
     );
     Ok(true)
+}
+
+/// The sandbox outside Windows: on macOS Podman's machine (created after a
+/// question; it downloads about 1 GB), on Linux the computer's own rootless
+/// Podman; then the images. A refusal leaves the direct mode.
+fn sandbox_unix(assistant: &Assistant, podman: &Path, machine: &str) -> anyhow::Result<()> {
+    if cfg!(target_os = "macos") && MachineConfig::load(machine).is_err() {
+        if !assistant.agrees_system(&tr!(
+            "Podman-Machine „{machine}“ für die Sandbox anlegen (lädt etwa 1 GB, 4 GB RAM, 40 GB Platte nach Bedarf)?",
+            "Create the Podman machine “{machine}” for the sandbox (downloads about 1 GB, 4 GB RAM, 40 GB disk as needed)?"
+        ))? {
+            warn(tr(
+                "Ohne Machine keine Sandbox; der Direktmodus geht trotzdem.",
+                "Without a machine no sandbox; the direct mode works anyway.",
+            ));
+            return Ok(());
+        }
+        let created = Command::new(podman)
+            .args([
+                "machine",
+                "init",
+                machine,
+                "--cpus",
+                "2",
+                "--memory",
+                "4096",
+                "--disk-size",
+                "40",
+            ])
+            .status()?;
+        if !created.success() {
+            fail(tr!(
+                "podman machine init {machine} gescheitert",
+                "podman machine init {machine} failed"
+            ));
+            return Ok(());
+        }
+        ok(tr!(
+            "Machine {machine} angelegt",
+            "Machine {machine} created"
+        ));
+    }
+    if cfg!(target_os = "linux") {
+        ok(tr(
+            "Sandbox mit dem rootless Podman dieses Rechners (ohne VM: die Container teilen den Kernel des Rechners)",
+            "Sandbox with this computer's rootless Podman (no VM: the containers share the computer's kernel)",
+        ));
+    }
+    if !images(assistant, machine)? {
+        warn(tr(
+            "Ohne Images keine Sandbox; später: `hearth image build`.",
+            "Without images no sandbox; later: `hearth image build`.",
+        ));
+    }
+    Ok(())
 }
 
 /// A menu entry for the desktop app (Linux: `~/.local/share/applications`;
