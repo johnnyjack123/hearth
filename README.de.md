@@ -82,7 +82,7 @@ Einzelheiten und Hilfe bei Problemen: [`docs/client.md`](docs/client.md).
 curl -fsSL https://github.com/johnnyjack123/hearth/releases/latest/download/install.sh | sh
 ```
 
-Installiert `hearth`, den Hintergrunddienst und die Desktop-App für deinen Nutzer und startet `hearth setup`. Projekte nutzen dort den Direktmodus (`hearth project host on`); die Podman-Sandbox folgt. Details: [`docs/client-unix.md`](docs/client-unix.md).
+Installiert `hearth`, den Hintergrunddienst und die Desktop-App für deinen Nutzer und startet `hearth setup`. Projekte laufen in einer Podman-Sandbox (Linux: das rootless Podman des Rechners ohne VM, macOS: eine Podman-Machine) oder im Direktmodus (`hearth project host on`). Details: [`docs/client-unix.md`](docs/client-unix.md).
 
 ## Dokumentation
 
@@ -90,7 +90,7 @@ Installiert `hearth`, den Hintergrunddienst und die Desktop-App für deinen Nutz
 |---|---|
 | [`docs/deploy.md`](docs/deploy.md) | Server: Installation, Einstellungen, Updates, Sicherung, HTTPS, Betrieb im Internet |
 | [`docs/client.md`](docs/client.md) | Windows-Client: Einrichtung, Projekte, Web-Chat und Terminal, Updates, Probleme |
-| [`docs/client-unix.md`](docs/client-unix.md) | Linux und macOS: Installation, Direktmodus, Freigaben |
+| [`docs/client-unix.md`](docs/client-unix.md) | Linux und macOS: Installation, Sandbox, Direktmodus, Freigaben |
 | [`docs/security/concept.md`](docs/security/concept.md) | Sicherheitskonzept: Sandbox und Direktmodus |
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Wie die Teile funktionieren und warum sie so gebaut sind |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Das ursprüngliche Entwurfsdokument |

@@ -2,9 +2,9 @@
 
 > Ursprünglicher Entwurf vom Oktober 2026, bis Version 0.1.x unter dem Namen „LLM Harness“. Den aktuellen Aufbau beschreibt [`docs/how-it-works.md`](docs/how-it-works.md). Die wichtigsten Unterschiede zum heutigen Stand (November 2026, Version 0.3):
 >
-> - **Keine Desktop-App.** `hearthd` ist nur ein Tray-Symbol, eingestellt wird im Browser.
-> - **Nur der Isoliert-Modus** unter Windows mit Hyper-V und Podman. Direkt- und Sync-Modus, Git-Shim, Git-Worker, versteckte und geschützte Pfade gibt es nicht. Die Arbeit des Agents kommt als Git-Bundle zurück und wird vor dem Merge geprüft (feste Regeln, OSV, optional ein Bewertungsmodell).
-> - **Nur pi** als Harness. Clients für macOS und Linux gibt es noch nicht.
+> - **Desktop-App seit 21.11.** (`hearth-app`, egui) neben Tray-Symbol und Browser, siehe unten „Desktop-App mit egui“.
+> - **Nur der Isoliert-Modus** unter Windows mit Hyper-V und Podman. Direkt- und Sync-Modus mit eingebundenen Ordnern, Git-Shim, Git-Worker, versteckte und geschützte Pfade gibt es nicht (der Direktmodus seit 21.11. ist etwas anderes: kein Container, die Werkzeuge laufen über einen Vermittler mit Freigaben). Die Arbeit des Agents kommt als Git-Bundle zurück und wird vor dem Merge geprüft (feste Regeln, OSV, optional ein Bewertungsmodell).
+> - **Nur pi** als Harness. Clients für macOS und Linux seit 21.11. (Phase 6): unter Linux rootless Podman ohne VM und ohne zusätzliche Runtime (gVisor/krun stehen noch aus), unter macOS eine Podman-Machine; dazu auf allen Systemen der Direktmodus ohne Container (`docs/security/concept.md`).
 > - **API-Keys bleiben auf dem Server.** Statt Secret-Injection im Gateway reicht das Gateway Modellanfragen mit einem Geräte-Token an den Server weiter, der den Key einsetzt.
 > - Das Tunnel-Protokoll hat mehr Nachrichten als in 6.2 geplant (Version 10).
 >
