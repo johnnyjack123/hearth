@@ -70,6 +70,7 @@ Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Lin
 - **Mittel:** Laufende Antworten, der Geräte-Hub und die Live-Ereignisse liegen nur im Speicher; ein Neustart des Servers beendet laufende Antworten.
 - **Mittel:** „Neu erzeugen“ in einem verknüpften Chat schickt die Nachricht erneut, aber pis Sitzung enthält die alte Runde noch.
 - **Mittel:** Die VM hat wenig RAM (auf ARM64 wächst sie nicht), und jeder podman-Aufruf kostet ~0,4 s.
+- **Niedrig:** Antwortet SSH nach dem VM-Start nicht rechtzeitig (podman: „ssh: handshake failed … forcibly closed“), zeigt `hearth setup` nur podmans Text. Beim Nutzer am 21.11. nach dem Update auf 0.4.0: erst 32778 (1,35 GB frei), dann bekam die VM 1,4 GB, das Gastsystem lief nach 7 s, SSH war nach 88 s noch nicht erreichbar; Windows hatte 2,4 GB frei, Commit 27 von 31,6 GB. Kandidat für 0.4.1: Hinweis auf freien Speicher wie bei 32778, in der CLI (dann braucht der VM-Dienst kein Update).
 - **Mittel:** Markdown-Bilder könnten Daten hinaustragen; das blockt nur die CSP der Produktion (der Vite-Dev-Server sendet keine).
 - **Mittel:** Brave, Tavily, Jev und die Embeddings sind in Tests nur gegen Stand-ins geprüft.
 - **Niedrig:** Über `http://` im LAN gibt es keine Web Locks, dann hält jeder Tab eine eigene Live-Verbindung (HTTP/1.1: höchstens sechs je Server).
