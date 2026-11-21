@@ -778,7 +778,9 @@ impl Provider for PodmanProvider {
     }
 
     fn host_address(&self) -> Option<&str> {
-        Some(HOST_ADDRESS)
+        // gvproxy runs with Podman's machines (Windows, macOS); a rootless
+        // container on Linux has no way to this computer's loopback.
+        (!self.is_local()).then_some(HOST_ADDRESS)
     }
 }
 

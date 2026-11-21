@@ -130,19 +130,20 @@ fn instances_reach_the_internet_only_through_the_gateway() {
     // Stands in for the hearth server on this Windows machine's loopback.
     let (server_port, server_heads) = fake_server();
     let token = "hd_test-token-0123456789abcdefghijklmnopqrstuvw";
+    // None without a VM (Linux): no container reaches this computer's loopback.
     let upstream = server::llm_upstream(
         &format!("http://127.0.0.1:{server_port}"),
         provider.host_address(),
         token,
         None,
     )
-    .unwrap();
+    .ok();
 
     timed("gateway start (create)", || {
         gateway::ensure_running(&provider, &development, None).unwrap()
     });
     timed("gateway start (running, with LLM)", || {
-        gateway::ensure_running(&provider, &development, Some(&upstream)).unwrap()
+        gateway::ensure_running(&provider, &development, upstream.as_ref()).unwrap()
     });
     assert_eq!(
         gateway::state(&provider, &name).unwrap(),
@@ -216,7 +217,12 @@ fn instances_reach_the_internet_only_through_the_gateway() {
     println!("direct: curl {} {}", direct.code, direct.stderr.trim());
 
     // llm.hearth: through the gateway and gvproxy to the server on Windows,
-    // with the device token instead of the agent's made-up key.
+    // with the device token instead of the agent's made-up key. Without a VM
+    // (Linux) no container reaches this computer's loopback; the server
+    // there is always elsewhere, which the TLS test below covers.
+    let Some(upstream) = upstream else {
+        return;
+    };
     let llm = run(
         "curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -X POST \
          -H 'Authorization: Bearer agent-made-this-up' -H 'Content-Type: application/json' \
@@ -548,7 +554,14 @@ fn llm_hearth_reaches_https_servers() {
     );
 
     // The same server by its address, which the certificate does not name.
-    let address = run(&format!("getent hosts {TLS_SERVER}"));
+    // Instances have no DNS; the gateway, on the outer network, has.
+    let address = provider
+        .exec_output(&ExecSpec {
+            container: name.gateway(),
+            command: vec!["getent".into(), "hosts".into(), TLS_SERVER.into()],
+            ..ExecSpec::default()
+        })
+        .unwrap();
     let address = address.stdout.split_whitespace().next().unwrap().to_owned();
     println!("https://{address}:8443 with the CA:");
     control
