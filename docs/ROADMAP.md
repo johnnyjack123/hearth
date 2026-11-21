@@ -15,6 +15,7 @@
 | 3 | Tray-App und Installer statt Desktop-App (Entscheidung 23.10.); Einstellungen im Browser | ✅ Schritte 1–6 (23.–25.10.), Releases ab v0.1.0; App-Katalog: Kern und CLI ✅ (27.10.), Browser ✅ (28.10.), eigene Programme aus dem Browser und Programmdateien vom Rechner ✅ (30.10.), Gateway fertig gebaut ✅ (30.10.), offen: signierte Programme |
 | 4 | Chat ↔ Umgebung (Pairing, Tunnel, pi-RPC-Adapter, LLM-Gateway) | ✅ gebaut (17./18.10.), dazu Recherche, Denktiefe und Zusammenfassen; Kostendeckel gilt auch für Agents (3.11.); offen: Dialoge von pi-Erweiterungen im Web |
 | 5 | Ausbau (Host-Modus, Sync-Modus, weitere Harnesse und Provider …) | offen |
+| **6** | **Direktmodus, Desktop-App (egui), macOS und Linux** (Plan vom 21.11., [`security/concept.md`](security/concept.md)) | **🔨 begonnen** |
 
 ## Weg zu 1.0 (Stand 17.11.2026)
 
@@ -25,7 +26,19 @@
 5. Neuinstallation auf frischem Windows, auch x64 (keine Windows Sandbox).
 6. Release-Kandidat v1.0.0-rc.1, ein bis zwei Wochen Alltag nur mit Fehlerbehebungen, dann 1.0.
 
-Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die Provider-Schnittstelle. Eine Tauri-App für Android bleibt möglich; vorerst reicht die PWA.
+Nach 0.3 (Plan des Nutzers vom 11.11.): Clients für macOS und Linux über die Provider-Schnittstelle. Eine Tauri-App für Android bleibt möglich; vorerst reicht die PWA. Seit 21.11. als Phase 6 geplant, zusammen mit dem Direktmodus und einer Desktop-App.
+
+## Phase 6 – Direktmodus, Desktop-App, macOS und Linux (Plan vom 21.11.)
+
+Wunsch des Nutzers (21.11.): Ein zweiter Modus ohne VM, in dem der Agent direkt auf dem Rechner arbeitet und jeder Befehl sowie jeder Zugriff außerhalb des Projektordners eine Freigabe braucht; eine richtige Desktop-App statt des Tray-Menüs, nur Rust und sparsam; alles auch unter macOS und Linux. Konzept und Regeln: [`security/concept.md`](security/concept.md). Entscheidungen: Freigaben am Rechner, im Browser nur per Opt-in je Projekt; die Modellschleife läuft im Server, die Werkzeuge im Rust-Proxy; egui/eframe für die App.
+
+1. **Unix-Build:** `hearth-core` und `hearth-cli` bauen und testen unter Linux und macOS (Windows-Teile hinter `cfg`, Token-Speicher, Hintergrunddienst, Belegt-Marker, TLS mit rustls unter Unix), Workflow `unix.yml`, Test auf dem Linux-Laptop des Nutzers.
+2. **Proxy-Kern** (`hearth-core/src/host/`): Pfadregeln, Werkzeuge `read`, `write`, `edit`, `list`, `find`, `grep`, `shell`, Rückfragen, Protokoll; Tests auf allen drei Systemen.
+3. **Tunnel-Protokoll 11 und Server:** Pseudo-Harness `host`, Modellschleife mit Werkzeugen des Geräts (wie normale Chats: Gedächtnis, Web, Zusammenfassen, Kosten), Rückfrage-Karten im Chat, Freigabe im Browser nur mit Opt-in.
+4. **Freigaben am Rechner:** lokale Verbindung zum Hintergrunddienst, `hearth host watch`, Benachrichtigungen.
+5. **Desktop-App `hearth-app` (egui):** Übersicht, Projekte (anlegen, Modus, Web-Chats, Übernahmen, Browser-Freigaben), Freigaben, Netzregeln, Programme, Merge-Anträge, VM, Kopplung, Protokolle; Tray-Symbol auch unter macOS und Linux. Was heute nur im Terminal geht, soll dort gehen; `hearth run`/`shell` öffnet ein Terminal.
+6. **Sandbox unter Linux** (rootless Podman, gVisor falls vorhanden) **und macOS** (Podman Machine) über die Provider-Schnittstelle.
+7. **Pakete:** Linux (Archiv mit Installationsskript, Autostart per XDG), macOS (App-Bundle, LaunchAgent), Release-Workflow für alle drei.
 
 Das Repo ist seit dem 17.11. öffentlich (AGPL-3.0-or-later).
 
@@ -546,7 +559,7 @@ Bausteine: WSS-Tunnel von `hearthd` zum Server, Projektfreigabe mit lokaler Best
   - Umsetzung wäre ein Schalter pro Projekt oder Chat, der das Paket bei der Installation ins Tools-Volume legt und für pi lädt.
   - pi-Pakete führen Code aus; die Quelle vorher prüfen und die Version festlegen.
 
-- **Host-Modus** (ungesichert, Harness direkt auf dem Host, ARCHITECTURE.md §3)
+- ➜ **Host-Modus und Host-Ausführung mit Einzelbestätigung** sind seit 21.11. der Direktmodus in Phase 6 ([`security/concept.md`](security/concept.md)). Die Notizen unten bleiben als Vorgeschichte.
 - **Host-Ausführung mit Einzelbestätigung** (Idee des Nutzers vom 13.10., noch kein konkreter Bedarf; so bauen, dass sie sich später ergänzen lässt): Der Agent darf einzelne Befehle auf Windows ausführen lassen, etwa PowerShell, MSVC/.NET, Windows-GUI oder Hardware. Jeder Befehl wird außerhalb der Sandbox bestätigt, so wie die Netz-Rückfragen. Vorschlag zur Umsetzung:
   - pro Projekt aus, solange nicht eingeschaltet, und nie für verknüpfte Remote-Chats
   - Anfrage aus dem Container über das Gateway, Bestätigung über dessen Steuerkanal (Muster wie `ask`)

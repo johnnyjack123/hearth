@@ -67,7 +67,7 @@ hearthd (Hintergrunddienst auf dem Rechner des Nutzers)
 >
 > Auf diesem Rechner ist RAM das knappste Gut.
 
-**Host-Modus (ungesichert, optional pro Projekt):** Die Harness läuft direkt auf dem Host im Projektordner, ohne VM und Container: volle Leistung, Windows-Tools, paralleles Bearbeiten durch den Nutzer. Es gibt **keine** Isolation, keine Netzwerkregeln und keinen Git-Worker. Er ist nur als bewusste Entscheidung des Nutzers mit deutlicher Warnung in der UI aktivierbar, nie als Standard und nie für verknüpfte Remote-Chats.
+**Direktmodus (seit 21.11. geplant, ersetzt den „ungesicherten Host-Modus“):** Der Agent arbeitet ohne VM im Projektordner auf dem Rechner. Die Modellschleife läuft im Server wie bei normalen Chats; die Werkzeuge (`read`, `write`, `edit`, `list`, `find`, `grep`, `shell`) führt ein Proxy in `hearth` aus und prüft jeden Aufruf: im Projektordner frei (außer geschützten Pfaden), außerhalb und jeder Befehl nur mit Freigabe am Rechner, im Browser nur mit Opt-in je Projekt. Regeln und Bedrohungsmodell: [`docs/security/concept.md`](docs/security/concept.md).
 
 > **Hinweis zum Lesen von §3.3–3.8:** Einiges dort betrifft nur den **Direkt-Modus**, also eingebundene Projektordner, später unter Linux:
 > - Bind-Mount von `/workspace`
@@ -348,6 +348,7 @@ Deployment:
   - Entschieden gegen eine geplante Aufgabe: Ein elevierter Podman würde eine Konfiguration aus dem Benutzerprofil lesen, die jeder Nutzerprozess ändern kann. Das wäre eine Rechteausweitung.
 - **`hearthd`:** Rust-Dienst, startet bei der Anmeldung oder bei Bedarf. Er ist der einzige Prozess, der Podman steuert, und hält Git-Worker, Gateway-Steuerung und Tunnel. IPC läuft über eine Named Pipe (Windows) bzw. einen Unix-Socket.
 - **Tray-App statt Tauri (Entscheidung des Nutzers, 23.10.):** Eine WebView kostet zu viel RAM. `hearthd` zeigt nur ein Tray-Symbol; eingestellt wird alles im Browser. Umgebungen entstehen nur per `hearth init` im Terminal, nie aus dem Web. Details: ROADMAP.md, Phase 3.
+- **Desktop-App mit egui (Entscheidung des Nutzers, 21.11., revidiert die Zeile davor teilweise):** `hearth-app` ist eine native Rust-App (eframe), ohne WebView, für Windows, macOS und Linux. Sie steuert, was bisher nur im Terminal ging, und zeigt Freigaben des Direktmodus. Sie läuft nur, solange ihr Fenster offen ist; Tray-Symbol und Hintergrunddienst bleiben eigene, kleine Prozesse. Umgebungen entstehen weiter nur auf dem Rechner (CLI oder App), nie aus dem Web.
 - **Ohne Server:** Umgebungsverwaltung und Terminal-Modus funktionieren vollständig. Für den Chat braucht es einen Login auf einem Server.
 - **Setup-Assistent:**
   1. Virtualisierung prüfen
@@ -382,7 +383,7 @@ Das Gerät baut eine WebSocket-Verbindung zum Server auf (`/api/device/tunnel`, 
 
 Angeboten werden nur Projekte mit `[remote] enabled = true` und Harnesses mit Adapter. Eine Sitzung entsteht beim ersten `session.prompt` eines Chats; ihre ID ist die Conversation-ID.
 
-Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizugriff für den Server. Selbst ein kompromittierter Server kann daher nur Harness-Sitzungen in freigegebenen Projekten steuern, und diese laufen in der Sandbox. Dazu kommen harmlose Befehle (VM stoppen, Programme schalten), die das Gerät gegen seine eigene Konfiguration prüft. Programmdateien gibt nur der Rechner frei, und die Arbeit des Agents übernimmt er auf Wunsch des Browsers nur mit Erlaubnis am Rechner (`[remote] merge`) und ohne Funde der Prüfung.
+Es gibt **kein** generisches „Befehl ausführen“ und keinen direkten Dateizugriff für den Server. Ausnahme ab Protokoll 11: Projekte im Direktmodus nehmen Werkzeugaufrufe des Servers an; der Rechner prüft jeden gegen seine Pfadregeln, und Befehle sowie Zugriffe außerhalb des Projektordners gibt nur der Rechner frei ([`docs/security/concept.md`](docs/security/concept.md)). Selbst ein kompromittierter Server kann daher nur Harness-Sitzungen in freigegebenen Projekten steuern, und diese laufen in der Sandbox. Dazu kommen harmlose Befehle (VM stoppen, Programme schalten), die das Gerät gegen seine eigene Konfiguration prüft. Programmdateien gibt nur der Rechner frei, und die Arbeit des Agents übernimmt er auf Wunsch des Browsers nur mit Erlaubnis am Rechner (`[remote] merge`) und ohne Funde der Prüfung.
 
 ### 6.3 Verknüpfung
 
