@@ -232,6 +232,10 @@ pub struct ContainerSpec {
     pub command: Vec<String>,
 }
 
+/// Name instances reach their project's gateway under (`HTTP(S)_PROXY` of
+/// the base image); the provider writes it into their `/etc/hosts`.
+pub const GATEWAY_HOST: &str = "gateway";
+
 /// Parameters for [`Provider::create_gateway`]. Hardening and limits are
 /// fixed by the provider.
 #[derive(Debug, Clone, Default)]

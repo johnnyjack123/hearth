@@ -253,7 +253,12 @@ fn watch(idle: &Idle, machine: &str, mode: Mode, status: &StatusFile, signals: &
         was_running = running;
         let (replies, last) = idle.usage();
         let minutes = idle.minutes.load(Ordering::SeqCst);
-        let stop_at = (running && replies == 0 && terminals.is_empty() && minutes > 0)
+        // Linux runs the containers without a VM: nothing to stop when idle.
+        let stop_at = (running
+            && !cfg!(target_os = "linux")
+            && replies == 0
+            && terminals.is_empty()
+            && minutes > 0)
             .then(|| last + Duration::from_secs(u64::from(minutes) * 60));
         let report = Report {
             vm,

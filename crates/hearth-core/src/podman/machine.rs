@@ -54,22 +54,30 @@ pub struct MachineMount {
 }
 
 impl MachineConfig {
-    /// Location of the JSON for a Hyper-V machine: the copy of the VM service
-    /// (`hearth-vmd`) if it owns the machine, else the user's own
-    /// `%USERPROFILE%\.config\containers\podman\machine\hyperv\<name>.json`.
+    /// Location of the JSON for a machine: on Windows the copy of the VM
+    /// service (`hearth-vmd`) if it owns the machine, else the user's own
+    /// `%USERPROFILE%\.config\containers\podman\machine\hyperv\<name>.json`;
+    /// on macOS the `applehv` or `libkrun` folder of the same place.
     pub fn default_path(name: &str) -> Result<PathBuf> {
         validate_resource_name(tr("Machine-Name", "machine name"), name)?;
         let service = crate::vmd::machine_json(name);
         if service.is_file() {
             return Ok(service);
         }
-        Ok(home_dir()?
+        let machines = home_dir()?
             .join(".config")
             .join("containers")
             .join("podman")
-            .join("machine")
-            .join("hyperv")
-            .join(format!("{name}.json")))
+            .join("machine");
+        // macOS: Apple's hypervisor (podman 5's default) or libkrun.
+        if cfg!(target_os = "macos") {
+            let libkrun = machines.join("libkrun").join(format!("{name}.json"));
+            if libkrun.is_file() {
+                return Ok(libkrun);
+            }
+            return Ok(machines.join("applehv").join(format!("{name}.json")));
+        }
+        Ok(machines.join("hyperv").join(format!("{name}.json")))
     }
 
     /// Loads the JSON of the named Hyper-V machine.

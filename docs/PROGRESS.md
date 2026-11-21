@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-21 · Phase 6 begonnen (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft. Standardmodell für neue Chats ist fertig._
+_Last updated: 2026-11-21 abends · Phase 6 (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft, Sandbox unter Linux in der CI geprüft, Desktop-App mit Netz und Programmen und im Startmenü. Standardmodell für neue Chats ist fertig._
 
 ## Where we are
 
@@ -27,9 +27,10 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
    - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
    - ✅ Schritt 3: Tunnel-Protokoll 11, Server-Schleife, Web-Karten, `hearth project host`, `hearth host`. Geprüft: Server-Tests, Browser-E2E (25/25), `scripts/smoke-host.sh` unter Windows (26/26). **Offen:** `smoke-host.sh` auf dem Linux-Laptop (war am 21.11. nachmittags nicht erreichbar; Weg: Server und Mock unter Windows, `ssh -R 8097:127.0.0.1:8097 linux-laptop`, dort `SERVER_URL=http://127.0.0.1:8097 SERVER_COOKIES=… CREDENTIAL=… bash scripts/smoke-host.sh`).
    - Schritt 4: Benachrichtigung und Freigabe-Dialog am Rechner (heute nur `hearth host` im Terminal), geht in Schritt 5 auf.
-   - 🔨 Schritt 5: Desktop-App `hearth-app` (egui) im ersten Stand: Freigaben, Projekte mit Modus, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben. Offen: Netzregeln und Programme je Projekt in der App, Tray unter macOS und Linux, Startmenü-Eintrag.
+   - 🔨 Schritt 5: Desktop-App `hearth-app` (egui): Freigaben, Projekte mit Modus, Netzregeln und Programmen der Sandbox, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben; `hearth setup` trägt sie ins Startmenü ein (Windows `Hearth.lnk`, Linux `.desktop`). Offen: Tray unter macOS und Linux (Linux: StatusNotifierItem, z. B. `ksni`; macOS: `NSStatusItem`), beides ohne echtes Testgerät hier.
    - 🔨 Schritt 7 vorgezogen: Pakete für Linux (x64, arm64, OpenSSL eingebaut) und macOS (Universal-App, ad hoc signiert) mit `scripts/install.sh` und Workflow `unix-release.yml`; Linux/macOS: `hearth setup`, `hearth doctor`, Token-Datei, Benachrichtigungen ohne Tray. Anleitung `docs/client-unix.md`.
-   - Offen: Sandbox unter Linux/macOS (Schritt 6), Tray-Symbol unter Linux/macOS, Test auf dem Linux-Laptop.
+   - 🔨 Schritt 6: Sandbox unter Linux (rootless Podman ohne VM) und macOS (Podman-Machine, `hearth setup` legt sie an) im Provider; Instanzen ohne DNS (Fund: Podman 4 löste im internen Netz externe Namen auf). Geprüft: Provider-Test in der Windows-VM; unter Ubuntu in der CI (Job `sandbox` in `unix.yml`) grün: Provider, Images (Base und Gateway im lokalen Podman gebaut), Git-Sync, Gateway mit Rückfrage und TLS, Instanz mit Installation über das Gateway. Unter Linux erreicht die Sandbox keinen Server unter `localhost` (kein gvproxy), dokumentiert. Offen: macOS-Sandbox ungeprüft (die CI-Runner haben keine verschachtelte Virtualisierung); zusätzliche Runtime unter Linux (gVisor/krun, ARCHITECTURE §3); die Images in der VM des Nutzers sind für das neue Netz-Layout veraltet (erst neu bauen, wenn er zustimmt, siehe Stolpersteine „TLS im Gateway“ zum Sichern seines Stands; beim nächsten Update baut `hearth setup` sie ohnehin neu).
+   - Offen außerdem: Test auf dem Linux-Laptop (am 21.11. nachmittags und abends offline), erstes Release mit Linux- und macOS-Paketen (`unix-release.yml` läuft mit einem Tag `v*`; der Nutzer entscheidet, wann, weil der Direktmodus einen neuen Server braucht).
    - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
@@ -79,15 +80,15 @@ Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Lin
 
 ## Verification state
 
-Stand: Commit `f70a911` (14.11.); danach nur Doku und `scripts/install.ps1` (lädt das Release ohne GitHub-CLI). Beim Skript ist nur die Syntax geprüft (PowerShell-Parser) und dass die Release-Adresse antwortet; installiert wurde damit nicht.
-- `pnpm -r typecheck`: grün.
-- `pnpm --filter @hearth/web build`: grün.
-- Server-Tests: 40 Dateien, 321 Tests grün, davon neu `test/events.test.ts` mit Live-Ereignissen, Cache-Headern und Build-Tag.
-- Server-Image vom 17.11.: grün (amd64 und arm64, Smoke-Test im Workflow).
-- Browser-E2E (18.11., nach `fix/photo-hint`): 23/23 Schritte, 0 Konsolenprobleme. Der Schritt „a chat open on phone and laptop …“ prüft jetzt auch das Menü bei einem Modell ohne Bilder. Screenshots `07f`, `07g` und `07h` angesehen. Vorher scheiterten drei Läufe an `ERR_INSUFFICIENT_RESOURCES` (1,8 GB Commit frei); mit 5 GB lief er durch.
-- Nicht geprüft:
-  - Rust-Tests und Smoke-Skripte; der Client-Code ist seit v0.3.0 unverändert.
-  - Echte Handys.
+Stand 21.11. abends (Branch `feat/unix-sandbox`, danach `main`):
+- `pnpm -r typecheck`, Server-Tests (325) und Browser-E2E (25/25) nach dem Direktmodus grün; seitdem kein Server- oder Web-Code geändert.
+- `scripts/smoke-host.sh` unter Windows 26/26.
+- Rust unter Windows: `cargo fmt --check`, `cargo clippy --all-targets` ohne Warnungen, Unit-Tests grün; `podman_vm` in der Windows-VM mit dem neuen Netz-Layout grün. `gateway_vm` und `instance_vm` unter Windows nicht gelaufen (dafür müssten die Images in der VM des Nutzers neu gebaut werden).
+- CI `unix.yml`: fmt, clippy, Tests auf Ubuntu x64/arm64 und macOS; Job `sandbox` (Ubuntu 24.04, rootless Podman) mit Provider, Image-Bau, `sync_vm`, `gateway_vm`, `instance_vm` grün.
+- `unix-release.yml` als Probelauf grün (Pakete gebaut, nichts veröffentlicht).
+- Desktop-App: kittest-Tests mit Bildern angesehen, Speicher gemessen (glow 78 MB).
+- Startmenü-Eintrag: PowerShell-Teil gegen eine Testdatei geprüft (anlegen, unverändert lassen, Ziel ändern); `hearth setup` selbst nicht mit dem echten Startmenü laufen lassen.
+- Nicht geprüft: echter Linux-Desktop (Laptop offline), macOS-Sandbox, Tray unter Linux/macOS (gibt es noch nicht), echte Handys.
 
 ---
 
@@ -96,6 +97,7 @@ Stand: Commit `f70a911` (14.11.); danach nur Doku und `scripts/install.ps1` (lä
 ### 2026-11-21
 - Standardmodell für neue Chats (Einstellungen → Chat).
 - Phase 6 geplant und begonnen: Sicherheitskonzept, Client baut unter Linux und macOS (CI), Proxy-Kern, Tunnel-Protokoll 11 mit Direktmodus in Server, Web und CLI, Smoke-Test `smoke-host.sh`.
+- Desktop-App `hearth-app` (egui), Pakete für Linux und macOS (`install.sh`, `unix-release.yml`), Sandbox unter Linux und macOS im Provider, Instanzen ohne DNS (Sicherheitsfund unter Podman 4), Sandbox-Job in `unix.yml`, Startmenü-Eintrag unter Windows.
 
 ### 2026-11-13/14
 - Live-Abgleich zwischen Geräten (`/api/events`), Foto-Auswahl auf Touch-Geräten, Sitzung bleibt bei Verbindungsfehlern, Startseite `no-cache` mit Build-Tag und Hinweis „Neu laden“, `immutable` für `/assets` kommt jetzt wirklich an.

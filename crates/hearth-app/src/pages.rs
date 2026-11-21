@@ -23,6 +23,8 @@ pub struct State {
     remove: Option<(String, bool)>,
     /// The project whose record the log page shows; none: the service.
     record: Option<String>,
+    /// A domain typed per project, for its allow or deny list.
+    domains: std::collections::HashMap<String, String>,
 }
 
 impl State {
@@ -360,6 +362,9 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
                 set_remote(app, &name, RemoteChange { merge: Some(merge), ..RemoteChange::default() });
             }
             ui.label(muted(ui, tr!("Netz: {} · Programme: {}", "Network: {} · Programs: {}", row.network, row.apps.join(", "))).small());
+            egui::CollapsingHeader::new(tr("Netz und Programme der Sandbox", "Network and programs of the sandbox"))
+                .id_salt(("sandbox", &row.name))
+                .show(ui, |ui| sandbox_settings(app, ui, row));
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -378,6 +383,120 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
             }
         });
     });
+}
+
+/// The sandbox's network rules and programs of a project, changed through
+/// `hearth net` and `hearth app`, so a running gateway takes them at once
+/// as in the terminal.
+fn sandbox_settings(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
+    let busy = app.jobs.busy();
+    ui.label(RichText::new(tr("Netz", "Network")).strong());
+    ui.horizontal_wrapped(|ui| {
+        for (preset, label) in [
+            ("off", tr("aus", "off")),
+            ("development", tr("Entwicklung", "development")),
+            ("open", tr("offen", "open")),
+        ] {
+            let selected = row.network == preset;
+            if ui
+                .add_enabled(!busy, egui::Button::selectable(selected, label))
+                .clicked()
+                && !selected
+            {
+                app.jobs.start(
+                    ui.ctx(),
+                    tr!("Netz von {}: {label}", "Network of {}: {label}", row.name),
+                    &["net", "--project", &row.name, "preset", preset],
+                );
+            }
+        }
+    });
+    if row.network == "open" {
+        ui.label(RichText::new(tr(
+            "Offen: Der Agent erreicht jede öffentliche Adresse und kann alles, was er in der Sandbox sieht, nach außen schicken.",
+            "Open: the agent reaches every public address and can send out anything it sees in the sandbox.",
+        ))
+        .color(theme::tokens(ui.ctx()).warning));
+    }
+    for (title, list) in [
+        (tr("Erlaubt", "Allowed"), &row.allow),
+        (tr("Gesperrt", "Blocked"), &row.deny),
+    ] {
+        if !list.is_empty() {
+            ui.label(muted(ui, format!("{title}: {}", list.join(", "))).small());
+        }
+    }
+    let domain = app.pages.domains.entry(row.name.clone()).or_default();
+    let mut add = None;
+    ui.horizontal(|ui| {
+        ui.add(
+            egui::TextEdit::singleline(domain)
+                .hint_text("api.example.com, *.example.com")
+                .desired_width(240.0),
+        );
+        let ready = !domain.trim().is_empty() && !busy;
+        if ui
+            .add_enabled(ready, egui::Button::new(tr("Erlauben", "Allow")))
+            .clicked()
+        {
+            add = Some("allow");
+        }
+        if ui
+            .add_enabled(ready, egui::Button::new(tr("Sperren", "Block")))
+            .clicked()
+        {
+            add = Some("deny");
+        }
+    });
+    if let Some(list) = add {
+        let pattern = domain.trim().to_owned();
+        domain.clear();
+        app.jobs.start(
+            ui.ctx(),
+            tr!(
+                "{} für {}: {pattern}",
+                "{} for {}: {pattern}",
+                list,
+                row.name
+            ),
+            &["net", "--project", &row.name, list, &pattern, "--always"],
+        );
+    }
+    ui.add_space(6.0);
+    ui.label(RichText::new(tr("Programme", "Programs")).strong());
+    ui.label(muted(ui, tr(
+        "Werden beim nächsten Start der Sandbox installiert, je Programm einmal für alle Projekte.",
+        "Installed when the sandbox starts next, each once for all projects.",
+    )).small());
+    for entry in app.snapshot.catalog.clone() {
+        let mut on = row.apps.contains(&entry.name);
+        let label = match &entry.description {
+            Some(description) => format!("{} – {description}", entry.title),
+            None => entry.title.clone(),
+        };
+        if ui
+            .add_enabled(!busy, egui::Checkbox::new(&mut on, label))
+            .changed()
+        {
+            app.jobs.start(
+                ui.ctx(),
+                tr!(
+                    "{}: {} {}",
+                    "{}: {} {}",
+                    row.name,
+                    entry.title,
+                    if on { tr("an", "on") } else { tr("aus", "off") }
+                ),
+                &[
+                    "app",
+                    "--project",
+                    &row.name,
+                    if on { "on" } else { "off" },
+                    &entry.name,
+                ],
+            );
+        }
+    }
 }
 
 fn set_host(app: &mut HearthApp, name: &ProjectName, change: HostChange) {

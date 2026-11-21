@@ -845,9 +845,13 @@ pub fn llm_upstream(
         (true, Some(address)) => address,
         (true, None) => {
             return Err(Error::Unsupported(
+                // Rootless Podman without a VM (Linux): no gvproxy forwards
+                // to this computer's loopback.
                 tr(
-                    "Der Server läuft auf diesem Rechner, aber der Provider kennt keine Host-Adresse",
-                    "The server runs on this computer, but the provider does not know a host address",
+                    "Der Server läuft auf diesem Rechner unter localhost, und die Sandbox hat keinen Weg dorthin; \
+                     Agents in der Sandbox brauchen einen Server unter einer anderen Adresse",
+                    "The server runs on this computer under localhost, and the sandbox has no way there; \
+                     agents in the sandbox need a server at another address",
                 )
                 .to_owned(),
             ));

@@ -106,19 +106,25 @@ fn check_config(config: &ConfigDir, report: &mut Report) -> GlobalConfig {
 }
 
 fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
-    // The sandbox outside Windows comes later (Phase 6, step 6); the
-    // direct mode needs no VM, so its absence is no failure there.
+    // Outside Windows there is no VM service; without Podman projects run
+    // in the direct mode, which is no failure.
     if !cfg!(windows) {
-        match find_podman() {
-            Ok(podman) => report.ok(tr!(
-                "Podman: {} (die Sandbox kommt auf diesem System mit einem späteren Update)",
-                "Podman: {} (the sandbox comes to this system with a later update)",
-                podman.display()
-            )),
-            Err(_) => report.ok(tr(
+        if find_podman().is_err() {
+            report.ok(tr(
                 "Ohne Podman: Projekte laufen im Direktmodus (`hearth project host on`)",
                 "Without Podman: projects run in the direct mode (`hearth project host on`)",
-            )),
+            ));
+            return Ok(());
+        }
+        match PodmanProvider::for_machine(machine_name) {
+            Ok(provider) => check_sandbox(&provider, report, machine_name),
+            Err(error) => {
+                report.fail(error);
+                report.hint(tr(
+                    "Sandbox einrichten: hearth setup",
+                    "Set the sandbox up: hearth setup",
+                ));
+            }
         }
         return Ok(());
     }
@@ -203,11 +209,22 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         }
     };
 
+    check_sandbox(&provider, report, machine_name);
+    Ok(())
+}
+
+/// Podman answers, rootless, and the images are current.
+fn check_sandbox(provider: &PodmanProvider, report: &mut Report, machine_name: &str) {
     let info = match provider.ping() {
         Ok(info) => info,
         Err(error) => {
             report.fail(error);
-            if service.is_ok() {
+            if !cfg!(windows) {
+                report.hint(tr!(
+                    "Podman prüfen: podman info (macOS: podman machine start {machine_name})",
+                    "Check Podman: podman info (macOS: podman machine start {machine_name})"
+                ));
+            } else if hearth_core::vmd::available() {
                 report.hint(tr(
                     "VM starten: hearth vmd start",
                     "Start the VM: hearth vmd start",
@@ -220,14 +237,17 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
                      & \"C:\\Program Files\\RedHat\\Podman\\podman.exe\" machine start {machine_name}"
                 ));
             }
-            return Ok(());
+            return;
         }
     };
+    let (user, port) = provider.machine().map_or((String::new(), 0), |machine| {
+        (machine.ssh_user.clone(), machine.ssh_port)
+    });
     let line = tr!(
         "VM erreichbar über SSH {}@127.0.0.1:{}: {} {} ({}), Podman {}, RAM {} MiB, frei {} MiB",
         "VM reachable over SSH {}@127.0.0.1:{}: {} {} ({}), Podman {}, RAM {} MiB, free {} MiB",
-        provider.machine().ssh_user,
-        provider.machine().ssh_port,
+        user,
+        port,
         info.distribution,
         info.distribution_version,
         info.arch,
@@ -248,7 +268,7 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
         (tr("Base-Image", "Base image"), BASE_IMAGE),
         (tr("Gateway-Image", "Gateway image"), GATEWAY_IMAGE),
     ] {
-        match image.status(&provider) {
+        match image.status(provider) {
             Ok(ImageStatus::Current) => report.ok(tr!(
                 "{label} {} aktuell{}",
                 "{label} {} up to date{}",
@@ -277,7 +297,6 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
             Err(error) => report.fail(error),
         }
     }
-    Ok(())
 }
 
 #[derive(Default)]

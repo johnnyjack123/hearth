@@ -19,7 +19,6 @@ use hearth_core::project::ProjectName;
 use hearth_core::sync::sanitize;
 use hearth_core::tr;
 use hearth_core::tunnel::{AppInfo, AppsReport, PendingFile, ProjectApps, RemoteProject, truncate};
-use hearth_core::vmd;
 
 use crate::app_request::{self, FileRequest};
 use crate::progress::{Progress, Terminal, step};
@@ -851,7 +850,7 @@ fn list(config: &ConfigDir, machine: &str, project_name: Option<&str>) -> anyhow
 /// A provider if the VM runs; `None` without starting it.
 fn running_provider(machine: &str) -> Option<PodmanProvider> {
     let provider = PodmanProvider::for_machine(machine).ok()?;
-    vmd::ssh_answers(provider.machine().ssh_port, Duration::from_secs(2)).then_some(provider)
+    provider.answers(Duration::from_secs(2)).then_some(provider)
 }
 
 fn switch(

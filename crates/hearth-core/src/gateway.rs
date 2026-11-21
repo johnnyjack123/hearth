@@ -27,7 +27,13 @@ use crate::{Error, PROJECT_LABEL, Result, tr};
 
 /// Name the instances reach the gateway under; `HTTP(S)_PROXY` in the base
 /// image points to `http://gateway:8888`.
-pub const GATEWAY_ALIAS: &str = "gateway";
+pub const GATEWAY_ALIAS: &str = crate::provider::GATEWAY_HOST;
+
+/// How the gateway sits in the project's network. Layout 2 (21.11.): a
+/// fixed address that instances find through `/etc/hosts`, because they
+/// have no DNS any more. A gateway of an older layout is made anew.
+const LAYOUT_LABEL: &str = "io.hearth.gateway-layout";
+const LAYOUT: &str = "2";
 
 /// Normal network all gateways share for their way out.
 pub const EGRESS_NETWORK: &str = "hearth-egress";
@@ -161,7 +167,10 @@ pub fn ensure_running(
     let hash = GATEWAY_IMAGE.context_hash();
     let mut started = true;
     match provider.container(&container)? {
-        Some(info) if info.labels.get(CONTEXT_HASH_LABEL) == Some(&hash) => {
+        Some(info)
+            if info.labels.get(CONTEXT_HASH_LABEL) == Some(&hash)
+                && info.labels.get(LAYOUT_LABEL).map(String::as_str) == Some(LAYOUT) =>
+        {
             if info.status == ContainerStatus::Running {
                 started = false;
             } else {
@@ -174,6 +183,7 @@ pub fn ensure_running(
             }
             let mut labels = project_labels;
             labels.insert(CONTEXT_HASH_LABEL.to_owned(), hash);
+            labels.insert(LAYOUT_LABEL.to_owned(), LAYOUT.to_owned());
             provider.create_gateway(&GatewaySpec {
                 name: container.clone(),
                 image: GATEWAY_IMAGE.tag.to_owned(),
