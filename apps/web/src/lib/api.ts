@@ -20,6 +20,7 @@ import type {
   CreateConversationInput,
   CreateProviderCredentialInput,
   CredentialModels,
+  DefaultModel,
   DeviceSummary,
   Inspection,
   LinkConversationInput,
@@ -158,6 +159,8 @@ export const api = {
   features: {
     get: () => request<ChatFeatures>('GET', '/features'),
     update: (patch: UpdateChatFeatures) => request<ChatFeatures>('PATCH', '/features', patch),
+    defaultModel: () => request<DefaultModel>('GET', '/features/default-model'),
+    setDefaultModel: (model: DefaultModel) => request<DefaultModel>('PUT', '/features/default-model', model),
   },
   admin: {
     activity: () => request<ServerActivity>('GET', '/admin/activity'),

@@ -661,6 +661,12 @@ export const de = {
     openRouterNoFourBitHint:
       'Die günstigsten Anbieter rechnen oft mit auf 4 Bit verkleinerten Modellen (fp4, int4). Das spart Geld, kann aber schlechtere Antworten geben.',
     saved: 'Einstellung gespeichert',
+    defaultModel: 'Standardmodell für neue Chats',
+    defaultModelHint:
+      'Jeder neue Chat startet mit diesem Modell, auf allen Geräten. Chats mit Modell behalten ihres. Ohne Standard nimmt ein neuer Chat das zuletzt gewählte Modell dieses Browsers.',
+    defaultModelNone: 'Kein Standard',
+    defaultModelUnavailable: 'Der Zugang bietet „{model}“ nicht mehr an. Neue Chats nehmen das zuletzt gewählte Modell.',
+    defaultModelClear: 'Standard entfernen',
   },
   files: {
     read: {
