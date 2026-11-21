@@ -49,7 +49,7 @@ enum Target {
     /// A Podman machine: a VM with its own kernel, reached over SSH, with an
     /// isolated podman home for its `known_hosts`.
     Machine {
-        machine: MachineConfig,
+        machine: Box<MachineConfig>,
         home: PathBuf,
     },
     /// This computer's rootless Podman (Linux): the containers share the
@@ -104,7 +104,10 @@ impl PodmanProvider {
         let home = state_dir.join(format!("{}-{}", machine.name, machine.ssh_port));
         Ok(PodmanProvider {
             podman,
-            target: Target::Machine { machine, home },
+            target: Target::Machine {
+                machine: Box::new(machine),
+                home,
+            },
         })
     }
 

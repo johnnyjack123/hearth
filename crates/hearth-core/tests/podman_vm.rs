@@ -97,9 +97,12 @@ fn provider_against_vm() {
     assert!(info.rootless, "machine must be rootless");
     println!("VM: {info:?}");
 
-    // TRIM as the user, before the VM service shrinks the disk file.
+    // TRIM as the user, before the VM service shrinks the disk file;
+    // without a VM (Linux) there is no disk file to shrink.
     let trimmed = timed("fstrim", || provider.trim().unwrap());
-    assert!(trimmed.contains("trimmed"), "{trimmed}");
+    if !provider.is_local() {
+        assert!(trimmed.contains("trimmed"), "{trimmed}");
+    }
     println!("{trimmed}");
 
     let id = std::process::id();

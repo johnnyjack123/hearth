@@ -45,8 +45,16 @@ jobs:
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
+      # The egress gateway runs in a Debian container of the same
+      # architecture; built here, hearth packs it instead of compiling it in
+      # Podman (crates/hearth-core/build.rs checks the architecture).
+      - name: Gateway
+        run: cargo build --release --locked -p hearth-gateway --features tls
+
       - name: Build
-        run: cargo build --release --locked -p hearth-cli -p hearth-app
+        run: |
+          export HEARTH_GATEWAY_BINARY="$PWD/target/release/hearth-gateway"
+          cargo build --release --locked -p hearth-cli -p hearth-app
 
       - name: Starts on the runner
         run: |
