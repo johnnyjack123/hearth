@@ -374,10 +374,8 @@ pub fn approve(config: &ConfigDir, machine: &str, id: &str) -> anyhow::Result<bo
         return Ok(false);
     }
     let provider = PodmanProvider::for_machine(machine)?;
-    let running = hearth_core::vmd::ssh_answers(
-        provider.machine().ssh_port,
-        std::time::Duration::from_secs(3),
-    ) && instance::state(&provider, &name)? == InstanceState::Running;
+    let running = provider.answers(std::time::Duration::from_secs(3))
+        && instance::state(&provider, &name)? == InstanceState::Running;
     if running {
         match continue_from_merge(&provider, &repo, &name, &request.commit, lang::current()) {
             Some(note) => println!("{note}"),

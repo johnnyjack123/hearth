@@ -75,3 +75,22 @@ jobs:
             target/release/hearthd
             target/release/hearth-app
           retention-days: 14
+
+  # The sandbox on Linux: rootless Podman on the runner, no VM. Runs the
+  # tests that need real containers (ignored elsewhere).
+  sandbox:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Podman
+        run: podman version && podman info --format '{{.Host.NetworkBackend}} {{.Host.Security.Rootless}}'
+
+      - name: Provider and sync
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          cargo test --locked -p hearth-core --test podman_vm --test sync_vm -- --ignored --test-threads=1 --nocapture

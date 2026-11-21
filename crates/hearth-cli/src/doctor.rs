@@ -223,11 +223,14 @@ fn check_vm(machine_name: &str, report: &mut Report) -> anyhow::Result<()> {
             return Ok(());
         }
     };
+    let (user, port) = provider.machine().map_or((String::new(), 0), |machine| {
+        (machine.ssh_user.clone(), machine.ssh_port)
+    });
     let line = tr!(
         "VM erreichbar über SSH {}@127.0.0.1:{}: {} {} ({}), Podman {}, RAM {} MiB, frei {} MiB",
         "VM reachable over SSH {}@127.0.0.1:{}: {} {} ({}), Podman {}, RAM {} MiB, free {} MiB",
-        provider.machine().ssh_user,
-        provider.machine().ssh_port,
+        user,
+        port,
         info.distribution,
         info.distribution_version,
         info.arch,

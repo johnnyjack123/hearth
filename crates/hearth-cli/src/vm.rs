@@ -46,8 +46,31 @@ pub fn provider(machine: &str) -> anyhow::Result<PodmanProvider> {
 /// [`provider`], reporting a VM start to `progress`.
 pub fn provider_with(machine: &str, progress: &dyn Progress) -> anyhow::Result<PodmanProvider> {
     let provider = PodmanProvider::for_machine(machine)?;
-    let port = provider.machine().ssh_port;
-    if vmd::ssh_answers(port, Duration::from_secs(3)) {
+    if provider.answers(Duration::from_secs(3)) {
+        return Ok(provider);
+    }
+    // macOS: Podman's own machine starts without administrator rights.
+    if !cfg!(windows) {
+        step(
+            progress,
+            "vm",
+            &tr!(in progress.lang();
+                "VM {machine} starten (bis zu einer Minute)",
+                "Starting VM {machine} (up to a minute)"
+            ),
+            || {
+                let output = std::process::Command::new(provider.podman_path())
+                    .args(["machine", "start", machine])
+                    .output()?;
+                if !output.status.success() {
+                    bail!(
+                        "podman machine start {machine}: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    );
+                }
+                Ok(())
+            },
+        )?;
         return Ok(provider);
     }
     if !vmd::available() {
@@ -123,6 +146,27 @@ pub fn stop_idle() -> anyhow::Result<String> {
 }
 
 fn stop_with(request: Request) -> anyhow::Result<String> {
+    if cfg!(target_os = "linux") {
+        return Ok(tr(
+            "Ohne VM gibt es nichts zu stoppen.",
+            "Without a VM there is nothing to stop.",
+        )
+        .to_owned());
+    }
+    if !cfg!(windows) {
+        let podman = hearth_core::podman::find_podman()?;
+        let output = std::process::Command::new(podman)
+            .args(["machine", "stop", hearth_core::podman::DEFAULT_MACHINE])
+            .output()?;
+        if !output.status.success() {
+            bail!(
+                "podman machine stop: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let _ = request;
+        return Ok(tr("Die VM ist gestoppt.", "The VM is stopped.").to_owned());
+    }
     if !vmd::available() {
         bail!(tr(
             "Ohne VM-Dienst (`hearth vmd install`) kann hearth die VM nicht stoppen.",
@@ -146,6 +190,18 @@ pub fn status() -> VmStatus {
     if STOPPING.load(Ordering::SeqCst) {
         return VmStatus::Stopping;
     }
+    // Linux: the computer's own Podman, always there once installed.
+    if cfg!(target_os = "linux") {
+        return if hearth_core::podman::find_podman().is_ok() {
+            VmStatus::Running
+        } else {
+            VmStatus::Unknown
+        };
+    }
+    // macOS: Podman's machine, asked directly (no VM service there).
+    if !cfg!(windows) {
+        return machine_state();
+    }
     if !vmd::available() {
         return VmStatus::Unknown;
     }
@@ -158,6 +214,32 @@ pub fn status() -> VmStatus {
         _ if STARTING.load(Ordering::SeqCst) => VmStatus::Starting,
         VmState::Stopped => VmStatus::Stopped,
         VmState::Unresponsive | VmState::Unknown => VmStatus::Unknown,
+    }
+}
+
+/// The state of Podman's machine on macOS (`podman machine inspect`).
+fn machine_state() -> VmStatus {
+    let Ok(podman) = hearth_core::podman::find_podman() else {
+        return VmStatus::Unknown;
+    };
+    let output = std::process::Command::new(podman)
+        .args([
+            "machine",
+            "inspect",
+            "--format",
+            "{{.State}}",
+            hearth_core::podman::DEFAULT_MACHINE,
+        ])
+        .output();
+    match output.map(|output| {
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase()
+    }) {
+        Ok(state) if state == "running" => VmStatus::Running,
+        Ok(state) if state == "starting" => VmStatus::Starting,
+        Ok(state) if state == "stopped" => VmStatus::Stopped,
+        _ => VmStatus::Unknown,
     }
 }
 

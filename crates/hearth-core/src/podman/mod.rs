@@ -35,12 +35,26 @@ use crate::{Error, Result, tr};
 
 const SSH_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// [`Provider`] backed by a Podman machine.
+/// [`Provider`] backed by Podman: a machine reached over SSH (Windows,
+/// macOS), or the rootless Podman of this computer (Linux, no VM).
 #[derive(Debug, Clone)]
 pub struct PodmanProvider {
     podman: PathBuf,
-    machine: MachineConfig,
-    home: PathBuf,
+    target: Target,
+}
+
+/// Where the containers run.
+#[derive(Debug, Clone)]
+enum Target {
+    /// A Podman machine: a VM with its own kernel, reached over SSH, with an
+    /// isolated podman home for its `known_hosts`.
+    Machine {
+        machine: MachineConfig,
+        home: PathBuf,
+    },
+    /// This computer's rootless Podman (Linux): the containers share the
+    /// kernel of the computer, there is no VM to start or stop.
+    Local,
 }
 
 /// Sets up zram swap unless the VM has it (`ensure_swap`). The
@@ -53,11 +67,24 @@ printf '[zram0]\\nzram-size = min(ram, 4096)\\ncompression-algorithm = zstd\\n' 
 && grep -q zram0 /proc/swaps && echo swap=new";
 
 impl PodmanProvider {
-    /// Provider for the named Hyper-V machine, using the installed podman and
-    /// `%LOCALAPPDATA%\hearth\podman` for connection state.
+    /// Provider for the named machine (Windows: Hyper-V, macOS: Podman's
+    /// own machine), using the installed podman and the data folder for
+    /// connection state. On Linux the name does not matter: the provider
+    /// uses this computer's rootless Podman.
     pub fn for_machine(name: &str) -> Result<Self> {
+        if cfg!(target_os = "linux") {
+            return Ok(Self::local(find_podman()?));
+        }
         let machine = MachineConfig::load(name)?;
         Self::new(machine, find_podman()?, &local_data_dir()?.join("podman"))
+    }
+
+    /// Provider for this computer's rootless Podman, without a VM.
+    pub fn local(podman: PathBuf) -> Self {
+        PodmanProvider {
+            podman,
+            target: Target::Local,
+        }
     }
 
     /// Provider for an already loaded machine config.
@@ -77,14 +104,30 @@ impl PodmanProvider {
         let home = state_dir.join(format!("{}-{}", machine.name, machine.ssh_port));
         Ok(PodmanProvider {
             podman,
-            machine,
-            home,
+            target: Target::Machine { machine, home },
         })
     }
 
-    /// The machine this provider talks to.
-    pub fn machine(&self) -> &MachineConfig {
-        &self.machine
+    /// The machine this provider talks to; `None` for the local Podman.
+    pub fn machine(&self) -> Option<&MachineConfig> {
+        match &self.target {
+            Target::Machine { machine, .. } => Some(machine),
+            Target::Local => None,
+        }
+    }
+
+    /// Whether the containers run on this computer's kernel (no VM).
+    pub fn is_local(&self) -> bool {
+        matches!(self.target, Target::Local)
+    }
+
+    /// Whether Podman answers: the machine's SSH greets within `timeout`;
+    /// the local Podman is always there once installed.
+    pub fn answers(&self, timeout: Duration) -> bool {
+        match &self.target {
+            Target::Machine { machine, .. } => crate::vmd::ssh_answers(machine.ssh_port, timeout),
+            Target::Local => true,
+        }
     }
 
     /// The podman executable in use.
@@ -92,8 +135,8 @@ impl PodmanProvider {
         &self.podman
     }
 
-    fn probe_ssh_port(&self) -> Result<()> {
-        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, self.machine.ssh_port));
+    fn probe_ssh_port(machine: &MachineConfig) -> Result<()> {
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, machine.ssh_port));
         TcpStream::connect_timeout(&addr, SSH_PROBE_TIMEOUT)
             .map(drop)
             .map_err(|source| Error::VmUnreachable {
@@ -102,8 +145,8 @@ impl PodmanProvider {
             })
     }
 
-    fn known_hosts(&self) -> PathBuf {
-        self.home.join(".ssh").join("known_hosts")
+    fn known_hosts(home: &Path) -> PathBuf {
+        home.join(".ssh").join("known_hosts")
     }
 
     /// Records the machine's host key on first use (trust on first use).
@@ -111,15 +154,18 @@ impl PodmanProvider {
     /// The port is only bound on `127.0.0.1` by gvproxy, so the first answer
     /// comes from a local process; after that the key is pinned.
     fn ensure_known_hosts(&self) -> Result<()> {
-        let file = self.known_hosts();
+        let Target::Machine { machine, home } = &self.target else {
+            return Ok(());
+        };
+        let file = Self::known_hosts(home);
         if fs::metadata(&file).is_ok_and(|m| m.len() > 0) {
             return Ok(());
         }
-        self.probe_ssh_port()?;
+        Self::probe_ssh_port(machine)?;
         let keyscan = find_keyscan();
         let output = Command::new(&keyscan)
             .args(["-T", "5", "-p"])
-            .arg(self.machine.ssh_port.to_string())
+            .arg(machine.ssh_port.to_string())
             .arg(Ipv4Addr::LOCALHOST.to_string())
             .stdin(Stdio::null())
             .output()
@@ -138,7 +184,7 @@ impl PodmanProvider {
                 detail: tr("kein Host-Key erhalten", "no host key received").to_owned(),
             });
         }
-        let dir = file.parent().unwrap_or(&self.home);
+        let dir = file.parent().unwrap_or(home);
         fs::create_dir_all(dir).map_err(|e| Error::io(creating(dir), e))?;
         // Write-then-rename so a concurrent hearth process never sees a
         // half-written file.
@@ -149,8 +195,11 @@ impl PodmanProvider {
 
     /// TRIM inside the VM (`sudo fstrim -av` as the machine's user): tells
     /// the disk which blocks deleted files left free, so the VM service can
-    /// shrink the disk file afterwards.
+    /// shrink the disk file afterwards. Nothing to do without a VM.
     pub fn trim(&self) -> Result<String> {
+        if self.is_local() {
+            return Ok(String::new());
+        }
         self.vm_shell(
             "sudo fstrim -av",
             tr("fstrim in der VM", "fstrim in the VM"),
@@ -164,8 +213,12 @@ impl PodmanProvider {
     /// then pi). zstd packs typical memory about threefold, so a swap as
     /// large as the RAM costs about a third of it when full. Fedora CoreOS
     /// brings zram-generator, only its configuration is missing. Returns
-    /// whether it set the swap up now.
+    /// whether it set the swap up now. Without a VM the computer's own swap
+    /// counts, and hearth leaves it alone.
     pub fn ensure_swap(&self) -> Result<bool> {
+        if self.is_local() {
+            return Ok(false);
+        }
         let output = self.vm_shell(
             SWAP_SCRIPT,
             tr("Swap in der VM einrichten", "setting up swap in the VM"),
@@ -179,8 +232,17 @@ impl PodmanProvider {
     /// Uses the pinned host key and an empty config, never the user's own
     /// SSH setup.
     fn vm_shell(&self, script: &str, what: &str) -> Result<String> {
+        let Target::Machine { machine, home } = &self.target else {
+            return Err(Error::Unsupported(
+                tr(
+                    "Ohne VM gibt es keine VM-Shell",
+                    "Without a VM there is no VM shell",
+                )
+                .to_owned(),
+            ));
+        };
         self.ensure_known_hosts()?;
-        let config = self.home.join(".ssh").join("config-empty");
+        let config = home.join(".ssh").join("config-empty");
         if !config.is_file() {
             fs::write(&config, "").map_err(|e| Error::io(writing(&config), e))?;
         }
@@ -203,13 +265,13 @@ impl PodmanProvider {
             ])
             .arg(format!(
                 "UserKnownHostsFile=\"{}\"",
-                self.known_hosts().display()
+                Self::known_hosts(home).display()
             ))
             .arg("-i")
-            .arg(&self.machine.identity_path)
+            .arg(&machine.identity_path)
             .arg("-p")
-            .arg(self.machine.ssh_port.to_string())
-            .arg(format!("{}@{}", self.machine.ssh_user, Ipv4Addr::LOCALHOST))
+            .arg(machine.ssh_port.to_string())
+            .arg(format!("{}@{}", machine.ssh_user, Ipv4Addr::LOCALHOST))
             .arg(script)
             .stdin(Stdio::null())
             .output()
@@ -227,15 +289,18 @@ impl PodmanProvider {
     fn command(&self) -> Result<Command> {
         self.ensure_known_hosts()?;
         let mut cmd = Command::new(&self.podman);
-        cmd.arg("--url")
-            .arg(self.machine.url())
-            .arg("--identity")
-            .arg(&self.machine.identity_path)
-            .env("HOME", &self.home)
-            .env("USERPROFILE", &self.home)
-            // Explicit flags win anyway; removing these keeps a user's own
-            // podman setup from leaking into error messages and behaviour.
-            .env_remove("CONTAINER_HOST")
+        if let Target::Machine { machine, home } = &self.target {
+            cmd.arg("--url")
+                .arg(machine.url())
+                .arg("--identity")
+                .arg(&machine.identity_path)
+                .env("HOME", home)
+                .env("USERPROFILE", home);
+        }
+        // Explicit flags win anyway; removing these keeps a user's own
+        // podman setup from leaking into error messages and behaviour, and
+        // the local Podman from going to a remote one.
+        cmd.env_remove("CONTAINER_HOST")
             .env_remove("CONTAINER_CONNECTION")
             .env_remove("CONTAINER_SSHKEY");
         Ok(cmd)
@@ -303,7 +368,9 @@ impl Provider for PodmanProvider {
     }
 
     fn ping(&self) -> Result<HostInfo> {
-        self.probe_ssh_port()?;
+        if let Some(machine) = self.machine() {
+            Self::probe_ssh_port(machine)?;
+        }
         let json = self.run("info", &["info", "--format", "json"])?;
         parse_info(&json)
     }
