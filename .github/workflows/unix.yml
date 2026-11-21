@@ -96,7 +96,7 @@ jobs:
       # Base and gateway image as `hearth setup` builds them (the gateway is
       # compiled in a Rust container here).
       - name: Images
-        run: cargo run --locked -p hearth-cli -- image build
+        run: cargo run --locked -p hearth-cli --bin hearth -- image build
 
       - name: Sync, gateway and instance
         run: |
