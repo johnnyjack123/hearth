@@ -45,7 +45,10 @@ pub(crate) fn network_create(spec: &NetworkSpec) -> Result<Vec<String>> {
 }
 
 /// `podman create` for an instance. The hardening block is unconditional.
-pub(crate) fn container_create(spec: &ContainerSpec) -> Result<Vec<String>> {
+/// `gateway_ip` is the gateway's fixed address in the instance's network:
+/// the instance has no DNS at all and reaches the gateway through
+/// `/etc/hosts`, so no name of the internet resolves inside.
+pub(crate) fn container_create(spec: &ContainerSpec, gateway_ip: &str) -> Result<Vec<String>> {
     validate_resource_name(tr("Containername", "container name"), &spec.name)?;
     validate_resource_name(tr("Netz", "network"), &spec.network)?;
     validate_image_ref(&spec.image)?;
@@ -55,6 +58,19 @@ pub(crate) fn container_create(spec: &ContainerSpec) -> Result<Vec<String>> {
         .to_vec();
     push_labels(&mut args, &spec.labels)?;
     args.extend(["--network".to_owned(), spec.network.clone()]);
+    let gateway_ip: std::net::Ipv4Addr = gateway_ip.parse().map_err(|_| {
+        Error::invalid(
+            tr("Gateway-Adresse", "gateway address"),
+            gateway_ip,
+            tr("keine IPv4-Adresse", "no IPv4 address"),
+        )
+    })?;
+    args.extend([
+        "--dns".to_owned(),
+        "none".to_owned(),
+        "--add-host".to_owned(),
+        format!("{}:{gateway_ip}", crate::provider::GATEWAY_HOST),
+    ]);
 
     // Hardening (ARCHITECTURE.md §3.3). `--init` puts catatonit in front of
     // the image's CMD so processes orphaned by `exec` sessions get reaped.
@@ -128,7 +144,9 @@ const GATEWAY_MEMORY: &str = "128m";
 
 /// `podman create` for a project's gateway. Like [`container_create`], the
 /// hardening is unconditional; there are no mounts at all.
-pub(crate) fn gateway_create(spec: &GatewaySpec) -> Result<Vec<String>> {
+/// `ip` is its fixed address in the internal network (see
+/// `container_create`).
+pub(crate) fn gateway_create(spec: &GatewaySpec, ip: &str) -> Result<Vec<String>> {
     validate_resource_name(tr("Containername", "container name"), &spec.name)?;
     validate_resource_name(tr("Netz", "network"), &spec.internal_network)?;
     validate_resource_name(tr("Netz", "network"), &spec.egress_network)?;
@@ -151,7 +169,17 @@ pub(crate) fn gateway_create(spec: &GatewaySpec) -> Result<Vec<String>> {
     push_labels(&mut args, &spec.labels)?;
     args.extend([
         "--network".to_owned(),
-        format!("{}:alias={}", spec.internal_network, spec.alias),
+        format!(
+            "{}:alias={},ip={}",
+            spec.internal_network,
+            spec.alias,
+            ip.parse::<std::net::Ipv4Addr>()
+                .map_err(|_| Error::invalid(
+                    tr("Gateway-Adresse", "gateway address"),
+                    ip,
+                    tr("keine IPv4-Adresse", "no IPv4 address")
+                ))?
+        ),
         "--network".to_owned(),
         spec.egress_network.clone(),
     ]);
@@ -318,6 +346,17 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    /// The gateway's address the provider found in the network.
+    const GW: &str = "10.89.0.254";
+
+    #[test]
+    fn instances_have_no_dns_and_find_the_gateway_by_address() {
+        let args = container_create(&instance(), GW).unwrap();
+        assert!(has_pair(&args, "--dns", "none"));
+        assert!(has_pair(&args, "--add-host", "gateway:10.89.0.254"));
+        assert!(container_create(&instance(), "gateway").is_err());
+    }
     use crate::provider::{Mount, Resources};
 
     fn instance() -> ContainerSpec {
@@ -355,7 +394,7 @@ mod tests {
 
     #[test]
     fn create_always_hardens() {
-        let args = container_create(&ContainerSpec::default_with_name()).unwrap();
+        let args = container_create(&ContainerSpec::default_with_name(), GW).unwrap();
         for flag in [
             "--init",
             "--cap-drop=ALL",
@@ -373,7 +412,7 @@ mod tests {
 
     #[test]
     fn create_maps_spec() {
-        let args = container_create(&instance()).unwrap();
+        let args = container_create(&instance(), GW).unwrap();
         assert!(has_pair(&args, "--network", "hearth-net-demo"));
         assert!(has_pair(
             &args,
@@ -397,19 +436,19 @@ mod tests {
     fn create_rejects_injection() {
         let mut spec = instance();
         spec.name = "--privileged".into();
-        assert!(container_create(&spec).is_err());
+        assert!(container_create(&spec, GW).is_err());
 
         let mut spec = instance();
         spec.mounts[0].target = "/workspace,readonly=false".into();
-        assert!(container_create(&spec).is_err());
+        assert!(container_create(&spec, GW).is_err());
 
         let mut spec = instance();
         spec.mounts[1].source = MountSource::Volume("../..".into());
-        assert!(container_create(&spec).is_err());
+        assert!(container_create(&spec, GW).is_err());
 
         let mut spec = instance();
         spec.env.insert("A=B".into(), "x".into());
-        assert!(container_create(&spec).is_err());
+        assert!(container_create(&spec, GW).is_err());
     }
 
     #[test]
@@ -445,11 +484,13 @@ mod tests {
             labels: [("io.hearth.project".to_owned(), "demo".to_owned())].into(),
             command: vec![],
         };
-        let args = gateway_create(&spec).unwrap();
+        // Only an address, never more options for podman.
+        assert!(gateway_create(&spec, "10.89.0.254,x").is_err());
+        let args = gateway_create(&spec, GW).unwrap();
         assert!(has_pair(
             &args,
             "--network",
-            "hearth-net-demo:alias=gateway"
+            "hearth-net-demo:alias=gateway,ip=10.89.0.254"
         ));
         assert!(has_pair(&args, "--network", "hearth-egress"));
         assert!(has_pair(&args, "--user", "65534:65534"));
@@ -472,10 +513,10 @@ mod tests {
 
         let mut same = spec.clone();
         same.egress_network = same.internal_network.clone();
-        assert!(gateway_create(&same).is_err());
+        assert!(gateway_create(&same, GW).is_err());
         let mut bad = spec;
         bad.alias = "gateway,x".into();
-        assert!(gateway_create(&bad).is_err());
+        assert!(gateway_create(&bad, GW).is_err());
     }
 
     #[test]

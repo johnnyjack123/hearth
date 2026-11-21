@@ -349,6 +349,10 @@ impl PodmanProvider {
     }
 
     fn network_internal(&self, name: &str) -> Result<Option<bool>> {
+        Ok(self.network(name)?.map(|network| network.internal))
+    }
+
+    fn network(&self, name: &str) -> Result<Option<RawNetwork>> {
         if !self.exists("network exists", &["network", "exists", name])? {
             return Ok(None);
         }
@@ -356,11 +360,30 @@ impl PodmanProvider {
         let networks: Vec<RawNetwork> =
             serde_json::from_str(&json).map_err(|e| unexpected("network inspect", e))?;
         networks
-            .first()
-            .map(|n| Some(n.internal))
+            .into_iter()
+            .next()
+            .map(Some)
             .ok_or_else(|| Error::UnexpectedOutput {
                 action: "network inspect".to_owned(),
                 detail: tr("leere Antwort", "empty answer").to_owned(),
+            })
+    }
+
+    /// The gateway's fixed address in an internal network: the last host
+    /// address of its first IPv4 subnet. Instances find the gateway through
+    /// it (an `/etc/hosts` entry) instead of the network's DNS, which in
+    /// Podman 4 also resolved names of the internet, a way out for data.
+    fn gateway_ip(network: &RawNetwork, name: &str) -> Result<String> {
+        network
+            .subnets
+            .iter()
+            .find_map(|subnet| last_host(&subnet.subnet))
+            .ok_or_else(|| Error::UnexpectedOutput {
+                action: "network inspect".to_owned(),
+                detail: tr!(
+                    "Netz {name} ohne IPv4-Subnetz",
+                    "network {name} without an IPv4 subnet"
+                ),
             })
     }
 }
@@ -539,10 +562,10 @@ impl Provider for PodmanProvider {
     }
 
     fn create_container(&self, spec: &ContainerSpec) -> Result<()> {
-        let args = args::container_create(spec)?;
-        match self.network_internal(&spec.network)? {
-            Some(true) => {}
-            Some(false) => return Err(Error::NetworkNotInternal(spec.network.clone())),
+        args::container_create(spec, "0.0.0.0")?;
+        let network = match self.network(&spec.network)? {
+            Some(network) if network.internal => network,
+            Some(_) => return Err(Error::NetworkNotInternal(spec.network.clone())),
             None => {
                 return Err(Error::Unsupported(tr!(
                     "Netz {} existiert nicht",
@@ -550,24 +573,27 @@ impl Provider for PodmanProvider {
                     spec.network
                 )));
             }
-        }
+        };
+        let args = args::container_create(spec, &Self::gateway_ip(&network, &spec.network)?)?;
         self.run("create", &args)?;
         Ok(())
     }
 
     fn create_gateway(&self, spec: &GatewaySpec) -> Result<()> {
-        let args = args::gateway_create(spec)?;
+        args::gateway_create(spec, "0.0.0.0")?;
         let missing = |name: &str| {
             Error::Unsupported(tr!(
                 "Netz {name} existiert nicht",
                 "Network {name} does not exist"
             ))
         };
-        match self.network_internal(&spec.internal_network)? {
-            Some(true) => {}
-            Some(false) => return Err(Error::NetworkNotInternal(spec.internal_network.clone())),
+        let internal = match self.network(&spec.internal_network)? {
+            Some(network) if network.internal => network,
+            Some(_) => return Err(Error::NetworkNotInternal(spec.internal_network.clone())),
             None => return Err(missing(&spec.internal_network)),
-        }
+        };
+        let args =
+            args::gateway_create(spec, &Self::gateway_ip(&internal, &spec.internal_network)?)?;
         match self.network_internal(&spec.egress_network)? {
             Some(false) => {}
             Some(true) => {
@@ -926,6 +952,27 @@ struct RawVolume {
 struct RawNetwork {
     #[serde(default)]
     internal: bool,
+    #[serde(default)]
+    subnets: Vec<RawSubnet>,
+}
+
+#[derive(Deserialize)]
+struct RawSubnet {
+    subnet: String,
+}
+
+/// The last host address of an IPv4 subnet (`10.89.3.0/24` → `10.89.3.254`);
+/// `None` for IPv6 and for subnets too small to hold more than the bridge.
+fn last_host(subnet: &str) -> Option<String> {
+    let (address, prefix) = subnet.split_once('/')?;
+    let address: Ipv4Addr = address.parse().ok()?;
+    let prefix: u32 = prefix.parse().ok()?;
+    if !(8..=29).contains(&prefix) {
+        return None;
+    }
+    let size = 1u32 << (32 - prefix);
+    let network = u32::from(address) & !(size - 1);
+    Some(Ipv4Addr::from(network + size - 2).to_string())
 }
 
 #[derive(Deserialize)]
@@ -940,6 +987,19 @@ struct RawContainer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gateway_takes_the_last_host_address() {
+        assert_eq!(last_host("10.89.3.0/24").as_deref(), Some("10.89.3.254"));
+        assert_eq!(last_host("10.89.3.17/24").as_deref(), Some("10.89.3.254"));
+        assert_eq!(
+            last_host("172.16.0.0/16").as_deref(),
+            Some("172.16.255.254")
+        );
+        assert_eq!(last_host("fd00::/64"), None);
+        assert_eq!(last_host("10.0.0.0/30"), None);
+        assert_eq!(last_host("nonsense"), None);
+    }
 
     #[test]
     fn parses_info() {
