@@ -47,6 +47,7 @@ fn config_root() -> Option<PathBuf> {
 
 /// Suffix of the service's named kernel objects; the same as
 /// `daemon::object_suffix` in hearth, which creates them.
+#[cfg(windows)]
 fn object_suffix(root: &Path) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in root.to_string_lossy().to_lowercase().bytes() {

@@ -46,6 +46,16 @@ fn commit(dir: &Path, file: &str, text: &str, message: &str) {
     git(dir, &["commit", "--quiet", "-m", message]);
 }
 
+/// Writes a hook script; outside Windows git runs it only when executable.
+fn write_hook(path: &Path, script: &str) {
+    fs::write(path, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 /// A host repository with one commit on `main`.
 fn host_repo(dir: &Path) -> HostRepo {
     fs::create_dir_all(dir).unwrap();
@@ -348,8 +358,16 @@ fn missing_prerequisites_ask_for_a_full_bundle() {
     s.agent_commit("a.txt", "1\n");
     assert!(s.container.export(&s.out(), false));
 
-    // A repository that never had the container's base commit.
-    let other = host_repo(&s.root.join("other"));
+    // A repository that never had the container's base commit. Its first
+    // commit differs in content: within the same second, the same content
+    // and identity would make the very same commit.
+    let other_dir = s.root.join("other");
+    fs::create_dir_all(&other_dir).unwrap();
+    git(&other_dir, &["init", "--quiet"]);
+    git(&other_dir, &["config", "user.name", "Host User"]);
+    git(&other_dir, &["config", "user.email", "host@example.com"]);
+    commit(&other_dir, "f.txt", "another start\n", "unrelated");
+    let other = HostRepo::open(&other_dir).unwrap();
     assert_eq!(
         other.import_bundle(&s.out(), BRANCH, false).unwrap(),
         ImportOutcome::NeedsFullBundle
@@ -452,13 +470,13 @@ fn hooks_never_run_on_the_host() {
 
     // Control: hooks do run in this environment for plain git.
     let hooks = s.host_dir().join(".git").join("hooks");
-    fs::write(hooks.join("post-commit"), hook("control")).unwrap();
+    write_hook(&hooks.join("post-commit"), &hook("control"));
     commit(s.host_dir(), "c.txt", "c\n", "control");
     assert!(marker("control").exists(), "hooks do not run here at all");
 
     // Round 1: hooks in .git/hooks.
-    fs::write(hooks.join("post-merge"), hook("git-dir-merge")).unwrap();
-    fs::write(hooks.join("reference-transaction"), hook("git-dir-ref")).unwrap();
+    write_hook(&hooks.join("post-merge"), &hook("git-dir-merge"));
+    write_hook(&hooks.join("reference-transaction"), &hook("git-dir-ref"));
     s.agent_commit("a.txt", "1\n");
     s.import(false).unwrap();
     s.host.merge(BRANCH).unwrap();
@@ -467,8 +485,8 @@ fn hooks_never_run_on_the_host() {
     // the agent could fill through its commits.
     let tracked = s.host_dir().join(".husky");
     fs::create_dir_all(&tracked).unwrap();
-    fs::write(tracked.join("post-merge"), hook("tracked-merge")).unwrap();
-    fs::write(tracked.join("reference-transaction"), hook("tracked-ref")).unwrap();
+    write_hook(&tracked.join("post-merge"), &hook("tracked-merge"));
+    write_hook(&tracked.join("reference-transaction"), &hook("tracked-ref"));
     git(s.host_dir(), &["config", "core.hooksPath", ".husky"]);
     s.agent_commit("b.txt", "2\n");
     s.import(false).unwrap();

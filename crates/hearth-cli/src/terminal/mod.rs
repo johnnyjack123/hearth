@@ -22,6 +22,8 @@ use hearth_core::provider::ExecSpec;
 const DIRECT_ENV: &str = "HEARTH_DIRECT_TERMINAL";
 
 /// Where answers to the gateway's questions go.
+// Only the Windows relay answers in the terminal; elsewhere `hearth net watch` does.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Approvals<'a> {
     /// For answer "immer", which writes the project file.
     pub config: &'a ConfigDir,

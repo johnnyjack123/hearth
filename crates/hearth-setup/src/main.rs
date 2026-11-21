@@ -271,6 +271,8 @@ mod tests {
         assert!(!hint.contains("  Schadsoftware"), "{hint}");
     }
 
+    // Runs a copy of Windows' ping; the setup program exists for Windows only.
+    #[cfg(windows)]
     #[test]
     fn running_programs_move_aside_instead_of_failing() {
         let dir = tempfile::tempdir().unwrap();

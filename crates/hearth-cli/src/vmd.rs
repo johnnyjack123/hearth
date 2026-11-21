@@ -664,6 +664,7 @@ fn uninstall(machine: &str) -> anyhow::Result<bool> {
 
 /// Prints what the elevated half wrote to `log` since `offset`, line by
 /// line, and returns the new offset. A line still being written waits.
+#[cfg(windows)]
 fn print_new(log: &Path, offset: usize) -> usize {
     let Ok(text) = fs::read(log) else {
         return offset;

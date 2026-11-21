@@ -265,6 +265,15 @@ pub fn current_user_sid() -> Result<String> {
     Ok(result)
 }
 
+/// The VM service exists on Windows only: Hyper-V needs administrator
+/// rights for every machine command, Podman on macOS and Linux does not.
+#[cfg(not(windows))]
+pub fn current_user_sid() -> Result<String> {
+    Err(Error::Vmd(
+        tr("gibt es nur unter Windows", "exists on Windows only").to_owned(),
+    ))
+}
+
 /// SID of the owner of a file or folder, e.g. `S-1-5-32-544`.
 #[cfg(windows)]
 pub fn owner_sid(path: &std::path::Path) -> Result<String> {
@@ -324,6 +333,14 @@ pub fn owner_sid(path: &std::path::Path) -> Result<String> {
 
 /// Owners the service's data folder may have: SYSTEM and Administrators.
 pub const TRUSTED_OWNERS: [&str; 2] = ["S-1-5-18", "S-1-5-32-544"];
+
+/// See [`current_user_sid`]: there is no service folder to check.
+#[cfg(not(windows))]
+pub fn check_service_root(_root: &std::path::Path, _also: Option<&str>, _deep: bool) -> Result<()> {
+    Err(Error::Vmd(
+        tr("gibt es nur unter Windows", "exists on Windows only").to_owned(),
+    ))
+}
 
 /// Checks the service's data folder (`C:\ProgramData\hearth`) before
 /// anything runs as SYSTEM from it. Any user may create folders in
