@@ -174,6 +174,7 @@ pub fn run(config: &ConfigDir, machine: &str, options: Options) -> anyhow::Resul
         background(&assistant, config)?;
     }
     path(&assistant)?;
+    desktop_entry(&assistant)?;
     println!();
     if paired {
         println!(
@@ -325,14 +326,23 @@ fn sandbox_unix(assistant: &Assistant, podman: &Path, machine: &str) -> anyhow::
     Ok(())
 }
 
-/// A menu entry for the desktop app (Linux: `~/.local/share/applications`;
-/// macOS gets an app bundle from the package).
+/// A menu entry for the desktop app (Linux: `~/.local/share/applications`,
+/// Windows: a shortcut in the user's start menu; macOS gets an app bundle
+/// from the package).
 fn desktop_entry(assistant: &Assistant) -> anyhow::Result<()> {
     if cfg!(target_os = "macos") || !assistant.system {
         return Ok(());
     }
-    let app = std::env::current_exe()?.with_file_name("hearth-app");
+    let app = std::env::current_exe()?.with_file_name(if cfg!(windows) {
+        "hearth-app.exe"
+    } else {
+        "hearth-app"
+    });
     if !app.is_file() {
+        return Ok(());
+    }
+    if cfg!(windows) {
+        start_menu_shortcut(&app);
         return Ok(());
     }
     let data = std::env::var_os("XDG_DATA_HOME")
@@ -370,6 +380,71 @@ fn desktop_entry(assistant: &Assistant) -> anyhow::Result<()> {
         "Hearth app added to the start menu",
     ));
     Ok(())
+}
+
+/// Writes the shortcut unless one with this target exists; prints `same`
+/// or `saved`. Paths come in through the environment, never as script text.
+const SHORTCUT_PS: &str = r#"$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut($env:HEARTH_LINK)
+if ((Test-Path -LiteralPath $env:HEARTH_LINK) -and $link.TargetPath -eq $env:HEARTH_TARGET) { 'same'; exit 0 }
+$link.TargetPath = $env:HEARTH_TARGET
+$link.WorkingDirectory = Split-Path -Parent $env:HEARTH_TARGET
+$link.Description = $env:HEARTH_DESCRIPTION
+$link.Save()
+'saved'"#;
+
+/// `Hearth.lnk` in the user's start menu. A `.lnk` needs COM, which
+/// PowerShell has at hand; a failure is only a warning, the app still runs.
+fn start_menu_shortcut(app: &Path) {
+    let Some(appdata) = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    else {
+        return;
+    };
+    let link = [
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "Hearth.lnk",
+    ]
+    .iter()
+    .fold(appdata, |path, part| path.join(part));
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", SHORTCUT_PS])
+        .env("HEARTH_LINK", &link)
+        .env("HEARTH_TARGET", app)
+        .env(
+            "HEARTH_DESCRIPTION",
+            tr(
+                "Projekte, Freigaben und Verbindung von hearth",
+                "Projects, approvals and connection of hearth",
+            ),
+        )
+        .output();
+    match output {
+        Ok(output) if String::from_utf8_lossy(&output.stdout).trim() == "same" => {
+            ok(tr(
+                "Hearth-App im Startmenü",
+                "Hearth app in the start menu",
+            ));
+        }
+        Ok(output) if String::from_utf8_lossy(&output.stdout).trim() == "saved" => ok(tr(
+            "Hearth-App im Startmenü eingetragen",
+            "Hearth app added to the start menu",
+        )),
+        Ok(output) => warn(tr!(
+            "Kein Startmenü-Eintrag für die Hearth-App: {}",
+            "No start menu entry for the Hearth app: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+        Err(error) => warn(tr!(
+            "Kein Startmenü-Eintrag für die Hearth-App: {error}",
+            "No start menu entry for the Hearth app: {error}"
+        )),
+    }
 }
 
 /// Hyper-V switched on; if not, why not, and an offer to switch it on.

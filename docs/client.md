@@ -6,7 +6,7 @@ Der Windows-Client bringt Coding-Agents in eine isolierte Umgebung auf dem eigen
 |---|---|
 | `hearth.exe` | Befehlszeile: Projekte, Agent im Terminal, Sync, Prüfung, Einrichtung; als `hearth daemon` auch der Hintergrunddienst für Web-Chats |
 | `hearthd.exe` | Tray-Symbol; startet bei der Anmeldung den Hintergrunddienst |
-| `hearth-app.exe` | Desktop-App: Freigaben, Projekte und ihr Modus, Kopplung, Dienst, VM, Protokolle (über das Tray-Symbol „Hearth öffnen“) |
+| `hearth-app.exe` | Desktop-App: Freigaben, Projekte und ihr Modus, Kopplung, Dienst, VM, Protokolle (im Startmenü als „Hearth“ und über das Tray-Symbol „Hearth öffnen“) |
 | `hearth-vmd.exe` | Windows-Dienst, der die VM startet und stoppt (der einzige Teil mit Administratorrechten) |
 | Gateway | läuft in der VM, regelt jeden Netzzugriff der Sandbox |
 
@@ -32,6 +32,7 @@ Ohne Client funktioniert der Web-Chat ganz normal, nur ohne Agents auf dem Rechn
    - **Server:** fragt nach der Adresse des Servers und öffnet die Bestätigung im Browser (siehe [Kopplung](#kopplung-mit-dem-server)). Eine leere Antwort überspringt den Schritt; dann geht nur der Terminal-Betrieb, bis `hearth login` nachgeholt ist.
    - **Autostart:** nach der Kopplung startet der Hintergrunddienst für Web-Chats bei jeder Anmeldung.
    - **PATH:** `hearth` geht danach in jedem neuen Terminal.
+   - **Startmenü:** die Hearth-App als „Hearth“.
 4. Am Ende in einem neuen Terminal `hearth doctor` ausführen; es zeigt, ob alles bereit ist.
 
 Bricht ein Schritt ab, das Einrichtungsprogramm einfach erneut starten. Es macht nur, was noch fehlt. Aus einem Terminal geht dasselbe mit `hearth setup`; `--server <adresse>` gibt die Adresse des Servers gleich mit, `--yes` stimmt allen Schritten ohne Nachfrage zu.
@@ -208,4 +209,4 @@ $env:CONTAINERS_MACHINE_PROVIDER = 'hyperv'
 & "C:\Program Files\RedHat\Podman\podman.exe" machine rm -f hearth
 ```
 
-Danach `%LOCALAPPDATA%\Programs\hearth`, `%LOCALAPPDATA%\hearth`, `C:\ProgramData\hearth` und `%USERPROFILE%\.hearth` löschen und den Eintrag aus dem PATH (Benutzervariablen) entfernen. Git und Podman bleiben installiert; wer sie nicht mehr braucht, entfernt sie wie andere Programme über die Windows-Einstellungen.
+Danach `%LOCALAPPDATA%\Programs\hearth`, `%LOCALAPPDATA%\hearth`, `C:\ProgramData\hearth` und `%USERPROFILE%\.hearth` löschen und den Eintrag aus dem PATH (Benutzervariablen) entfernen, dazu den Startmenü-Eintrag `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Hearth.lnk`. Git und Podman bleiben installiert; wer sie nicht mehr braucht, entfernt sie wie andere Programme über die Windows-Einstellungen.
