@@ -194,6 +194,10 @@ VM-Befehle für den Nutzer: nach `hearth vmd install` einfach `hearth vmd start|
 - **Auf dem Linux-Laptop des Nutzers** (`CLAUDE.local.md`, nicht immer an): rustup im Home, Klon in `~/Dokumente/Programmieren/hearth_tests/hearth`. Änderungen gehen per tar über SSH hin (Arbeitsstand gegen `origin/main`), gebaut wird dort. Server-Tests über einen SSH-Rückwärtstunnel (`ssh -R 8097:127.0.0.1:8097`) gegen den Server auf Windows.
 - Tests, die Windows annahmen: Pfade mit `\`, Git-Hooks ohne x-Bit, und zwei Commits mit gleichem Inhalt in derselben Sekunde (gleicher Hash) auf schnellen Rechnern.
 - Linux nutzt native-tls mit dem OpenSSL des Systems (CachyOS hat OpenSSL 4.1, ging).
+- **Geräte-Token unter Linux in `tokens.json`** der Konfiguration (0600, `server::token_file`, `TOKEN_FILE`): Der Kernel-Schlüsselbund von `keyring` (`linux-native`) vergisst es bei der nächsten Anmeldung, und einen Secret Service gibt es nicht überall. Windows (Anmeldeinformationsverwaltung) und macOS (Schlüsselbund) bleiben, wie sie sind.
+- **`hearth setup` unter Linux/macOS** (`run_unix`): prüft git und Podman (nur Hinweis, die Sandbox kommt dort erst mit Schritt 6), koppelt, richtet den Dienst ein und unter Linux `~/.local/share/applications/io.hearth.app.desktop` für die App; ein fehlender PATH-Eintrag ist nur ein Hinweis. `hearth doctor` meldet dort keine fehlende Hyper-V-Machine.
+- **Benachrichtigungen ohne Tray** (Linux, macOS): Der Vermittler schickt bei jeder neuen Freigabe `notify-send --wait --action=open=Öffnen` (Klick startet `hearth-app --page approvals`; ältere libnotify ohne `--action` bekommen eine einfache Meldung) bzw. `osascript … display notification`. `HEARTH_TRAY_QUIET` schaltet das ab (Smoke-Tests).
+- **Vor jedem Commit `cargo fmt --all --check`**: Am 21.11. schlugen beide Workflows nur am Format fehl, weil nach dem letzten `cargo fmt` noch per Skript geändert wurde.
 
 ### Umbenennung in Hearth (0.2.0, `legacy.rs`, `config.ts`, `docker-compose.yml`)
 

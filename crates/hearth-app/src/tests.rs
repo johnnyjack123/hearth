@@ -89,13 +89,14 @@ fn screens() -> bool {
 }
 
 fn harness(config: ConfigDir, page: Page, theme: egui::Theme) -> Harness<'static, HearthApp> {
-    let builder = Harness::builder().with_size(egui::vec2(1020.0, 700.0)).with_theme(theme);
+    let builder = Harness::builder()
+        .with_size(egui::vec2(1020.0, 700.0))
+        .with_theme(theme);
     let builder = if screens() { builder.wgpu() } else { builder };
-    builder
-        .build_eframe(move |cc| {
-            theme::apply(&cc.egui_ctx);
-            HearthApp::new(config, page)
-        })
+    builder.build_eframe(move |cc| {
+        theme::apply(&cc.egui_ctx);
+        HearthApp::new(config, page)
+    })
 }
 
 /// Renders the window and keeps the picture for a look by eye.

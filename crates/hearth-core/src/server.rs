@@ -647,6 +647,9 @@ fn normalize_url(url: &str) -> Result<String> {
 /// stored before the rename (0.2.0) moves to the new entry on first use, so
 /// the device stays paired.
 pub fn load_token(server_url: &str) -> Result<Option<String>> {
+    if TOKEN_FILE {
+        return token_file::load(&normalize_url(server_url)?);
+    }
     match entry(server_url)?.get_password() {
         Ok(token) => Ok(Some(token)),
         Err(keyring::Error::NoEntry) => {
@@ -669,6 +672,9 @@ pub fn load_token(server_url: &str) -> Result<Option<String>> {
 
 /// Stores the device token for `server_url`.
 pub fn save_token(server_url: &str, token: &str) -> Result<()> {
+    if TOKEN_FILE {
+        return token_file::save(&normalize_url(server_url)?, token);
+    }
     entry(server_url)?
         .set_password(token)
         .map_err(credential_error)
@@ -676,6 +682,9 @@ pub fn save_token(server_url: &str, token: &str) -> Result<()> {
 
 /// Forgets the device token for `server_url`; no error if there is none.
 pub fn delete_token(server_url: &str) -> Result<()> {
+    if TOKEN_FILE {
+        return token_file::delete(&normalize_url(server_url)?);
+    }
     match entry(server_url)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(credential_error(e)),
@@ -684,6 +693,110 @@ pub fn delete_token(server_url: &str) -> Result<()> {
 
 fn entry(server_url: &str) -> Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, &normalize_url(server_url)?).map_err(credential_error)
+}
+
+/// Whether device tokens live in a file instead of the system's credential
+/// store: on Linux, where the kernel keyring of `keyring` forgets them at
+/// the next sign-in and a Secret Service is not always there (servers,
+/// minimal desktops).
+const TOKEN_FILE: bool = cfg!(all(unix, not(target_os = "macos")));
+
+/// Device tokens in `tokens.json` of the configuration folder, readable by
+/// the user only, like the tokens of `gh` or `docker` (see [`TOKEN_FILE`]).
+mod token_file {
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::io::Write as _;
+    use std::path::PathBuf;
+
+    use crate::config::ConfigDir;
+    use crate::{Error, Result, tr};
+
+    fn path() -> Result<PathBuf> {
+        Ok(ConfigDir::default_root()?.join("tokens.json"))
+    }
+
+    fn failed(error: impl std::fmt::Display) -> Error {
+        Error::Server(tr!("Token-Datei: {error}", "Token file: {error}"))
+    }
+
+    fn read() -> Result<BTreeMap<String, String>> {
+        match fs::read_to_string(path()?) {
+            Ok(text) => serde_json::from_str(&text).map_err(failed),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(error) => Err(failed(error)),
+        }
+    }
+
+    fn write(tokens: &BTreeMap<String, String>) -> Result<()> {
+        let path = path()?;
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).map_err(failed)?;
+        }
+        let temporary = path.with_extension("tmp");
+        let _ = fs::remove_file(&temporary);
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary).map_err(failed)?;
+        file.write_all(
+            serde_json::to_string_pretty(tokens)
+                .map_err(failed)?
+                .as_bytes(),
+        )
+        .map_err(failed)?;
+        fs::rename(&temporary, &path).map_err(failed)
+    }
+
+    pub fn load(url: &str) -> Result<Option<String>> {
+        Ok(read()?.remove(url))
+    }
+
+    pub fn save(url: &str, token: &str) -> Result<()> {
+        let mut tokens = read()?;
+        tokens.insert(url.to_owned(), token.to_owned());
+        write(&tokens)
+    }
+
+    pub fn delete(url: &str) -> Result<()> {
+        let mut tokens = read()?;
+        if tokens.remove(url).is_some() {
+            write(&tokens)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn tokens_round_trip_in_a_private_file() {
+            let tmp = tempfile::tempdir().unwrap();
+            // SAFETY: no other test in this binary reads HEARTH_HOME while
+            // this one runs with its own folder.
+            unsafe { std::env::set_var("HEARTH_HOME", tmp.path()) };
+            assert_eq!(super::load("http://a").unwrap(), None);
+            super::save("http://a", "t1").unwrap();
+            super::save("http://b", "t2").unwrap();
+            assert_eq!(super::load("http://a").unwrap().as_deref(), Some("t1"));
+            super::delete("http://a").unwrap();
+            assert_eq!(super::load("http://a").unwrap(), None);
+            assert_eq!(super::load("http://b").unwrap().as_deref(), Some("t2"));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let mode = std::fs::metadata(tmp.path().join("tokens.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o777, 0o600);
+            }
+            unsafe { std::env::remove_var("HEARTH_HOME") };
+        }
+    }
 }
 
 fn credential_error(error: keyring::Error) -> Error {

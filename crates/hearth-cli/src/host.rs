@@ -411,6 +411,7 @@ impl Broker {
             },
         );
         self.publish();
+        notify_desktop(&info);
         let _ = self
             .out
             .send(approval_message(call, &info, ApprovalState::Pending, None));
@@ -480,6 +481,65 @@ fn approval_message(
             by: answer.map(|(_, by)| by.wire().to_owned()),
         },
     }
+}
+
+/// Tells the user on the desktop that a question waits. On Windows the
+/// tray icon does that (it reads `host-approvals.json`); elsewhere there is
+/// no tray yet, so the service itself asks the desktop: `notify-send` with
+/// an "Open" action that starts the app (Linux), or a notification through
+/// `osascript` (macOS). Best effort: without them the app and `hearth
+/// host` still show the question.
+fn notify_desktop(info: &inbox::Pending) {
+    if cfg!(windows) || std::env::var_os("HEARTH_TRAY_QUIET").is_some() {
+        return;
+    }
+    let title = "Hearth";
+    let body = tr!(
+        "{}: {} – wartet auf deine Freigabe",
+        "{}: {} – waits for your approval",
+        info.project,
+        info.summary
+    );
+    let app = std::env::current_exe()
+        .ok()
+        .map(|exe| exe.with_file_name("hearth-app"));
+    thread::spawn(move || {
+        if cfg!(target_os = "macos") {
+            let quote = |text: &str| text.replace('\\', "\\\\").replace('"', "\\\"");
+            let _ = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(format!(
+                    "display notification \"{}\" with title \"{title}\"",
+                    quote(&body)
+                ))
+                .output();
+            return;
+        }
+        let open = hearth_core::lang::tr("Öffnen", "Open");
+        // --wait and --action need libnotify 0.8; older ones fail on them,
+        // then the plain notification follows.
+        let answered = std::process::Command::new("notify-send")
+            .args(["--app-name=Hearth", "--urgency=critical", "--wait"])
+            .arg(format!("--action=open={open}"))
+            .args([title, &body])
+            .output();
+        match answered {
+            Ok(output) if output.status.success() => {
+                if String::from_utf8_lossy(&output.stdout).trim() == "open"
+                    && let Some(app) = app.filter(|app| app.is_file())
+                {
+                    let _ = std::process::Command::new(app)
+                        .args(["--page", "approvals"])
+                        .spawn();
+                }
+            }
+            _ => {
+                let _ = std::process::Command::new("notify-send")
+                    .args(["--app-name=Hearth", "--urgency=critical", title, &body])
+                    .output();
+            }
+        }
+    });
 }
 
 /// The path or command of a call, for the record.
