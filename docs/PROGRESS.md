@@ -1,13 +1,13 @@
 # Progress
 
-_Last updated: 2026-11-21 abends · Phase 6 (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft, Sandbox unter Linux in der CI geprüft, Desktop-App mit Netz und Programmen und im Startmenü. Standardmodell für neue Chats ist fertig._
+_Last updated: 2026-11-21 abends · Phase 6 (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft, Sandbox unter Linux in der CI geprüft, Desktop-App mit Netz und Programmen und im Startmenü. Standardmodell für neue Chats ist fertig. Release v0.4.0 mit Paketen für Windows, Linux und macOS._
 
 ## Where we are
 
 Hearth ist ein selbst gehosteter Chat für LLMs (Server + Web-App) mit einem Windows-Client, der Coding-Agents (pi) in einer Podman-VM unter Hyper-V laufen lässt. Was es kann, steht in `README.md`. Wie es gebaut ist, steht in `ARCHITECTURE.md`. Die Stolpersteine je Bereich stehen in `CLAUDE.md`, und dort steht unter „Stand“ auch, was wann dazukam.
 
 - **Server des Nutzers:** läuft auf seinem Heimserver hinter Nginx Proxy Manager mit HTTPS, also im Internet (Details nur in `CLAUDE.local.md`). Das Image `ghcr.io/johnnyjack123/hearth-server` baut `.github/workflows/server-image.yml` bei jedem Push auf `main`. Der Nutzer aktualisiert selbst: `docker compose pull`, dann `docker compose up -d --no-deps server`.
-- **Client:** Release v0.3.0 (11.11.), `hearth-setup-<arch>.exe` aus den GitHub-Releases. Der Nutzer koppelt mit `hearth setup --server <adresse>`, Projekte meldet `hearth init`.
+- **Client:** Release v0.4.0 (21.11.), unter Windows `hearth-setup-<arch>.exe` aus den GitHub-Releases, unter Linux und macOS `install.sh` (erstmals). Der Nutzer koppelt mit `hearth setup --server <adresse>`, Projekte meldet `hearth init`.
 - **Web-App** auch als PWA auf dem Handy:
   - Abstand zu Notch und Home-Balken, Tastatur verkleinert die Seite, Modellname läuft von selbst durch
   - Foto-Auswahl beim Anhängen
@@ -21,7 +21,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 1. **Rückmeldung des Nutzers von echten Geräten:** Der Live-Abgleich zwischen Handy und Laptop geht (18.11.). Die Foto-Auswahl war ausgegraut, weil im Chat DeepSeek V4 Pro gewählt war; laut models.dev liest es nur Text. Seit `fix/photo-hint` steht der Grund im Menü (gemergt 18.11.). Offen ist noch die Tastatur auf dem iPhone.
 2. **Erledigt (21.11.): Standardmodell für neue Chats.** Einstellungen → Chat, gilt auf allen Geräten. Der Nutzer stellt dort einmal DeepSeek V4.1 Flash über OpenRouter ein, sobald der Server aktualisiert ist.
-3. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
+3. **Erledigt (21.11.): Kleine Client-Texte** (`pi.toml`-Kommentar, Hinweis in `hearth init`) sind in v0.4.0.
 4. **Phase 6 (ROADMAP, Plan vom 21.11., Konzept `docs/security/concept.md`):**
    - ✅ Schritt 1: Unix-Build (Workflow `unix.yml` grün auf Linux x64/arm64 und macOS, Tests auf dem Linux-Laptop grün).
    - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
@@ -30,7 +30,7 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
    - 🔨 Schritt 5: Desktop-App `hearth-app` (egui): Freigaben, Projekte mit Modus, Netzregeln und Programmen der Sandbox, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben; `hearth setup` trägt sie ins Startmenü ein (Windows `Hearth.lnk`, Linux `.desktop`). Offen: Tray unter macOS und Linux (Linux: StatusNotifierItem, z. B. `ksni`; macOS: `NSStatusItem`), beides ohne echtes Testgerät hier.
    - 🔨 Schritt 7 vorgezogen: Pakete für Linux (x64, arm64, OpenSSL eingebaut) und macOS (Universal-App, ad hoc signiert) mit `scripts/install.sh` und Workflow `unix-release.yml`; Linux/macOS: `hearth setup`, `hearth doctor`, Token-Datei, Benachrichtigungen ohne Tray. Anleitung `docs/client-unix.md`.
    - 🔨 Schritt 6: Sandbox unter Linux (rootless Podman ohne VM) und macOS (Podman-Machine, `hearth setup` legt sie an) im Provider; Instanzen ohne DNS (Fund: Podman 4 löste im internen Netz externe Namen auf). Geprüft: Provider-Test in der Windows-VM; unter Ubuntu in der CI (Job `sandbox` in `unix.yml`) grün: Provider, Images (Base und Gateway im lokalen Podman gebaut), Git-Sync, Gateway mit Rückfrage und TLS, Instanz mit Installation über das Gateway. Unter Linux erreicht die Sandbox keinen Server unter `localhost` (kein gvproxy), dokumentiert. Offen: macOS-Sandbox ungeprüft (die CI-Runner haben keine verschachtelte Virtualisierung); zusätzliche Runtime unter Linux (gVisor/krun, ARCHITECTURE §3); die Images in der VM des Nutzers sind für das neue Netz-Layout veraltet (erst neu bauen, wenn er zustimmt, siehe Stolpersteine „TLS im Gateway“ zum Sichern seines Stands; beim nächsten Update baut `hearth setup` sie ohnehin neu).
-   - Offen außerdem: Test auf dem Linux-Laptop (am 21.11. nachmittags und abends offline), erstes Release mit Linux- und macOS-Paketen (`unix-release.yml` läuft mit einem Tag `v*`; der Nutzer entscheidet, wann, weil der Direktmodus einen neuen Server braucht).
+   - Offen außerdem: Test auf dem Linux-Laptop (am 21.11. nachmittags und abends offline), Rückmeldung des Nutzers zu v0.4.0 (erstes Release mit Linux- und macOS-Paketen, 21.11.); Korrekturen kommen als 0.4.x.
    - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
@@ -47,6 +47,7 @@ Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Lin
 - **Direktmodus** (Nutzer): Freigaben am Rechner, im Browser nur per Opt-in je Projekt (`[host] browser_approvals`), weil ein gekaperter Server sonst Befehle freigeben könnte. Die Modellschleife läuft im Server (wie normale Chats), die Werkzeuge im Rust-Proxy; kein pi und kein Node auf dem Rechner.
 - **Desktop-App mit egui/eframe** (Nutzer), Tray bleibt ein eigener kleiner Prozess, das Fenster läuft nur, solange es offen ist.
 - **Standardmodell für neue Chats** als Einstellung je Nutzer auf dem Server, nicht fest verdrahtet.
+- **Release v0.4.0 sofort** (Nutzer, 21.11. abends): Er testet wie immer mit dem Release, Korrekturen kommen als 0.4.x.
 
 ## Decisions made 12.–17.11. (älter)
 
@@ -74,7 +75,6 @@ Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Lin
 - **Niedrig:** Über `http://` im LAN gibt es keine Web Locks, dann hält jeder Tab eine eigene Live-Verbindung (HTTP/1.1: höchstens sechs je Server).
 - **Niedrig:** Fund 8 und 10 der Client-Prüfung sind teilweise offen (`docs/security/review-2026-11-10-client.md`).
 - Die Images `hearth-server` und `hearth-markitdown` sind seit 17.11. öffentlich (anonym geprüft). Die alten `llm-harness-server` (versehentlich öffentlich) und `llm-harness-markitdown` aus der Zeit vor der Umbenennung kann der Nutzer löschen; die alte Pi-Instanz hat sie noch lokal.
-- **Niedrig:** Veraltete Texte im Client, mit dem nächsten Release korrigieren: Der Kommentar in `crates/hearth-core/defaults/harnesses/pi.toml` sagt, `~/.pi` gelte für alle Projekte (seit 0.1.17 eines je Projekt). `hearth init` (`project.rs`) schickt den Nutzer zu „Umgebung“ unten im Chat (heute im Zahnrad-Menü).
 - **Niedrig:** Der LLM-Durchgang (`/api/llm/`) sendet absichtlich keine Lebenszeichen. Schweigt ein Anbieter länger als `proxy_read_timeout` (nginx: 60 s), bricht der Proxy die Antwort ab.
 - **Rechner des Entwicklers:** Bei knappem Speicher scheitert der Browser-E2E mit `ERR_INSUFFICIENT_RESOURCES`; dann einfach noch einmal laufen lassen. Windows Defender hält `hearth.exe` manchmal für einen Trojaner (Fehlalarm des maschinellen Lernens). Windows Sandbox nie ungefragt starten.
 
@@ -98,6 +98,7 @@ Stand 21.11. abends (Branch `feat/unix-sandbox`, danach `main`):
 - Standardmodell für neue Chats (Einstellungen → Chat).
 - Phase 6 geplant und begonnen: Sicherheitskonzept, Client baut unter Linux und macOS (CI), Proxy-Kern, Tunnel-Protokoll 11 mit Direktmodus in Server, Web und CLI, Smoke-Test `smoke-host.sh`.
 - Desktop-App `hearth-app` (egui), Pakete für Linux und macOS (`install.sh`, `unix-release.yml`), Sandbox unter Linux und macOS im Provider, Instanzen ohne DNS (Sicherheitsfund unter Podman 4), Sandbox-Job in `unix.yml`, Startmenü-Eintrag unter Windows.
+- Release v0.4.0 (Wunsch des Nutzers). `target/` mit `cargo clean` von 36,7 GB befreit; die alte VM `harness` (8,9 GB) und der Dienst `llm-harness-vmd` stehen beim Nutzer noch, Befehle zum Entfernen hat er bekommen.
 
 ### 2026-11-13/14
 - Live-Abgleich zwischen Geräten (`/api/events`), Foto-Auswahl auf Touch-Geräten, Sitzung bleibt bei Verbindungsfehlern, Startseite `no-cache` mit Build-Tag und Hinweis „Neu laden“, `immutable` für `/assets` kommt jetzt wirklich an.

@@ -9,7 +9,7 @@ install = "npm install -g @earendil-works/pi-coding-agent"
 # Start im Arbeitsverzeichnis /workspace
 command = ["pi"]
 
-# Logins und Einstellungen, pro Nutzer über alle Projekte geteilt
+# Logins, Einstellungen und Sitzungen, je Projekt ein eigenes Volume
 persist = ["~/.pi"]
 
 # Nach `hearth login` schreibt hearth ~/.pi/agent/models.json: Alle

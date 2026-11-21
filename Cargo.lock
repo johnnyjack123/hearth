@@ -1756,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "eframe",
  "egui_kittest",
@@ -1769,7 +1769,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1784,7 +1784,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "getrandom 0.4.3",
  "globset",
@@ -1816,7 +1816,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-setup"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
@@ -1824,7 +1824,7 @@ dependencies = [
 
 [[package]]
 name = "hearth-vmd"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "hearth-core",
  "serde",

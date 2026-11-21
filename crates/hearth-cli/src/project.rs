@@ -211,8 +211,8 @@ pub fn init(config: &ConfigDir, path: Option<&Path>, name: Option<&str>) -> anyh
         println!(
             "{}",
             tr!(
-                "{} steht in der Web-App zur Auswahl: im Chat unten auf „Umgebung“.",
-                "{} can be picked in the web app: in the chat, click “Environment” at the bottom.",
+                "{} steht in der Web-App zur Auswahl: im Chat über das Zahnrad → „Umgebung“.",
+                "{} can be picked in the web app: in the chat, gear → “Environment”.",
                 project.name
             )
         );
