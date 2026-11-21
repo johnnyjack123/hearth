@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use lang::tr;
 
 /// The programs, embedded by `build.rs`; empty outside release builds.
-const PROGRAMS: [(&str, &[u8]); 3] = [
+const PROGRAMS: [(&str, &[u8]); 4] = [
     (
         "hearth.exe",
         include_bytes!(concat!(env!("OUT_DIR"), "/hearth.exe")),
@@ -31,6 +31,10 @@ const PROGRAMS: [(&str, &[u8]); 3] = [
     (
         "hearth-vmd.exe",
         include_bytes!(concat!(env!("OUT_DIR"), "/hearth-vmd.exe")),
+    ),
+    (
+        "hearth-app.exe",
+        include_bytes!(concat!(env!("OUT_DIR"), "/hearth-app.exe")),
     ),
 ];
 

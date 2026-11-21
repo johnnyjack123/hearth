@@ -27,7 +27,8 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
    - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
    - ✅ Schritt 3: Tunnel-Protokoll 11, Server-Schleife, Web-Karten, `hearth project host`, `hearth host`. Geprüft: Server-Tests, Browser-E2E (25/25), `scripts/smoke-host.sh` unter Windows (26/26). **Offen:** `smoke-host.sh` auf dem Linux-Laptop (war am 21.11. nachmittags nicht erreichbar; Weg: Server und Mock unter Windows, `ssh -R 8097:127.0.0.1:8097 linux-laptop`, dort `SERVER_URL=http://127.0.0.1:8097 SERVER_COOKIES=… CREDENTIAL=… bash scripts/smoke-host.sh`).
    - Schritt 4: Benachrichtigung und Freigabe-Dialog am Rechner (heute nur `hearth host` im Terminal), geht in Schritt 5 auf.
-   - **Nächstes: Schritt 5, Desktop-App `hearth-app` mit egui** (Entscheidung des Nutzers), danach Sandbox unter Linux/macOS (Schritt 6) und Pakete (Schritt 7).
+   - 🔨 Schritt 5: Desktop-App `hearth-app` (egui) im ersten Stand: Freigaben, Projekte mit Modus, Rechner, Protokoll; Tray (Windows) öffnet sie und meldet Freigaben. Offen: Netzregeln und Programme je Projekt in der App, Tray unter macOS und Linux, Startmenü-Eintrag.
+   - Danach Sandbox unter Linux/macOS (Schritt 6) und Pakete (Schritt 7).
    - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten

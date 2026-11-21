@@ -2,8 +2,8 @@
 # - hearth-setup-<arch>.exe, the one file to download: it carries the
 #   programs below, installs them for the user and runs `hearth setup`;
 # - hearth-windows-<arch>.zip with hearth.exe, hearthd.exe (tray and
-#   launcher of the background service), hearth-vmd.exe (VM service) and
-#   install.ps1, for scripted installs.
+#   launcher of the background service), hearth-vmd.exe (VM service),
+#   hearth-app.exe (desktop app) and install.ps1, for scripted installs.
 #
 # Runs on version tags, which also publish a release with all four files, and by
 # hand (`gh workflow run windows.yml`), which only keeps them as artifacts.
@@ -97,7 +97,7 @@ jobs:
         env:
           # Embedded by crates/hearth-core/build.rs, which checks the architecture.
           HEARTH_GATEWAY_BINARY: ${{ github.workspace }}/gateway/hearth-gateway
-        run: cargo build --release --locked --target ${{ matrix.target }} -p hearth-cli -p hearth-vmd
+        run: cargo build --release --locked --target ${{ matrix.target }} -p hearth-cli -p hearth-vmd -p hearth-app
 
       - name: Build the installer with these programs inside
         shell: pwsh
@@ -114,7 +114,7 @@ jobs:
         run: |
           $name = "hearth-windows-${{ matrix.arch }}"
           New-Item -ItemType Directory $name | Out-Null
-          foreach ($exe in 'hearth.exe', 'hearthd.exe', 'hearth-vmd.exe') {
+          foreach ($exe in 'hearth.exe', 'hearthd.exe', 'hearth-vmd.exe', 'hearth-app.exe') {
             Copy-Item "target/${{ matrix.target }}/release/$exe" $name
           }
           Copy-Item scripts/install.ps1 $name

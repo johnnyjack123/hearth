@@ -1,0 +1,37 @@
+[package]
+name = "hearth-app"
+description = "The hearth desktop app: projects, approvals, the background service and the VM in one window"
+version.workspace = true
+edition.workspace = true
+# eframe 0.37 needs it; the CLI keeps the workspace's older minimum.
+rust-version = "1.95"
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "hearth-app"
+path = "src/main.rs"
+
+[dependencies]
+hearth-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Native windows without a WebView: wgpu draws through DirectX 12, Metal or
+# Vulkan; no C compiler is needed on Windows ARM64.
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+# Native folder dialogs; on Linux through the desktop portal, without GTK.
+rfd = "0.18"
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["eframe", "snapshot", "wgpu"] }
+hearth-core = { workspace = true, features = ["test-german"] }
+tempfile.workspace = true

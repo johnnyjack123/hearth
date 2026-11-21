@@ -40,6 +40,11 @@ jobs:
       - name: Toolchain
         run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
 
+      # The desktop app (winit) links against xkbcommon and xcb on Linux.
+      - name: System libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
       - name: Format
         run: cargo fmt --all --check
 
@@ -53,7 +58,7 @@ jobs:
           cargo test --locked --workspace
 
       - name: Release build
-        run: cargo build --locked --release -p hearth-cli
+        run: cargo build --locked --release -p hearth-cli -p hearth-app
 
       - name: Smoke
         run: |
@@ -68,4 +73,5 @@ jobs:
           path: |
             target/release/hearth
             target/release/hearthd
+            target/release/hearth-app
           retention-days: 14
