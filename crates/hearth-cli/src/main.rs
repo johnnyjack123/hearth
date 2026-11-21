@@ -10,6 +10,8 @@ mod app_request;
 mod connect;
 mod daemon;
 mod doctor;
+mod host;
+mod host_cmd;
 mod idle;
 mod login;
 mod merge_request;
@@ -31,7 +33,7 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use clap::{Parser, Subcommand, ValueEnum};
 use hearth_core::Provider;
-use hearth_core::config::{ConfigDir, RemoteChange};
+use hearth_core::config::{ConfigDir, HostChange, HostWrites, RemoteChange};
 use hearth_core::image::{BASE_IMAGE, BuildOptions, GATEWAY_IMAGE, IMAGES, ImageDefinition};
 use hearth_core::lang::tr;
 use hearth_core::tr;
@@ -237,6 +239,14 @@ enum Command {
         command: Option<net::NetCommand>,
     },
     #[command(about = tr(
+        "Direktmodus: offene Freigaben anzeigen und beantworten, Protokoll",
+        "Direct mode: show and answer waiting approvals, record"
+    ))]
+    Host {
+        #[command(subcommand)]
+        command: Option<host_cmd::HostCommand>,
+    },
+    #[command(about = tr(
         "Programme für den Agent (App-Katalog): anzeigen, pro Projekt ein- und ausschalten, installieren",
         "Programs for the agent (app catalog): show, switch on and off per project, install"
     ))]
@@ -344,6 +354,40 @@ enum ProjectCommand {
         ))]
         no_merge: bool,
     },
+    #[command(about = tr(
+        "Direktmodus: Der Agent arbeitet ohne VM im Projektordner, Befehle und Zugriffe außerhalb nur mit Freigabe",
+        "Direct mode: the agent works in the project folder without a VM, commands and access outside only with approval"
+    ))]
+    Host {
+        #[arg(help = tr(
+            "on oder off; ohne Angabe nur anzeigen",
+            "on or off; without, only show"
+        ))]
+        state: Option<Switch>,
+        #[arg(long, conflicts_with = "no_browser_approvals", help = tr(
+            "Freigaben auch im Web-Chat erlauben (wer den Server kontrolliert, kann dann Befehle hier freigeben)",
+            "Allow approvals in the web chat too (whoever controls the server can then approve commands here)"
+        ))]
+        browser_approvals: bool,
+        #[arg(long, help = tr(
+            "Freigaben nur an diesem Rechner (Standard)",
+            "Approvals on this computer only (default)"
+        ))]
+        no_browser_approvals: bool,
+        #[arg(long, value_enum, help = tr(
+            "Schreiben im Projektordner: free (ohne Rückfrage, Standard) oder ask (jedes Mal fragen)",
+            "Writing in the project folder: free (without asking, default) or ask (every time)"
+        ))]
+        writes: Option<WritesArg>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum WritesArg {
+    #[value(help = tr("ohne Rückfrage", "without asking"))]
+    Free,
+    #[value(help = tr("jedes Schreiben fragt", "every write asks"))]
+    Ask,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -488,6 +532,23 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
                     merge: (merge || no_merge).then_some(merge),
                 },
             ),
+            ProjectCommand::Host {
+                state,
+                browser_approvals,
+                no_browser_approvals,
+                writes,
+            } => host_cmd::project_host(
+                &config,
+                HostChange {
+                    enabled: state.map(|s| matches!(s, Switch::On)),
+                    browser_approvals: (browser_approvals || no_browser_approvals)
+                        .then_some(browser_approvals),
+                    writes: writes.map(|w| match w {
+                        WritesArg::Free => HostWrites::Free,
+                        WritesArg::Ask => HostWrites::Ask,
+                    }),
+                },
+            ),
         },
         Command::Run { harness, args } => {
             let machine = machine_name(&config, cli.machine)?;
@@ -526,6 +587,7 @@ fn run(cli: Cli) -> anyhow::Result<bool> {
             let machine = machine_name(&config, cli.machine)?;
             app::run(&config, &machine, project.as_deref(), command)
         }
+        Command::Host { command } => host_cmd::run(&config, command),
     }
 }
 

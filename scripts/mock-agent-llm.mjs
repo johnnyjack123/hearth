@@ -74,6 +74,30 @@ http
       const results = messages.slice(lastUser).filter((message) => message.role === 'tool').length;
       const reading = /(?:^|\n)\?read (.+)$/.exec(lastUserText(messages).trim())?.[1];
       res.writeHead(200, { 'content-type': 'text/event-stream' });
+      // The direct mode (tools of the device, scripts/smoke-host.sh): read
+      // the README, write a file, run a command (asks), read outside the
+      // project (asks), then answer with the results of both questions.
+      const hostSteps = [
+        ['read', { path: 'README.md' }],
+        ['write', { path: 'notes/agent.txt', content: 'hallo vom agent\n' }],
+        ['shell', { command: process.env.MOCK_HOST_COMMAND ?? 'cat notes/agent.txt' }],
+        ['read', { path: '../outside.txt' }],
+      ];
+      if (request.tools?.some((tool) => tool.function?.name === 'shell')) {
+        if (results < hostSteps.length) {
+          const [name, input] = hostSteps[results];
+          const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name, arguments: '' } };
+          res.write(chunk({ role: 'assistant', tool_calls: [call] }));
+          res.write(chunk({ tool_calls: [{ index: 0, function: { arguments: JSON.stringify(input) } }] }));
+          res.write(chunk({}, 'tool_calls'));
+        } else {
+          const outputs = messages.slice(lastUser).filter((message) => message.role === 'tool').map((message) => String(message.content));
+          res.write(chunk({ role: 'assistant', content: `fertig: ${JSON.stringify(outputs.slice(2))}` }));
+          res.write(chunk({}, 'stop'));
+        }
+        res.end('data: [DONE]\n\n');
+        return;
+      }
       if (request.tools?.length && reading && results < 2) {
         const [name, input] = results === 0 ? ['web_search', { query: reading }] : ['web_fetch', { url: 'https://example.org/' }];
         const call = { index: 0, id: `call_${messages.length}`, type: 'function', function: { name, arguments: '' } };

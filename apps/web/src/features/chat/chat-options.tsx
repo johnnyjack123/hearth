@@ -7,6 +7,7 @@ import {
   TONES,
   type Verbosity,
   VERBOSITY_LEVELS,
+  HOST_HARNESS,
 } from '@hearth/shared';
 import { AlignLeft, ArrowLeft, Brain, ChevronDown, ChevronRight, Container, MessageCircle, Server, Settings, Telescope } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
@@ -27,6 +28,7 @@ import { Switch } from '@/components/ui/switch.tsx';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
 import { type EnvironmentOption, StatusDot, WorkspaceMark } from './environment.tsx';
+import { linkLabel } from './host-parts.tsx';
 import type { HostOption } from './openrouter-host.tsx';
 
 /** The effort slider's stops: the provider's default first, then pi's levels. */
@@ -82,11 +84,13 @@ export function ChatOptions({
   // A chosen environment and the hosts have a page of their own inside the menu.
   const [page, setPage] = useState<'main' | 'environment' | 'host'>('main');
   const { link, online, workspace } = environment;
-  const agent = link?.harness;
+  // In the direct mode the chat model itself is the agent: effort, length
+  // and tone work as in an ordinary chat.
+  const agent = link && link.harness !== HOST_HARNESS ? link.harness : undefined;
   const unsaved = workspace !== null && (workspace.commits > 0 || workspace.changes > 0);
 
   const active = [
-    ...(link ? [t('agent.linkedTo', { harness: link.harness, project: link.project })] : []),
+    ...(link ? [linkLabel(t, link)] : []),
     ...(research?.on ? [t('chat.research')] : []),
     ...(effort !== null ? [t('chat.effort.label', { level: t(`chat.effort.levels.${effort}`) })] : []),
     ...(verbosity !== DEFAULT_VERBOSITY ? [t('chat.verbosity.label', { level: t(`chat.verbosity.levels.${verbosity}`) })] : []),
@@ -160,7 +164,7 @@ export function ChatOptions({
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-sm font-medium text-foreground">{t('agent.environment')}</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {link ? t('agent.linkedTo', { harness: link.harness, project: link.project }) : t('chat.options.noEnvironment')}
+                  {link ? linkLabel(t, link) : t('chat.options.noEnvironment')}
                 </span>
               </span>
               {link ? <StatusDot online={online} /> : null}

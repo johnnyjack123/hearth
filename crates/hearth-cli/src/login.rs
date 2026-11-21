@@ -311,7 +311,16 @@ pub fn announce_projects(config: &ConfigDir) {
         }
     };
     let (client, token) = paired;
-    if let Err(error) = client.set_projects(&token, &crate::connect::offered(config)) {
+    // Without `host`: this route knows no protocol version, and an older
+    // server refuses unknown fields; the tunnel brings the details.
+    let projects: Vec<_> = crate::connect::offered(config)
+        .into_iter()
+        .map(|mut project| {
+            project.host = None;
+            project
+        })
+        .collect();
+    if let Err(error) = client.set_projects(&token, &projects) {
         println!(
             "{}",
             tr!(

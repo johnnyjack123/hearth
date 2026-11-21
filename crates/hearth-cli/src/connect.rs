@@ -35,9 +35,9 @@ use hearth_core::server::ServerCa;
 use hearth_core::sync::{HostRepo, WORKSPACE, file_list, sanitize};
 use hearth_core::tunnel::{
     AgentEvent, ApprovalState, AppsReport, CompactionState, CompactionTrigger, Decision,
-    DeviceMessage, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, PromptFile, RemoteProject,
-    ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest, TakeoverState,
-    VERSION_APP_VERSION, VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
+    DeviceMessage, HOST_HARNESS, MAX_NOTICE, NoticeLevel, ProgressState, Prompt, PromptFile,
+    RemoteProject, ServerMessage, TUNNEL_PATH, TUNNEL_VERSION, TakeoverReport, TakeoverRequest,
+    TakeoverState, VERSION_APP_VERSION, VERSION_APPS, VERSION_VM_CONTROL, VmStatus, truncate,
 };
 use hearth_core::{Provider, tr};
 use tungstenite::client::IntoClientRequest as _;
@@ -46,6 +46,7 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
 use crate::daemon::{self, Instance};
+use crate::host::Broker;
 use crate::idle::{Idle, Report, Watcher};
 use crate::net::{self, Question};
 use crate::progress::Progress;
@@ -344,11 +345,23 @@ pub fn offered(config: &ConfigDir) -> Vec<RemoteProject> {
         return projects;
     };
     for name in names {
-        let remote = match config.project_config(&name) {
-            Ok(raw) => raw.remote,
+        let (remote, host) = match config.project_config(&name) {
+            Ok(raw) => (raw.remote, raw.host),
             Err(_) => continue,
         };
         if !remote.enabled {
+            continue;
+        }
+        // The direct mode replaces the sandbox's harness: the server's chat
+        // model is the agent, and this computer runs its tools.
+        if host.enabled {
+            if let Some(info) = crate::host::info(config, &name, &host) {
+                projects.push(RemoteProject {
+                    name: name.to_string(),
+                    harnesses: vec![HOST_HARNESS.to_owned()],
+                    host: Some(info),
+                });
+            }
             continue;
         }
         let Ok(project) = config.project(&name) else {
@@ -364,6 +377,7 @@ pub fn offered(config: &ConfigDir) -> Vec<RemoteProject> {
             projects.push(RemoteProject {
                 name: name.to_string(),
                 harnesses,
+                host: None,
             });
         }
     }
@@ -535,7 +549,7 @@ fn serve(
         &mut socket,
         &DeviceMessage::Hello {
             version,
-            projects: projects.clone(),
+            projects: for_server(&projects, version),
             harness: (version >= VERSION_APP_VERSION).then(|| env!("CARGO_PKG_VERSION").to_owned()),
         },
     )?;
@@ -556,6 +570,9 @@ fn serve(
     );
 
     let (out, outgoing) = mpsc::channel::<DeviceMessage>();
+    // Questions and commands of the direct mode end with the connection:
+    // the server's calls fail with it.
+    let host = Broker::start(shared.config.clone(), shared.mode, out.clone());
     // A new connection may be a new server process that knows nothing yet.
     lock(&shared.apps).sent = None;
     if version >= VERSION_APPS
@@ -576,7 +593,7 @@ fn serve(
         match socket.read() {
             Ok(Message::Text(text)) => match serde_json::from_str::<ServerMessage>(&text) {
                 Ok(message) => {
-                    dispatch(shared, &mut sessions, &out, message);
+                    dispatch(shared, &mut sessions, &out, &host, message);
                 }
                 Err(error) => say(
                     shared.mode,
@@ -624,7 +641,7 @@ fn serve(
                 send(
                     &mut socket,
                     &DeviceMessage::Projects {
-                        projects: projects.clone(),
+                        projects: for_server(&projects, version),
                     },
                 )?;
             }
@@ -652,7 +669,16 @@ fn serve(
     }
     shared.idle.end_all();
     shared.status.update(|s| s.questions.clear());
+    host.stop();
     result
+}
+
+/// The projects as a server speaking `version` understands them.
+fn for_server(projects: &[RemoteProject], version: u32) -> Vec<RemoteProject> {
+    projects
+        .iter()
+        .filter_map(|project| project.for_version(version))
+        .collect()
 }
 
 /// Compares versions like `0.1.15` part by part; anything after `+` or `-`
@@ -789,10 +815,18 @@ fn dispatch(
     shared: &Arc<Shared>,
     sessions: &mut HashMap<String, SessionHandle>,
     out: &Sender<DeviceMessage>,
+    host: &Arc<Broker>,
     message: ServerMessage,
 ) {
     match message {
         ServerMessage::Welcome { .. } | ServerMessage::Unknown => {}
+        ServerMessage::HostCall(call) => host.call(call),
+        ServerMessage::HostCancel { session, call } => host.cancel(&session, &call),
+        ServerMessage::HostDecide {
+            session,
+            approval,
+            decision,
+        } => host.decide_from_browser(&session, &approval, decision),
         ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
         ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, Some(request)),
@@ -863,6 +897,7 @@ fn dispatch(
             }
         }
         ServerMessage::Close { session } => {
+            host.close(&session);
             if let Some(s) = sessions.remove(&session) {
                 let _ = s.commands.send(Command::Close);
             }

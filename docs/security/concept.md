@@ -36,13 +36,13 @@ Alle Werkzeuge laufen im Proxy (`hearth-core/src/host/`), ohne Shell und ohne Un
 
 | Werkzeug | Zweck | Grenzen |
 |---|---|---|
-| `read` | Textdatei lesen, mit Zeilenbereich | 256 KB je Aufruf, Binärdateien nur als Hinweis |
-| `write` | Datei anlegen oder ersetzen | 1 MB, legt fehlende Ordner an |
+| `read` | Textdatei lesen, mit Zeilenbereich | 2000 Zeilen bzw. 50 KB je Aufruf, dann mit `offset` weiter; Binärdateien nur als Hinweis |
+| `write` | Datei anlegen oder ersetzen | 2 MB, legt fehlende Ordner an |
 | `edit` | genaue Textstellen ersetzen (mehrere je Aufruf) | jede Stelle muss genau einmal vorkommen |
 | `list` | Ordnerinhalt | 1000 Einträge |
 | `find` | Dateien nach Glob-Muster | beachtet `.gitignore`, 1000 Treffer |
-| `grep` | Inhalt nach Regex | beachtet `.gitignore`, Regex ohne Backtracking (`regex`-Crate), 500 Treffer |
-| `shell` | Befehl ausführen | immer mit Rückfrage; Timeout 2 min (höchstens 30), Ausgabe 64 KB, ganzer Prozessbaum endet bei Abbruch |
+| `grep` | Inhalt nach Regex | beachtet `.gitignore`, Regex ohne Backtracking (`regex`-Crate), 200 Treffer, Geheimnisse im Projekt werden übersprungen |
+| `shell` | Befehl ausführen | immer mit Rückfrage; Timeout 2 min (höchstens 30), Ausgabe 60 KB (Anfang und Ende), ganzer Prozessbaum endet bei Abbruch; Variablen `HEARTH_*` fallen weg |
 
 Die Shell ist unter Linux und macOS die Login-Shell des Nutzers bzw. `bash`, unter Windows Git Bash, wenn installiert, sonst PowerShell. Der System-Prompt nennt sie, damit das Modell passende Befehle schreibt.
 

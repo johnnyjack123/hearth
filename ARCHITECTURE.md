@@ -374,12 +374,12 @@ Umgesetzt seit Phase 2 (`hearth login`, Server `routes/devices.ts`, Web-Seite `/
 
 ### 6.2 Tunnel
 
-Das Gerät baut eine WebSocket-Verbindung zum Server auf (`/api/device/tunnel`, Geräte-Token als Bearer), ausgehend, also ohne Port-Freigaben. Stand: Das macht der Hintergrunddienst (`hearth daemon`, gestartet von `hearthd.exe`), zum Zuschauen im Vordergrund auch `hearth connect`. Das Protokoll steht in `packages/shared/src/agent.ts` und `hearth-core/src/tunnel.rs`. Beide Seiten nennen ihre Version und nutzen die kleinere (Stand: Version 10). Es gibt **nur** diese Nachrichtentypen:
+Das Gerät baut eine WebSocket-Verbindung zum Server auf (`/api/device/tunnel`, Geräte-Token als Bearer), ausgehend, also ohne Port-Freigaben. Stand: Das macht der Hintergrunddienst (`hearth daemon`, gestartet von `hearthd.exe`), zum Zuschauen im Vordergrund auch `hearth connect`. Das Protokoll steht in `packages/shared/src/agent.ts` und `hearth-core/src/tunnel.rs`. Beide Seiten nennen ihre Version und nutzen die kleinere (Stand: Version 11). Es gibt **nur** diese Nachrichtentypen:
 
 | Richtung | Nachricht |
 |---|---|
-| Server → Gerät | `welcome`, `settings` (Leerlaufzeit), `session.prompt` (Projekt, Harness, Text, bei neuer Sitzung der bisherige Verlauf, gewähltes Modell, Denktiefe, Dateien), `session.cancel`, `session.close`, `session.compact`, `session.takeover` (Arbeit sichern), `approval.decide`, `vm.stop`, `apps.set`, `apps.templates`, `apps.file` |
-| Gerät → Server | `hello` (Version, angebotene Projekte), `projects`, `status` (Zustand der VM), `session.event` (Agent-Ereignis), `session.closed`, `vm.result`, `apps`, `apps.result` |
+| Server → Gerät | `welcome`, `settings` (Leerlaufzeit), `session.prompt` (Projekt, Harness, Text, bei neuer Sitzung der bisherige Verlauf, gewähltes Modell, Denktiefe, Dateien), `session.cancel`, `session.close`, `session.compact`, `session.takeover` (Arbeit sichern), `approval.decide`, `vm.stop`, `apps.set`, `apps.templates`, `apps.file`, ab Protokoll 11 `host.call`, `host.cancel`, `host.decide` (Direktmodus) |
+| Gerät → Server | `hello` (Version, angebotene Projekte), `projects`, `status` (Zustand der VM), `session.event` (Agent-Ereignis), `session.closed`, `vm.result`, `apps`, `apps.result`, ab Protokoll 11 `host.result`, `host.approval` |
 
 Angeboten werden nur Projekte mit `[remote] enabled = true` und Harnesses mit Adapter. Eine Sitzung entsteht beim ersten `session.prompt` eines Chats; ihre ID ist die Conversation-ID.
 

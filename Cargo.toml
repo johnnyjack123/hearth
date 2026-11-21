@@ -37,6 +37,14 @@ native-tls = "0.2.18"
 sha2 = "0.11"
 hmac = "0.13"
 getrandom = "0.4"
+# The direct mode's file tools: gitignore-aware walks and globs (ripgrep's
+# crates) and a regex engine without backtracking, so no pattern from the
+# model can hang hearth.
+ignore = "0.4"
+globset = "0.4"
+regex = "1"
+# Ending a command's process group outside Windows.
+libc = "0.2"
 # Pseudo consoles and raw console input for `hearth run`, the tray icon of
 # hearthd (already in the lock file through keyring and native-tls).
 windows-sys = { version = "0.61.2", features = [

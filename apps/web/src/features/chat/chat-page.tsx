@@ -22,6 +22,7 @@ import { ContextMeter } from './context-meter.tsx';
 import { latestWorkspace, useChatEnvironment, useLinkOnline } from './environment.tsx';
 import { MessageList } from './messages.tsx';
 import { ModelPicker } from './model-picker.tsx';
+import { linkPlaceholder } from './host-parts.tsx';
 import { useModelSelection } from './model-selection.ts';
 import { useStickToBottom } from './use-stick-to-bottom.ts';
 
@@ -164,6 +165,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
           initialIds={initialIds}
           onRegenerate={() => void regenerate()}
           onApprove={(id, decision) => api.conversations.approve(conversation.id, id, decision)}
+          onHostDecide={(approval, decision) => api.conversations.hostDecide(conversation.id, approval, decision)}
           onAssess={async (messageId, toolCallId) => {
             upsertMessage(conversation.id, await api.conversations.assess(conversation.id, messageId, toolCallId));
           }}
@@ -203,7 +205,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             busy={busy}
             blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
-            placeholder={link ? t('agent.placeholder', { harness: link.harness, project: link.project }) : undefined}
+            placeholder={link ? linkPlaceholder(t, link) : undefined}
             files={{ images }}
             status={
               <ContextMeter

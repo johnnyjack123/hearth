@@ -16,6 +16,7 @@ import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys, useProviders, usePublicSettings, useSession } from '@/lib/queries.ts';
 import { Composer, ComposerHint } from './composer.tsx';
 import { ModelPicker } from './model-picker.tsx';
+import { linkPlaceholder } from './host-parts.tsx';
 import { useModelSelection } from './model-selection.ts';
 import { ChatOptions } from './chat-options.tsx';
 import { useOpenRouterHost } from './openrouter-host.tsx';
@@ -183,7 +184,7 @@ export function NewChatPage() {
                         ? t('agent.offlineHint')
                         : null
                 }
-                placeholder={environment ? t('agent.placeholder', { harness: environment.harness, project: environment.project }) : undefined}
+                placeholder={environment ? linkPlaceholder(t, environment) : undefined}
                 autoFocus
                 toolbar={
                   <>

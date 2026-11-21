@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-17 · Repo öffentlich (AGPL-3.0). Seit v0.3.0 nur Server und Web-App geändert: Live-Abgleich zwischen Geräten, Suche in Nachrichten, freier Webzugriff, Handy-Feinschliff (PWA). Der Windows-Client ist unverändert auf v0.3.0._
+_Last updated: 2026-11-21 · Phase 6 begonnen (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft. Standardmodell für neue Chats ist fertig._
 
 ## Where we are
 
@@ -22,7 +22,13 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 1. **Rückmeldung des Nutzers von echten Geräten:** Der Live-Abgleich zwischen Handy und Laptop geht (18.11.). Die Foto-Auswahl war ausgegraut, weil im Chat DeepSeek V4 Pro gewählt war; laut models.dev liest es nur Text. Seit `fix/photo-hint` steht der Grund im Menü (gemergt 18.11.). Offen ist noch die Tastatur auf dem iPhone.
 2. **Erledigt (21.11.): Standardmodell für neue Chats.** Einstellungen → Chat, gilt auf allen Geräten. Der Nutzer stellt dort einmal DeepSeek V4.1 Flash über OpenRouter ein, sobald der Server aktualisiert ist.
 3. **Kleine Client-Texte** beim nächsten Client-Release mitnehmen (siehe Known issues: `pi.toml`-Kommentar, Hinweis in `hearth init`).
-4. **Nächster großer Block laut Nutzer:** Clients für macOS und Linux über die Provider-Schnittstelle (ROADMAP „Nach 0.3“). Vorher die Provider-Schnittstelle (`crates/hearth-core/src/provider.rs`, Podman in `podman/`) und `ARCHITECTURE.md` §3 lesen.
+4. **Phase 6 (ROADMAP, Plan vom 21.11., Konzept `docs/security/concept.md`):**
+   - ✅ Schritt 1: Unix-Build (Workflow `unix.yml` grün auf Linux x64/arm64 und macOS, Tests auf dem Linux-Laptop grün).
+   - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
+   - ✅ Schritt 3: Tunnel-Protokoll 11, Server-Schleife, Web-Karten, `hearth project host`, `hearth host`. Geprüft: Server-Tests, Browser-E2E (25/25), `scripts/smoke-host.sh` unter Windows (26/26). **Offen:** `smoke-host.sh` auf dem Linux-Laptop (war am 21.11. nachmittags nicht erreichbar; Weg: Server und Mock unter Windows, `ssh -R 8097:127.0.0.1:8097 linux-laptop`, dort `SERVER_URL=http://127.0.0.1:8097 SERVER_COOKIES=… CREDENTIAL=… bash scripts/smoke-host.sh`).
+   - Schritt 4: Benachrichtigung und Freigabe-Dialog am Rechner (heute nur `hearth host` im Terminal), geht in Schritt 5 auf.
+   - **Nächstes: Schritt 5, Desktop-App `hearth-app` mit egui** (Entscheidung des Nutzers), danach Sandbox unter Linux/macOS (Schritt 6) und Pakete (Schritt 7).
+   - Der Server des Nutzers braucht für den Direktmodus ein Update (Protokoll 11); ein älterer Server bekommt Direktmodus-Projekte gar nicht angeboten.
 5. **Vorgemerkte kleinere Wünsche** (ROADMAP Phase 5, „Vorgemerkt“):
    - Copy-Knopf an eigenen Nachrichten
    - Schalter, ob frühere Denkblöcke mitgehen (A/B-Test)
@@ -31,9 +37,15 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## In flight / half-finished
 
-Nichts. Alles ist committet, nach `main` gemergt und gepusht; es laufen keine Hilfsagenten und keine Worktrees.
+Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Linux-Laptop liegen rustup (`~/.rustup`, `~/.cargo`) und ein Klon unter `~/Dokumente/Programmieren/hearth_tests/hearth` (Freigabe des Nutzers vom 21.11.).
 
-## Decisions made 12.–17.11.
+## Decisions made 21.11.
+
+- **Direktmodus** (Nutzer): Freigaben am Rechner, im Browser nur per Opt-in je Projekt (`[host] browser_approvals`), weil ein gekaperter Server sonst Befehle freigeben könnte. Die Modellschleife läuft im Server (wie normale Chats), die Werkzeuge im Rust-Proxy; kein pi und kein Node auf dem Rechner.
+- **Desktop-App mit egui/eframe** (Nutzer), Tray bleibt ein eigener kleiner Prozess, das Fenster läuft nur, solange es offen ist.
+- **Standardmodell für neue Chats** als Einstellung je Nutzer auf dem Server, nicht fest verdrahtet.
+
+## Decisions made 12.–17.11. (älter)
 
 - **Repo öffentlich** (17.11., Nutzer): Die Actions-Minuten für private Repos waren aufgebraucht, öffentliche Repos haben freie Runner. Die Historie wurde dreimal umgeschrieben (E-Mail, Hostnamen und Heimnetz, Serverpfade und Hardware). Eine Support-Anfrage, damit GitHub die alten Stände löscht, stellt der Nutzer nicht: Seine E-Mail steht ohnehin in 13 seiner anderen öffentlichen Repos, und Hostnamen und private Adressen hält er für unkritisch. Alte Stände bleiben deshalb über die Activity-Ansicht erreichbar. Vor dem Umschalten wurde der ganze Verlauf auf Keys, Tokens, die öffentliche Domain und Namen durchsucht; es gab keine Treffer außer zwei Testschlüsseln.
 - **Freier Webzugriff gilt nur für normale Chats**, nicht für Agents. Deren Netz bestimmt der Rechner, sonst könnte ein feindlicher Server die Sandbox öffnen (Client-Prüfung, Fund 7).
@@ -78,6 +90,10 @@ Stand: Commit `f70a911` (14.11.); danach nur Doku und `scripts/install.ps1` (lä
 ---
 
 ## Log
+
+### 2026-11-21
+- Standardmodell für neue Chats (Einstellungen → Chat).
+- Phase 6 geplant und begonnen: Sicherheitskonzept, Client baut unter Linux und macOS (CI), Proxy-Kern, Tunnel-Protokoll 11 mit Direktmodus in Server, Web und CLI, Smoke-Test `smoke-host.sh`.
 
 ### 2026-11-13/14
 - Live-Abgleich zwischen Geräten (`/api/events`), Foto-Auswahl auf Touch-Geräten, Sitzung bleibt bei Verbindungsfehlern, Startseite `no-cache` mit Build-Tag und Hinweis „Neu laden“, `immutable` für `/assets` kommt jetzt wirklich an.

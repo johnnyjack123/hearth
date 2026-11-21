@@ -33,8 +33,15 @@ function stringField(input: unknown, key: string): string | undefined {
 export function describeTool(part: DynamicToolUIPart): { icon: typeof Wrench; summary: string } {
   const command = stringField(part.input, 'command');
   const path = stringField(part.input, 'path') ?? stringField(part.input, 'file_path');
-  if (part.toolName === 'bash' && command) {
+  if ((part.toolName === 'bash' || part.toolName === 'shell') && command) {
     return { icon: SquareTerminal, summary: `$ ${command.split('\n')[0]}` };
+  }
+  const pattern = stringField(part.input, 'pattern');
+  if (pattern && (part.toolName === 'find' || part.toolName === 'grep')) {
+    return { icon: FileText, summary: `${part.toolName} ${pattern}${path ? ` in ${path}` : ''}` };
+  }
+  if (part.toolName === 'list') {
+    return { icon: FileText, summary: `list ${path ?? '.'}` };
   }
   if (path && (part.toolName === 'edit' || part.toolName === 'write')) {
     return { icon: FilePen, summary: `${part.toolName} ${path}` };
@@ -96,8 +103,12 @@ export function ToolCall({
   onInspect?: (() => Promise<Inspection>) | undefined;
 }) {
   const t = useT();
-  const exitCode = part.state === 'output-error' ? bashExitCode(part.toolName, part.errorText) : null;
-  const failed = part.state === 'output-error' && exitCode === null;
+  // The direct mode reports its outcome in the output (the model reads
+  // the text either way); pi reports a failed call.
+  const hostOutcome = part.state === 'output-available' ? (part.output as { isError?: unknown; exitCode?: unknown } | null) : null;
+  const hostExit = typeof hostOutcome?.exitCode === 'number' && hostOutcome.exitCode !== 0 ? hostOutcome.exitCode : null;
+  const exitCode = part.state === 'output-error' ? bashExitCode(part.toolName, part.errorText) : hostExit;
+  const failed = (part.state === 'output-error' && exitCode === null) || (hostOutcome?.isError === true && hostExit === null && hostOutcome.exitCode === undefined);
   const running =
     streaming &&
     (part.state === 'input-available' ||
@@ -114,7 +125,8 @@ export function ToolCall({
   const assessment = isAssessment(stored?.assessment) ? stored.assessment : undefined;
   const command = stringField(part.input, 'command');
   // bash shows its command in full; other tools show their arguments.
-  const input = part.toolName === 'bash' ? (command?.includes('\n') ? command : null) : JSON.stringify(part.input, null, 2);
+  const input =
+    part.toolName === 'bash' || part.toolName === 'shell' ? (command?.includes('\n') ? command : null) : JSON.stringify(part.input, null, 2);
 
   return (
     <div className="flex min-w-0 flex-col rounded-lg border border-border bg-card text-sm">

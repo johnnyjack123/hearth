@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this hearth. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 10;
+pub const TUNNEL_VERSION: u32 = 11;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -56,6 +56,16 @@ pub const VERSION_FILES: u32 = 9;
 /// the other is older.
 pub const VERSION_APP_VERSION: u32 = 10;
 
+/// Version that brought the direct mode: projects with `host`, and their
+/// tool calls (`host.call`, `host.cancel`, `host.decide`, `host.result`,
+/// `host.approval`).
+pub const VERSION_HOST: u32 = 11;
+
+/// The pseudo-harness of the direct mode (`HOST_HARNESS` in
+/// `@hearth/shared`): the server's chat model is the agent, and this
+/// device runs its tools in the project folder.
+pub const HOST_HARNESS: &str = "host";
+
 /// Longest summary of pi a `compaction` event carries; the server accepts
 /// 100,000 characters.
 pub const MAX_SUMMARY: usize = 60_000;
@@ -87,6 +97,80 @@ pub struct RemoteProject {
     pub name: String,
     /// Harnesses with a machine interface (adapter).
     pub harnesses: Vec<String>,
+    /// Set for projects in the direct mode, from [`VERSION_HOST`] on; an
+    /// older server would refuse the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<HostInfo>,
+}
+
+/// What a project in the direct mode tells the server (protocol 11).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HostInfo {
+    /// The project folder.
+    pub root: String,
+    /// `windows`, `macos` or `linux`.
+    pub os: String,
+    /// The shell commands run in.
+    pub shell: String,
+    /// Whether the chat may answer this device's questions.
+    #[serde(rename = "browserApprovals")]
+    pub browser_approvals: bool,
+}
+
+impl RemoteProject {
+    /// The project as a server speaking `version` understands it: before
+    /// the direct mode it neither knows `host` nor the harness of that
+    /// name, so such projects are left out.
+    pub fn for_version(&self, version: u32) -> Option<RemoteProject> {
+        if version >= VERSION_HOST {
+            return Some(self.clone());
+        }
+        if self.host.is_some() {
+            let harnesses: Vec<String> = self
+                .harnesses
+                .iter()
+                .filter(|name| *name != HOST_HARNESS)
+                .cloned()
+                .collect();
+            if harnesses.is_empty() {
+                return None;
+            }
+            return Some(RemoteProject {
+                name: self.name.clone(),
+                harnesses,
+                host: None,
+            });
+        }
+        Some(self.clone())
+    }
+}
+
+/// What the device asks the user in the direct mode, as the chat shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HostApprovalInfo {
+    /// The question's id.
+    pub approval: String,
+    /// The tool call it belongs to.
+    pub call: String,
+    /// `pending` or `resolved`.
+    pub state: ApprovalState,
+    /// What is asked.
+    pub request: crate::host::Request,
+    /// One line for the user.
+    pub summary: String,
+    /// Why it asks.
+    pub why: String,
+    /// Whether "for this chat" is offered.
+    #[serde(rename = "chatWide")]
+    pub chat_wide: bool,
+    /// Whether the chat may answer.
+    pub browser: bool,
+    /// The answer, once there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<crate::host::Decision>,
+    /// `computer`, `browser` or `timeout`, once answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 /// Severity of a [`AgentEvent::Notice`].
@@ -597,6 +681,31 @@ pub enum DeviceMessage {
         /// The report.
         report: AppsReport,
     },
+    /// The outcome of a tool call of the direct mode (protocol 11).
+    #[serde(rename = "host.result")]
+    HostResult {
+        /// The chat.
+        session: String,
+        /// The model's tool call.
+        call: String,
+        /// What the model reads.
+        output: String,
+        /// Whether the call failed.
+        #[serde(rename = "isError")]
+        is_error: bool,
+        /// Exit code of a command that ended by itself.
+        #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+    },
+    /// A question of the direct mode, and later how it ended (protocol 11).
+    #[serde(rename = "host.approval")]
+    HostApproval {
+        /// The chat.
+        session: String,
+        /// The question.
+        #[serde(flatten)]
+        info: HostApprovalInfo,
+    },
     /// Answer to [`ServerMessage::AppsSet`] (protocol 5) and
     /// [`ServerMessage::AppsFile`] (protocol 7), after the new
     /// [`DeviceMessage::Apps`].
@@ -915,9 +1024,55 @@ pub enum ServerMessage {
         /// All templates of the account.
         templates: Vec<Value>,
     },
+    /// A tool call of the direct mode (protocol 11).
+    #[serde(rename = "host.call")]
+    HostCall(HostCall),
+    /// End a tool call: a waiting question counts as denied, a running
+    /// command ends (protocol 11).
+    #[serde(rename = "host.cancel")]
+    HostCancel {
+        /// The chat.
+        session: String,
+        /// The tool call.
+        call: String,
+    },
+    /// The chat's answer to a question of the direct mode; taken only
+    /// where the project allows answers from the chat (protocol 11).
+    #[serde(rename = "host.decide")]
+    HostDecide {
+        /// The chat.
+        session: String,
+        /// The question.
+        approval: String,
+        /// The answer.
+        decision: crate::host::Decision,
+    },
     /// A message type of a newer server; ignored.
     #[serde(other)]
     Unknown,
+}
+
+/// A tool call of the direct mode, as the server sends it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct HostCall {
+    /// The chat; "for this chat" answers last as long as it.
+    pub session: String,
+    /// The project.
+    pub project: String,
+    /// The chat, to name it when asking.
+    pub conversation: ConversationRef,
+    /// The model's tool call id.
+    pub call: String,
+    /// The tool and its input.
+    #[serde(flatten)]
+    pub tool: Value,
+}
+
+impl HostCall {
+    /// The call as the proxy runs it; `None` for unknown tools or input.
+    pub fn parse(&self) -> Option<crate::host::ToolCall> {
+        serde_json::from_value(self.tool.clone()).ok()
+    }
 }
 
 /// `text` cut to at most `max` bytes on a character boundary, with a note
@@ -1280,6 +1435,102 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(file, ServerMessage::AppsFile { name, .. } if name == "tool"));
+    }
+
+    #[test]
+    fn the_direct_mode_on_the_wire() {
+        let call: ServerMessage = serde_json::from_value(json!({
+            "type": "host.call", "session": "c1", "project": "demo",
+            "conversation": { "id": "c1", "title": null },
+            "call": "call_1", "tool": "shell", "input": { "command": "ls", "timeout": 5 }
+        }))
+        .unwrap();
+        let ServerMessage::HostCall(call) = call else {
+            panic!("not a host call");
+        };
+        assert_eq!(
+            call.parse(),
+            Some(crate::host::ToolCall::Shell {
+                command: "ls".into(),
+                timeout: Some(5)
+            })
+        );
+        let unknown: ServerMessage = serde_json::from_value(json!({
+            "type": "host.call", "session": "c1", "project": "demo",
+            "conversation": { "id": "c1", "title": null },
+            "call": "call_2", "tool": "exec", "input": {}
+        }))
+        .unwrap();
+        assert!(matches!(unknown, ServerMessage::HostCall(call) if call.parse().is_none()));
+        let decide: ServerMessage = serde_json::from_value(json!({
+            "type": "host.decide", "session": "c1", "approval": "ABC234", "decision": "chat"
+        }))
+        .unwrap();
+        assert!(matches!(
+            decide,
+            ServerMessage::HostDecide {
+                decision: crate::host::Decision::Chat,
+                ..
+            }
+        ));
+
+        let approval = DeviceMessage::HostApproval {
+            session: "c1".into(),
+            info: HostApprovalInfo {
+                approval: "ABC234".into(),
+                call: "call_1".into(),
+                state: ApprovalState::Pending,
+                request: crate::host::Request::Command {
+                    command: "ls".into(),
+                    shell: "bash".into(),
+                    cwd: "/x".into(),
+                },
+                summary: "Run command: ls".into(),
+                why: "…".into(),
+                chat_wide: true,
+                browser: false,
+                decision: None,
+                by: None,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(&approval).unwrap(),
+            json!({
+                "type": "host.approval", "session": "c1", "approval": "ABC234", "call": "call_1",
+                "state": "pending",
+                "request": { "kind": "command", "command": "ls", "shell": "bash", "cwd": "/x" },
+                "summary": "Run command: ls", "why": "…", "chatWide": true, "browser": false
+            })
+        );
+        let result = DeviceMessage::HostResult {
+            session: "c1".into(),
+            call: "call_1".into(),
+            output: "x".into(),
+            is_error: true,
+            exit_code: Some(2),
+        };
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            json!({ "type": "host.result", "session": "c1", "call": "call_1", "output": "x", "isError": true, "exitCode": 2 })
+        );
+
+        // Older servers hear nothing of the direct mode.
+        let host = RemoteProject {
+            name: "demo".into(),
+            harnesses: vec![HOST_HARNESS.into()],
+            host: Some(HostInfo {
+                root: "/x".into(),
+                os: "linux".into(),
+                shell: "bash".into(),
+                browser_approvals: false,
+            }),
+        };
+        assert_eq!(host.for_version(VERSION_HOST), Some(host.clone()));
+        assert_eq!(host.for_version(VERSION_APP_VERSION), None);
+        assert_eq!(
+            serde_json::to_value(&host).unwrap()["host"],
+            json!({ "root": "/x", "os": "linux", "shell": "bash", "browserApprovals": false })
+        );
     }
 
     #[test]

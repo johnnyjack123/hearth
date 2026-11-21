@@ -13,6 +13,7 @@ pub mod busy;
 pub mod config;
 pub mod error;
 pub mod gateway;
+pub mod host;
 pub mod image;
 pub mod instance;
 pub mod lang;

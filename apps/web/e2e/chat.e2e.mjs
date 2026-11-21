@@ -1722,6 +1722,91 @@ try {
     }
   });
 
+  await step('the direct mode: the device runs the tools, a command asks in the chat', async () => {
+    // A device whose project runs in the direct mode and allows answers
+    // from the chat: what `hearth connect` sends with `[host]` switched on.
+    const device = new WebSocket(`${API.replace('http', 'ws')}/api/device/tunnel`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    const calls = [];
+    const decisions = [];
+    const project = {
+      name: 'werkstatt',
+      harnesses: ['host'],
+      host: { root: '/home/erika/werkstatt', os: 'linux', shell: 'bash', browserApprovals: true },
+    };
+    device.on('message', (data) => {
+      const message = JSON.parse(data.toString());
+      if (message.type === 'welcome') {
+        device.send(JSON.stringify({ type: 'hello', version: message.version, projects: [project], harness: '0.0.1' }));
+      }
+      if (message.type === 'host.call') {
+        calls.push(message);
+        const answer = (output, extra = {}) =>
+          device.send(JSON.stringify({ type: 'host.result', session: message.session, call: message.call, output, isError: false, ...extra }));
+        if (message.tool === 'read') {
+          answer('# Werkstatt\nEin Testprojekt.\n');
+          return;
+        }
+        const approval = (state, extra = {}) =>
+          device.send(
+            JSON.stringify({
+              type: 'host.approval',
+              session: message.session,
+              call: message.call,
+              approval: 'W7KD3P',
+              state,
+              request: { kind: 'command', command: message.input.command, shell: 'bash', cwd: project.host.root },
+              summary: `Befehl ausführen: ${message.input.command}`,
+              why: 'Befehle laufen mit allen deinen Rechten auf diesem Rechner. Build- und Testbefehle führen auch Code aus, den der Agent geschrieben haben kann.',
+              chatWide: true,
+              browser: true,
+              ...extra,
+            }),
+          );
+        approval('pending');
+        device.pending = { approval, answer };
+      }
+      if (message.type === 'host.decide') {
+        decisions.push(message);
+        device.pending?.approval('resolved', { decision: message.decision, by: 'browser' });
+        device.pending?.answer('test result: ok. 3 passed; 0 failed\n', { exitCode: 0 });
+      }
+    });
+    await new Promise((resolve, reject) => {
+      device.once('open', resolve);
+      device.once('error', reject);
+    });
+    try {
+      const devices = await page.evaluate(async () => (await fetch('/api/devices')).json());
+      const deviceId = devices.find((entry) => entry.name === 'hearth auf E2E')?.id;
+      await page.goto(`${BASE}/?device=${deviceId}&project=werkstatt&harness=host`, { waitUntil: 'networkidle0' });
+      await optionShown('werkstatt, direkt auf dem Rechner', true);
+      await page.type('textarea', 'Direkt: cargo test');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('[data-host-approval=pending]', { timeout: 15_000 });
+      await waitForText('Der Agent möchte einen Befehl ausführen');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('60-host-approval');
+      await page.click(text('Einmal erlauben'));
+      await waitForText('Erledigt: test result: ok. 3 passed; 0 failed');
+      await waitForText('Erlaubt (im Chat)');
+      if (calls.map((call) => call.tool).join(',') !== 'read,shell' || calls[1].input.command !== 'cargo test') {
+        throw new Error(`calls: ${JSON.stringify(calls)}`);
+      }
+      if (decisions[0]?.decision !== 'once' || decisions[0]?.approval !== 'W7KD3P') {
+        throw new Error(`decisions: ${JSON.stringify(decisions)}`);
+      }
+      // The command's card opens on demand, like the sandbox's.
+      await page.click('button[aria-label="Ausgabe zeigen"]::-p-text("$ cargo test")');
+      await waitForText('test result: ok');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('61-host-reply');
+    } finally {
+      device.close();
+    }
+  });
+
   await step('pairing page after sign-in redirect', async () => {
     const context = await browser.createBrowserContext();
     const fresh = await context.newPage();
