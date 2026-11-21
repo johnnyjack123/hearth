@@ -259,6 +259,7 @@ impl Tray {
                 signal(&format!(r"Local\hearth-daemon-vmstop-{}", self.suffix));
             }
             Action::ApproveFile(id) => self.approve_file(&id),
+            Action::OpenApp(page) => open_app(&self.harness, page.as_deref()),
             Action::Quit => {
                 self.quit.store(true, Ordering::SeqCst);
                 signal(&format!(r"Local\hearth-daemon-stop-{}", self.suffix));
@@ -340,6 +341,16 @@ impl Tray {
             }
         });
     }
+}
+
+/// Starts the desktop app next to `hearth.exe`, at `page` if given; an
+/// open window comes to the front instead.
+fn open_app(harness: &Path, page: Option<&str>) {
+    let mut command = Command::new(harness.with_file_name("hearth-app.exe"));
+    if let Some(page) = page {
+        command.args(["--page", page]);
+    }
+    let _ = command.spawn();
 }
 
 fn open(hwnd: HWND, target: &str) {
@@ -431,6 +442,11 @@ unsafe extern "system" fn window_proc(
                     match with_tray(|t| (t.notice_target.clone(), t.notice_file.clone())) {
                         Some((_, Some(id))) => {
                             with_tray(|tray| tray.approve_file(&id));
+                        }
+                        Some((Some(target), None)) if target == crate::menu::APP_APPROVALS => {
+                            if let Some(Some(harness)) = with_tray(|t| Some(t.harness.clone())) {
+                                open_app(&harness, Some("approvals"));
+                            }
                         }
                         Some((Some(target), None)) => open(hwnd, &target),
                         _ => {}

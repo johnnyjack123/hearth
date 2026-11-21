@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 
 $repository = 'johnnyjack123/hearth'
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
-$files = @('hearth.exe', 'hearthd.exe', 'hearth-vmd.exe')
+$files = @('hearth.exe', 'hearthd.exe', 'hearth-vmd.exe', 'hearth-app.exe')
 
 function New-WorkDir {
     $dir = Join-Path ([IO.Path]::GetTempPath()) ('hearth-' + [Guid]::NewGuid())

@@ -18,6 +18,8 @@ pub enum Action {
     StopVm,
     /// Asks whether to approve the program file request with this id.
     ApproveFile(String),
+    /// Opens the desktop app, at a page if given (`hearth-app --page`).
+    OpenApp(Option<String>),
     /// Ends the service and the tray until the next sign-in.
     Quit,
 }
@@ -73,6 +75,8 @@ pub struct View {
     pub held: Vec<(String, String)>,
     /// Program files waiting for approval.
     pub files: Vec<FileRequest>,
+    /// Questions of the direct mode (`host-approvals.json`): id and summary.
+    pub approvals: Vec<(String, String)>,
     /// The user asked to quit; the service is ending.
     pub quitting: bool,
 }
@@ -119,10 +123,23 @@ impl View {
             })
             .collect();
         files.sort_by(|a, b| a.id.cmp(&b.id));
+        let approvals = fs::read_to_string(root.join("host-approvals.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Vec<Value>>(&text).ok())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|q| {
+                Some((
+                    q.get("id")?.as_str()?.to_owned(),
+                    q.get("summary")?.as_str()?.to_owned(),
+                ))
+            })
+            .collect();
         View {
             status,
             held,
             files,
+            approvals,
             quitting: false,
         }
     }
@@ -142,7 +159,10 @@ impl View {
 
     /// Whether something waits for the user.
     pub fn attention(&self) -> bool {
-        !self.questions().is_empty() || !self.held.is_empty() || !self.files.is_empty()
+        !self.questions().is_empty()
+            || !self.held.is_empty()
+            || !self.files.is_empty()
+            || !self.approvals.is_empty()
     }
 
     fn server(&self) -> Option<&str> {
@@ -346,6 +366,12 @@ impl Language {
             Entry::Item(versions, update),
         ];
         let server = view.server().map(str::to_owned);
+        for (_, summary) in view.approvals.iter().take(5) {
+            entries.push(Entry::Item(
+                format!("{} {summary}", self.t("Freigabe:", "Approval:")),
+                Some(Action::OpenApp(Some("approvals".to_owned()))),
+            ));
+        }
         for (session, _, host) in view.questions().into_iter().take(5) {
             entries.push(Entry::Item(
                 format!(
@@ -379,6 +405,10 @@ impl Language {
         }
         entries.push(Entry::Separator);
         entries.push(Entry::Item(
+            self.t("Hearth öffnen", "Open Hearth").to_owned(),
+            Some(Action::OpenApp(None)),
+        ));
+        entries.push(Entry::Item(
             self.t("Web-App öffnen", "Open web app").to_owned(),
             server.map(Action::Open),
         ));
@@ -408,20 +438,35 @@ impl Language {
     pub fn notices(self, view: &View) -> Vec<Notice> {
         let server = view.server().map(str::to_owned);
         let mut notices: Vec<Notice> = view
-            .questions()
-            .into_iter()
-            .map(|(session, id, host)| Notice {
-                key: format!("q:{session}:{id}"),
+            .approvals
+            .iter()
+            .map(|(id, summary)| Notice {
+                key: format!("a:{id}"),
                 text: if self.german {
-                    format!("Ein Agent möchte {host} erreichen. Im Chat beantworten.")
+                    format!("Ein Agent wartet auf deine Freigabe – {summary}")
                 } else {
-                    format!("An agent wants to reach {host}. Answer in the chat.")
+                    format!("An agent waits for your approval – {summary}")
                 },
-                warning: false,
-                target: server.as_ref().map(|s| format!("{s}/c/{session}")),
+                warning: true,
+                target: Some(APP_APPROVALS.to_owned()),
                 file: None,
             })
             .collect();
+        notices.extend(
+            view.questions()
+                .into_iter()
+                .map(|(session, id, host)| Notice {
+                    key: format!("q:{session}:{id}"),
+                    text: if self.german {
+                        format!("Ein Agent möchte {host} erreichen. Im Chat beantworten.")
+                    } else {
+                        format!("An agent wants to reach {host}. Answer in the chat.")
+                    },
+                    warning: false,
+                    target: server.as_ref().map(|s| format!("{s}/c/{session}")),
+                    file: None,
+                }),
+        );
         notices.extend(view.held.iter().map(|(project, id)| Notice {
             key: format!("h:{id}"),
             text: if self.german {
@@ -505,6 +550,9 @@ impl Language {
     }
 }
 
+/// The target of a notification that opens the app at its approvals.
+pub const APP_APPROVALS: &str = "hearth-app:approvals";
+
 /// What updates the server (Docker Compose, as `docs/deploy.md` sets it up).
 const SERVER_UPDATE: &str = "docker compose pull && docker compose up -d";
 
@@ -537,6 +585,7 @@ mod tests {
             status: Some(status),
             held: Vec::new(),
             files: Vec::new(),
+            approvals: Vec::new(),
             quitting: false,
         }
     }
@@ -597,14 +646,39 @@ mod tests {
             menu[4].1,
             Some(Action::Copy("hearth merge --approve K7QF2M".into()))
         );
-        assert_eq!(menu[5].1, Some(Action::Open("http://pi:8085".into())));
-        assert_eq!(menu[6].1, Some(Action::StopVm));
-        assert_eq!(menu[7].1, Some(Action::Open("C:/h/daemon.log".into())));
-        assert_eq!(menu[8].1, Some(Action::Quit));
+        assert_eq!(menu[5].1, Some(Action::OpenApp(None)));
+        assert_eq!(menu[6].1, Some(Action::Open("http://pi:8085".into())));
+        assert_eq!(menu[7].1, Some(Action::StopVm));
+        assert_eq!(menu[8].1, Some(Action::Open("C:/h/daemon.log".into())));
+        assert_eq!(menu[9].1, Some(Action::Quit));
         let notices = DE.notices(&view);
         assert_eq!(notices.len(), 2);
         assert_eq!(notices[0].target.as_deref(), Some("http://pi:8085/c/c1"));
         assert!(notices[1].warning && notices[1].text.contains("K7QF2M"));
+    }
+
+    #[test]
+    fn questions_of_the_direct_mode_lead_to_the_app() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("host-approvals.json"),
+            r#"[{"id": "W7KD3P", "project": "werkstatt", "summary": "Befehl ausführen: cargo test"}]"#,
+        )
+        .unwrap();
+        let view = View::read(temp.path(), 0);
+        assert!(view.attention());
+        let menu = actions(&DE.menu(&view, Path::new("log"), 0));
+        assert_eq!(
+            menu[3],
+            (
+                "Freigabe: Befehl ausführen: cargo test".into(),
+                Some(Action::OpenApp(Some("approvals".into())))
+            )
+        );
+        let notices = DE.notices(&view);
+        assert_eq!(notices[0].key, "a:W7KD3P");
+        assert_eq!(notices[0].target.as_deref(), Some(APP_APPROVALS));
+        assert!(notices[0].text.contains("cargo test"));
     }
 
     #[test]
@@ -617,13 +691,17 @@ mod tests {
         assert_eq!(menu[0].0, "Not connected: Verbindungsaufbau");
         assert_eq!(menu[1].0, "VM off, starts when needed");
         // The VM is off: nothing to stop.
-        assert_eq!(menu[4], ("Stop VM".into(), None));
+        assert_eq!(menu[5], ("Stop VM".into(), None));
         assert!(!offline.connected() && !offline.attention());
 
         let starting = View::default();
         let menu = actions(&DE.menu(&starting, Path::new("log"), 0));
         assert_eq!(menu[0].0, "Dienst startet …");
-        assert_eq!(menu[3], ("Web-App öffnen".into(), None));
+        assert_eq!(
+            menu[3],
+            ("Hearth öffnen".into(), Some(Action::OpenApp(None)))
+        );
+        assert_eq!(menu[4], ("Web-App öffnen".into(), None));
         let quitting = View {
             quitting: true,
             ..View::default()
