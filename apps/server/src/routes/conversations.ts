@@ -571,6 +571,9 @@ export function conversationRoutes(deps: AppDeps) {
       if (hostLink && !hostInfo) {
         throw new HttpError(409, 'device_offline', 'The device does not offer this project in the direct mode');
       }
+      // Jev rates the commands of the direct mode where the device lets Jev
+      // check its work (the same switch as for takeovers).
+      const hostJev = hostLink ? (await findDevice(db, user.id, hostLink.deviceId))?.jevReview !== 0 : false;
 
       // A known message id means "regenerate" or "edit": the old branch is replaced.
       await discardFrom(db, conversation.id, userMessage.id);
@@ -740,6 +743,7 @@ export function conversationRoutes(deps: AppDeps) {
             ? {
                 project: hostLink.project,
                 info: hostInfo,
+                assess: hostJev,
                 call: (request, onApproval) =>
                   hub.hostCall(
                     hostLink.deviceId,
@@ -750,6 +754,7 @@ export function conversationRoutes(deps: AppDeps) {
                       call: request.call,
                       tool: request.tool,
                       input: request.input,
+                      ...(request.assessment ? { assessment: { danger: request.assessment.danger, model: request.assessment.model } } : {}),
                     },
                     { signal: request.signal, onApproval },
                   ),
@@ -770,6 +775,29 @@ export function conversationRoutes(deps: AppDeps) {
       }
       const { decision } = hostDecisionSchema.parse(await c.req.json());
       hub.hostDecide(conversation.link.deviceId, conversation.id, approval.data, decision);
+      return c.body(null, 204);
+    })
+    // What the user allowed for this chat in the direct mode, as its device
+    // reported it last.
+    .get('/:id/host-grants', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation?.link || conversation.link.harness !== HOST_HARNESS) {
+        throw notFound('Conversation');
+      }
+      return c.json(hub.hostGrants(conversation.link.deviceId, conversation.id));
+    })
+    // Takes a "for this chat" answer back. The device always takes this
+    // from the chat: it only takes a right away.
+    .delete('/:id/host-grants/:grant', async (c) => {
+      const conversation = await findConversation(db, c.get('user').id, c.req.param('id'));
+      if (!conversation?.link || conversation.link.harness !== HOST_HARNESS) {
+        throw notFound('Conversation');
+      }
+      const grant = approvalIdSchema.safeParse(c.req.param('grant'));
+      if (!grant.success) {
+        throw notFound('Grant');
+      }
+      hub.hostRevoke(conversation.link.deviceId, conversation.id, grant.data);
       return c.body(null, 204);
     })
     // Summarizes the chat now, on the user's request: everything but the

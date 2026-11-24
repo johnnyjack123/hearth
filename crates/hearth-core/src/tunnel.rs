@@ -13,7 +13,7 @@ use crate::config::AppSource;
 
 /// Protocol version of this hearth. The server greets with its own; the
 /// device speaks the lower of both and only sends what that version knows.
-pub const TUNNEL_VERSION: u32 = 11;
+pub const TUNNEL_VERSION: u32 = 12;
 
 /// Version that brought VM activity, the idle time and `vm.stop`.
 pub const VERSION_VM_CONTROL: u32 = 2;
@@ -60,6 +60,12 @@ pub const VERSION_APP_VERSION: u32 = 10;
 /// tool calls (`host.call`, `host.cancel`, `host.decide`, `host.result`,
 /// `host.approval`).
 pub const VERSION_HOST: u32 = 11;
+
+/// Version that showed the rights of the direct mode: `writes` in
+/// [`HostInfo`], the "for this chat" answers of a chat
+/// ([`DeviceMessage::HostGrants`], [`ServerMessage::HostRevoke`]) and Jev's
+/// rating of a command with its call.
+pub const VERSION_HOST_RIGHTS: u32 = 12;
 
 /// The pseudo-harness of the direct mode (`HOST_HARNESS` in
 /// `@hearth/shared`): the server's chat model is the agent, and this
@@ -115,6 +121,10 @@ pub struct HostInfo {
     /// Whether the chat may answer this device's questions.
     #[serde(rename = "browserApprovals")]
     pub browser_approvals: bool,
+    /// `free` or `ask`: whether writes in the project folder ask, from
+    /// [`VERSION_HOST_RIGHTS`] on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writes: Option<String>,
 }
 
 impl RemoteProject {
@@ -122,8 +132,15 @@ impl RemoteProject {
     /// the direct mode it neither knows `host` nor the harness of that
     /// name, so such projects are left out.
     pub fn for_version(&self, version: u32) -> Option<RemoteProject> {
-        if version >= VERSION_HOST {
+        if version >= VERSION_HOST_RIGHTS {
             return Some(self.clone());
+        }
+        if version >= VERSION_HOST {
+            let mut project = self.clone();
+            if let Some(host) = &mut project.host {
+                host.writes = None;
+            }
+            return Some(project);
         }
         if self.host.is_some() {
             let harnesses: Vec<String> = self
@@ -568,6 +585,7 @@ impl DeviceMessage {
                 event: AgentEvent::Workspace { .. },
                 ..
             } if version < VERSION_WORKSPACE => return None,
+            DeviceMessage::HostGrants { .. } if version < VERSION_HOST_RIGHTS => return None,
             // Older servers know neither `source` (6) nor `pending` (7).
             DeviceMessage::Apps { mut report } if version < VERSION_APP_FILES => {
                 report.pending.clear();
@@ -705,6 +723,15 @@ pub enum DeviceMessage {
         /// The question.
         #[serde(flatten)]
         info: HostApprovalInfo,
+    },
+    /// The "for this chat" answers of a chat, whenever they change
+    /// (protocol 12); empty once they are gone.
+    #[serde(rename = "host.grants")]
+    HostGrants {
+        /// The chat.
+        session: String,
+        /// What the user allowed, oldest first.
+        grants: Vec<crate::host::Grant>,
     },
     /// Answer to [`ServerMessage::AppsSet`] (protocol 5) and
     /// [`ServerMessage::AppsFile`] (protocol 7), after the new
@@ -1047,6 +1074,15 @@ pub enum ServerMessage {
         /// The answer.
         decision: crate::host::Decision,
     },
+    /// Take a "for this chat" answer back (protocol 12); the browser may,
+    /// since it only takes rights away.
+    #[serde(rename = "host.revoke")]
+    HostRevoke {
+        /// The chat.
+        session: String,
+        /// The grant's id.
+        grant: String,
+    },
     /// A message type of a newer server; ignored.
     #[serde(other)]
     Unknown,
@@ -1063,6 +1099,10 @@ pub struct HostCall {
     pub conversation: ConversationRef,
     /// The model's tool call id.
     pub call: String,
+    /// Jev's rating of a command, `{danger, model}` (protocol 12); read
+    /// with [`HostCall::assessment`].
+    #[serde(default)]
+    pub assessment: Option<Value>,
     /// The tool and its input.
     #[serde(flatten)]
     pub tool: Value,
@@ -1072,6 +1112,15 @@ impl HostCall {
     /// The call as the proxy runs it; `None` for unknown tools or input.
     pub fn parse(&self) -> Option<crate::host::ToolCall> {
         serde_json::from_value(self.tool.clone()).ok()
+    }
+
+    /// Jev's rating, if the server sent a valid one.
+    pub fn assessment(&self) -> Option<crate::host::Assessment> {
+        let value = self.assessment.as_ref()?;
+        crate::host::Assessment::from_wire(
+            value.get("danger")?.as_f64()?,
+            value.get("model")?.as_str()?,
+        )
     }
 }
 
@@ -1462,6 +1511,39 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(unknown, ServerMessage::HostCall(call) if call.parse().is_none()));
+        // Jev's rating stays out of the tool's input.
+        let rated: ServerMessage = serde_json::from_value(json!({
+            "type": "host.call", "session": "c1", "project": "demo",
+            "conversation": { "id": "c1", "title": null },
+            "call": "call_3", "tool": "shell", "input": { "command": "rm -rf /" },
+            "assessment": { "danger": 0.93, "model": "jev-1" }
+        }))
+        .unwrap();
+        let ServerMessage::HostCall(rated) = rated else {
+            panic!("not a host call");
+        };
+        assert!(rated.parse().is_some());
+        let assessment = rated.assessment().unwrap();
+        assert_eq!((assessment.percent, assessment.high()), (93, true));
+        let revoke: ServerMessage = serde_json::from_value(json!({
+            "type": "host.revoke", "session": "c1", "grant": "ABC234"
+        }))
+        .unwrap();
+        assert!(matches!(revoke, ServerMessage::HostRevoke { .. }));
+        let grants = DeviceMessage::HostGrants {
+            session: "c1".into(),
+            grants: vec![crate::host::Grant {
+                id: "ABC234".into(),
+                kind: crate::host::GrantKind::Folder,
+                target: "/x".into(),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_value(&grants).unwrap(),
+            json!({ "type": "host.grants", "session": "c1", "grants": [{ "id": "ABC234", "kind": "folder", "target": "/x" }] })
+        );
+        assert_eq!(grants.clone().for_version(VERSION_HOST), None);
+        assert!(grants.for_version(VERSION_HOST_RIGHTS).is_some());
         let decide: ServerMessage = serde_json::from_value(json!({
             "type": "host.decide", "session": "c1", "approval": "ABC234", "decision": "chat"
         }))
@@ -1523,13 +1605,16 @@ mod tests {
                 os: "linux".into(),
                 shell: "bash".into(),
                 browser_approvals: false,
+                writes: Some("ask".into()),
             }),
         };
-        assert_eq!(host.for_version(VERSION_HOST), Some(host.clone()));
+        assert_eq!(host.for_version(VERSION_HOST_RIGHTS), Some(host.clone()));
+        let older = host.for_version(VERSION_HOST).unwrap();
+        assert_eq!(older.host.unwrap().writes, None);
         assert_eq!(host.for_version(VERSION_APP_VERSION), None);
         assert_eq!(
             serde_json::to_value(&host).unwrap()["host"],
-            json!({ "root": "/x", "os": "linux", "shell": "bash", "browserApprovals": false })
+            json!({ "root": "/x", "os": "linux", "shell": "bash", "browserApprovals": false, "writes": "ask" })
         );
     }
 

@@ -12,6 +12,8 @@ import {
   DEFAULT_IDLE_MINUTES,
   type HostApproval,
   type HostDecision,
+  type HostGrant,
+  type HostGrants,
   type HostTool,
   MIN_TUNNEL_VERSION,
   type RemoteProject,
@@ -21,6 +23,7 @@ import {
   VERSION_APPS,
   VERSION_FILES,
   VERSION_HOST,
+  VERSION_HOST_RIGHTS,
   VERSION_PI_SETTINGS,
   VERSION_TAKEOVER,
   VERSION_TEMPLATES,
@@ -241,7 +244,12 @@ export interface HostCallMessage {
   tool: HostTool;
   /** Its input. */
   input: Record<string, unknown>;
+  /** Jev's rating of a command; only devices of protocol 12 get it. */
+  assessment?: { danger: number; model: string };
 }
+
+/** Chats whose "for this chat" answers a device may report at most. */
+const MAX_GRANT_CHATS = 200;
 
 interface ActiveRun {
   deviceId: string;
@@ -275,6 +283,8 @@ export class DeviceHub {
   readonly #runs = new Map<string, ActiveRun>();
   /** Tool calls of the direct mode by chat and call id. */
   readonly #hostCalls = new Map<string, HostPending>();
+  /** "For this chat" answers of the direct mode by chat, as devices reported them. */
+  readonly #hostGrants = new Map<string, { deviceId: string; grants: HostGrant[] }>();
   /**
    * What OpenRouter billed for the agents' model calls through the
    * pass-through, until the agent's report of each call picks it up.
@@ -718,6 +728,9 @@ export class DeviceHub {
         return;
       }
       options.signal?.addEventListener('abort', abort, { once: true });
+      // An older device would take the rating for part of the tool's input.
+      const { assessment, ...call } = message;
+      const outgoing = assessment && connection.version >= VERSION_HOST_RIGHTS ? { ...call, assessment } : call;
       this.#hostCalls.set(key, {
         deviceId,
         resolve: (result) => {
@@ -730,8 +743,44 @@ export class DeviceHub {
         },
         onApproval: options.onApproval,
       });
-      this.#send(connection, { type: 'host.call', ...message });
+      this.#send(connection, { type: 'host.call', ...outgoing });
     });
+  }
+
+  /**
+   * What the user allowed for a chat of the direct mode, as its device
+   * reported it last.
+   *
+   * @param deviceId - The device of the chat.
+   * @param session - The chat.
+   * @returns The answers, and whether the device is online and reports them.
+   */
+  hostGrants(deviceId: string, session: string): HostGrants {
+    const connection = this.#devices.get(deviceId);
+    const online = connection?.greeted === true;
+    const supported = online && connection.version >= VERSION_HOST_RIGHTS;
+    const stored = this.#hostGrants.get(session);
+    return { online, supported, grants: supported && stored?.deviceId === deviceId ? stored.grants : [] };
+  }
+
+  /**
+   * Asks the device to take a "for this chat" answer back. It always does:
+   * that only takes a right away.
+   *
+   * @param deviceId - The device of the chat.
+   * @param session - The chat.
+   * @param grant - The answer's id.
+   * @throws {HttpError} 409 if the device is offline or too old for it.
+   */
+  hostRevoke(deviceId: string, session: string, grant: string): void {
+    const connection = this.#devices.get(deviceId);
+    if (!connection?.greeted) {
+      throw new HttpError(409, 'device_offline', 'The device is not connected');
+    }
+    if (connection.version < VERSION_HOST_RIGHTS) {
+      throw new HttpError(409, 'device_outdated', 'The device cannot take approvals back yet; update hearth');
+    }
+    this.#send(connection, { type: 'host.revoke', session, grant });
   }
 
   /**
@@ -879,6 +928,22 @@ export class DeviceHub {
         }
         return;
       }
+      case 'host.grants': {
+        const stored = this.#hostGrants.get(message.session);
+        // Another device cannot write over a chat that is not on it.
+        if (stored && stored.deviceId !== deviceId) {
+          return;
+        }
+        if (message.grants.length === 0) {
+          this.#hostGrants.delete(message.session);
+          return;
+        }
+        const chats = [...this.#hostGrants.values()].filter((entry) => entry.deviceId === deviceId).length;
+        if (stored || chats < MAX_GRANT_CHATS) {
+          this.#hostGrants.set(message.session, { deviceId, grants: message.grants });
+        }
+        return;
+      }
       case 'session.closed': {
         const active = this.#runs.get(message.session);
         if (active?.deviceId === deviceId) {
@@ -940,6 +1005,13 @@ export class DeviceHub {
     for (const pending of [...this.#hostCalls.values()]) {
       if (pending.deviceId === deviceId) {
         pending.reject(new HttpError(409, 'device_offline', 'The device disconnected'));
+      }
+    }
+    // The answers live in the device's service, which drops them with the
+    // connection.
+    for (const [session, entry] of [...this.#hostGrants]) {
+      if (entry.deviceId === deviceId) {
+        this.#hostGrants.delete(session);
       }
     }
   }

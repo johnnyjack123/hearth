@@ -6,10 +6,13 @@
 #   `hearth project host on` -> background service -> a web chat linked to
 #   the project in the direct mode -> the server's chat model reads the
 #   README and writes a file through the device (free), runs a command
-#   (asks: approved with `hearth host approve`), reads outside the project
-#   (asks: denied with `hearth host deny`) -> the reply carries both
-#   answers -> an answer from the chat is ignored while the project allows
-#   approvals on the computer only -> the record -> hearth daemon stop.
+#   (asks: approved for the chat with `hearth host approve --chat`), reads
+#   outside the project (asks: denied with `hearth host deny`), tries the
+#   project's .env by tool and by command (both refused without asking) ->
+#   the reply carries the answers -> an answer from the chat is ignored
+#   while the project allows approvals on the computer only -> the chat's
+#   grant is listed and taken back from the browser -> the record ->
+#   hearth daemon stop.
 #
 # Needs `cargo build` and `pnpm install`. Uses ports 8097/8098 and a
 # temporary HEARTH_HOME. SERVER_URL=<url> uses a server that already runs
@@ -115,11 +118,14 @@ git config user.email host@example.com
 git config core.autocrlf false
 echo "# $NAME" > README.md && git add README.md && git commit -qm initial
 echo "geheim" > "$WORK/outside.txt"
+# Not committed, like a real one.
+echo "TOKEN=streng-vertraulich" > .env
 "$H" init > "$WORK/init.log" 2>&1
 check "Projekt angelegt" grep -q "steht in der Web-App zur Auswahl" "$WORK/init.log"
 "$H" project host on > "$WORK/host-on.log" 2>&1
 check "Direktmodus an" grep -q "Direktmodus an" "$WORK/host-on.log"
 check "Freigaben nur am Rechner" grep -q "Freigaben nur an diesem Rechner" "$WORK/host-on.log"
+check "Rechte aufgelistet" grep -q "Geheimnisse lesen" "$WORK/host-on.log"
 
 echo "== Hintergrunddienst"
 "$H" daemon start > "$WORK/daemon-start.log" 2>&1
@@ -144,8 +150,8 @@ api POST "/api/conversations/$CONVERSATION/host-approvals/$COMMAND_ID" '{"decisi
 sleep 1
 check "Antwort aus dem Chat ignoriert" pending_is "Befehl ausführen"
 check "Dienst sagt warum" grep -q "Projekt erlaubt Freigaben nur an diesem Rechner" "$HEARTH_HOME/daemon.log"
-"$H" host approve "$COMMAND_ID" > "$WORK/approve.log" 2>&1
-check "am Rechner freigegeben" grep -q "freigegeben" "$WORK/approve.log"
+"$H" host approve --chat "$COMMAND_ID" > "$WORK/approve.log" 2>&1
+check "am Rechner für den Chat freigegeben" grep -q "für diesen Chat freigegeben" "$WORK/approve.log"
 
 check "Lesen außerhalb wartet auf Freigabe" wait_for 30 pending_is "Datei lesen:"
 "$H" host deny "$(pending_id)" > /dev/null 2>&1
@@ -153,13 +159,28 @@ check "Antwort fertig" wait "$CHAT"
 check "Befehl lief mit Ausgabe" grep -q 'hallo vom agent' "$WORK/m1.log"
 check "Modell erfährt die Ablehnung" grep -q 'The user denied this' "$WORK/m1.log"
 check "Geheimnis von außerhalb nicht gelesen" bash -c "! grep -q geheim '$WORK/m1.log'"
+check ".env weder per Werkzeug noch per Befehl gelesen" bash -c "! grep -q streng-vertraulich '$WORK/m1.log'"
+check "Modell erfährt, dass Geheimnisse tabu sind" grep -q 'never lets the model read secrets' "$WORK/m1.log"
 check "Rückfrage-Karte im Chat" grep -q '"type":"data-hostApproval"' "$WORK/m1.log"
 STORED=$(api GET "/api/conversations/$CONVERSATION")
-check "Antwort gespeichert" test "$(echo "$STORED" | json "v.messages[1].parts.filter((p) => p.type.startsWith('tool-')).map((p) => p.type).join(',')")" = "tool-read,tool-write,tool-shell,tool-read"
+check "Antwort gespeichert" test "$(echo "$STORED" | json "v.messages[1].parts.filter((p) => p.type.startsWith('tool-')).map((p) => p.type).join(',')")" = "tool-read,tool-write,tool-shell,tool-read,tool-read,tool-shell"
+
+echo "== Freigaben für den Chat"
+grants() { api GET "/api/conversations/$CONVERSATION/host-grants" | json "v.grants.map((g) => g.kind + ':' + g.target).join(',')"; }
+check "Freigabe am Rechner gelistet" bash -c "\"$H\" host | grep -q 'cat notes/agent.txt'"
+grant_shown() { test "$(grants)" = "command:cat notes/agent.txt"; }
+check "Freigabe im Browser sichtbar" wait_for 10 grant_shown
+GRANT=$(api GET "/api/conversations/$CONVERSATION/host-grants" | json 'v.grants[0].id')
+api DELETE "/api/conversations/$CONVERSATION/host-grants/$GRANT" > /dev/null
+no_grants() { test -z "$(grants)"; }
+check "Freigabe aus dem Browser zurückgenommen" wait_for 10 no_grants
+check "auch am Rechner weg" bash -c "! \"$H\" host | grep -q 'Freigaben für ganze Chats'"
 
 echo "== Protokoll"
 "$H" host log "$NAME" > "$WORK/record.log" 2>&1
-check "Befehl einmal erlaubt am Rechner" grep -qE "shell +once +computer" "$WORK/record.log"
+check "Befehl für den Chat erlaubt am Rechner" grep -qE "shell +chat +computer" "$WORK/record.log"
+check "Geheimnis ohne Rückfrage abgelehnt" grep -qE "read +refused +rules +\.env" "$WORK/record.log"
+check "Befehl mit Geheimnis ohne Rückfrage abgelehnt" grep -qE "shell +refused +rules +cat \.env" "$WORK/record.log"
 check "Lesen außerhalb abgelehnt" grep -qE "read +deny +computer" "$WORK/record.log"
 check "Schreiben frei" grep -qE "write +free +rules" "$WORK/record.log"
 check "keine offenen Freigaben" bash -c "\"$H\" host | grep -q 'Keine offenen Freigaben'"

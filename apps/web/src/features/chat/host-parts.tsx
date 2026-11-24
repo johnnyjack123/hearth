@@ -1,12 +1,21 @@
-import { type HostApproval, type HostDecision, HOST_HARNESS, HOST_TOOLS, type HostTool } from '@hearth/shared';
+import {
+  type CommandAssessment,
+  HIGH_COMMAND_DANGER,
+  type HostApproval,
+  type HostDecision,
+  HOST_HARNESS,
+  HOST_TOOLS,
+  type HostTool,
+} from '@hearth/shared';
 import type { DynamicToolUIPart } from 'ai';
-import { Check, Laptop, ShieldAlert, X } from 'lucide-react';
+import { Check, Gauge, Laptop, ShieldAlert, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { Badge, Card } from '@/components/ui/display.tsx';
 import { errorMessage } from '@/lib/api.ts';
 import { useT } from '@/lib/preferences.tsx';
+import { cn } from '@/lib/utils.ts';
 
 const HOST_PART_TYPES = new Set<string>(HOST_TOOLS.map((name) => `tool-${name}`));
 
@@ -75,6 +84,56 @@ export function harnessLabel(t: ReturnType<typeof useT>, harness: string): strin
   return harness === HOST_HARNESS ? t('host.harness') : harness;
 }
 
+/** How much harm Jev expects of a command, in four levels. */
+export type CommandRiskLevel = 'high' | 'medium' | 'low' | 'minimal';
+
+/**
+ * The level of Jev's rating of a command.
+ *
+ * @param danger - Potential for harm from 0 to 1.
+ * @returns The level.
+ */
+export function commandRiskLevel(danger: number): CommandRiskLevel {
+  return danger >= HIGH_COMMAND_DANGER ? 'high' : danger >= 0.5 ? 'medium' : danger >= 0.25 ? 'low' : 'minimal';
+}
+
+/**
+ * Whether a stored value is Jev's rating of a command.
+ *
+ * @param value - E.g. `commandAssessment` of a tool's output.
+ * @returns True for a rating.
+ */
+export function isCommandAssessment(value: unknown): value is CommandAssessment {
+  const candidate = value as Partial<CommandAssessment> | null;
+  return typeof candidate?.danger === 'number' && typeof candidate.model === 'string';
+}
+
+/**
+ * Jev's rating of a command: level and percent, what it means on hover.
+ * Advice only; it never approves anything.
+ *
+ * @param props - The rating; `compact` for the row of a tool card.
+ * @returns The badge.
+ */
+export function CommandRisk({ assessment, compact = false }: { assessment: CommandAssessment; compact?: boolean }) {
+  const t = useT();
+  const level = commandRiskLevel(assessment.danger);
+  const percent = Math.round(assessment.danger * 100);
+  const label = t('host.jev.label', { level: t(`host.jev.levels.${level}`), percent });
+  return (
+    <Badge
+      variant={level === 'high' ? 'destructive' : level === 'medium' ? 'warning' : 'neutral'}
+      className={cn('w-fit', compact ? 'shrink-0' : 'whitespace-normal')}
+      title={t('host.jev.hint', { model: assessment.model })}
+      aria-label={label}
+      data-command-risk={level}
+    >
+      <Gauge aria-hidden="true" />
+      {compact ? t('host.jev.short', { percent }) : label}
+    </Badge>
+  );
+}
+
 /**
  * A question of the direct mode: a command, a file outside the project, a
  * secret or a protected file. The chat can answer only where the project
@@ -134,6 +193,14 @@ export function HostApprovalCard({
             <span className="break-words text-xs text-muted-foreground">{t('host.approval.where', { shell: request.shell, cwd: request.cwd })}</span>
           ) : null}
           <p className="text-sm text-muted-foreground">{approval.why}</p>
+          {approval.assessment ? (
+            <div className="flex flex-col gap-1">
+              <CommandRisk assessment={approval.assessment} />
+              {pending && commandRiskLevel(approval.assessment.danger) === 'high' ? (
+                <span className="text-xs text-muted-foreground">{t('host.jev.highHint')}</span>
+              ) : null}
+            </div>
+          ) : null}
           <span className="font-mono text-xs text-muted-foreground">{t('host.approval.id', { id: approval.approval })}</span>
         </div>
       </div>

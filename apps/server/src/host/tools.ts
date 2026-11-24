@@ -1,4 +1,4 @@
-import { type HostInfo, HOST_TOOLS, type HostTool, type InjectionFinding } from '@hearth/shared';
+import { type CommandAssessment, type HostInfo, HOST_TOOLS, type HostTool, type InjectionFinding } from '@hearth/shared';
 import { type Tool, tool } from 'ai';
 import { z } from 'zod';
 import { agentWarning } from '../assess.ts';
@@ -17,6 +17,11 @@ export interface HostToolOutput {
   exitCode?: number;
   /** Places that look like a prompt injection. */
   findings?: InjectionFinding[];
+  /**
+   * Jev's rating of a command, taken before it went to the device. Not
+   * `assessment`: that is Jev's opinion on a prompt injection warning.
+   */
+  commandAssessment?: CommandAssessment;
 }
 
 /** One tool call on its way to the device. */
@@ -29,6 +34,8 @@ export interface HostCallRequest {
   input: Record<string, unknown>;
   /** Ends the call: a waiting question is denied, a running command ends. */
   signal: AbortSignal | undefined;
+  /** Jev's rating of a command, shown with the question on the computer. */
+  assessment?: CommandAssessment;
 }
 
 /** What the device returned. */
@@ -43,6 +50,9 @@ export interface HostCallResult {
 
 /** Sends a call to the device of the chat and waits for its result. */
 export type HostCaller = (request: HostCallRequest) => Promise<HostCallResult>;
+
+/** Asks Jev about a command; null if Jev did not answer. */
+export type CommandAssessor = (command: string, signal: AbortSignal | undefined) => Promise<CommandAssessment | null>;
 
 const path = z.string().min(1).max(2_000);
 
@@ -128,10 +138,11 @@ export function hostInstructions(info: HostInfo): string {
     `You work as a coding agent directly on the user's computer (${system}), in the project folder ${info.root}.`,
     'The tools read, write, edit, list, find and grep work on files; paths are relative to the project folder unless absolute.',
     `shell runs a command with ${info.shell} in the project folder.`,
-    'Every shell command, and every access outside the project folder, to secrets (.env, keys) or to protected files ' +
-      '(.git, hooks, editor and agent settings), waits for the user’s approval. Look at files with read, find, grep and list, ' +
-      'which need no approval, rather than with shell. Put related commands into one when sensible, and say in a few words ' +
-      'what a command is for before you run it.',
+    'Every shell command, every access outside the project folder and every write to protected files (.git, hooks, editor ' +
+      'and agent settings) waits for the user’s approval. Secrets (.env, keys, credentials) can never be read, not even by a ' +
+      'command that names them; system folders and hearth’s own folders are closed. Look at files with read, find, grep and ' +
+      'list, which need no approval, rather than with shell. Put related commands into one when sensible, and say in a few ' +
+      'words what a command is for before you run it.',
     'If the user denies a call, do not try it again or around it; ask the user what to do instead.',
     'Change files with edit (exact replacements) or write. Check your work where it is cheap (build, tests), and keep changes ' +
       'to what the user asked for. Do not commit, push or install anything system-wide unless the user asked for it.',
@@ -144,22 +155,28 @@ export function hostInstructions(info: HostInfo): string {
  * it; the server checks the output for prompt injections.
  *
  * @param caller - Sends a call to the device (and shows its questions).
+ * @param assess - Rates commands with Jev before they go out; null: no rating.
  * @returns The tools by name.
  */
-export function createHostTools(caller: HostCaller): Record<HostTool, Tool> {
+export function createHostTools(caller: HostCaller, assess: CommandAssessor | null = null): Record<HostTool, Tool> {
   const tools = {} as Record<HostTool, Tool>;
   for (const name of HOST_TOOLS) {
     tools[name] = tool({
       description: DESCRIPTIONS[name],
       inputSchema: SCHEMAS[name],
       execute: async (input, { toolCallId, abortSignal }): Promise<HostToolOutput> => {
-        const result = await caller({ call: toolCallId, tool: name, input, signal: abortSignal });
+        // Jev rates the command first, so the question on the computer
+        // shows it; a failing Jev only means no rating.
+        const command = name === 'shell' && typeof input.command === 'string' ? input.command : null;
+        const assessment = command !== null && assess ? await assess(command, abortSignal).catch(() => null) : null;
+        const result = await caller({ call: toolCallId, tool: name, input, signal: abortSignal, ...(assessment ? { assessment } : {}) });
         const warning = result.isError ? null : agentWarning(name, input, result.output);
         return {
           text: result.output,
           ...(result.isError ? { isError: true } : {}),
           ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
           ...(warning ? { findings: warning.findings } : {}),
+          ...(assessment ? { commandAssessment: assessment } : {}),
         };
       },
       toModelOutput: ({ output }) => ({ type: 'text', value: hostModelText(output as HostToolOutput) }),

@@ -95,15 +95,50 @@ fn the_project_folder_is_free_and_everything_else_asks() {
 }
 
 #[test]
-fn secrets_ask_to_be_read_and_hooks_ask_to_be_written() {
+fn secrets_are_never_read_and_hooks_ask_to_be_written() {
     let f = Fixture::new();
     let s = f.session();
+    for secret in [
+        ".env",
+        ".env.local",
+        "config/prod.env",
+        "deploy/server.KEY",
+        "certs/site.pem",
+        "id_ed25519",
+        ".npmrc",
+        "android/app/upload.jks",
+        ".aws/credentials",
+    ] {
+        assert!(
+            matches!(s.plan(&read(secret)), Plan::Refuse(ref text) if text.contains("secret")),
+            "{secret} should be refused"
+        );
+    }
+    // Not even a search reaches into it.
+    assert!(matches!(
+        s.plan(&ToolCall::Grep {
+            pattern: "x".into(),
+            path: Some(".env".into()),
+            glob: None,
+            ignore_case: false,
+            literal: false,
+        }),
+        Plan::Refuse(_)
+    ));
+    for harmless in [
+        ".env.example",
+        ".env.dist",
+        "id_rsa.pub",
+        "example.env",
+        ".docker/Dockerfile",
+        "src/key.rs",
+    ] {
+        assert_eq!(s.plan(&read(harmless)), Plan::Run, "{harmless}");
+    }
+    // Creating a .env from the example asks; nothing reads it back.
     assert!(
-        matches!(s.plan(&read(".env")), Plan::Ask(Request::Read { ref reason, .. }) if reason == "secret")
+        matches!(s.plan(&write(".env", "TOKEN=")), Plan::Ask(Request::Write { ref reason, .. }) if reason == "secret")
     );
-    assert_eq!(s.plan(&read(".env.example")), Plan::Run);
-    assert!(matches!(s.plan(&read("deploy/server.KEY")), Plan::Ask(_)));
-    assert_eq!(s.plan(&read("id_rsa.pub")), Plan::Run);
 
     for protected in [
         ".git/hooks/pre-commit",
@@ -139,13 +174,13 @@ fn secrets_ask_to_be_read_and_hooks_ask_to_be_written() {
 }
 
 #[test]
-fn hearth_itself_is_never_written_and_odd_paths_are_refused() {
+fn hearth_itself_is_never_touched_and_odd_paths_are_refused() {
     let f = Fixture::new();
     let s = f.session();
     let config = f.hearth.join("projects/x.toml").display().to_string();
     assert!(matches!(s.plan(&write(&config, "x")), Plan::Refuse(_)));
-    // Reading it asks like any other place outside.
-    assert!(matches!(s.plan(&read(&config)), Plan::Ask(_)));
+    // Not read either: on Linux the device token lives there.
+    assert!(matches!(s.plan(&read(&config)), Plan::Refuse(_)));
 
     for odd in [
         r"\\server\share\x",
@@ -162,6 +197,137 @@ fn hearth_itself_is_never_written_and_odd_paths_are_refused() {
         s.plan(&write("src/con.txt", "x")),
         Plan::Refuse(_)
     ));
+}
+
+#[test]
+fn system_folders_secrets_elsewhere_and_startup_files_are_never_touched() {
+    let f = Fixture::new();
+    let s = f.session();
+    let system = policy::system_folders()
+        .into_iter()
+        .find(|dir| dir.is_dir())
+        .expect("a system folder");
+    for path in [system.clone(), system.join("anything.txt")] {
+        let path = path.display().to_string();
+        assert!(
+            matches!(s.plan(&read(&path)), Plan::Refuse(ref text) if text.contains("operating system")),
+            "{path}"
+        );
+        assert!(
+            matches!(s.plan(&write(&path, "x")), Plan::Refuse(_)),
+            "{path}"
+        );
+    }
+    let home = crate::paths::home_dir().unwrap();
+    for secret in [
+        home.join(".ssh/id_ed25519"),
+        home.join(".ssh"),
+        home.join(".ssh/known_hosts"),
+        home.join(".aws/credentials"),
+        home.join(".git-credentials"),
+    ] {
+        let path = secret.display().to_string();
+        assert!(matches!(s.plan(&read(&path)), Plan::Refuse(_)), "{path}");
+        assert!(
+            matches!(s.plan(&write(&path, "x")), Plan::Refuse(_)),
+            "{path}"
+        );
+    }
+    for startup in [".bashrc", ".gitconfig", ".config/autostart/x.desktop"] {
+        let path = home.join(startup).display().to_string();
+        assert!(
+            matches!(s.plan(&write(&path, "x")), Plan::Refuse(ref text) if text.contains("logs in")),
+            "{path}"
+        );
+        // Reading them asks like any other place outside.
+        assert!(matches!(s.plan(&read(&path)), Plan::Ask(_)), "{path}");
+    }
+    // In a project of the same name, such a file is ordinary.
+    assert_eq!(s.plan(&write(".bashrc", "x")), Plan::Run);
+}
+
+#[test]
+fn commands_that_name_secrets_are_refused_without_asking() {
+    let f = Fixture::new();
+    let s = f.session();
+    for command in [
+        "cat .env",
+        "npm run build && cat ./config/.env.production | head",
+        "type C:\\Users\\me\\.ssh\\id_rsa",
+        "cp ~/.aws/credentials /tmp/x",
+        "docker compose --env-file=.env up",
+        "openssl rsa -in server.key -check",
+        "cat /proc/self/environ",
+        "scp -i ~/.ssh/deploy host:/x .",
+    ] {
+        let call = ToolCall::Shell {
+            command: command.to_owned(),
+            timeout: None,
+        };
+        assert!(
+            matches!(s.plan(&call), Plan::Refuse(ref text) if text.contains("secret")),
+            "{command}"
+        );
+    }
+    for command in [
+        "cargo test",
+        "cp .env.example .env.example.bak",
+        "node -e \"console.log(process.env.HOME)\"",
+        "jq .data.key package.json",
+        "cat id_rsa.pub",
+        "grep -rn API_KEY src",
+    ] {
+        let call = ToolCall::Shell {
+            command: command.to_owned(),
+            timeout: None,
+        };
+        assert!(matches!(s.plan(&call), Plan::Ask(_)), "{command}");
+    }
+}
+
+#[test]
+fn chat_grants_are_listed_and_can_be_taken_back() {
+    let f = Fixture::new();
+    let mut s = f.session();
+    let command = ToolCall::Shell {
+        command: "cargo build".to_owned(),
+        timeout: None,
+    };
+    let Plan::Ask(request) = s.plan(&command) else {
+        panic!("commands ask");
+    };
+    assert!(s.grant(&request, Decision::Chat));
+    // The same answer twice is one grant.
+    assert!(!s.grant(&request, Decision::Chat));
+    let grants = s.grants().to_vec();
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0].kind, GrantKind::Command);
+    assert_eq!(grants[0].target, "cargo build");
+    assert!(inbox::valid_id(&grants[0].id));
+    assert_eq!(s.plan(&command), Plan::Run);
+    assert!(s.revoke(&grants[0].id));
+    assert!(!s.revoke(&grants[0].id));
+    assert!(matches!(s.plan(&command), Plan::Ask(_)));
+}
+
+#[test]
+fn jev_ratings_are_read_carefully() {
+    let high = Assessment::from_wire(0.81, "typesafe/jev").unwrap();
+    assert_eq!((high.percent, high.high()), (81, true));
+    let low = Assessment::from_wire(0.1, "jev\u{1b}[2J").unwrap();
+    assert!(!low.high());
+    assert!(!low.model.contains('\u{1b}'));
+    assert_eq!(Assessment::from_wire(1.5, "jev"), None);
+    assert_eq!(Assessment::from_wire(f64::NAN, "jev"), None);
+}
+
+#[test]
+fn rights_follow_the_writes_setting() {
+    let free = rights(false);
+    let ask = rights(true);
+    assert!(free.free.len() > ask.free.len());
+    assert!(ask.ask.len() > free.ask.len());
+    assert_eq!(free.never, ask.never);
 }
 
 #[test]

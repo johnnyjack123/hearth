@@ -40,7 +40,22 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 
 ## In flight / half-finished
 
-Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Linux-Laptop liegen rustup (`~/.rustup`, `~/.cargo`) und ein Klon unter `~/Dokumente/Programmieren/hearth_tests/hearth` (Freigabe des Nutzers vom 21.11.).
+**Branch `feat/host-rights` (24.11., Wunsch des Nutzers, pausiert auf seinen Wunsch, noch nicht nach `main`):** Rechte des Direktmodus.
+- Erledigt und geprüft:
+  - Geheimnisse nie lesbar (auch außerhalb: `~/.ssh`, `~/.aws`, Browser-Profile …), und Befehle, die sie nennen, werden ohne Rückfrage abgelehnt.
+  - Systemordner und hearths eigene Ordner sind gesperrt, Startdateien (Shell-Profile, Autostart, `.gitconfig`) außerhalb des Projekts nie schreibbar (`host/policy.rs`).
+  - Jev bewertet jeden Befehl vor dem Versand an den Rechner (`helpers/command.ts`, Schalter `device.jevReview`). Bei hoher Gefahr gibt es kein „im Chat erlauben“.
+  - Chat-Freigaben haben IDs, die App, `hearth host revoke` und der Browser können sie zurücknehmen (`host-grants.json`, `host-revoke/`).
+  - Tunnel-Protokoll 12 (`writes`, `host.grants`, `host.revoke`, `assessment` an `host.call`).
+  - Übersicht „Was darf der Agent?“ in App, Popover und `hearth project host`.
+  - Geprüft: Rust-Tests, App-Tests mit Bildern, Server 329/329, `smoke-host.sh` unter Windows grün (40 Prüfungen).
+- Offen:
+  - Browser-E2E um Popover und Jev-Plakette erweitern und laufen lassen.
+  - Doku: `concept.md` §4/§5, `client.md`, `client-unix.md`, README und CLAUDE.md-Stolpersteine.
+  - Smoke auf dem Linux-Laptop.
+  - Dann mergen, Release 0.4.1 nach Rückfrage.
+
+Sonst ist alles committet, nach `main` gemergt und gepusht. Auf dem Linux-Laptop liegen rustup (`~/.rustup`, `~/.cargo`) und ein Klon unter `~/Dokumente/Programmieren/hearth_tests/hearth` (Freigabe des Nutzers vom 21.11.).
 
 ## Decisions made 21.11.
 

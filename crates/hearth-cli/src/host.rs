@@ -6,6 +6,10 @@
 //! icon or `hearth host`; their answers come back as files. The chat may
 //! answer only where the project allows it (`[host] browser_approvals`),
 //! read fresh from the project file for every answer.
+//!
+//! "For this chat" answers are listed in `host-grants.json` and sent to the
+//! server (`host.grants`); the app, `hearth host revoke` and the chat can
+//! take them back, since that only takes rights away.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,6 +57,7 @@ impl By {
 /// One chat's session with the rules it was made with.
 struct Chat {
     project: String,
+    title: Option<String>,
     host: HostConfig,
     session: Session,
 }
@@ -107,6 +112,13 @@ pub fn info(config: &ConfigDir, name: &ProjectName, host: &HostConfig) -> Option
         os: os_name().to_owned(),
         shell: Shell::detect().name,
         browser_approvals: host.browser_approvals,
+        writes: Some(
+            match host.writes {
+                HostWrites::Ask => "ask",
+                HostWrites::Free => "free",
+            }
+            .to_owned(),
+        ),
     })
 }
 
@@ -134,6 +146,9 @@ impl Broker {
                     return;
                 };
                 broker.take_answers_here();
+                for id in inbox::take_revocations(broker.config.root()) {
+                    broker.revoke(None, &id);
+                }
             }
         });
         broker
@@ -234,7 +249,75 @@ impl Broker {
 
     /// Forgets a chat's "for this chat" answers (chat unlinked or deleted).
     pub fn close(&self, session: &str) {
-        lock(&self.chats).remove(session);
+        let had = lock(&self.chats)
+            .remove(session)
+            .is_some_and(|chat| !chat.session.grants().is_empty());
+        if had {
+            self.publish_grants(session);
+        }
+    }
+
+    /// The chat's request to take a "for this chat" answer back; taken
+    /// always, since it only takes a right away.
+    pub fn revoke_from_browser(&self, session: &str, grant: &str) {
+        self.revoke(Some(session), grant);
+    }
+
+    /// Takes a "for this chat" answer back, in `session` or in any chat.
+    fn revoke(&self, session: Option<&str>, grant: &str) {
+        let revoked = {
+            let mut chats = lock(&self.chats);
+            chats
+                .iter_mut()
+                .filter(|(id, _)| session.is_none_or(|session| session == id.as_str()))
+                .find_map(|(id, chat)| chat.session.revoke(grant).then(|| id.clone()))
+        };
+        if let Some(session) = revoked {
+            say(
+                self.mode,
+                &tr!(
+                    "Freigabe {grant} für den Chat zurückgenommen.",
+                    "Approval {grant} for the chat taken back."
+                ),
+            );
+            self.publish_grants(&session);
+        }
+    }
+
+    /// Lists every chat's "for this chat" answers for this computer and
+    /// tells the server those of `session`.
+    fn publish_grants(&self, session: &str) {
+        let (all, current) = {
+            let chats = lock(&self.chats);
+            let all: Vec<inbox::ChatGrants> = chats
+                .iter()
+                .filter(|(_, chat)| !chat.session.grants().is_empty())
+                .map(|(id, chat)| inbox::ChatGrants {
+                    project: chat.project.clone(),
+                    chat: id.clone(),
+                    title: chat.title.clone(),
+                    grants: chat.session.grants().to_vec(),
+                })
+                .collect();
+            let current = chats
+                .get(session)
+                .map(|chat| chat.session.grants().to_vec())
+                .unwrap_or_default();
+            (all, current)
+        };
+        if let Err(error) = inbox::write_grants(self.config.root(), &all) {
+            say(
+                self.mode,
+                &tr!(
+                    "Freigaben der Chats nicht gespeichert: {error}",
+                    "Approvals of the chats not saved: {error}"
+                ),
+            );
+        }
+        let _ = self.out.send(DeviceMessage::HostGrants {
+            session: session.to_owned(),
+            grants: current,
+        });
     }
 
     fn record(&self, project: &str, entry: &audit::Entry) {
@@ -274,10 +357,11 @@ impl Broker {
         host: &HostConfig,
     ) -> Result<Session, String> {
         let mut chats = lock(&self.chats);
-        if let Some(chat) = chats.get(&call.session)
+        if let Some(chat) = chats.get_mut(&call.session)
             && chat.project == call.project
             && chat.host == *host
         {
+            chat.title.clone_from(&call.conversation.title);
             return Ok(chat.session.clone());
         }
         let project = self
@@ -291,14 +375,20 @@ impl Broker {
         )
         .map_err(|error| error.0)?;
         let session = Session::new(policy, Shell::detect());
-        chats.insert(
+        let replaced = chats.insert(
             call.session.clone(),
             Chat {
                 project: call.project.clone(),
+                title: call.conversation.title.clone(),
                 host: host.clone(),
                 session: session.clone(),
             },
         );
+        drop(chats);
+        // Changed rules start over without the chat's earlier answers.
+        if replaced.is_some_and(|chat| !chat.session.grants().is_empty()) {
+            self.publish_grants(&call.session);
+        }
         Ok(session)
     }
 
@@ -343,8 +433,11 @@ impl Broker {
                     });
                 }
                 (decision, by) => {
-                    if let Some(chat) = lock(&self.chats).get_mut(&call.session) {
-                        chat.session.grant(&request, decision);
+                    let added = lock(&self.chats)
+                        .get_mut(&call.session)
+                        .is_some_and(|chat| chat.session.grant(&request, decision));
+                    if added {
+                        self.publish_grants(&call.session);
                     }
                     (
                         if decision == Decision::Chat {
@@ -388,6 +481,11 @@ impl Broker {
                 break id;
             }
         };
+        // Jev's rating only for commands; a high one takes "for this chat"
+        // away, so such a command is looked at every time.
+        let assessment = matches!(request, Request::Command { .. })
+            .then(|| call.assessment())
+            .flatten();
         let info = inbox::Pending {
             id: id.clone(),
             project: call.project.clone(),
@@ -396,9 +494,10 @@ impl Broker {
             request: request.clone(),
             summary: request.summary(),
             why: request.why(),
-            chat_wide: request.chat_wide(),
+            chat_wide: request.chat_wide() && !assessment.as_ref().is_some_and(|a| a.high()),
             browser: config.browser_approvals,
             since: now_secs(),
+            assessment,
         };
         let (answer, answers) = mpsc::channel();
         lock(&self.waiting).insert(
@@ -437,7 +536,7 @@ impl Broker {
             }
         };
         // "For this chat" only where it is offered.
-        let decision = if decision == Decision::Chat && !request.chat_wide() {
+        let decision = if decision == Decision::Chat && !info.chat_wide {
             Decision::Once
         } else {
             decision
@@ -494,12 +593,15 @@ fn notify_desktop(info: &inbox::Pending) {
         return;
     }
     let title = "Hearth";
-    let body = tr!(
+    let mut body = tr!(
         "{}: {} – wartet auf deine Freigabe",
         "{}: {} – waits for your approval",
         info.project,
         info.summary
     );
+    if let Some(assessment) = &info.assessment {
+        body.push_str(&format!(" ({})", assessment.text()));
+    }
     let app = std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name("hearth-app"));

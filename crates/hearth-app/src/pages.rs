@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, RichText};
 use hearth_core::config::{HostChange, HostWrites, RemoteChange};
-use hearth_core::host::{Decision, Request, audit, inbox};
+use hearth_core::host::{Decision, GrantKind, Request, audit, inbox};
 use hearth_core::lang::tr;
 use hearth_core::project::ProjectName;
 use hearth_core::tr;
@@ -105,6 +105,23 @@ pub fn approvals(app: &mut HearthApp, ui: &mut egui::Ui) {
                     ui.label(RichText::new(detail).monospace());
                 });
             ui.label(muted(ui, &item.why));
+            if let Some(assessment) = &item.assessment {
+                let color = match assessment.percent {
+                    75.. => t.destructive,
+                    50.. => t.warning,
+                    _ => t.muted_foreground,
+                };
+                ui.label(RichText::new(assessment.text()).color(color).strong());
+                if assessment.high() {
+                    ui.label(muted(
+                        ui,
+                        tr(
+                            "Nur einmal freigeben: Bei hohem Schadenspotenzial gibt es „im Chat erlauben“ nicht.",
+                            "Approve once only: with a high potential for harm there is no “allow in the chat”.",
+                        ),
+                    ));
+                }
+            }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let mut answer = None;
@@ -353,6 +370,10 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
                 let writes = if ask { HostWrites::Ask } else { HostWrites::Free };
                 set_host(app, &name, HostChange { writes: Some(writes), ..HostChange::default() });
             }
+            egui::CollapsingHeader::new(tr("Was darf der Agent?", "What may the agent do?"))
+                .id_salt(("rights", &row.name))
+                .show(ui, |ui| rights(ui, row.host.writes == HostWrites::Ask));
+            chat_grants(app, ui, &row.name);
         } else {
             let mut merge = row.merge;
             if ui
@@ -383,6 +404,86 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
             }
         });
     });
+}
+
+/// What the agent of a project in the direct mode may do, in three lists.
+fn rights(ui: &mut egui::Ui, writes_ask: bool) {
+    let t = theme::tokens(ui.ctx());
+    let rights = hearth_core::host::rights(writes_ask);
+    for (title, color, items) in [
+        (
+            tr("Ohne Rückfrage", "Without asking"),
+            t.success,
+            &rights.free,
+        ),
+        (
+            tr("Mit deiner Freigabe", "With your approval"),
+            t.warning,
+            &rights.ask,
+        ),
+        (
+            tr(
+                "Nie, auch nicht mit Freigabe",
+                "Never, not even with approval",
+            ),
+            t.destructive,
+            &rights.never,
+        ),
+    ] {
+        ui.label(RichText::new(title).strong().color(color));
+        for item in items {
+            ui.label(format!("• {item}"));
+        }
+        ui.add_space(4.0);
+    }
+    ui.label(muted(
+        ui,
+        tr(
+            "Vor jedem Befehl bewertet Jev sein Schadenspotenzial, wenn dein Konto einen OpenRouter-Zugang hat und Jev für diesen Rechner an ist (in der Web-App unter Einstellungen, Geräte). Ein Befehl kann Geheimnisse auch lesen, ohne sie zu nennen (etwa grep über den ganzen Ordner); sieh dir deshalb jeden an.",
+            "Before each command Jev rates its potential for harm when your account has OpenRouter access and Jev is on for this computer (in the web app under Settings, Devices). A command can read secrets without naming them (grep over the whole folder, say); so look at each one.",
+        ),
+    ).small());
+}
+
+/// The "for this chat" answers of the project's running chats, each with a
+/// button to take it back.
+fn chat_grants(app: &mut HearthApp, ui: &mut egui::Ui, project: &str) {
+    let chats: Vec<inbox::ChatGrants> = app
+        .snapshot
+        .grants
+        .iter()
+        .filter(|chat| chat.project == project)
+        .cloned()
+        .collect();
+    if chats.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new(tr("Erlaubt für ganze Chats", "Allowed for whole chats")).strong());
+    for chat in chats {
+        ui.label(muted(ui, chat.title.clone().unwrap_or_else(|| chat.chat.clone())).small());
+        for grant in &chat.grants {
+            ui.horizontal(|ui| {
+                let kind = match grant.kind {
+                    GrantKind::Command => tr("Befehl", "Command"),
+                    GrantKind::Folder => tr("Ordner lesen", "Read folder"),
+                    GrantKind::File => tr("Datei lesen", "Read file"),
+                };
+                if ui.small_button(tr("Zurücknehmen", "Take back")).clicked() {
+                    match inbox::request_revoke(app.config.root(), &grant.id) {
+                        Ok(()) => app.reload_soon(),
+                        Err(error) => app.say(
+                            tr!("Nicht zurückgenommen: {error}", "Not taken back: {error}"),
+                            true,
+                        ),
+                    }
+                }
+                let first = grant.target.lines().next().unwrap_or("");
+                ui.label(format!("{kind}:"));
+                ui.label(RichText::new(first).monospace());
+            });
+        }
+    }
 }
 
 /// The sandbox's network rules and programs of a project, changed through

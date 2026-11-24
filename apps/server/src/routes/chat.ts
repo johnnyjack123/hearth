@@ -45,6 +45,7 @@ import { HttpError } from '../http/errors.ts';
 import { compactionRange, latestCompaction, summarize, withCompaction } from '../compact.ts';
 import { condenseHistory, withReasoning } from '../condense.ts';
 import type { EffortOptions } from '../effort.ts';
+import { assessCommand } from '../helpers/command.ts';
 import { type Helpers } from '../helpers/openrouter.ts';
 import { withOpenRouter } from '../openrouter.ts';
 import { addUsage, type BilledCost, billedCost, callUsage, type HostRates, type ModelPricing, usageMetadata, withHelpers } from '../pricing.ts';
@@ -555,12 +556,14 @@ export interface StreamChatOptions {
   /**
    * The direct mode: the chat is linked to a project whose device runs the
    * model's file and shell tools. `call` sends one to the device; the
-   * device's questions arrive through `onApproval`.
+   * device's questions arrive through `onApproval`. With `assess`, Jev rates
+   * each command first (switched on per device, needs the helpers).
    */
   host?: {
     project: string;
     info: HostInfo;
     call: (request: HostCallRequest, onApproval: (approval: HostApproval) => void) => Promise<HostCallResult>;
+    assess?: boolean;
   } | null;
 }
 
@@ -683,10 +686,26 @@ export async function streamChat(options: StreamChatOptions): Promise<Response> 
     ...(longDocuments
       ? { [READ_DOCUMENT_TOOL]: createReadDocumentTool(options.files, fileIds, { helpers, vectors: documentVectors(db), signal: abortSignal }) }
       : {}),
-    // The device's questions update a card in place, by their id.
+    // The device's questions update a card in place, by their id; the card
+    // carries Jev's rating of a command, which the server took itself.
     ...(host
-      ? createHostTools((request) =>
-          host.call(request, (approval) => writer?.write({ type: 'data-hostApproval', id: `host-${approval.approval}`, data: approval })),
+      ? createHostTools(
+          (request) =>
+            host.call(request, (approval) =>
+              writer?.write({
+                type: 'data-hostApproval',
+                id: `host-${approval.approval}`,
+                data: request.assessment ? { ...approval, assessment: request.assessment } : approval,
+              }),
+            ),
+          host.assess && helpers
+            ? (command, signal) =>
+                assessCommand(
+                  helpers,
+                  { command, shell: host.info.shell, os: host.info.os, cwd: host.info.root, request: question },
+                  signal ?? abortSignal,
+                )
+            : null,
         )
       : {}),
   };

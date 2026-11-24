@@ -4,6 +4,9 @@
 //! whoever answers (desktop app, tray icon, `hearth host approve`) leaves a
 //! file in `host-decisions/`, which the service takes.
 //!
+//! The "for this chat" answers of every chat are listed in
+//! `host-grants.json`; taking one back leaves a file in `host-revoke/`.
+//!
 //! Any process of the user could write there, like into any other channel
 //! of the user's; the model cannot, because no tool may write into hearth's
 //! folders. A command the user approved can, and that is the limit every
@@ -15,12 +18,16 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::{Decision, Request};
+use super::{Assessment, Decision, Grant, Request};
 
 /// The list of waiting questions.
 pub const PENDING_FILE: &str = "host-approvals.json";
 /// The folder answers go to.
 pub const DECISIONS_DIR: &str = "host-decisions";
+/// The "for this chat" answers of the chats.
+pub const GRANTS_FILE: &str = "host-grants.json";
+/// The folder requests to take a "for this chat" answer back go to.
+pub const REVOKE_DIR: &str = "host-revoke";
 
 /// A waiting question, as the surfaces on this computer show it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +54,23 @@ pub struct Pending {
     pub browser: bool,
     /// When it was asked, Unix seconds.
     pub since: u64,
+    /// Jev's rating of a command, if the server sent one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assessment: Option<Assessment>,
+}
+
+/// The "for this chat" answers of one chat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatGrants {
+    /// The project.
+    pub project: String,
+    /// The chat (conversation id).
+    pub chat: String,
+    /// The chat's title, if it has one.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// What the user allowed, oldest first.
+    pub grants: Vec<Grant>,
 }
 
 /// An answer left for the service.
@@ -146,14 +170,77 @@ pub fn take(config_root: &Path, id: &str) -> Option<Decision> {
         .map(|answer| answer.decision)
 }
 
-/// Removes answers nobody waits for any more (from a service that ended).
+/// Writes the "for this chat" answers of all chats (the service does).
+///
+/// # Errors
+///
+/// When the file cannot be written.
+pub fn write_grants(config_root: &Path, chats: &[ChatGrants]) -> io::Result<()> {
+    let path = config_root.join(GRANTS_FILE);
+    if chats.is_empty() {
+        return match fs::remove_file(&path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        };
+    }
+    let text = serde_json::to_string_pretty(chats).map_err(io::Error::other)?;
+    write_atomically(&path, text.as_bytes())
+}
+
+/// The "for this chat" answers of all chats; none when the file is missing
+/// or unreadable.
+pub fn read_grants(config_root: &Path) -> Vec<ChatGrants> {
+    fs::read_to_string(config_root.join(GRANTS_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Asks the service to take the "for this chat" answer `id` back.
+///
+/// # Errors
+///
+/// An invalid id, or the file cannot be written.
+pub fn request_revoke(config_root: &Path, id: &str) -> io::Result<()> {
+    if !valid_id(id) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid grant id",
+        ));
+    }
+    let dir = config_root.join(REVOKE_DIR);
+    fs::create_dir_all(&dir)?;
+    fs::write(dir.join(id), b"")
+}
+
+/// Takes the requests to take answers back; they are removed.
+pub fn take_revocations(config_root: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(config_root.join(REVOKE_DIR)) else {
+        return Vec::new();
+    };
+    let mut ids = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let _ = fs::remove_file(entry.path());
+        if valid_id(&name) {
+            ids.push(name);
+        }
+    }
+    ids
+}
+
+/// Removes answers nobody waits for any more (from a service that ended),
+/// and the grants of its chats, which ended with it.
 pub fn clear(config_root: &Path) {
-    if let Ok(entries) = fs::read_dir(config_root.join(DECISIONS_DIR)) {
-        for entry in entries.flatten() {
-            let _ = fs::remove_file(entry.path());
+    for dir in [DECISIONS_DIR, REVOKE_DIR] {
+        if let Ok(entries) = fs::read_dir(config_root.join(dir)) {
+            for entry in entries.flatten() {
+                let _ = fs::remove_file(entry.path());
+            }
         }
     }
     let _ = fs::remove_file(config_root.join(PENDING_FILE));
+    let _ = fs::remove_file(config_root.join(GRANTS_FILE));
 }
 
 /// Writes through a temporary file, so a reader never sees half of it.
@@ -199,10 +286,34 @@ mod tests {
             chat_wide: true,
             browser: false,
             since: 1,
+            assessment: Assessment::from_wire(0.8, "jev"),
         };
         write_pending(tmp.path(), std::slice::from_ref(&pending)).unwrap();
         assert_eq!(read_pending(tmp.path()), vec![pending]);
         write_pending(tmp.path(), &[]).unwrap();
         assert!(read_pending(tmp.path()).is_empty());
+    }
+
+    #[test]
+    fn grants_are_listed_and_taken_back_through_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let chats = vec![ChatGrants {
+            project: "demo".to_owned(),
+            chat: "chat-1".to_owned(),
+            title: None,
+            grants: vec![Grant {
+                id: "ABC234".to_owned(),
+                kind: super::super::GrantKind::Command,
+                target: "cargo test".to_owned(),
+            }],
+        }];
+        write_grants(tmp.path(), &chats).unwrap();
+        assert_eq!(read_grants(tmp.path()), chats);
+        request_revoke(tmp.path(), "ABC234").unwrap();
+        assert!(request_revoke(tmp.path(), "../x").is_err());
+        assert_eq!(take_revocations(tmp.path()), vec!["ABC234".to_owned()]);
+        assert!(take_revocations(tmp.path()).is_empty());
+        clear(tmp.path());
+        assert!(read_grants(tmp.path()).is_empty());
     }
 }

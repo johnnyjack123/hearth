@@ -827,6 +827,7 @@ fn dispatch(
             approval,
             decision,
         } => host.decide_from_browser(&session, &approval, decision),
+        ServerMessage::HostRevoke { session, grant } => host.revoke_from_browser(&session, &grant),
         ServerMessage::Takeover(request) => start_takeover(shared, out, request),
         ServerMessage::Settings { idle_minutes } => shared.idle.set_minutes(idle_minutes),
         ServerMessage::VmStop { request } => stop_vm(shared, sessions, out, Some(request)),
