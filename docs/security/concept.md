@@ -15,7 +15,7 @@ Stand 21.11.2026. Ersetzt den „ungesicherten Host-Modus“ aus ARCHITECTURE.md
 | Netz | Gateway mit Regeln je Projekt | Werkzeuge haben kein Netz; freigegebene Befehle schon; Web über den Server wie im Chat |
 | RAM | VM ab 1 GB | ein paar MB im Hintergrunddienst |
 
-Der Modus gehört dem Rechner: Er steht in der Projektdatei (`[host]`), umschalten geht nur in der Desktop-App oder mit `hearth project mode`, nie aus dem Browser. Ein Projekt im Direktmodus bietet Web-Chats die Pseudo-Harness `host` an; die Projekte im Sandbox-Modus bieten wie bisher pi an.
+Der Modus gehört dem Rechner: Er steht in der Projektdatei (`[host]`), umschalten geht nur in der Desktop-App oder mit `hearth project host on|off`, nie aus dem Browser. Ein Projekt im Direktmodus bietet Web-Chats die Pseudo-Harness `host` an; die Projekte im Sandbox-Modus bieten wie bisher pi an.
 
 ## 2. Wem was vertraut wird
 
