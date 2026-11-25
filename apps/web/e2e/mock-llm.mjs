@@ -276,10 +276,11 @@ http
         return;
       }
       // Stand-in for Jev on OpenRouter: the test page fits best, the
-      // lexicon second, the overview least.
+      // lexicon second, the overview least. A command of the direct mode is
+      // "ordinary development" (level 2 of 0–3), `rm -rf` "dangerous".
       if (req.method === 'POST' && req.url === '/api/alpha/decisions') {
-        const { questions = {} } = JSON.parse(body || '{}');
-        const levels = [3, 1, 2];
+        const { questions = {}, state = {} } = JSON.parse(body || '{}');
+        const levels = typeof state.command === 'string' ? [/rm -rf/.test(state.command) ? 0 : 2] : [3, 1, 2];
         const answers = Object.fromEntries(Object.keys(questions).map((name, index) => [name, { type: 'score', score: levels[index] ?? 1 }]));
         console.log(`[mock] jev, ${Object.keys(questions).length} questions`);
         res.writeHead(200, { 'content-type': 'application/json' });

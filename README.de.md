@@ -28,7 +28,7 @@ Hearth ist ein selbst gehosteter Chat für große Sprachmodelle. Mehrere Persone
 - Ein Tray-Symbol zeigt den Zustand der VM und weist auf alles hin, was auf eine Freigabe wartet. Im Leerlauf stoppt die VM von selbst.
 
 **Direktmodus (Windows, Linux, macOS)**
-- Ohne VM: Das Chat-Modell arbeitet als Agent direkt im Projektordner, hearth führt seine Werkzeuge auf dem Rechner aus. Lesen und Schreiben im Ordner gehen ohne Rückfrage; jeder Befehl und jeder Zugriff außerhalb des Ordners, auf Geheimnisse oder auf Dateien, die später Code ausführen (Git-Hooks, Editor-Einstellungen), wartet auf deine Freigabe am Rechner. Siehe [`docs/security/concept.md`](docs/security/concept.md).
+- Ohne VM: Das Chat-Modell arbeitet als Agent direkt im Projektordner, hearth führt seine Werkzeuge auf dem Rechner aus. Lesen und Schreiben im Ordner gehen ohne Rückfrage; jeder Befehl und jeder Zugriff außerhalb des Ordners oder auf Dateien, die später Code ausführen (Git-Hooks, Editor-Einstellungen), wartet auf deine Freigabe am Rechner, und Jev bewertet jeden Befehl vorher. Geheimnisse, Systemordner und Startdateien bleiben ganz gesperrt. Siehe [`docs/security/concept.md`](docs/security/concept.md).
 - Eine Desktop-App (nativ, ohne Browser-Engine) zeigt Freigaben, Projekte mit ihrem Modus, Kopplung und Protokolle.
 
 ## Aufbau

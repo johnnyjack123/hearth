@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import {
   type ConversationDetail,
   type ConversationSummary,
+  type DeviceSummary,
   HOST_HARNESS,
   type HostGrants,
   type PairingPoll,
@@ -338,6 +339,13 @@ describe.each(DIALECTS)('the direct mode on %s', (kind) => {
     device.connection = server.hub.attach(deviceId, userId, device);
     device.say({ type: 'hello', version: TUNNEL_VERSION, projects: [{ ...HOST_PROJECT, host: { ...HOST_PROJECT.host, writes: 'ask' } }] });
     expect(server.hub.status(deviceId).projects[0]?.host?.writes).toBe('ask');
+    // The web app sees it too while the device is online; the database
+    // does not keep it.
+    const listed = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(listed[0]?.projects[0]?.host).toMatchObject({ writes: 'ask', browserApprovals: false });
+    device.connection?.closed();
+    const offline = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(offline[0]?.projects).toEqual([{ name: 'demo', harnesses: [HOST_HARNESS] }]);
   });
 
   it('refuses the direct mode with devices that do not know it', async () => {

@@ -118,16 +118,25 @@ Rückfragen des Gateways erscheinen im selben Fenster. In der ersten Sekunde zä
 
 ## Direktmodus
 
-Ohne VM: Der Agent arbeitet direkt im Projektordner, das Chat-Modell des Servers ist der Agent, und `hearth` führt seine Werkzeuge auf dem Rechner aus. Lesen, Schreiben und Suchen im Ordner gehen ohne Rückfrage (außer `.env`, Schlüsseln, `.git`, Hooks, Editor- und Agent-Einstellungen); jeder Befehl und jeder Zugriff außerhalb des Ordners wartet auf deine Freigabe, und freigegebene Befehle laufen mit deinen Rechten. Befehle laufen in Git Bash, wenn installiert, sonst in PowerShell. Regeln und Abwägung: [`security/concept.md`](security/concept.md).
+Ohne VM: Der Agent arbeitet direkt im Projektordner, das Chat-Modell des Servers ist der Agent, und `hearth` führt seine Werkzeuge auf dem Rechner aus. Befehle laufen in Git Bash, wenn installiert, sonst in PowerShell.
+
+- **Ohne Rückfrage:** Lesen, Schreiben und Suchen im Projektordner.
+- **Mit deiner Freigabe:** jeder Befehl (läuft mit deinen Rechten), alles außerhalb des Ordners, das Schreiben von `.git`, Hooks, Editor- und Agent-Einstellungen und von `.env`-Dateien im Ordner.
+- **Nie, auch nicht mit Freigabe:** Geheimnisse lesen (`.env`, Schlüssel, `~/.ssh`, `~/.aws`, Browser-Profile …; auch kein Befehl, der sie beim Namen nennt), Systemordner (`C:\Windows`, Programme, ProgramData), hearths eigene Ordner, Startdateien schreiben (Shell-Profile, Autostart, `.gitconfig`).
+- **Jev** bewertet jeden Befehl vor deiner Freigabe (Schadenspotenzial in Prozent, mit OpenRouter-Zugang; Schalter unter Einstellungen → Geräte). Bei hohem Schadenspotenzial gibt es „im Chat erlauben“ nicht.
+- Ein Befehl kann Geheimnisse auch lesen, ohne sie zu nennen (etwa `grep` über den ganzen Ordner). Sieh dir deshalb jeden an.
+
+Die Übersicht steht auch in der App (Projekte → „Was darf der Agent?“) und im Chat (Zahnrad → Umgebung). Regeln und Abwägung: [`security/concept.md`](security/concept.md).
 
 ```powershell
 hearth project host on                      # im Projektordner; oder in der App unter Projekte → Modus
 hearth project host on --browser-approvals  # Freigaben auch im Web-Chat (riskant, siehe Konzept)
-hearth host                                 # offene Freigaben; approve <ID> [--chat], deny <ID>, watch
+hearth host                                 # offene Freigaben und die für ganze Chats; approve <ID> [--chat], deny <ID>, watch
+hearth host revoke <ID>                     # eine Freigabe „für diesen Chat“ zurücknehmen
 hearth host log <projekt>                   # was der Agent tat und wer es erlaubte
 ```
 
-Freigaben meldet das Tray-Symbol; ein Klick öffnet die Hearth-App bei „Freigaben“. Der Server braucht dafür mindestens den Stand vom 21.11.2026 (Tunnel-Protokoll 11).
+Freigaben meldet das Tray-Symbol; ein Klick öffnet die Hearth-App bei „Freigaben“. Der Server braucht dafür mindestens den Stand vom 21.11.2026 (Tunnel-Protokoll 11), für Jevs Bewertung und die Freigaben des Chats im Browser den vom 25.11. (Protokoll 12).
 
 ## Netz der Sandbox
 

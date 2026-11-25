@@ -1722,7 +1722,7 @@ try {
     }
   });
 
-  await step('the direct mode: the device runs the tools, a command asks in the chat', async () => {
+  await step('the direct mode: the device runs the tools, a command asks in the chat with Jev’s rating', async () => {
     // A device whose project runs in the direct mode and allows answers
     // from the chat: what `hearth connect` sends with `[host]` switched on.
     const device = new WebSocket(`${API.replace('http', 'ws')}/api/device/tunnel`, {
@@ -1730,10 +1730,11 @@ try {
     });
     const calls = [];
     const decisions = [];
+    const revokes = [];
     const project = {
       name: 'werkstatt',
       harnesses: ['host'],
-      host: { root: '/home/erika/werkstatt', os: 'linux', shell: 'bash', browserApprovals: true },
+      host: { root: '/home/erika/werkstatt', os: 'linux', shell: 'bash', browserApprovals: true, writes: 'ask' },
     };
     device.on('message', (data) => {
       const message = JSON.parse(data.toString());
@@ -1770,7 +1771,17 @@ try {
       if (message.type === 'host.decide') {
         decisions.push(message);
         device.pending?.approval('resolved', { decision: message.decision, by: 'browser' });
+        // "For this chat": the device lists the grant, as hearth does.
+        if (message.decision === 'chat') {
+          device.send(
+            JSON.stringify({ type: 'host.grants', session: message.session, grants: [{ id: 'Q4MZ8T', kind: 'command', target: 'cargo test' }] }),
+          );
+        }
         device.pending?.answer('test result: ok. 3 passed; 0 failed\n', { exitCode: 0 });
+      }
+      if (message.type === 'host.revoke') {
+        revokes.push(message);
+        device.send(JSON.stringify({ type: 'host.grants', session: message.session, grants: [] }));
       }
     });
     await new Promise((resolve, reject) => {
@@ -1786,22 +1797,47 @@ try {
       await page.keyboard.press('Enter');
       await page.waitForSelector('[data-host-approval=pending]', { timeout: 15_000 });
       await waitForText('Der Agent möchte einen Befehl ausführen');
+      // Jev (the mock) rated the command before it went to the device.
+      await waitForText('Jev: Schadenspotenzial gering (33 %)');
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('60-host-approval');
-      await page.click(text('Einmal erlauben'));
+      await page.click(text('Diesen Befehl im Chat erlauben'));
       await waitForText('Erledigt: test result: ok. 3 passed; 0 failed');
-      await waitForText('Erlaubt (im Chat)');
+      await waitForText('Für diesen Chat erlaubt (im Chat)');
       if (calls.map((call) => call.tool).join(',') !== 'read,shell' || calls[1].input.command !== 'cargo test') {
         throw new Error(`calls: ${JSON.stringify(calls)}`);
       }
-      if (decisions[0]?.decision !== 'once' || decisions[0]?.approval !== 'W7KD3P') {
+      if (calls[0].assessment !== undefined || calls[1].assessment?.model !== 'typesafe/jev-1.13' || Math.abs(calls[1].assessment.danger - 1 / 3) > 0.01) {
+        throw new Error(`assessments: ${JSON.stringify(calls.map((call) => call.assessment))}`);
+      }
+      if (decisions[0]?.decision !== 'chat' || decisions[0]?.approval !== 'W7KD3P') {
         throw new Error(`decisions: ${JSON.stringify(decisions)}`);
       }
       // The command's card opens on demand, like the sandbox's.
       await page.click('button[aria-label="Ausgabe zeigen"]::-p-text("$ cargo test")');
       await waitForText('test result: ok');
+      await page.waitForSelector('[data-command-risk=low]');
       await new Promise((resolve) => setTimeout(resolve, 300));
       await shot('61-host-reply');
+
+      // What the agent may do, and what this chat allowed, in the options.
+      await openOptions();
+      await page.click(`[data-chat-options] button${text('werkstatt, direkt auf dem Rechner')}`);
+      await page.waitForSelector(`[data-chat-options] ${text('Andere Umgebung')}`, { timeout: 5_000 });
+      await page.waitForSelector('[data-host-grants="1"]', { timeout: 10_000 });
+      await page.click('[data-host-rights-toggle]');
+      await page.waitForSelector('[data-host-rights]');
+      await waitForText('Nie, auch nicht mit Freigabe');
+      // The project asks for every write, so writing is no longer free.
+      await waitForText('Jedes Schreiben im Projektordner');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await shot('62-host-rights');
+      await page.click(`[data-host-grants] button${text('Zurücknehmen')}`);
+      await page.waitForSelector('[data-host-grants="0"]', { timeout: 10_000 });
+      if (revokes[0]?.grant !== 'Q4MZ8T') {
+        throw new Error(`revokes: ${JSON.stringify(revokes)}`);
+      }
+      await closeOptions();
     } finally {
       device.close();
     }
