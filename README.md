@@ -28,7 +28,7 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - A tray icon shows the state of the VM and points to anything waiting for approval. The VM stops on its own when idle.
 
 **Direct mode (Windows, Linux, macOS)**
-- Without a VM: the chat model works as the agent right in the project folder, and hearth runs its tools on the computer. Reading and writing in the folder need no approval; every command, and every access outside the folder, to secrets or to files that run code later (git hooks, editor settings), waits for your approval on the computer. See [`docs/security/concept.md`](docs/security/concept.md).
+- Without a VM: the chat model works as the agent right in the project folder, and hearth runs its tools on the computer. Reading and writing in the folder need no approval; every command, and every access outside the folder or to files that run code later (git hooks, editor settings), waits for your approval on the computer, and Jev rates every command first. Secrets, system folders and startup files stay closed altogether. See [`docs/security/concept.md`](docs/security/concept.md).
 - A desktop app (native, no browser engine) shows the approvals, the projects and their mode, the pairing and the logs.
 
 ## How it fits together

@@ -48,8 +48,16 @@ import type { DeviceHub } from '../tunnel/hub.ts';
  */
 function withLive(hub: DeviceHub, device: DeviceSummary, projects: RemoteProject[]): DeviceSummary {
   const live = hub.status(device.id);
-  // The stored report stands in while the device is offline.
-  return { ...device, online: live.online, vm: live.vm, activity: live.activity, projects, apps: live.apps ?? device.apps };
+  // The stored report stands in while the device is offline; online, the
+  // live one carries what is not stored, e.g. the direct mode's `host`.
+  return {
+    ...device,
+    online: live.online,
+    vm: live.vm,
+    activity: live.activity,
+    projects: live.online ? live.projects : projects,
+    apps: live.apps ?? device.apps,
+  };
 }
 
 /**

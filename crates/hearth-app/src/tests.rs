@@ -10,7 +10,7 @@ use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use hearth_core::config::{ConfigDir, HostChange, RemoteChange};
-use hearth_core::host::{Decision, Request, inbox};
+use hearth_core::host::{Assessment, Decision, Grant, GrantKind, Request, inbox};
 use hearth_core::project::ProjectName;
 
 use crate::app::{HearthApp, Page};
@@ -78,6 +78,21 @@ fn fixture() -> Fixture {
             chat_wide: true,
             browser: false,
             since: 0,
+            assessment: Assessment::from_wire(0.32, "typesafe/jev-1.13"),
+        }],
+    )
+    .unwrap();
+    inbox::write_grants(
+        config.root(),
+        &[inbox::ChatGrants {
+            project: "werkstatt".into(),
+            chat: "c1".into(),
+            title: Some("Tests reparieren".into()),
+            grants: vec![Grant {
+                id: "Q4MZ8T".into(),
+                kind: GrantKind::Command,
+                target: "cargo build".into(),
+            }],
         }],
     )
     .unwrap();
@@ -89,8 +104,18 @@ fn screens() -> bool {
 }
 
 fn harness(config: ConfigDir, page: Page, theme: egui::Theme) -> Harness<'static, HearthApp> {
+    harness_sized(config, page, theme, 700.0)
+}
+
+/// A window this tall, for pages whose lower part a test clicks in.
+fn harness_sized(
+    config: ConfigDir,
+    page: Page,
+    theme: egui::Theme,
+    height: f32,
+) -> Harness<'static, HearthApp> {
     let builder = Harness::builder()
-        .with_size(egui::vec2(1020.0, 700.0))
+        .with_size(egui::vec2(1020.0, height))
         .with_theme(theme);
     let builder = if screens() { builder.wgpu() } else { builder };
     builder.build_eframe(move |cc| {
@@ -126,6 +151,7 @@ fn a_question_is_answered_from_the_window() {
     let mut h = harness(f.config.clone(), Page::Approvals, egui::Theme::Dark);
     picture(&mut h, "approvals-dark");
     h.get_by_label("cargo test --workspace");
+    h.get_by_label("Jev: Schadenspotenzial gering (32 %)");
     h.get_by_label("Diesen Befehl im Chat erlauben").click();
     h.run_steps(2);
     assert!(decision_file(&root, "W7KD3P").exists());
@@ -151,6 +177,27 @@ fn projects_switch_their_mode_in_the_window() {
     h.run_steps(2);
     assert!(config.project_config(&website).unwrap().host.enabled);
     picture(&mut h, "projects-switched");
+}
+
+#[test]
+fn the_rights_and_the_chat_grants_of_a_project_show_and_go() {
+    let _gpu = gpu();
+    let f = fixture();
+    let root = f.config.root().to_owned();
+    let mut h = harness_sized(f.config.clone(), Page::Projects, egui::Theme::Dark, 1400.0);
+    h.run_steps(2);
+    h.get_by_label("cargo build");
+    // Open the rights of the direct mode project.
+    h.get_all_by_label("Was darf der Agent?")
+        .next()
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.get_by_label("Nie, auch nicht mit Freigabe");
+    picture(&mut h, "projects-rights");
+    h.get_by_label("Zurücknehmen").click();
+    h.run_steps(2);
+    assert_eq!(inbox::take_revocations(&root), vec!["Q4MZ8T".to_owned()]);
 }
 
 #[test]

@@ -422,9 +422,14 @@ pub fn grep(
     let mut truncated = false;
     'files: for file in files {
         let (shown, inside) = shown_path(base.as_deref(), dir, &file);
-        // Inside the project, secrets stay out of searches; outside, the
-        // user approved the folder.
-        if inside && super::policy::is_secret(&shown) {
+        // Secrets stay out of searches everywhere; inside the project only
+        // the part below it counts, as for a single file.
+        let secret = if inside {
+            super::policy::is_secret(&shown)
+        } else {
+            super::policy::is_secret(&file.to_string_lossy())
+        };
+        if secret {
             skipped_secrets += 1;
             continue;
         }
@@ -462,7 +467,7 @@ pub fn grep(
     if skipped_secrets > 0 {
         let _ = write!(
             out,
-            "\n[{skipped_secrets} file(s) that look like secrets (.env, keys) were not searched; read them one by one if needed, which asks the user.]"
+            "\n[{skipped_secrets} file(s) that look like secrets (.env, keys) were not searched; hearth never lets the model read secrets.]"
         );
     }
     Ok(out)

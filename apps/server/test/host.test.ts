@@ -1,15 +1,20 @@
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import {
   type ConversationDetail,
   type ConversationSummary,
+  type DeviceSummary,
   HOST_HARNESS,
+  type HostGrants,
   type PairingPoll,
   type PairingStart,
   type ProviderCredential,
   type ServerMessage,
   TUNNEL_VERSION,
   VERSION_APP_VERSION,
+  VERSION_HOST,
 } from '@hearth/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../src/services/conversations.ts';
 import type { DeviceHub, TunnelConnection, TunnelSocket } from '../src/tunnel/hub.ts';
 import { createScriptedLlm, createTestServer, DIALECTS, eventually, type Step, type TestServer } from './helpers.ts';
@@ -77,10 +82,35 @@ describe.each(DIALECTS)('the direct mode on %s', (kind) => {
   let credential: ProviderCredential;
   let script: Step[] = [];
   let llm: ReturnType<typeof createScriptedLlm>;
+  // Stand-in for Jev at OpenRouter: answers with the level set by the test
+  // (0 is the worst level of the scale) and keeps what it was asked.
+  let jev: http.Server;
+  let jevLevel = 0;
+  const jevSeen: { state: Record<string, unknown> }[] = [];
+
+  beforeAll(async () => {
+    jev = http.createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      request.on('end', () => {
+        jevSeen.push(JSON.parse(body) as { state: Record<string, unknown> });
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ answers: { item_1: { type: 'score', score: jevLevel } }, usage: { input_tokens: 300, output_tokens: 0, cost: 0.00001 } }));
+      });
+    });
+    await new Promise<void>((resolve) => jev.listen(0, '127.0.0.1', resolve));
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => jev.close(resolve));
+  });
 
   beforeEach(async () => {
     llm = createScriptedLlm(() => script);
-    server = await createTestServer(kind, { llm });
+    jevSeen.length = 0;
+    server = await createTestServer(kind, { llm, helpers: { apiUrl: `http://127.0.0.1:${(jev.address() as AddressInfo).port}/api/v1`, timeoutMs: 2_000 } });
     cookie = await server.signUp('owner@example.com');
     const response = await server.request('POST', '/api/providers', {
       cookie,
@@ -205,6 +235,117 @@ describe.each(DIALECTS)('the direct mode on %s', (kind) => {
     expect((await server.request('POST', `/api/conversations/${chatId}/stop`, { cookie })).status).toBeLessThan(300);
     await reading;
     await eventually(async () => device.received.some((message) => message.type === 'host.cancel'));
+  });
+
+  it('has Jev rate each command before the device asks, where the device lets Jev check', async () => {
+    // Helpers need an OpenRouter key of the user; the chat itself runs elsewhere.
+    await server.request('POST', '/api/providers', {
+      cookie,
+      body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-test-0123456789abcdef' },
+    });
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    const chatId = await linkedChat(deviceId);
+    jevLevel = 0;
+    script = [{ tool: 'read', input: { path: 'a.txt' } }, { tool: 'shell', input: { command: 'rm -rf ~' } }, { text: 'Erledigt.' }];
+    device.onCall = (call) => {
+      if (call.tool === 'read') {
+        device.result(call, 'a\n');
+        return;
+      }
+      device.approval(call, 'ABC234', 'pending');
+      setTimeout(() => {
+        device.approval(call, 'ABC234', 'resolved', { decision: 'deny', by: 'computer' });
+        device.result(call, 'The user denied this.', { isError: true });
+      }, 10);
+    };
+    const body = await (await chat(chatId, 'Räum mein Home auf')).text();
+
+    // Only the command was rated, and the device got the rating with it.
+    const calls = device.received.filter((message): message is HostCall => message.type === 'host.call');
+    expect(calls[0]?.assessment).toBeUndefined();
+    expect(calls[1]?.assessment).toEqual({ danger: 1, model: 'typesafe/jev-1.13' });
+    expect(jevSeen).toHaveLength(1);
+    expect(jevSeen[0]?.state).toMatchObject({ command: 'rm -rf ~', shell: 'bash', folder: '/home/erika/demo', request: 'Räum mein Home auf' });
+    // The question's card carries it as well.
+    expect(body).toMatch(/"type":"data-hostApproval".*"assessment":\{"model":"typesafe\/jev-1\.13","danger":1/);
+
+    await eventually(async () => (await load(chatId)).messages.length === 2);
+    const reply = (await load(chatId)).messages[1];
+    const shell = reply?.parts.find((part) => part.type === 'tool-shell');
+    expect(shell && 'output' in shell ? (shell.output as { commandAssessment?: unknown }).commandAssessment : null).toMatchObject({ danger: 1 });
+    const helpers = (reply?.metadata as { usage?: { helpers?: { purpose?: string }[] } }).usage?.helpers ?? [];
+    expect(helpers.some((call) => call.purpose === 'command')).toBe(true);
+
+    // Switched off for the device: no rating, no call to Jev.
+    await server.request('PATCH', `/api/devices/${deviceId}`, { cookie, body: { jevReview: false } });
+    script = [{ tool: 'shell', input: { command: 'ls' } }, { text: 'Ok.' }];
+    device.onCall = (call) => device.result(call, 'a.txt\n', { exitCode: 0 });
+    await (await chat(chatId, 'Was liegt da?')).text();
+    const last = device.received.filter((message): message is HostCall => message.type === 'host.call').at(-1);
+    expect(last?.input).toEqual({ command: 'ls' });
+    expect(last?.assessment).toBeUndefined();
+    expect(jevSeen).toHaveLength(1);
+  });
+
+  it('keeps the rating from devices that would take it for the tool’s input', async () => {
+    await server.request('POST', '/api/providers', {
+      cookie,
+      body: { kind: 'openrouter', label: 'OpenRouter', apiKey: 'sk-or-test-0123456789abcdef' },
+    });
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId, VERSION_HOST);
+    const chatId = await linkedChat(deviceId);
+    script = [{ tool: 'shell', input: { command: 'cargo test' } }, { text: 'Ok.' }];
+    device.onCall = (call) => device.result(call, 'ok\n', { exitCode: 0 });
+    await (await chat(chatId, 'Teste')).text();
+    const call = device.received.find((message): message is HostCall => message.type === 'host.call');
+    expect(call).toBeDefined();
+    expect(call && 'assessment' in call).toBe(false);
+  });
+
+  it('shows what the user allowed for the chat and takes it back on request', async () => {
+    const { deviceId, userId } = await pair();
+    const device = connect(server.hub, deviceId, userId);
+    const chatId = await linkedChat(deviceId);
+    const grants = async () => (await (await server.request('GET', `/api/conversations/${chatId}/host-grants`, { cookie })).json()) as HostGrants;
+    expect(await grants()).toEqual({ online: true, supported: true, grants: [] });
+
+    device.say({ type: 'host.grants', session: chatId, grants: [{ id: 'ABC234', kind: 'command', target: 'cargo test' }] });
+    expect((await grants()).grants).toEqual([{ id: 'ABC234', kind: 'command', target: 'cargo test' }]);
+    // Another device cannot write over this chat's answers.
+    const other = await pair();
+    const intruder = connect(server.hub, other.deviceId, other.userId);
+    intruder.say({ type: 'host.grants', session: chatId, grants: [] });
+    expect((await grants()).grants).toHaveLength(1);
+
+    const revoked = await server.request('DELETE', `/api/conversations/${chatId}/host-grants/ABC234`, { cookie });
+    expect(revoked.status).toBe(204);
+    expect(device.received.at(-1)).toEqual({ type: 'host.revoke', session: chatId, grant: 'ABC234' });
+    expect((await server.request('DELETE', `/api/conversations/${chatId}/host-grants/nope`, { cookie })).status).toBe(404);
+    device.say({ type: 'host.grants', session: chatId, grants: [] });
+    expect((await grants()).grants).toEqual([]);
+
+    // Gone with the connection: they live in the device's service.
+    device.say({ type: 'host.grants', session: chatId, grants: [{ id: 'DEF567', kind: 'folder', target: '/tmp' }] });
+    device.connection?.closed();
+    expect(await grants()).toEqual({ online: false, supported: false, grants: [] });
+    expect((await server.request('DELETE', `/api/conversations/${chatId}/host-grants/DEF567`, { cookie })).status).toBe(409);
+  });
+
+  it('takes the project’s write setting from the device', async () => {
+    const { deviceId, userId } = await pair();
+    const device = new HostDevice();
+    device.connection = server.hub.attach(deviceId, userId, device);
+    device.say({ type: 'hello', version: TUNNEL_VERSION, projects: [{ ...HOST_PROJECT, host: { ...HOST_PROJECT.host, writes: 'ask' } }] });
+    expect(server.hub.status(deviceId).projects[0]?.host?.writes).toBe('ask');
+    // The web app sees it too while the device is online; the database
+    // does not keep it.
+    const listed = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(listed[0]?.projects[0]?.host).toMatchObject({ writes: 'ask', browserApprovals: false });
+    device.connection?.closed();
+    const offline = (await (await server.request('GET', '/api/devices', { cookie })).json()) as DeviceSummary[];
+    expect(offline[0]?.projects).toEqual([{ name: 'demo', harnesses: [HOST_HARNESS] }]);
   });
 
   it('refuses the direct mode with devices that do not know it', async () => {

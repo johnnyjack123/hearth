@@ -621,7 +621,7 @@ export interface ModelCallUsage {
   /** Model of a helper call; the reply's own calls use the chat's model. */
   model?: string;
   /** What a helper call was for. */
-  purpose?: 'rank' | 'sections' | 'title' | 'review' | 'compact' | 'assess';
+  purpose?: 'rank' | 'sections' | 'title' | 'review' | 'compact' | 'assess' | 'command';
   /**
    * Cost in US dollars, split by kind where the prices are known; agents
    * report only the total.

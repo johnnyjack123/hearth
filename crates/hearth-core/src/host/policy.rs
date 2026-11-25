@@ -23,12 +23,20 @@ pub enum Reason {
     /// In the project folder, but writing there can run code later or
     /// grant rights (git hooks, editor and agent settings).
     Protected,
-    /// In the project folder, but likely a secret (`.env`, keys).
+    /// A secret (`.env`, keys, tokens, browser profiles): never read, and
+    /// written only in the project folder with approval.
     Secret,
     /// Every write in the project folder asks (`[host] writes = "ask"`).
     WritesAsk,
-    /// hearth's own configuration, data or programs: never written.
+    /// hearth's own configuration, data or programs: never read or written.
     Hearth,
+    /// A folder of the operating system (Windows, programs, `/usr`, `/etc`
+    /// …): never read or written.
+    System,
+    /// A file that runs when the user logs in, opens a shell or uses git
+    /// (shell profiles, autostart, git's settings): never written outside
+    /// the project.
+    Startup,
 }
 
 /// What the policy says about one access.
@@ -93,50 +101,170 @@ const PROTECTED_NAMES: &[&str] = &[
 /// Endings Windows acts on when a folder is merely opened in Explorer.
 const PROTECTED_EXTENSIONS: &[&str] = &["lnk", "url", "scf", "library-ms"];
 
-/// Names of likely secrets; reading them sends them to the server and the
-/// model's provider.
-const SECRET_NAMES: &[&str] = &[
+/// Names of likely secrets; reading them would send them to the server and
+/// the model's provider. `id_rsa` and friends also match with an ending
+/// (`id_rsa.old`), except the public half (`.pub`).
+pub const SECRET_NAMES: &[&str] = &[
     ".npmrc",
     ".pypirc",
     ".netrc",
+    "_netrc",
+    ".pgpass",
+    ".git-credentials",
+    ".credentials.json",
+    "credentials.json",
     "id_rsa",
     "id_ed25519",
     "id_ecdsa",
     "id_dsa",
 ];
 
-/// Endings of keys and certificates with private parts.
-const SECRET_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx"];
+/// Endings of keys, certificates with private parts, key stores and
+/// password databases.
+pub const SECRET_EXTENSIONS: &[&str] = &[
+    "pem", "key", "p12", "pfx", "p8", "ppk", "jks", "keystore", "kdbx",
+];
+
+/// Folders whose files are all secrets, compared in lower case with `/`
+/// as a sequence of names anywhere in a path: keys and tokens of tools,
+/// Windows' credential stores, browser profiles (cookies, saved passwords)
+/// and the SSH key of hearth's VM. Docker and Kubernetes only by their
+/// files: projects keep a `.docker/` or `.kube/` folder of their own.
+pub const SECRET_DIRS: &[&str] = &[
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    ".azure",
+    ".kube/config",
+    ".docker/config.json",
+    ".password-store",
+    ".config/gh",
+    ".config/gcloud",
+    ".local/share/containers/podman/machine",
+    "appdata/roaming/microsoft/credentials",
+    "appdata/local/microsoft/credentials",
+    "appdata/roaming/microsoft/protect",
+    "appdata/roaming/microsoft/usersecrets",
+    "library/keychains",
+    "google/chrome/user data",
+    "microsoft/edge/user data",
+    "vivaldi/user data",
+    "bravesoftware/brave-browser/user data",
+    "mozilla/firefox/profiles",
+    ".mozilla/firefox",
+    ".config/google-chrome",
+    ".config/chromium",
+    ".config/bravesoftware",
+    ".config/vivaldi",
+    "library/application support/google/chrome",
+    "library/application support/firefox",
+];
+
+/// Files and folders below the home folder that run something when the
+/// user logs in, opens a shell or uses git; lower case, with `/`.
+pub const STARTUP_PATHS: &[&str] = &[
+    ".bashrc",
+    ".bash_profile",
+    ".bash_login",
+    ".bash_logout",
+    ".profile",
+    ".zshrc",
+    ".zprofile",
+    ".zshenv",
+    ".zlogin",
+    ".config/fish",
+    ".config/autostart",
+    ".config/systemd/user",
+    ".config/environment.d",
+    ".gitconfig",
+    ".config/git",
+    "library/launchagents",
+    "appdata/roaming/microsoft/windows/start menu/programs/startup",
+    "documents/windowspowershell",
+    "documents/powershell",
+];
+
+/// The operating system's own folders; nothing in them is the agent's
+/// business, and writing there could change what other programs run.
+pub fn system_folders() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        [
+            "SystemRoot",
+            "windir",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+            "ProgramData",
+        ]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .collect()
+    } else {
+        [
+            "/bin",
+            "/sbin",
+            "/usr",
+            "/lib",
+            "/lib32",
+            "/lib64",
+            "/libx32",
+            "/boot",
+            "/etc",
+            "/sys",
+            "/proc",
+            "/dev",
+            "/System",
+            "/Library",
+            "/Applications",
+            "/private/etc",
+            "/private/var/db",
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+    }
+}
 
 /// The rules for one project.
 #[derive(Debug, Clone)]
 pub struct Policy {
     root: PathBuf,
-    no_writes: Vec<PathBuf>,
+    hearth: Vec<PathBuf>,
+    system: Vec<PathBuf>,
+    home: Option<PathBuf>,
     writes_ask: bool,
 }
 
 impl Policy {
-    /// Rules for the project folder `root`, which must exist. `no_writes`
-    /// are folders nothing may write into (hearth's configuration, data and
-    /// programs); `writes_ask` makes every write in the project ask.
+    /// Rules for the project folder `root`, which must exist. `hearth` are
+    /// hearth's own folders (configuration, data, programs), which no tool
+    /// reads or writes; `writes_ask` makes every write in the project ask.
     ///
     /// # Errors
     ///
     /// When `root` cannot be resolved.
-    pub fn new(root: &Path, no_writes: &[PathBuf], writes_ask: bool) -> Result<Self, ToolError> {
+    pub fn new(root: &Path, hearth: &[PathBuf], writes_ask: bool) -> Result<Self, ToolError> {
         let root =
             crate::paths::canonical(root).map_err(|error| ToolError::new(error.to_string()))?;
         // A folder that holds the project itself (the program next to it,
         // a configuration above it) cannot close the project: its rules win.
-        let no_writes = no_writes
-            .iter()
-            .map(|path| resolve_existing(path))
-            .filter(|dir| !is_below(&root, dir))
-            .collect();
+        let closed = |dirs: Vec<PathBuf>| -> Vec<PathBuf> {
+            dirs.iter()
+                .map(|path| resolve_existing(path))
+                .filter(|dir| !is_below(&root, dir))
+                .collect()
+        };
+        let hearth = closed(hearth.to_vec());
+        let system = closed(system_folders());
+        let home = crate::paths::home_dir()
+            .ok()
+            .map(|home| resolve_existing(&home));
         Ok(Policy {
             root,
-            no_writes,
+            hearth,
+            system,
+            home,
             writes_ask,
         })
     }
@@ -171,19 +299,50 @@ impl Policy {
 
     /// What the rules say about `access` to `path`.
     pub fn check(&self, path: &Resolved, access: Access) -> Verdict {
-        if access == Access::Write && self.no_writes.iter().any(|dir| is_below(&path.path, dir)) {
+        if self.hearth.iter().any(|dir| is_below(&path.path, dir)) {
             return Verdict::Deny(Reason::Hearth);
         }
+        if self.system.iter().any(|dir| is_below(&path.path, dir)) {
+            return Verdict::Deny(Reason::System);
+        }
+        // Inside the project only the part below it counts, so a project
+        // that happens to live in such a folder keeps working.
+        let secret = match &path.relative {
+            Some(relative) => is_secret(relative),
+            None => is_secret(&path.path.to_string_lossy()),
+        };
         let Some(relative) = &path.relative else {
-            return Verdict::Ask(Reason::Outside);
+            return match access {
+                _ if secret => Verdict::Deny(Reason::Secret),
+                Access::Write if self.is_startup(&path.path) => Verdict::Deny(Reason::Startup),
+                _ => Verdict::Ask(Reason::Outside),
+            };
         };
         match access {
-            Access::Read if is_secret(relative) => Verdict::Ask(Reason::Secret),
+            Access::Read if secret => Verdict::Deny(Reason::Secret),
             Access::Read => Verdict::Free,
+            // Creating `.env` from the example is ordinary work; overwriting
+            // the user's own is not done without asking.
+            Access::Write if secret => Verdict::Ask(Reason::Secret),
             Access::Write if is_protected(relative) => Verdict::Ask(Reason::Protected),
             Access::Write if self.writes_ask => Verdict::Ask(Reason::WritesAsk),
             Access::Write => Verdict::Free,
         }
+    }
+
+    /// Whether `path` (outside the project) is a startup file of the user.
+    fn is_startup(&self, path: &Path) -> bool {
+        let Some(relative) = self
+            .home
+            .as_deref()
+            .and_then(|home| relative_to(path, home))
+        else {
+            return false;
+        };
+        let lower = relative.to_lowercase();
+        STARTUP_PATHS
+            .iter()
+            .any(|entry| lower == *entry || lower.starts_with(&format!("{entry}/")))
     }
 }
 
@@ -341,15 +500,17 @@ pub fn is_protected(relative: &str) -> bool {
         || extension(name).is_some_and(|ext| PROTECTED_EXTENSIONS.contains(&ext.as_str()))
 }
 
-/// Whether `relative` (inside the project) looks like a secret.
-pub fn is_secret(relative: &str) -> bool {
-    let lower = relative.to_lowercase();
-    let name = lower.rsplit('/').next().unwrap_or(&lower);
-    if name == ".env"
-        || (name.starts_with(".env.")
-            && !matches!(name, ".env.example" | ".env.sample" | ".env.template"))
-    {
+/// Whether a file name (lower case) is a secret. `in_command` leaves out
+/// what also reads as code in a command (`process.env`, `obj.key`): there
+/// only names that are unmistakably files count.
+fn is_secret_name(name: &str, in_command: bool) -> bool {
+    if name == ".env" {
         return true;
+    }
+    if let Some(rest) = name.strip_prefix(".env.") {
+        // Templates without values, also their copies (`.env.example.bak`).
+        let first = rest.split('.').next().unwrap_or(rest);
+        return !matches!(first, "example" | "sample" | "template" | "dist");
     }
     if SECRET_NAMES
         .iter()
@@ -358,5 +519,61 @@ pub fn is_secret(relative: &str) -> bool {
         // id_rsa.pub is the public half.
         return !name.ends_with(".pub");
     }
-    extension(name).is_some_and(|ext| SECRET_EXTENSIONS.contains(&ext.as_str()))
+    let Some((stem, ext)) = name.rsplit_once('.').filter(|(stem, _)| !stem.is_empty()) else {
+        return false;
+    };
+    if in_command && stem.contains('.') {
+        // `.data.key` in jq, `a.b.key` in code.
+        return false;
+    }
+    if SECRET_EXTENSIONS.contains(&ext) {
+        return true;
+    }
+    // `prod.env`, as docker compose reads them.
+    !in_command
+        && ext == "env"
+        && !["example", "sample", "template"]
+            .iter()
+            .any(|word| stem.contains(word))
+}
+
+/// Whether `path` (with `/` or `\`) names a secret: by its file name or a
+/// folder of [`SECRET_DIRS`] in it.
+pub fn is_secret(path: &str) -> bool {
+    secret_text(path, false)
+}
+
+fn secret_text(path: &str, in_command: bool) -> bool {
+    let lower = path.replace('\\', "/").to_lowercase();
+    let lower = lower.trim_end_matches('/');
+    let name = lower.rsplit('/').next().unwrap_or(lower);
+    if is_secret_name(name, in_command) {
+        return true;
+    }
+    let with_slash = format!("/{lower}/");
+    SECRET_DIRS
+        .iter()
+        .any(|dir| with_slash.contains(&format!("/{dir}/")))
+        // The environment of a process, with whatever keys it holds.
+        || (lower.starts_with("/proc/") && name == "environ")
+}
+
+/// Words of a command that name a secret (`.env`, keys, `~/.ssh` …). Such a
+/// command is refused before anyone is asked, so it cannot slip through in
+/// a long command. A command can still read secrets without naming them
+/// (`grep -r` over the folder, a glob); Jev's rating and the user's eyes
+/// are left for those.
+pub fn secret_mentions(command: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let words = command.split(|c: char| c.is_whitespace() || ";|&<>()'\"`=,{}".contains(c));
+    for word in words {
+        let word = word.trim_matches(|c: char| matches!(c, ':' | '@'));
+        if word.is_empty() || found.iter().any(|known| known == word) {
+            continue;
+        }
+        if secret_text(word, true) {
+            found.push(word.to_owned());
+        }
+    }
+    found
 }

@@ -76,12 +76,15 @@ http
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       // The direct mode (tools of the device, scripts/smoke-host.sh): read
       // the README, write a file, run a command (asks), read outside the
-      // project (asks), then answer with the results of both questions.
+      // project (asks), try a secret by tool and by command (both refused
+      // without asking), then answer with the results.
       const hostSteps = [
         ['read', { path: 'README.md' }],
         ['write', { path: 'notes/agent.txt', content: 'hallo vom agent\n' }],
         ['shell', { command: process.env.MOCK_HOST_COMMAND ?? 'cat notes/agent.txt' }],
         ['read', { path: '../outside.txt' }],
+        ['read', { path: '.env' }],
+        ['shell', { command: 'cat .env' }],
       ];
       if (request.tools?.some((tool) => tool.function?.name === 'shell')) {
         if (results < hostSteps.length) {

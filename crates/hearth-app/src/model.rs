@@ -111,6 +111,8 @@ pub struct Snapshot {
     pub server: Option<String>,
     /// Questions of the direct mode.
     pub approvals: Vec<inbox::Pending>,
+    /// "For this chat" answers of the running chats of the direct mode.
+    pub grants: Vec<inbox::ChatGrants>,
     /// Held merges.
     pub merges: Vec<MergeRequest>,
     /// Requested program files.
@@ -147,6 +149,7 @@ pub fn load(config: &ConfigDir) -> Snapshot {
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok()),
         approvals: inbox::read_pending(root),
+        grants: inbox::read_grants(root),
         merges: read_all(&root.join("merge-requests")),
         files: read_all(&root.join("app-requests")),
         ..Snapshot::default()

@@ -17,7 +17,6 @@ pub mod tools;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -246,8 +245,8 @@ impl Request {
         match reason {
             "outside" => tr("liegt außerhalb des Projektordners", "is outside the project folder"),
             "secret" => tr(
-                "sieht nach einem Geheimnis aus (Schlüssel, .env); der Inhalt ginge an Server und Modellanbieter",
-                "looks like a secret (keys, .env); its content would go to the server and the model's provider",
+                "würde ein Geheimnis schreiben oder überschreiben (.env, Schlüssel); lesen kann der Agent es nicht",
+                "would write or replace a secret (.env, keys); the agent cannot read it",
             ),
             "protected" => tr(
                 "kann später ohne dein Zutun Code ausführen oder Rechte vergeben (Git-Hooks, Editor- und Agent-Einstellungen)",
@@ -265,6 +264,65 @@ impl Request {
     /// reads; every write outside the free area asks on its own.
     pub fn chat_wide(&self) -> bool {
         !matches!(self, Request::Write { .. })
+    }
+}
+
+/// Danger from which a command counts as high risk: "for this chat" is not
+/// offered then.
+pub const HIGH_DANGER_PERCENT: u8 = 75;
+
+/// Jev's rating of a command, as the server sent it with the call. Advice
+/// only: it can take options away (see [`HIGH_DANGER_PERCENT`]), never
+/// allow anything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Assessment {
+    /// Potential for harm, 0 to 100.
+    pub percent: u8,
+    /// Jev's model.
+    pub model: String,
+}
+
+impl Assessment {
+    /// From the server's numbers: danger from 0 to 1 and the model; `None`
+    /// for anything out of range.
+    pub fn from_wire(danger: f64, model: &str) -> Option<Self> {
+        if !danger.is_finite() || !(0.0..=1.0).contains(&danger) {
+            return None;
+        }
+        let model: String = model
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(100)
+            .collect();
+        Some(Assessment {
+            percent: (danger * 100.0).round() as u8,
+            model,
+        })
+    }
+
+    /// Whether the command counts as high risk.
+    pub fn high(&self) -> bool {
+        self.percent >= HIGH_DANGER_PERCENT
+    }
+
+    /// The level in words, in the UI language.
+    pub fn level(&self) -> &'static str {
+        match self.percent {
+            75.. => tr("hoch", "high"),
+            50.. => tr("mittel", "medium"),
+            25.. => tr("gering", "low"),
+            _ => tr("sehr gering", "very low"),
+        }
+    }
+
+    /// One line for the user.
+    pub fn text(&self) -> String {
+        tr!(
+            "Jev: Schadenspotenzial {} ({} %)",
+            "Jev: potential for harm {} ({} %)",
+            self.level(),
+            self.percent
+        )
     }
 }
 
@@ -312,15 +370,36 @@ impl Output {
     }
 }
 
+/// What a "for this chat" answer allowed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GrantKind {
+    /// Running exactly this command text.
+    Command,
+    /// Reading below this folder.
+    Folder,
+    /// Reading this file.
+    File,
+}
+
+/// One "for this chat" answer; the user can take it back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    /// Id to take it back with (like an approval id).
+    pub id: String,
+    /// What it allows.
+    pub kind: GrantKind,
+    /// The command text or the resolved path.
+    pub target: String,
+}
+
 /// One chat's work in one project: the rules, the shell and what the user
 /// allowed for the chat.
 #[derive(Debug, Clone)]
 pub struct Session {
     policy: Policy,
     shell: Shell,
-    read_dirs: Vec<PathBuf>,
-    read_files: HashSet<PathBuf>,
-    commands: HashSet<String>,
+    grants: Vec<Grant>,
 }
 
 impl Session {
@@ -329,10 +408,20 @@ impl Session {
         Session {
             policy,
             shell,
-            read_dirs: Vec::new(),
-            read_files: HashSet::new(),
-            commands: HashSet::new(),
+            grants: Vec::new(),
         }
+    }
+
+    /// What the user allowed for the chat so far, oldest first.
+    pub fn grants(&self) -> &[Grant] {
+        &self.grants
+    }
+
+    /// Takes a "for this chat" answer back; whether there was one.
+    pub fn revoke(&mut self, id: &str) -> bool {
+        let before = self.grants.len();
+        self.grants.retain(|grant| grant.id != id);
+        self.grants.len() != before
     }
 
     /// The rules.
@@ -346,7 +435,17 @@ impl Session {
     }
 
     fn granted_read(&self, path: &Path) -> bool {
-        self.read_files.contains(path) || self.read_dirs.iter().any(|dir| path.starts_with(dir))
+        self.grants.iter().any(|grant| match grant.kind {
+            GrantKind::File => path == Path::new(&grant.target),
+            GrantKind::Folder => path.starts_with(&grant.target),
+            GrantKind::Command => false,
+        })
+    }
+
+    fn granted_command(&self, command: &str) -> bool {
+        self.grants
+            .iter()
+            .any(|grant| grant.kind == GrantKind::Command && grant.target == command)
     }
 
     /// What `call` needs before it may run. Changes nothing.
@@ -355,7 +454,14 @@ impl Session {
             if command.trim().is_empty() {
                 return Plan::Refuse("The command is empty.".to_owned());
             }
-            if self.commands.contains(command) {
+            let secrets = policy::secret_mentions(command);
+            if !secrets.is_empty() {
+                return Plan::Refuse(format!(
+                    "The command names secret files ({}); hearth never lets the model read secrets, so it refuses such commands without asking. If the task needs them, ask the user to run the command themselves.",
+                    secrets.join(", ")
+                ));
+            }
+            if self.granted_command(command) {
                 return Plan::Run;
             }
             return Plan::Ask(Request::Command {
@@ -379,16 +485,15 @@ impl Session {
         };
         match self.policy.check(&resolved, access) {
             Verdict::Free => Plan::Run,
-            Verdict::Deny(_) => Plan::Refuse(format!(
-                "{} belongs to hearth itself; no tool may write there.",
-                resolved.display()
-            )),
+            Verdict::Deny(reason) => Plan::Refuse(refusal(&resolved.display(), &reason)),
             Verdict::Ask(reason) => {
                 let reason = match reason {
                     Reason::Outside => "outside",
                     Reason::Secret => "secret",
                     Reason::Protected => "protected",
-                    Reason::WritesAsk | Reason::Hearth => "writes",
+                    Reason::WritesAsk | Reason::Hearth | Reason::System | Reason::Startup => {
+                        "writes"
+                    }
                 };
                 match access {
                     Access::Read if self.granted_read(&resolved.path) => Plan::Run,
@@ -406,23 +511,35 @@ impl Session {
         }
     }
 
-    /// Remembers a "for this chat" answer to `request`.
-    pub fn grant(&mut self, request: &Request, decision: Decision) {
+    /// Remembers a "for this chat" answer to `request`; whether that added
+    /// a grant.
+    pub fn grant(&mut self, request: &Request, decision: Decision) -> bool {
         if decision != Decision::Chat {
-            return;
+            return false;
         }
-        match request {
-            Request::Command { command, .. } => {
-                self.commands.insert(command.clone());
-            }
+        let (kind, target) = match request {
+            Request::Command { command, .. } => (GrantKind::Command, command.clone()),
             Request::Read {
                 path, folder: true, ..
-            } => self.read_dirs.push(PathBuf::from(path)),
-            Request::Read { path, .. } => {
-                self.read_files.insert(PathBuf::from(path));
-            }
-            Request::Write { .. } => {}
+            } => (GrantKind::Folder, path.clone()),
+            Request::Read { path, .. } => (GrantKind::File, path.clone()),
+            Request::Write { .. } => return false,
+        };
+        if self
+            .grants
+            .iter()
+            .any(|grant| grant.kind == kind && grant.target == target)
+        {
+            return false;
         }
+        let id = loop {
+            let id = inbox::new_id();
+            if !self.grants.iter().any(|grant| grant.id == id) {
+                break id;
+            }
+        };
+        self.grants.push(Grant { id, kind, target });
+        true
     }
 
     /// Runs `call`, which [`Session::plan`] allowed or the user approved.
@@ -526,8 +643,106 @@ impl Session {
     }
 }
 
-/// Folders no tool may write into: hearth's configuration and data, and
-/// the folder of the running program.
+/// What the agent of a project in the direct mode may do, for people, in
+/// the UI language (the web app has the same lists in its own texts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rights {
+    /// Without asking.
+    pub free: Vec<String>,
+    /// Only with the user's approval.
+    pub ask: Vec<String>,
+    /// Never, not even with approval.
+    pub never: Vec<String>,
+}
+
+/// The rights of a project's agent; `writes_ask` as `[host] writes = "ask"`.
+pub fn rights(writes_ask: bool) -> Rights {
+    let mut free = vec![
+        tr(
+            "Dateien im Projektordner lesen, auflisten und durchsuchen",
+            "Read, list and search files in the project folder",
+        )
+        .to_owned(),
+    ];
+    let mut ask = vec![
+        tr(
+            "Jeden Befehl (läuft mit deinen Rechten)",
+            "Every command (runs with your rights)",
+        )
+        .to_owned(),
+        tr(
+            "Lesen und Schreiben außerhalb des Projektordners",
+            "Reading and writing outside the project folder",
+        )
+        .to_owned(),
+        tr(
+            "Schreiben von Git-Hooks, Editor- und Agent-Einstellungen (.git, .vscode, .claude …) und von .env-Dateien im Ordner",
+            "Writing git hooks, editor and agent settings (.git, .vscode, .claude …) and .env files in the folder",
+        )
+        .to_owned(),
+    ];
+    if writes_ask {
+        ask.insert(
+            1,
+            tr(
+                "Jedes Schreiben im Projektordner",
+                "Every write in the project folder",
+            )
+            .to_owned(),
+        );
+    } else {
+        free.push(
+            tr(
+                "Dateien im Projektordner anlegen und ändern",
+                "Create and change files in the project folder",
+            )
+            .to_owned(),
+        );
+    }
+    let never = vec![
+        tr(
+            "Geheimnisse lesen: .env, Schlüssel und Zertifikate, Zugangsdaten (~/.ssh, ~/.aws, .npmrc …), Browser-Profile; auch kein Befehl, der sie beim Namen nennt",
+            "Reading secrets: .env, keys and certificates, credentials (~/.ssh, ~/.aws, .npmrc …), browser profiles; nor any command that names them",
+        )
+        .to_owned(),
+        tr(
+            "Systemordner (Windows, Programme, ProgramData; /usr, /etc …)",
+            "System folders (Windows, Program Files, ProgramData; /usr, /etc …)",
+        )
+        .to_owned(),
+        tr("hearths eigene Ordner", "hearth's own folders").to_owned(),
+        tr(
+            "Startdateien schreiben: Shell-Profile, Autostart, Git-Einstellungen",
+            "Writing startup files: shell profiles, autostart, git settings",
+        )
+        .to_owned(),
+    ];
+    Rights { free, ask, never }
+}
+
+/// What the model reads when the rules refuse a path.
+fn refusal(shown: &str, reason: &Reason) -> String {
+    match reason {
+        Reason::Hearth => {
+            format!("{shown} belongs to hearth itself; no tool may read or write there.")
+        }
+        Reason::System => format!(
+            "{shown} is in a folder of the operating system; no tool may read or write there."
+        ),
+        Reason::Secret => format!(
+            "{shown} looks like a secret (keys, tokens, .env, credential stores, browser profiles); hearth never lets the model read it, nor write it outside the project. If you need a value from it, ask the user."
+        ),
+        Reason::Startup => format!(
+            "{shown} runs when the user logs in, opens a shell or uses git; no tool may write it."
+        ),
+        Reason::Outside | Reason::Protected | Reason::WritesAsk => {
+            format!("{shown} is not allowed.")
+        }
+    }
+}
+
+/// hearth's own folders, which no tool reads or writes: its configuration
+/// and data, and the folder of the running program.
 pub fn hearth_folders(config_root: &Path) -> Vec<PathBuf> {
     let mut folders = vec![config_root.to_owned()];
     if let Ok(data) = crate::paths::local_data_dir() {

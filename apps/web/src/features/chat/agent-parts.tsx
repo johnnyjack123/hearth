@@ -12,6 +12,7 @@ import { transitions } from '@/lib/motion.ts';
 import type { MessageKey } from '@/i18n/index.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { cn } from '@/lib/utils.ts';
+import { CommandRisk, isCommandAssessment } from './host-parts.tsx';
 import { InjectionWarning, isAssessment, isFinding } from './injection-findings.tsx';
 import { ToolDuration } from './tool-duration.tsx';
 
@@ -119,7 +120,10 @@ export function ToolCall({
   const { icon: Icon, summary } = describeTool(part);
   const output = outputText(part);
   // The server's own check of the output, with Jev's opinion if asked.
-  const stored = part.state === 'output-available' ? (part.output as { findings?: unknown; assessment?: unknown } | null) : null;
+  const stored =
+    part.state === 'output-available' ? (part.output as { findings?: unknown; assessment?: unknown; commandAssessment?: unknown } | null) : null;
+  // Jev's rating of a command of the direct mode, taken before it ran.
+  const risk = isCommandAssessment(stored?.commandAssessment) ? stored.commandAssessment : undefined;
   const findings = Array.isArray(stored?.findings) ? stored.findings.filter(isFinding) : [];
   const warnings = [...new Set(findings.map((finding) => finding.kind))];
   const assessment = isAssessment(stored?.assessment) ? stored.assessment : undefined;
@@ -139,6 +143,7 @@ export function ToolCall({
       >
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{summary}</span>
+        {risk ? <CommandRisk assessment={risk} compact /> : null}
         <ToolDuration ms={ms} running={running} />
         {running ? (
           <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">

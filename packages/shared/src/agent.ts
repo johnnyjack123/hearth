@@ -34,8 +34,12 @@ import type { InjectionAssessment, InjectionFinding, WebFetchAnswer } from './we
  * `host.cancel`), the device asks the user where its rules say so
  * (`host.approval`), takes answers from the chat only where the project
  * allows it (`host.decide`), and returns each result (`host.result`).
+ * Version 12: the rights of the direct mode. `host` says whether writes ask
+ * (`writes`), the device reports a chat's "for this chat" answers
+ * (`host.grants`) and takes one back on request (`host.revoke`), and a
+ * command's call carries Jev's rating of it (`assessment`).
  */
-export const TUNNEL_VERSION = 11;
+export const TUNNEL_VERSION = 12;
 
 /** Oldest device protocol the server still accepts. */
 export const MIN_TUNNEL_VERSION = 1;
@@ -85,6 +89,9 @@ export const VERSION_APP_VERSION = 10;
 /** First protocol with the direct mode (`host` projects and their tool calls). */
 export const VERSION_HOST = 11;
 
+/** First protocol that shows the rights of the direct mode (`writes`, `host.grants`, `host.revoke`, rated commands). */
+export const VERSION_HOST_RIGHTS = 12;
+
 /**
  * The pseudo-harness of the direct mode: the server's chat model is the
  * agent, and the device runs its tools in the project folder.
@@ -117,6 +124,8 @@ export const hostInfoSchema = z
     shell: z.string().min(1).max(100),
     /** Whether the chat may answer the device's questions; set on the computer only. */
     browserApprovals: z.boolean(),
+    /** Whether writes in the project folder ask too (`ask`) or not (`free`); protocol 12. */
+    writes: z.enum(['free', 'ask']).optional(),
   })
   .strict();
 
@@ -132,6 +141,42 @@ export const hostRequestSchema = z.discriminatedUnion('kind', [
 
 /** See {@link hostRequestSchema}. */
 export type HostRequest = z.infer<typeof hostRequestSchema>;
+
+/**
+ * A "for this chat" answer of the direct mode (`hearth_core::host::Grant`):
+ * the same command text, or reads below a folder or of a file. Taking one
+ * back only takes a right away, so the chat may do it.
+ */
+export const hostGrantSchema = z
+  .object({
+    id: z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/),
+    kind: z.enum(['command', 'folder', 'file']),
+    target: z.string().min(1).max(20_000),
+  })
+  .strict();
+
+/** See {@link hostGrantSchema}. */
+export type HostGrant = z.infer<typeof hostGrantSchema>;
+
+/** A chat's "for this chat" answers, as `GET /api/conversations/:id/host-grants` returns them. */
+export interface HostGrants {
+  /** Whether the computer is connected; offline, its answers are unknown. */
+  online: boolean;
+  /** Whether it reports them at all (protocol 12). */
+  supported: boolean;
+  /** The answers, oldest first. */
+  grants: HostGrant[];
+}
+
+/**
+ * Jev's rating of a command of the direct mode: how much harm it could do.
+ * The same shape as a rating of a prompt injection warning; `danger` is the
+ * potential for harm from 0 to 1.
+ */
+export type CommandAssessment = InjectionAssessment;
+
+/** From this danger on a command counts as high risk; "for this chat" is not offered then. */
+export const HIGH_COMMAND_DANGER = 0.75;
 
 /** Ids of requests the user approves on the computer (`hearth app approve`). */
 export const approvalIdSchema = z.string().regex(/^[A-HJ-NP-Z2-9]{6}$/);
@@ -488,6 +533,8 @@ export const deviceMessageSchema = z.discriminatedUnion('type', [
       by: z.enum(['computer', 'browser', 'timeout']).optional(),
     })
     .strict(),
+  // Protocol 12: a chat's "for this chat" answers, whenever they change.
+  z.object({ type: z.literal('host.grants'), session: sessionId, grants: z.array(hostGrantSchema).max(500) }).strict(),
   z
     .object({
       type: z.literal('apps.result'),
@@ -665,6 +712,8 @@ export type ServerMessage =
       tool: HostTool;
       /** Its input as the model gave it. */
       input: Record<string, unknown>;
+      /** Jev's rating of a command; protocol 12. */
+      assessment?: { danger: number; model: string };
     }
   | {
       type: 'host.cancel';
@@ -681,6 +730,13 @@ export type ServerMessage =
       approval: string;
       /** The answer; the device takes it only where the project allows answers from the chat. */
       decision: HostDecision;
+    }
+  | {
+      type: 'host.revoke';
+      /** The chat. Protocol 12. */
+      session: string;
+      /** The "for this chat" answer to take back. */
+      grant: string;
     };
 
 /**
@@ -807,6 +863,8 @@ export interface HostApproval {
   decision?: HostDecision;
   /** Who answered. */
   by?: 'computer' | 'browser' | 'timeout';
+  /** Jev's rating of a command, added by the server. */
+  assessment?: CommandAssessment;
 }
 
 /** Validates the answer to a question of the direct mode sent from the chat. */

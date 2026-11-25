@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::bail;
 use clap::Subcommand;
 use hearth_core::config::{ConfigDir, HostChange, HostConfig, HostWrites};
-use hearth_core::host::{Decision, Request, audit, inbox};
+use hearth_core::host::{Decision, GrantKind, Request, audit, inbox};
 use hearth_core::lang::tr;
 use hearth_core::sync::sanitize;
 use hearth_core::tr;
@@ -37,6 +37,14 @@ pub enum HostCommand {
     #[command(about = tr("Eine Freigabe ablehnen", "Deny an approval"))]
     Deny {
         #[arg(help = tr("ID der Freigabe", "ID of the approval"))]
+        id: String,
+    },
+    #[command(about = tr(
+        "Eine Freigabe „für diesen Chat“ zurücknehmen",
+        "Take a “for this chat” approval back"
+    ))]
+    Revoke {
+        #[arg(help = tr("ID aus `hearth host`", "ID from `hearth host`"))]
         id: String,
     },
     #[command(about = tr(
@@ -90,17 +98,28 @@ pub fn describe(name: &str, host: &HostConfig, offered: bool) -> String {
         );
     }
     let mut lines = vec![tr!(
-        "{name}: Direktmodus an. Der Agent arbeitet ohne VM im Projektordner; jeder Befehl und jeder Zugriff außerhalb des Ordners braucht deine Freigabe.",
-        "{name}: direct mode on. The agent works in the project folder without a VM; every command and every access outside the folder needs your approval."
+        "{name}: Direktmodus an. Der Agent arbeitet ohne VM im Projektordner.",
+        "{name}: direct mode on. The agent works in the project folder without a VM."
     )];
-    lines.push(match host.writes {
-        HostWrites::Free => tr(
-            "Schreiben im Ordner ohne Rückfrage (außer Git-Hooks, Editor- und Agent-Einstellungen).",
-            "Writing in the folder without asking (except git hooks, editor and agent settings).",
+    let rights = hearth_core::host::rights(host.writes == HostWrites::Ask);
+    for (title, items) in [
+        (tr("Ohne Rückfrage:", "Without asking:"), &rights.free),
+        (
+            tr("Mit deiner Freigabe:", "With your approval:"),
+            &rights.ask,
+        ),
+        (tr("Nie:", "Never:"), &rights.never),
+    ] {
+        lines.push(title.to_owned());
+        lines.extend(items.iter().map(|item| format!("  - {item}")));
+    }
+    lines.push(
+        tr(
+            "Befehle bewertet Jev vorher, wenn dein Konto einen OpenRouter-Zugang hat und Jev für diesen Rechner an ist (Einstellungen → Geräte).",
+            "Jev rates commands beforehand when your account has OpenRouter access and Jev is on for this computer (Settings → Devices).",
         )
         .to_owned(),
-        HostWrites::Ask => tr("Jedes Schreiben fragt.", "Every write asks.").to_owned(),
-    });
+    );
     lines.push(if host.browser_approvals {
         tr(
             "Freigaben gehen auch im Web-Chat. Wer den Server kontrolliert, kann damit Befehle hier ausführen.",
@@ -140,8 +159,10 @@ pub fn run(config: &ConfigDir, command: Option<HostCommand>) -> anyhow::Result<b
             for item in &pending {
                 print_pending(item);
             }
+            print_grants(&inbox::read_grants(config.root()));
             Ok(true)
         }
+        HostCommand::Revoke { id } => revoke(config, &id),
         HostCommand::Approve { id, chat } => answer(
             config,
             &id,
@@ -195,6 +216,56 @@ fn answer(config: &ConfigDir, id: &str, decision: Decision) -> anyhow::Result<bo
     Ok(true)
 }
 
+fn revoke(config: &ConfigDir, id: &str) -> anyhow::Result<bool> {
+    let id = id.trim().to_uppercase();
+    if !inbox::read_grants(config.root())
+        .iter()
+        .any(|chat| chat.grants.iter().any(|grant| grant.id == id))
+    {
+        bail!(tr!(
+            "Keine Freigabe {id} für einen Chat. `hearth host` zeigt sie.",
+            "No approval {id} for a chat. `hearth host` shows them."
+        ));
+    }
+    inbox::request_revoke(config.root(), &id)?;
+    println!(
+        "{}",
+        tr!(
+            "{id} wird zurückgenommen; der Agent fragt dafür wieder.",
+            "{id} is taken back; the agent asks for it again."
+        )
+    );
+    Ok(true)
+}
+
+/// The "for this chat" answers of the running chats.
+fn print_grants(chats: &[inbox::ChatGrants]) {
+    if chats.is_empty() {
+        return;
+    }
+    println!();
+    println!(
+        "{}",
+        tr(
+            "Freigaben für ganze Chats (zurücknehmen: hearth host revoke <ID>):",
+            "Approvals for whole chats (take back: hearth host revoke <ID>):"
+        )
+    );
+    for chat in chats {
+        let title = chat.title.as_deref().unwrap_or(&chat.chat);
+        println!("  {} · {}", sanitize(&chat.project), sanitize(title));
+        for grant in &chat.grants {
+            let kind = match grant.kind {
+                GrantKind::Command => tr("Befehl", "command"),
+                GrantKind::Folder => tr("Ordner lesen", "read folder"),
+                GrantKind::File => tr("Datei lesen", "read file"),
+            };
+            let first = grant.target.lines().next().unwrap_or("");
+            println!("    [{}] {kind}: {}", grant.id, sanitize(first));
+        }
+    }
+}
+
 fn print_pending(item: &inbox::Pending) {
     let chat = item.title.as_deref().unwrap_or(&item.chat);
     println!(
@@ -216,6 +287,18 @@ fn print_pending(item: &inbox::Pending) {
         println!("  {}", tr!("({shell} in {cwd})", "({shell} in {cwd})"));
     }
     println!("  {}", sanitize(&item.why));
+    if let Some(assessment) = &item.assessment {
+        println!("  {}", assessment.text());
+        if assessment.high() {
+            println!(
+                "  {}",
+                tr(
+                    "Hohes Schadenspotenzial: nur einmal freigeben, nicht für den ganzen Chat.",
+                    "High potential for harm: approve once only, not for the whole chat."
+                )
+            );
+        }
+    }
 }
 
 /// Asks for each new question here until Ctrl+C.

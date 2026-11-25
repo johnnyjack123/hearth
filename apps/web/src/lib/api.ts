@@ -22,6 +22,7 @@ import type {
   CredentialModels,
   DefaultModel,
   HostDecision,
+  HostGrants,
   DeviceSummary,
   Inspection,
   LinkConversationInput,
@@ -215,6 +216,9 @@ export const api = {
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/approvals/${approvalId}`, { decision }),
     hostDecide: (id: string, approval: string, decision: HostDecision) =>
       request<void>('POST', `/conversations/${encodeURIComponent(id)}/host-approvals/${encodeURIComponent(approval)}`, { decision }),
+    hostGrants: (id: string) => request<HostGrants>('GET', `/conversations/${encodeURIComponent(id)}/host-grants`),
+    hostRevoke: (id: string, grant: string) =>
+      request<void>('DELETE', `/conversations/${encodeURIComponent(id)}/host-grants/${encodeURIComponent(grant)}`),
     stop: (id: string) => request<void>('POST', `/conversations/${encodeURIComponent(id)}/stop`),
     assess: (id: string, messageId: string, toolCallId: string) =>
       request<ChatMessage>('POST', `/conversations/${encodeURIComponent(id)}/assessments`, { messageId, toolCallId }),

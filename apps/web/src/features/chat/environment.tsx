@@ -9,8 +9,9 @@ import {
   type LinkConversationInput,
   projectNameSchema,
 } from '@hearth/shared';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { Check, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
+import { Check, ChevronRight, Container, GitCommitHorizontal, Laptop, MessageSquarePlus, Save, Unlink, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
@@ -210,6 +211,7 @@ export function useChatEnvironment(
 
   return useEnvironmentOption({
     link,
+    conversationId: conversation.id,
     online,
     workspace: link ? workspace : null,
     confirmLabel: t('agent.link'),
@@ -304,6 +306,7 @@ export function useNewChatEnvironment(
  */
 function useEnvironmentOption({
   link,
+  conversationId,
   online,
   workspace,
   confirmLabel,
@@ -312,6 +315,7 @@ function useEnvironmentOption({
   actions,
 }: {
   link: ChatLink | null;
+  conversationId?: string;
   online: boolean | undefined;
   workspace: WorkspaceState | null;
   confirmLabel: string;
@@ -344,7 +348,7 @@ function useEnvironmentOption({
             </div>
           </div>
           {work ? <div className="flex flex-col gap-1.5 border-t border-border pt-2">{work}</div> : null}
-          {link.harness === HOST_HARNESS ? <HostLine device={device} project={link.project} /> : null}
+          {link.harness === HOST_HARNESS ? <HostLine device={device} project={link.project} conversationId={conversationId} /> : null}
           {device && link.harness !== HOST_HARNESS ? (
             <div className="flex flex-col gap-2 border-t border-border pt-2">
               <DeviceVm device={device} />
@@ -455,14 +459,131 @@ function WorkspaceLine({ workspace }: { workspace: WorkspaceState }) {
   );
 }
 
-/** What the direct mode means here, and where its questions are answered. */
-function HostLine({ device, project }: { device: DeviceSummary | undefined; project: string }) {
+/**
+ * What the direct mode means here: where its questions are answered, what
+ * the agent may do (on demand) and what the user allowed for this chat.
+ */
+function HostLine({ device, project, conversationId }: { device: DeviceSummary | undefined; project: string; conversationId: string | undefined }) {
   const t = useT();
-  const browser = device?.projects.find((entry) => entry.name === project)?.host?.browserApprovals;
+  const [open, setOpen] = useState(false);
+  const host = device?.projects.find((entry) => entry.name === project)?.host;
   return (
     <div className="flex flex-col gap-1 border-t border-border pt-2 text-xs text-muted-foreground">
       <span>{t('host.linkedHint')}</span>
-      {browser === undefined ? null : <span>{browser ? t('host.approvalsHere') : t('host.approvalsComputer')}</span>}
+      {host === undefined ? null : <span>{host.browserApprovals ? t('host.approvalsHere') : t('host.approvalsComputer')}</span>}
+      <Button
+        variant="link"
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="h-auto gap-1 self-start px-0 py-1"
+        data-host-rights-toggle
+      >
+        <ChevronRight className={cn('size-3.5 transition-transform duration-(--duration-fast) ease-standard', open && 'rotate-90')} aria-hidden="true" />
+        {t('host.rights.title')}
+      </Button>
+      {open ? <HostRights writesAsk={host?.writes === 'ask'} jev={device?.jevReview ?? true} /> : null}
+      {conversationId ? <HostGrantList conversationId={conversationId} /> : null}
+    </div>
+  );
+}
+
+/** What the agent of the direct mode may do, in three lists; the computer's rules are the same (`hearth_core::host::rights`). */
+function HostRights({ writesAsk, jev }: { writesAsk: boolean; jev: boolean }) {
+  const t = useT();
+  const groups = [
+    {
+      key: 'free',
+      title: t('host.rights.free'),
+      tone: 'text-success',
+      items: writesAsk ? [t('host.rights.freeRead')] : [t('host.rights.freeRead'), t('host.rights.freeWrite')],
+    },
+    {
+      key: 'ask',
+      title: t('host.rights.ask'),
+      tone: 'text-warning',
+      items: [
+        t('host.rights.askCommand'),
+        ...(writesAsk ? [t('host.rights.askWrites')] : []),
+        t('host.rights.askOutside'),
+        t('host.rights.askProtected'),
+      ],
+    },
+    {
+      key: 'never',
+      title: t('host.rights.never'),
+      tone: 'text-destructive',
+      items: [t('host.rights.neverSecrets'), t('host.rights.neverSystem'), t('host.rights.neverHearth'), t('host.rights.neverStartup')],
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-2" data-host-rights>
+      {groups.map((group) => (
+        <div key={group.key} className="flex flex-col gap-0.5">
+          <span className={cn('font-medium', group.tone)}>{group.title}</span>
+          <ul className="flex list-disc flex-col gap-0.5 ps-4 text-foreground">
+            {group.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      <span>{jev ? t('host.rights.jev') : t('host.rights.jevOff')}</span>
+      <span>{t('host.rights.gap')}</span>
+    </div>
+  );
+}
+
+/** The chat's "for this chat" answers as the computer reports them, each to take back. */
+function HostGrantList({ conversationId }: { conversationId: string }) {
+  const t = useT();
+  const [revoking, setRevoking] = useState<string | null>(null);
+  // Answers change on the computer too; a light poll while the page is open.
+  const grants = useQuery({
+    queryKey: queryKeys.hostGrants(conversationId),
+    queryFn: () => api.conversations.hostGrants(conversationId),
+    refetchInterval: 5_000,
+  });
+  const data = grants.data;
+  if (!data?.online) {
+    return null;
+  }
+  if (!data.supported) {
+    return <span>{t('host.grants.outdated')}</span>;
+  }
+  if (data.grants.length === 0) {
+    return <span data-host-grants="0">{t('host.grants.none')}</span>;
+  }
+
+  async function revoke(id: string) {
+    setRevoking(id);
+    try {
+      await api.conversations.hostRevoke(conversationId, id);
+      toast.success(t('host.grants.revoked'));
+      // The computer answers with its new list a moment later.
+      setTimeout(() => void grants.refetch(), 600);
+    } catch (error) {
+      toast.error(errorMessage(t, error));
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1" data-host-grants={data.grants.length}>
+      <span className="font-medium text-foreground">{t('host.grants.title')}</span>
+      <ul className="flex flex-col gap-1">
+        {data.grants.map((grant) => (
+          <li key={grant.id} className="flex items-start gap-2">
+            <span className="min-w-0 flex-1 break-all">
+              {t(`host.grants.${grant.kind}`)}: <code className="font-mono text-foreground">{grant.target.split('\n')[0]}</code>
+            </span>
+            <Button size="sm" variant="ghost" className="h-auto shrink-0 px-1.5 py-0.5" loading={revoking === grant.id} onClick={() => void revoke(grant.id)}>
+              {t('host.grants.revoke')}
+            </Button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

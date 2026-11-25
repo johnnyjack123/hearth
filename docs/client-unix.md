@@ -48,8 +48,10 @@ hearth project host on      # Direktmodus
 
 Im Web-Chat wählst du unter Zahnrad → Umgebung „website, direkt auf dem Rechner“. Der Agent ist dann das Chat-Modell selbst, mit Werkzeugen auf deinem Rechner:
 
-- Lesen, Schreiben, Suchen im Projektordner geht ohne Rückfrage, außer bei Geheimnissen (`.env`, Schlüssel) und bei Dateien, die später von selbst Code ausführen (`.git`, Hooks, Editor- und Agent-Einstellungen).
-- Jeder Befehl und jeder Zugriff außerhalb des Ordners wartet auf deine Freigabe. Freigegebene Befehle laufen mit deinen Rechten.
+- Lesen, Schreiben, Suchen im Projektordner geht ohne Rückfrage, außer bei Dateien, die später von selbst Code ausführen (`.git`, Hooks, Editor- und Agent-Einstellungen) und beim Schreiben von `.env`-Dateien.
+- Jeder Befehl und jeder Zugriff außerhalb des Ordners wartet auf deine Freigabe. Freigegebene Befehle laufen mit deinen Rechten. Jev bewertet jeden Befehl vorher (mit OpenRouter-Zugang).
+- Nie, auch nicht mit Freigabe: Geheimnisse lesen (`.env`, Schlüssel, `~/.ssh`, `~/.aws`, Browser-Profile …; auch kein Befehl, der sie nennt), Systemordner (`/usr`, `/etc` …), hearths eigene Ordner, Startdateien schreiben (`.bashrc`, `.profile`, Autostart, `.gitconfig`).
+- Ein Befehl kann Geheimnisse lesen, ohne sie zu nennen (`grep -r` über den Ordner); sieh dir deshalb jeden an. Die ganze Liste zeigen `hearth project host`, die App und das Zahnrad → Umgebung im Chat.
 
 Weitere Schalter:
 
@@ -63,7 +65,7 @@ hearth project host off                      # zurück zur Sandbox
 
 - **Hearth-App** (`hearth-app`, unter Linux im Startmenü, unter macOS in `~/Applications`): Seite „Freigaben“ mit Befehl, Ordner und Grund; dazu Projekte mit ihrem Modus, Kopplung, Hintergrunddienst und Protokolle.
 - **Benachrichtigung:** Der Hintergrunddienst meldet jede neue Freigabe auf dem Desktop (Linux über `notify-send`, ein Klick auf „Öffnen“ startet die App; macOS über die Mitteilungszentrale).
-- **Terminal:** `hearth host` listet offene Freigaben, `hearth host approve <ID>` (mit `--chat` für den ganzen Chat), `hearth host deny <ID>`, `hearth host watch` fragt sie nacheinander ab.
+- **Terminal:** `hearth host` listet offene Freigaben und die für ganze Chats, `hearth host approve <ID>` (mit `--chat` für den ganzen Chat), `hearth host deny <ID>`, `hearth host revoke <ID>` nimmt eine Freigabe für den Chat zurück, `hearth host watch` fragt sie nacheinander ab.
 - **Protokoll:** `hearth host log <projekt>` bzw. die Seite „Protokoll“ der App zeigt jeden Werkzeugaufruf mit Entscheidung, ohne Dateiinhalte.
 
 ## Wo was liegt
