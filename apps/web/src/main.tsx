@@ -10,6 +10,7 @@ import { router } from './app/router.tsx';
 import { Toaster } from './components/ui/toaster.tsx';
 import { TooltipProvider } from './components/ui/menu.tsx';
 import { installClipboardFallback } from './lib/clipboard.ts';
+import { registerServiceWorker } from './lib/offline.ts';
 import { adoptOldPreferences, PreferencesProvider } from './lib/preferences.tsx';
 import { queryClient } from './lib/query-client.ts';
 import { installStaleBuildReload } from './lib/stale-build.ts';
@@ -18,6 +19,7 @@ import { installStaleBuildReload } from './lib/stale-build.ts';
 installClipboardFallback();
 adoptOldPreferences();
 installStaleBuildReload();
+registerServiceWorker();
 
 const container = document.getElementById('root');
 if (!container) {

@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth-client.ts';
+import { clearDrafts } from '@/lib/drafts.ts';
+import { clearOfflineData } from '@/lib/offline.ts';
 import { disposeAllChats } from '../chat/chat-store.ts';
 
 /**
@@ -15,6 +17,10 @@ export function useSignOut(): () => Promise<void> {
   return async () => {
     await authClient.signOut();
     disposeAllChats();
+    // Unsent text and the chats kept for offline reading stay out of the
+    // next person's reach.
+    clearDrafts();
+    await clearOfflineData();
     queryClient.clear();
     await navigate({ to: '/login' });
   };

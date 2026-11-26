@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-25 · Rechte des Direktmodus geschärft und sichtbar (Geheimnisse nie, Systemordner gesperrt, Jev bewertet Befehle, Chat-Freigaben zurücknehmbar; Protokoll 12), noch nicht veröffentlicht. Davor: Phase 6 (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft, Sandbox unter Linux in der CI geprüft, Desktop-App mit Netz und Programmen und im Startmenü. Standardmodell für neue Chats ist fertig. Release v0.4.0 mit Paketen für Windows, Linux und macOS._
+_Last updated: 2026-11-26 · Offline lesen und Entwürfe je Chat in der Web-App; Direktmodus auf dem Linux-Laptop geprüft. Davor: Rechte des Direktmodus geschärft und sichtbar (Geheimnisse nie, Systemordner gesperrt, Jev bewertet Befehle, Chat-Freigaben zurücknehmbar; Protokoll 12), noch nicht veröffentlicht. Davor: Phase 6 (Direktmodus, Desktop-App, macOS und Linux): Client baut unter Linux und macOS, Direktmodus Ende zu Ende gebaut und unter Windows echt geprüft, Sandbox unter Linux in der CI geprüft, Desktop-App mit Netz und Programmen und im Startmenü. Standardmodell für neue Chats ist fertig. Release v0.4.0 mit Paketen für Windows, Linux und macOS._
 
 ## Where we are
 
@@ -22,7 +22,8 @@ Schnelltest für eine neue Sitzung: `pnpm -r typecheck`, `pnpm --filter @hearth/
 1. **Rückmeldung des Nutzers von echten Geräten:** Der Live-Abgleich zwischen Handy und Laptop geht (18.11.). Die Foto-Auswahl war ausgegraut, weil im Chat DeepSeek V4 Pro gewählt war; laut models.dev liest es nur Text. Seit `fix/photo-hint` steht der Grund im Menü (gemergt 18.11.). Offen ist noch die Tastatur auf dem iPhone.
 2. **Erledigt (21.11.): Standardmodell für neue Chats.** Einstellungen → Chat, gilt auf allen Geräten. Der Nutzer stellt dort einmal DeepSeek V4.1 Flash über OpenRouter ein, sobald der Server aktualisiert ist.
 3. **Erledigt (21.11.): Kleine Client-Texte** (`pi.toml`-Kommentar, Hinweis in `hearth init`) sind in v0.4.0.
-3a. **Erledigt (24./25.11.): Rechte des Direktmodus** (Wunsch des Nutzers): Geheimnisse nie lesbar (auch nicht per Befehl, der sie nennt), Systemordner, hearths Ordner und Startdateien gesperrt, Jev bewertet jeden Befehl, Freigaben „für diesen Chat“ sichtbar und zurücknehmbar (App, `hearth host revoke`, Browser), Übersicht „Was darf der Agent?“. Tunnel-Protokoll 12. Offen: `smoke-host.sh` auf dem Linux-Laptop (am 25.11. nicht erreichbar, der Nutzer sagt Bescheid), dann Release 0.4.1 nach Rückfrage; der Server des Nutzers bekommt es mit dem nächsten `docker compose pull`.
+3a. **Erledigt (24./25.11.): Rechte des Direktmodus** (Wunsch des Nutzers): Geheimnisse nie lesbar (auch nicht per Befehl, der sie nennt), Systemordner, hearths Ordner und Startdateien gesperrt, Jev bewertet jeden Befehl, Freigaben „für diesen Chat“ sichtbar und zurücknehmbar (App, `hearth host revoke`, Browser), Übersicht „Was darf der Agent?“. Tunnel-Protokoll 12. Am 26.11. auf dem Linux-Laptop geprüft: Kern-Tests (24) und `smoke-host.sh` (40 Prüfungen) grün, App rendert offscreen wie unter Windows. Offen: Release 0.4.1 nach Rückfrage; der Server des Nutzers bekommt es mit dem nächsten `docker compose pull`.
+3b. **Erledigt (26.11.): Offline lesen und Entwürfe** (Wünsche des Nutzers): Service Worker hält App und zuletzt geladene Chats vor (nur über HTTPS), ohne Server zeigt die App sie mit einem Hinweis und sperrt das Senden; der Text im Eingabefeld bleibt je Chat im Browser (Neuladen, Chatwechsel). Abmelden löscht beides. Die Desktop-App nennt die Sandbox unter Linux jetzt „Container“ statt „VM“. Offen: Rückmeldung des Nutzers auf dem Handy (PWA über HTTPS).
 4. **Phase 6 (ROADMAP, Plan vom 21.11., Konzept `docs/security/concept.md`):**
    - ✅ Schritt 1: Unix-Build (Workflow `unix.yml` grün auf Linux x64/arm64 und macOS, Tests auf dem Linux-Laptop grün).
    - ✅ Schritt 2: Proxy-Kern `hearth-core/src/host/`.
@@ -82,6 +83,12 @@ Nichts Halbes. Alles ist committet, nach `main` gemergt und gepusht. Auf dem Lin
 
 ## Verification state
 
+Stand 26.11. (Branch `feat/offline-drafts`, danach `main`):
+- `pnpm --filter @hearth/web typecheck`, Browser-E2E (Dev-Modus, alle Schritte) grün.
+- Neu: `e2e:offline` gegen den Produktions-Build: chatten, Entwurf übersteht Neuladen und Chatwechsel, Service Worker übernimmt, Server gestoppt → Chat, Liste und Entwurf da, Band „Keine Verbindung“, Senden gesperrt; Server wieder da → Band weg; Abmelden löscht Chats im Cache, Entwürfe und gemerktes Konto.
+- Linux-Laptop: `cargo test -p hearth-core --lib host::` (24), `cargo test -p hearth-app` mit Bildern, `smoke-host.sh` (40 Prüfungen) über einen SSH-Rückwärtstunnel gegen Server und Mock unter Windows.
+- Nicht geprüft: Offline auf echten Handys, Sandbox auf dem Laptop (kein Podman installiert).
+
 Stand 25.11. (Branch `feat/host-rights`, danach `main`):
 - `pnpm -r typecheck`, Server-Tests (329) und Browser-E2E (Direktmodus-Schritt mit Jev-Plakette, Rechte-Liste und Zurücknehmen) grün.
 - `scripts/smoke-host.sh` unter Windows grün (40 Prüfungen, neu: `.env` per Werkzeug und per Befehl abgelehnt, Chat-Freigabe am Rechner und im Browser sichtbar und aus dem Browser zurückgenommen).
@@ -102,6 +109,9 @@ Stand 21.11. abends (Branch `feat/unix-sandbox`, danach `main`):
 ---
 
 ## Log
+
+### 2026-11-26
+- Offline lesen (Service Worker, `e2e:offline`) und Entwürfe je Chat. Direktmodus auf dem Linux-Laptop geprüft; die App heißt die Linux-Sandbox jetzt „Container“.
 
 ### 2026-11-24/25
 - Rechte des Direktmodus (Wunsch des Nutzers): Geheimnisse nie, Systemordner, hearths Ordner, Startdateien; Befehle mit Geheimnis-Namen abgelehnt; Jev bewertet jeden Befehl; Chat-Freigaben mit IDs, sichtbar und zurücknehmbar; Übersicht in App, Popover, CLI; Tunnel-Protokoll 12.

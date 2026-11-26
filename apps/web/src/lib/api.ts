@@ -48,6 +48,7 @@ import { CLIENT_ID_HEADER } from '@hearth/shared';
 import type { UIMessage } from 'ai';
 import type { MessageKey, TranslateFn } from '@/i18n/index.ts';
 import { CLIENT_ID } from './client-id.ts';
+import { noteReachable } from './offline.ts';
 
 /**
  * Chat message type shared with the server.
@@ -86,8 +87,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (error) {
+    noteReachable(false);
     throw new ApiError(0, 'network', error instanceof Error ? error.message : 'Network error');
   }
+  // The service worker marks what it answers from its cache.
+  noteReachable(response.headers.get('x-hearth-offline') !== '1');
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as ApiErrorBody | null;
     throw new ApiError(response.status, payload?.error.code ?? 'internal', payload?.error.message ?? response.statusText);

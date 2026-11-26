@@ -16,6 +16,7 @@ Hearth is a self-hosted chat for large language models. Several people share one
 - OpenRouter routing to the cheapest host, or to a fixed host chosen per model, with its country of operation shown.
 - Accounts with admin roles, closed registration by default, two-factor sign-in and a daily cost limit.
 - Installable as an app on phones and desktops (PWA) when the server is reached over HTTPS. The layout keeps clear of notches and gesture bars, and the on-screen keyboard does not cover the message box. On a phone, the paperclip offers photos, the camera or files.
+- Without a connection to the server the app still opens and shows the chats loaded last, read-only (over HTTPS). What you type into a message box stays per chat, through reloads and chat switches.
 - A chat open on several devices stays in step: a message written on the phone appears on the laptop, with its reply as it is written. After a server update, open pages offer to reload.
 - Search across chat titles, tags and the text of the messages.
 

@@ -326,7 +326,14 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
         let mut direct = row.host.enabled;
         ui.horizontal(|ui| {
             ui.label(tr("Modus:", "Mode:"));
-            ui.radio_value(&mut direct, false, tr("Sandbox (VM)", "Sandbox (VM)"));
+            // Linux runs the sandbox in the computer's rootless Podman,
+            // without a VM (weaker: the containers share the kernel).
+            let sandbox = if cfg!(target_os = "linux") {
+                tr("Sandbox (Container)", "Sandbox (container)")
+            } else {
+                tr("Sandbox (VM)", "Sandbox (VM)")
+            };
+            ui.radio_value(&mut direct, false, sandbox);
             ui.radio_value(&mut direct, true, tr("Direkt auf dem Rechner", "Directly on the computer"));
         });
         if direct != row.host.enabled {
@@ -337,8 +344,13 @@ fn project_card(app: &mut HearthApp, ui: &mut egui::Ui, row: &ProjectRow) {
             ui,
             if row.host.enabled {
                 tr(
-                    "Der Agent arbeitet ohne VM in diesem Ordner. Jeder Befehl und jeder Zugriff außerhalb des Ordners braucht deine Freigabe; freigegebene Befehle laufen mit deinen Rechten.",
-                    "The agent works in this folder without a VM. Every command and every access outside the folder needs your approval; approved commands run with your rights.",
+                    "Der Agent arbeitet direkt in diesem Ordner. Jeder Befehl und jeder Zugriff außerhalb des Ordners braucht deine Freigabe, manches ist ganz gesperrt (siehe unten); freigegebene Befehle laufen mit deinen Rechten.",
+                    "The agent works right in this folder. Every command and every access outside the folder needs your approval, some things are closed altogether (see below); approved commands run with your rights.",
+                )
+            } else if cfg!(target_os = "linux") {
+                tr(
+                    "Der Agent arbeitet in einem Podman-Container auf einer Kopie des Repositorys; seine Arbeit übernimmst du per Merge mit Prüfung. Unter Linux teilt der Container den Kernel dieses Rechners, das trennt schwächer als eine VM.",
+                    "The agent works in a Podman container on a copy of the repository; you take its work over by a checked merge. On Linux the container shares this computer's kernel, which separates less than a VM.",
                 )
             } else {
                 tr(
