@@ -16,6 +16,7 @@ Hearth ist ein selbst gehosteter Chat für große Sprachmodelle. Mehrere Persone
 - OpenRouter-Routing zum günstigsten Anbieter oder zu einem fest gewählten Anbieter je Modell, mit dessen Firmensitz.
 - Konten mit Admin-Rolle, ab Werk geschlossene Registrierung, Zwei-Faktor-Anmeldung und ein Kostendeckel pro Tag.
 - Als App auf Handy und Desktop installierbar (PWA), wenn der Server per HTTPS erreichbar ist. Die Seite hält Abstand zu Notch und Gestenleiste, und die Bildschirmtastatur verdeckt das Eingabefeld nicht. Auf dem Handy bietet die Büroklammer Fotos, Kamera oder Dateien an.
+- Ohne Verbindung zum Server öffnet sich die App trotzdem und zeigt die zuletzt geladenen Chats zum Lesen (über HTTPS). Was du in ein Eingabefeld tippst, bleibt je Chat erhalten, auch nach Neuladen und Chatwechsel.
 - Ein Chat, der auf mehreren Geräten offen ist, bleibt gleich: Was auf dem Handy geschrieben wird, erscheint auf dem Laptop, samt Antwort, während sie entsteht. Nach einem Update des Servers bieten offene Seiten an, neu zu laden.
 - Suche in Titeln, Tags und im Text der Nachrichten.
 

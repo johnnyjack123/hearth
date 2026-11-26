@@ -214,7 +214,7 @@ docker compose exec postgres psql -U hearth -d hearth -c "DELETE FROM \"twoFacto
 
 ### Als App installieren
 
-Über `https://` lässt sich die Web-App wie eine App installieren (PWA): eigenes Symbol, eigenes Fenster ohne Browserleiste.
+Über `https://` lässt sich die Web-App wie eine App installieren (PWA): eigenes Symbol, eigenes Fenster ohne Browserleiste. Nur dort (und unter `localhost`) gibt es auch den Offline-Modus: Ein Service Worker hält App und zuletzt geladene Chats vor, ohne Verbindung zum Server lassen sie sich lesen. Über `http://` im Heimnetz geht die App nur mit Verbindung.
 
 - **Android (Chrome):** Menü → „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.
 - **iPhone/iPad (Safari):** Teilen → „Zum Home-Bildschirm“.

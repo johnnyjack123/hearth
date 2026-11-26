@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "e2e": "node e2e/run-e2e.mjs"
+    "e2e": "node e2e/run-e2e.mjs",
+    "e2e:offline": "node e2e/offline.e2e.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^4.0.139",

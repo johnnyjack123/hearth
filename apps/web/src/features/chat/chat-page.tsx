@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button.tsx';
 import { EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import { ApiError, type ChatMessage, errorMessage } from '@/lib/api.ts';
+import { useDraft } from '@/lib/drafts.ts';
+import { useOffline } from '@/lib/offline.ts';
 import { fade } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { api } from '@/lib/api.ts';
@@ -94,7 +96,9 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
   entry.effort.current = effort;
   entry.verbosity.current = verbosity;
   entry.tone.current = tone;
-  const [draft, setDraft] = useState('');
+  // What the user typed here stays in the browser until it is sent.
+  const [draft, setDraft] = useDraft(conversation.id);
+  const offline = useOffline();
   const [initialIds] = useState(() => new Set(entry.chat.messages.map((message) => message.id)));
   const { ref: scrollRef, atBottom, scrollToBottom } = useStickToBottom();
 
@@ -203,7 +207,7 @@ function ChatView({ conversation }: { conversation: ConversationDetail<ChatMessa
             onSubmit={submit}
             onStop={() => void stopReply(conversation.id)}
             busy={busy}
-            blockedReason={selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
+            blockedReason={offline ? t('offline.cannotSend') : selection ? (link && online === false ? t('agent.offlineHint') : null) : t('chat.modelRequired')}
             autoFocus
             placeholder={link ? linkPlaceholder(t, link) : undefined}
             files={{ images }}

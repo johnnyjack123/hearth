@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import type { MessageKey } from '@/i18n/index.ts';
 import { authClient } from '@/lib/auth-client.ts';
+import { clearOfflineData } from '@/lib/offline.ts';
 import { useT } from '@/lib/preferences.tsx';
 import { queryKeys, sessionQuery, usePublicSettings } from '@/lib/queries.ts';
 import { isLocalPath } from '@/lib/redirect.ts';
@@ -53,6 +54,8 @@ function useAfterAuth() {
   const navigate = useNavigate();
   const { redirect } = useSearch({ strict: false }) as { redirect?: string };
   return async () => {
+    // Another account may have left chats in the offline cache.
+    await clearOfflineData();
     // Fetch, don't just invalidate: nothing observes the session on the auth pages,
     // so an invalidated query would not refetch and the route guard would still read
     // the cached "signed out" value and bounce back to /login.

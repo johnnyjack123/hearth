@@ -739,6 +739,10 @@ export const de = {
       expired: 'Nicht beantwortet',
     },
   },
+  offline: {
+    banner: 'Keine Verbindung zum Server. Du siehst den zuletzt geladenen Stand; Senden und Ändern geht wieder, sobald die Verbindung zurück ist.',
+    cannotSend: 'Ohne Verbindung zum Server geht nichts raus. Dein Text bleibt hier stehen.',
+  },
   files: {
     read: {
       part: 'Im Dokument „{name}“ nachgesehen: {what}',

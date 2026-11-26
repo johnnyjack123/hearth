@@ -739,6 +739,10 @@ export const en: Messages = {
       expired: 'Not answered',
     },
   },
+  offline: {
+    banner: 'No connection to the server. You see what was loaded last; sending and changes work again once the connection is back.',
+    cannotSend: 'Nothing goes out without a connection to the server. Your text stays here.',
+  },
   files: {
     read: {
       part: 'Looked up in "{name}": {what}',

@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button.tsx';
 import { Card, EmptyState, Skeleton } from '@/components/ui/display.tsx';
 import type { MessageKey } from '@/i18n/index.ts';
 import { api, type ChatMessage, errorMessage } from '@/lib/api.ts';
+import { NEW_CHAT_DRAFT, useDraft } from '@/lib/drafts.ts';
+import { useOffline } from '@/lib/offline.ts';
 import { durations, riseIn, transitions } from '@/lib/motion.ts';
 import { usePreferences, useT } from '@/lib/preferences.tsx';
 import { queryKeys, useProviders, usePublicSettings, useSession } from '@/lib/queries.ts';
@@ -44,7 +46,8 @@ export function NewChatPage() {
   const providers = useProviders();
   const { selection, select, models, images, kind, recent } = useModelSelection(null);
   const host = useOpenRouterHost(kind === 'openrouter' ? (selection ?? null) : null);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useDraft(NEW_CHAT_DRAFT);
+  const offline = useOffline();
   const [creating, setCreating] = useState(false);
   const {
     research: lastResearch,
@@ -104,6 +107,7 @@ export function NewChatPage() {
         ...conversation,
         messages: [],
       });
+      setDraft('');
       // Send before navigating: the chat session outlives the page switch.
       void getChat(conversation.id, [], selection, research, effort, verbosity, tone).chat.sendMessage({ text, files });
       await navigate({ to: '/c/$conversationId', params: { conversationId: conversation.id } });
@@ -176,7 +180,9 @@ export function NewChatPage() {
                 onSubmit={(text, files) => void submit(text, files)}
                 files={{ images }}
                 blockedReason={
-                  creating
+                  offline
+                    ? t('offline.cannotSend')
+                    : creating
                     ? t('common.loading')
                     : !selection
                       ? t('chat.modelRequired')

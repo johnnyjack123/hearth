@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from '@tanstack/react-query';
 import { ApiError, api } from './api.ts';
 import { authClient } from './auth-client.ts';
+import { keepSession, keptSession, noteReachable } from './offline.ts';
 
 /**
  * Query keys in one place so invalidation stays consistent.
@@ -45,16 +46,29 @@ export function isTransientError(error: unknown): boolean {
 export const sessionQuery = queryOptions({
   queryKey: queryKeys.session,
   queryFn: async () => {
+    type Session = Awaited<ReturnType<typeof authClient.getSession>>['data'];
+    // Without the server, the account kept from last time: the app then
+    // opens with the chats the service worker kept, read-only.
+    const offline = (error: ApiError) => {
+      const kept = keptSession<NonNullable<Session>>();
+      if (kept) {
+        noteReachable(false);
+        return kept;
+      }
+      throw error;
+    };
     let result: Awaited<ReturnType<typeof authClient.getSession>>;
     try {
       result = await authClient.getSession();
     } catch (error) {
-      throw new ApiError(0, 'network', error instanceof Error ? error.message : 'Network error');
+      return offline(new ApiError(0, 'network', error instanceof Error ? error.message : 'Network error'));
     }
     const { data, error } = result;
     if (error && error.status !== 401) {
-      throw new ApiError(error.status, error.status === 0 ? 'network' : 'internal', error.message ?? error.statusText ?? 'Session check failed');
+      const failure = new ApiError(error.status, error.status === 0 ? 'network' : 'internal', error.message ?? error.statusText ?? 'Session check failed');
+      return failure.code === 'network' ? offline(failure) : Promise.reject(failure);
     }
+    keepSession(data ?? null);
     return data ?? null;
   },
   staleTime: 60_000,
